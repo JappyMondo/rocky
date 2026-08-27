@@ -18,10 +18,12 @@ Agent Rocky 🦝 — an AI code reviewer for GitHub and GitLab. Rocky the raccoo
 
 ## AI providers
 
-Two modes:
+Two CLI harnesses, and nothing else:
 
-1. **API providers**: OpenAI, Anthropic (Claude), Ollama, OpenRouter, etc.
-2. **CLI harnesses**: Claude Code, opencode, Codex CLI, etc. via `-p` — lets users bring their subscriptions. We only wrap the official CLIs (a harness for the harness, like T3Code); no token extraction.
+1. **Claude Code CLI** — lets users bring their Claude subscription.
+2. **opencode CLI** — reaches any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, self-hosted) by pointing it at a custom base URL.
+
+Both browse the checkout themselves, which is what makes reviews worth reading. We only wrap the official CLIs (a harness for the harness, like T3Code); no token extraction, and no hand-rolled agent loop over a raw chat-completions API.
 
 ## Hosting
 
