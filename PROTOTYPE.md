@@ -3,6 +3,27 @@
 **Throwaway.** This branch answers one question: *what does it feel like to
 watch a Run, and to be called into one?* Nothing here is the implementation.
 
+## The answer (Jappy, 2026-08-28)
+
+**A — Inbox wins**, with C's diff grafted in.
+
+1. **A is the structure.** A Run is a thread; a Checkpoint is an unread
+   message that wants a reply. The run list is a mail list, and "history"
+   is just older mail.
+2. **C's diff replaces A's.** Opening the diff attachment expands into a
+   real viewer — file list, `j`/`k` between files, and every reviewing
+   Agent's Complaint anchored at the line that raised it. A's flat inline
+   block was the weakest thing in the winning variant; inline-anchored
+   Complaints were the strongest single idea in any of them.
+3. **Chatter stays folded per message**, as prototyped: conclusions by
+   default, raw stream one click away per Step.
+4. **The TUI question is closed.** D did not change the call — the web UI
+   stands and a TUI stays out of scope for v1.
+
+Everything below is the prototype as it was reacted to, kept as the primary
+source. Nothing here gets promoted; the winning design gets rewritten
+properly when it is built.
+
 ## Run it
 
 Double-click **`rocky-ui-prototype.html`** — one self-contained file, no
