@@ -1,0 +1,16 @@
+{
+  "name": "rocky-prototype-ng572",
+  "private": true,
+  "description": "PROTOTYPE (NG-572) — throwaway. Answers: what does a Workflow file look like to write, and is ctx the right shape?",
+  "type": "module",
+  "scripts": {
+    "demo": "bun runner/demo.ts",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
