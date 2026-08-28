@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Rocky — PROTOTYPE NG-573</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #0b0f14; color: #e6e9ef; font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { height: 100%; }
+  button { font: inherit; }
+
+  /* ── the prototype scaffolding, shared by all variants ────────────── */
+  .proto-bar { position: fixed; z-index: 9999; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 999px;
+    background: #fdf35a; color: #12161c; box-shadow: 0 8px 30px rgba(0,0,0,.55); font-size: 12px; }
+  .proto-btn { border: 0; background: #12161c; color: #fdf35a; width: 26px; height: 26px; border-radius: 999px; cursor: pointer; line-height: 1; }
+  .proto-label { padding: 0 8px; white-space: nowrap; }
+  .proto-state { opacity: .6; }
+  .proto-hint { padding-right: 8px; opacity: .55; font-size: 11px; white-space: nowrap; }
+  .proto-dump { position: fixed; inset: 0; z-index: 9998; background: rgba(6,9,12,.92); overflow: auto; padding: 40px; }
+  .proto-dump pre { max-width: 900px; margin: 0 auto; color: #9ce8b0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
