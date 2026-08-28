@@ -29,6 +29,49 @@ Both browse the checkout themselves, which is what makes reviews worth reading. 
 
 As simple as possible: run directly as a pipeline step, or as a single small Docker container.
 
+## Development
+
+Nx workspace, pnpm, Node current LTS (see `.nvmrc`). Two apps: `server` (NestJS on
+the Fastify adapter) and `web` (React SPA built by Vite). The review core will
+live as a directory inside `server`, not as a separate package.
+
+```sh
+pnpm install
+pnpm exec nx serve web        # Vite dev server on :4200
+pnpm exec nx serve server     # API on ROCKY_PORT
+pnpm exec nx build server     # server bundle with the built SPA in dist/public
+pnpm exec nx run-many -t build typecheck lint test
+```
+
+`nx build server` builds `web` first and copies its output into
+`apps/server/dist/public`, which the server serves as static files. Deep links
+fall back to `index.html`; anything under `/api` keeps its own 404.
+
+Auto-generated OpenAPI docs and Swagger UI are served at `/api/docs`, publicly
+and unauthenticated.
+
+## Deploy config
+
+Four environment variables, read and validated once at boot. There is no config
+file and no fifth variable — everything else is an Instance setting held in the
+database and edited in the web UI.
+
+| Var                    | Required | Default |
+| ---------------------- | -------- | ------- |
+| `ROCKY_ENCRYPTION_KEY` | yes      | —       |
+| `ROCKY_BASE_URL`       | yes      | —       |
+| `ROCKY_PORT`           | no       | `3000`  |
+| `ROCKY_LOG_LEVEL`      | no       | `info`  |
+
+Rocky refuses to start when a required variable is missing, and prints a freshly
+generated key when `ROCKY_ENCRYPTION_KEY` is absent. It never writes that key
+into `/data`: the key and the database must not end up in the same backup
+tarball. The data volume path is fixed at `/data` and is not configurable.
+
+`ROCKY_BASE_URL` is the single source for every absolute URL Rocky generates —
+webhook targets, OAuth redirects and Public report links. Nothing reads `Host`
+or `X-Forwarded-*`, because behind a reverse proxy those are a guess.
+
 ## Project management
 
 Tickets live in Linear (niotix grid team). All tickets get the label `agent-rocky-reviewer` so Cyrus can map them to this repo.
