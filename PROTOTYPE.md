@@ -5,8 +5,14 @@ watch a Run, and to be called into one?* Nothing here is the implementation.
 
 ## Run it
 
+Double-click **`rocky-ui-prototype.html`** — one self-contained file, no
+server, no network, no dependencies.
+
+Or serve it, if you would rather edit and reload:
+
 ```sh
-bun run ui          # http://localhost:4173 — no build, no dependencies
+bun run ui          # http://localhost:4173
+bun run build       # regenerate rocky-ui-prototype.html after an edit
 ```
 
 `←` / `→` cycles the variant. `` ` `` dumps the raw journal over whatever is

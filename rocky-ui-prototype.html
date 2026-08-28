@@ -1,0 +1,1630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Rocky — PROTOTYPE NG-573</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #0b0f14; color: #e6e9ef; font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { height: 100%; }
+  button { font: inherit; }
+
+  /* ── the prototype scaffolding, shared by all variants ────────────── */
+  .proto-bar { position: fixed; z-index: 9999; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 999px;
+    background: #fdf35a; color: #12161c; box-shadow: 0 8px 30px rgba(0,0,0,.55); font-size: 12px; }
+  .proto-btn { border: 0; background: #12161c; color: #fdf35a; width: 26px; height: 26px; border-radius: 999px; cursor: pointer; line-height: 1; }
+  .proto-label { padding: 0 8px; white-space: nowrap; }
+  .proto-state { opacity: .6; }
+  .proto-hint { padding-right: 8px; opacity: .55; font-size: 11px; white-space: nowrap; }
+  .proto-dump { position: fixed; inset: 0; z-index: 9998; background: rgba(6,9,12,.92); overflow: auto; padding: 40px; }
+  .proto-dump pre { max-width: 900px; margin: 0 auto; color: #9ce8b0; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+/**
+ * PROTOTYPE (NG-573) — the data every variant renders.
+ *
+ * Deliberately NOT invented: the journal below is the exact `JournalEntry`
+ * shape from the NG-572 runner (`runner/journal.ts` on
+ * prototype/ng-572-workflow-authoring), produced by the exact default
+ * Workflow (`.rocky/workflow.ts`) on that branch. Step keys, ordering, the
+ * `changedFiles` call that precedes every reviewing Agent, and the loop
+ * labels are all what the runner really writes.
+ *
+ * Extra fields the journal does NOT carry today (`stage`, `ms`, `boot`,
+ * `chatter`, `tokens`) are marked ⓘ and are exactly the prototype's finding:
+ * things the UI wants that the journal would have to start recording.
+ */
+
+// ── Screenshots ────────────────────────────────────────────────────────────
+// Inline SVG so the prototype is self-contained. They read as screenshots at
+// thumbnail size, which is the only thing being tested here.
+
+const shot = (title, body, chrome = "#0b0f14") => `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <rect width="1280" height="800" fill="#f6f7f9"/>
+  <rect width="1280" height="56" fill="${chrome}"/>
+  <circle cx="28" cy="28" r="6" fill="#ff5f57"/><circle cx="48" cy="28" r="6" fill="#febc2e"/><circle cx="68" cy="28" r="6" fill="#28c840"/>
+  <text x="100" y="34" font-family="ui-sans-serif,system-ui" font-size="15" fill="#9aa4b2">${title}</text>
+  <rect x="0" y="56" width="220" height="744" fill="#eceef2"/>
+  <rect x="20" y="88" width="130" height="10" rx="5" fill="#c3c9d4"/>
+  <rect x="20" y="120" width="160" height="10" rx="5" fill="#d5dae3"/>
+  <rect x="20" y="148" width="120" height="10" rx="5" fill="#d5dae3"/>
+  <rect x="20" y="176" width="150" height="10" rx="5" fill="#d5dae3"/>
+  ${body}
+</svg>`)}`;
+
+const deviceRows = (y0, n, checked) => Array.from({ length: n }, (_, i) => {
+  const y = y0 + i * 52;
+  return `<rect x="252" y="${y}" width="1000" height="44" rx="6" fill="#ffffff" stroke="#e3e7ee"/>
+    ${checked ? `<rect x="268" y="${y + 15}" width="14" height="14" rx="3" fill="${i < 3 ? "#2f6df6" : "#ffffff"}" stroke="#9aa4b2"/>` : ""}
+    <rect x="${checked ? 298 : 272}" y="${y + 17}" width="${140 + (i % 3) * 40}" height="10" rx="5" fill="#c3c9d4"/>
+    <rect x="900" y="${y + 17}" width="70" height="10" rx="5" fill="#dfe3ea"/>
+    <rect x="1050" y="${y + 17}" width="90" height="10" rx="5" fill="#dfe3ea"/>`;
+}).join("");
+const screenshots = {
+  before: {
+    id: "before",
+    caption: "Baseline — device list before the change",
+    src: shot("niotix · Devices", `
+      <text x="252" y="100" font-family="ui-sans-serif,system-ui" font-size="22" fill="#0b0f14">Devices</text>
+      ${deviceRows(130, 8, false)}`),
+  },
+  iter1: {
+    id: "iter1",
+    caption: "ui-inspector 1/5 — bulk bar overlaps the pagination footer",
+    src: shot("niotix · Devices", `
+      <text x="252" y="100" font-family="ui-sans-serif,system-ui" font-size="22" fill="#0b0f14">Devices</text>
+      ${deviceRows(130, 8, true)}
+      <rect x="252" y="556" width="1000" height="56" rx="8" fill="#0b0f14"/>
+      <text x="276" y="590" font-family="ui-sans-serif,system-ui" font-size="15" fill="#ffffff">3 selected</text>
+      <rect x="1080" y="570" width="148" height="28" rx="6" fill="#2f6df6"/>
+      <text x="1104" y="589" font-family="ui-sans-serif,system-ui" font-size="13" fill="#ffffff">Archive selected</text>
+      <rect x="252" y="586" width="1000" height="44" rx="6" fill="#f6f7f9" opacity="0.9"/>
+      <rect x="1120" y="600" width="110" height="14" rx="7" fill="#c3c9d4"/>
+      <rect x="248" y="552" width="1008" height="82" rx="10" fill="none" stroke="#e5484d" stroke-width="4"/>
+      <text x="252" y="668" font-family="ui-sans-serif,system-ui" font-size="17" fill="#e5484d">▲ bulk bar sits on top of pagination</text>`),
+  },
+  iter2: {
+    id: "iter2",
+    caption: "ui-inspector 2/5 — bar clears the footer, count still not announced",
+    src: shot("niotix · Devices", `
+      <text x="252" y="100" font-family="ui-sans-serif,system-ui" font-size="22" fill="#0b0f14">Devices</text>
+      ${deviceRows(130, 7, true)}
+      <rect x="252" y="512" width="1000" height="44" rx="6" fill="#f6f7f9"/>
+      <rect x="1120" y="526" width="110" height="14" rx="7" fill="#c3c9d4"/>
+      <rect x="252" y="588" width="1000" height="56" rx="8" fill="#0b0f14"/>
+      <text x="276" y="622" font-family="ui-sans-serif,system-ui" font-size="15" fill="#ffffff">3 selected</text>
+      <rect x="1080" y="602" width="148" height="28" rx="6" fill="#2f6df6"/>
+      <text x="1104" y="621" font-family="ui-sans-serif,system-ui" font-size="13" fill="#ffffff">Archive selected</text>`),
+  },
+  final: {
+    id: "final",
+    caption: "ui-inspector 3/5 — accepted",
+    src: shot("niotix · Devices", `
+      <text x="252" y="100" font-family="ui-sans-serif,system-ui" font-size="22" fill="#0b0f14">Devices</text>
+      ${deviceRows(130, 7, true)}
+      <rect x="252" y="512" width="1000" height="44" rx="6" fill="#f6f7f9"/>
+      <rect x="1120" y="526" width="110" height="14" rx="7" fill="#c3c9d4"/>
+      <rect x="252" y="588" width="1000" height="56" rx="8" fill="#0b0f14"/>
+      <text x="276" y="622" font-family="ui-sans-serif,system-ui" font-size="15" fill="#ffffff">3 devices selected</text>
+      <rect x="1080" y="602" width="148" height="28" rx="6" fill="#2f6df6"/>
+      <text x="1104" y="621" font-family="ui-sans-serif,system-ui" font-size="13" fill="#ffffff">Archive selected</text>`),
+  },
+  confirm: {
+    id: "confirm",
+    caption: "ui-inspector 3/5 — confirmation dialog",
+    src: shot("niotix · Devices", `
+      <rect x="0" y="56" width="1280" height="744" fill="#0b0f14" opacity="0.45"/>
+      <rect x="420" y="260" width="440" height="240" rx="12" fill="#ffffff"/>
+      <text x="452" y="308" font-family="ui-sans-serif,system-ui" font-size="19" fill="#0b0f14">Archive 3 devices?</text>
+      <rect x="452" y="336" width="376" height="10" rx="5" fill="#c3c9d4"/>
+      <rect x="452" y="360" width="300" height="10" rx="5" fill="#d5dae3"/>
+      <rect x="596" y="432" width="100" height="34" rx="6" fill="#eceef2"/>
+      <text x="620" y="454" font-family="ui-sans-serif,system-ui" font-size="13" fill="#0b0f14">Cancel</text>
+      <rect x="712" y="432" width="116" height="34" rx="6" fill="#e5484d"/>
+      <text x="736" y="454" font-family="ui-sans-serif,system-ui" font-size="13" fill="#ffffff">Archive</text>`),
+  },
+};
+
+// ── The diff ───────────────────────────────────────────────────────────────
+// Unified hunks. Variants render this as unified, split, or refuse to.
+const diff = {
+  base: "main@a1f4c2e",
+  head: "ng-412-bulk-archive@7d31b90",
+  files: [
+    {
+      path: "apps/web/src/routes/devices/device-list.tsx",
+      status: "modified", added: 48, removed: 6,
+      hunks: [{
+        header: "@@ -14,9 +14,17 @@ export function DeviceList({ devices }: Props) {",
+        lines: [
+          [" ", "export function DeviceList({ devices }: Props) {"],
+          ["-", "  const [sort, setSort] = useState<Sort>('name');"],
+          ["+", "  const [sort, setSort] = useState<Sort>('name');"],
+          ["+", "  const [selected, setSelected] = useState<Set<string>>(new Set());"],
+          ["+", ""],
+          ["+", "  const toggle = (id: string) =>"],
+          ["+", "    setSelected((prev) => {"],
+          ["+", "      const next = new Set(prev);"],
+          ["+", "      next.has(id) ? next.delete(id) : next.add(id);"],
+          ["+", "      return next;"],
+          ["+", "    });"],
+          [" ", ""],
+          [" ", "  return ("],
+          ["-", "    <Table>"],
+          ["+", "    <Table aria-multiselectable>"],
+        ],
+      }, {
+        header: "@@ -58,6 +66,22 @@ export function DeviceList({ devices }: Props) {",
+        lines: [
+          [" ", "      </Table>"],
+          ["+", "      {selected.size > 0 && ("],
+          ["+", "        <BulkBar"],
+          ["+", "          count={selected.size}"],
+          ["+", "          label={`${selected.size} devices selected`}"],
+          ["+", "          onArchive={() => setConfirming(true)}"],
+          ["+", "        />"],
+          ["+", "      )}"],
+          [" ", "    </>"],
+          [" ", "  );"],
+        ],
+      }],
+    },
+    {
+      path: "apps/web/src/routes/devices/bulk-bar.tsx",
+      status: "added", added: 41, removed: 0,
+      hunks: [{
+        header: "@@ -0,0 +1,41 @@",
+        lines: [
+          ["+", "import { Button } from '@niotix/ui';"],
+          ["+", ""],
+          ["+", "/** Sticky action bar shown while a selection is active. */"],
+          ["+", "export function BulkBar({ count, label, onArchive }: Props) {"],
+          ["+", "  return ("],
+          ["+", "    <div className=\"sticky bottom-0 mt-4 flex items-center …\" role=\"region\""],
+          ["+", "         aria-live=\"polite\" aria-label={label}>"],
+          ["+", "      <span>{label}</span>"],
+          ["+", "      <Button variant=\"primary\" onClick={onArchive}>Archive selected</Button>"],
+          ["+", "    </div>"],
+          ["+", "  );"],
+          ["+", "}"],
+        ],
+      }],
+    },
+    {
+      path: "apps/api/src/devices/bulk-archive.service.ts",
+      status: "modified", added: 34, removed: 2,
+      hunks: [{
+        header: "@@ -21,8 +21,40 @@ export class DevicesService {",
+        lines: [
+          [" ", "  async archive(id: string, actor: Actor) {"],
+          ["-", "    return this.repo.update(id, { archivedAt: new Date() });"],
+          ["+", "    return this.archiveMany([id], actor);"],
+          ["+", "  }"],
+          ["+", ""],
+          ["+", "  /** Archives in one transaction: partial success is not a thing. */"],
+          ["+", "  async archiveMany(ids: string[], actor: Actor) {"],
+          ["+", "    if (ids.length > BULK_LIMIT) throw new BulkLimitExceeded(ids.length);"],
+          ["+", "    return this.db.transaction(async (tx) => {"],
+          ["+", "      await this.assertAll(ids, actor, tx);"],
+          ["+", "      return tx.update(devices).set({ archivedAt: this.clock.now() })"],
+          ["+", "        .where(inArray(devices.id, ids)).returning();"],
+          ["+", "    });"],
+          [" ", "  }"],
+        ],
+      }],
+    },
+    {
+      path: "apps/api/src/devices/bulk-archive.service.spec.ts",
+      status: "added", added: 76, removed: 0,
+      hunks: [{
+        header: "@@ -0,0 +1,76 @@",
+        lines: [
+          ["+", "describe('archiveMany', () => {"],
+          ["+", "  it('rolls back entirely when one device is forbidden', async () => {"],
+          ["+", "    await expect(svc.archiveMany([mine, theirs], actor)).rejects.toThrow(Forbidden);"],
+          ["+", "    expect(await svc.get(mine)).toMatchObject({ archivedAt: null });"],
+          ["+", "  });"],
+          ["+", "});"],
+        ],
+      }],
+    },
+  ],
+};
+
+// ── The Run's Linear thread (what Rocky posted) ────────────────────────────
+const thread = [
+  { at: "09:12", who: "rocky", kind: "state", text: "Issue moved to **In Progress**. Run started on `ng-412-bulk-archive`." },
+  { at: "09:14", who: "rocky", kind: "post", text: "### Plan\nAdd a multi-select to the device list and a transactional bulk-archive endpoint behind it.\n\n1. Add selection state + checkbox column to `DeviceList`\n2. New `BulkBar` component, sticky, announced to screen readers\n3. `archiveMany` service method, one transaction, per-device permission check\n4. Confirmation dialog before the destructive action" },
+  { at: "09:41", who: "rocky", kind: "post", text: "Opened [niotix-grid#2841](https://github.com/digimondo/niotix-grid/pull/2841)." },
+  { at: "10:03", who: "rocky", kind: "checkpoint", text: "**NG-412 is green and mergeable** — 4 files, +199/−8, CI green, no blocking reviews. Approve, reject, or steer." },
+];
+
+// ── The Run ────────────────────────────────────────────────────────────────
+// `seq`, `step`, `label`, `status`, `result` are the real JournalEntry fields.
+// ⓘ `stage`, `boot`, `ms`, `chatter`, `tokens` are NOT journaled today.
+
+const J = [
+  { seq: 0, step: "agent:planner", status: "done", stage: "plan", boot: 1, ms: 74_000, tokens: 18_400,
+    result: { summary: "Add a multi-select to the device list and a transactional bulk-archive endpoint behind it.", touchesUi: true,
+      steps: ["Add selection state + checkbox column to DeviceList", "New BulkBar component, sticky, announced to screen readers", "archiveMany service method, one transaction, per-device permission check", "Confirmation dialog before the destructive action"] },
+    chatter: [
+      "Reading .rocky/rules/frontend.md, .rocky/rules/api.md",
+      "Grep  'archive' apps/api/src/devices → 3 files",
+      "Read  apps/api/src/devices/devices.service.ts (218 lines)",
+      "Read  apps/web/src/routes/devices/device-list.tsx (140 lines)",
+      "Thinking: there is already a single-device archive; bulk should reuse it rather than",
+      "  duplicate the permission check. That makes archive() a special case of archiveMany().",
+      "Grep  'BULK_LIMIT' → none. Needs introducing; rules/api.md caps batch endpoints at 500.",
+    ] },
+  { seq: 1, step: "post", status: "done", stage: "plan", boot: 1, ms: 400, result: null,
+    chatter: ["POST /agentActivityCreate  { type: 'response' }  → 201"] },
+  { seq: 2, step: "agent:implementer", status: "done", stage: "implement", boot: 1, ms: 512_000, tokens: 147_900,
+    result: { summary: "Selection state + BulkBar + archiveMany with a transaction and a spec." },
+    chatter: [
+      "Edit  apps/web/src/routes/devices/device-list.tsx",
+      "Write apps/web/src/routes/devices/bulk-bar.tsx",
+      "Edit  apps/api/src/devices/bulk-archive.service.ts",
+      "Write apps/api/src/devices/bulk-archive.service.spec.ts",
+      "Bash  pnpm -F api test devices  → 24 passed",
+      "Bash  pnpm -F web typecheck  → ok",
+    ] },
+
+  { seq: 3, step: "changedFiles", status: "done", stage: "compliance", boot: 1, ms: 90,
+    result: ["apps/web/src/routes/devices/device-list.tsx", "apps/web/src/routes/devices/bulk-bar.tsx", "apps/api/src/devices/bulk-archive.service.ts", "apps/api/src/devices/bulk-archive.service.spec.ts"] },
+  { seq: 4, step: "agent:compliance-reviewer", label: "compliance-reviewer 1/5", status: "done", stage: "compliance", boot: 1, ms: 96_000, tokens: 61_200,
+    result: { complaints: [
+      { file: "apps/web/src/routes/devices/device-list.tsx", text: "The ticket asks for a confirmation dialog before archiving. Nothing here confirms — clicking the button archives immediately." },
+      { text: "The ticket says the action must be available from the list header too, for select-all. Only the floating bar exposes it." },
+    ] },
+    chatter: ["Read  the issue body and its 2 comments", "Comparing 4 acceptance criteria against the diff", "AC1 selection ✓  AC2 bulk endpoint ✓  AC3 confirm ✗  AC4 select-all ✗"] },
+  { seq: 5, step: "agent:fixer", label: "fixer 1/5", status: "done", stage: "compliance", boot: 1, ms: 208_000, tokens: 88_100,
+    result: { fixed: ["Added a ConfirmDialog before archiveMany is called"],
+      disagreed: [{ complaint: "select-all in the list header", why: "The header checkbox already exists and drives the same `selected` set — the bar is the affordance, not a second entry point. Re-read device-list.tsx:31." }] },
+    chatter: ["Read  device-list.tsx:1-140", "Edit  device-list.tsx  (+14)", "Disagreeing with complaint 2 — the header checkbox is already wired"] },
+  { seq: 6, step: "changedFiles", status: "done", stage: "compliance", boot: 1, ms: 88, result: ["…4 files"] },
+  { seq: 7, step: "agent:compliance-reviewer", label: "compliance-reviewer 2/5", status: "done", stage: "compliance", boot: 1, ms: 71_000, tokens: 64_800,
+    result: { complaints: [] },
+    chatter: ["Re-read device-list.tsx:31 — fixer is right, the header checkbox drives the same set", "Withdrawing complaint 2.", "AC1 ✓ AC2 ✓ AC3 ✓ AC4 ✓"] },
+
+  { seq: 8, step: "changedFiles", status: "done", stage: "ui", boot: 1, ms: 91, result: ["…5 files"] },
+  { seq: 9, step: "agent:ui-inspector", label: "ui-inspector 1/5", status: "done", stage: "ui", boot: 1, ms: 184_000, tokens: 52_300,
+    shots: ["before", "iter1"],
+    result: { complaints: [
+      { file: "apps/web/src/routes/devices/bulk-bar.tsx", line: 6, text: "The bulk bar overlaps the pagination footer at 1280×800 — the page-size control is unreachable while a selection is active." },
+      { text: "The bar announces \"3 selected\" with no noun. rules/a11y.md asks live regions to name what they count." },
+    ] },
+    chatter: [
+      "exec  pnpm dev --port 5187      (dev server up in 3.4s)",
+      "browser  goto http://localhost:5187/devices",
+      "browser  screenshot → before.png",
+      "browser  click row 1, row 2, row 3",
+      "browser  screenshot → iter1.png",
+      "Judging against the ticket + .rocky/rules/a11y.md, .rocky/rules/frontend.md",
+    ] },
+  { seq: 10, step: "agent:fixer", label: "fixer 1/5", status: "done", stage: "ui", boot: 1, ms: 143_000, tokens: 44_100,
+    result: { fixed: ["Bar is now sticky within the table container, above the footer"], disagreed: [] },
+    chatter: ["Edit  bulk-bar.tsx  (className: fixed → sticky bottom-0 mt-4)"] },
+  { seq: 11, step: "changedFiles", status: "done", stage: "ui", boot: 2, ms: 87, result: ["…5 files"] },
+  { seq: 12, step: "agent:ui-inspector", label: "ui-inspector 2/5", status: "done", stage: "ui", boot: 2, ms: 166_000, tokens: 50_900,
+    shots: ["iter2"],
+    result: { complaints: [{ text: "Overlap is fixed. The live region still says \"3 selected\"." }] },
+    chatter: ["exec  pnpm dev --port 5187", "browser  screenshot → iter2.png", "1 of 2 complaints resolved"] },
+  { seq: 13, step: "agent:fixer", label: "fixer 2/5", status: "done", stage: "ui", boot: 2, ms: 61_000, tokens: 21_400,
+    result: { fixed: ["label={`${count} devices selected`}"], disagreed: [] },
+    chatter: ["Edit  bulk-bar.tsx  (+1 −1)"] },
+  { seq: 14, step: "changedFiles", status: "done", stage: "ui", boot: 2, ms: 84, result: ["…5 files"] },
+  { seq: 15, step: "agent:ui-inspector", label: "ui-inspector 3/5", status: "done", stage: "ui", boot: 2, ms: 171_000, tokens: 53_700,
+    shots: ["final", "confirm"],
+    result: { complaints: [] },
+    chatter: ["browser  screenshot → final.png", "browser  click 'Archive selected' → dialog", "browser  screenshot → confirm.png", "Accepted."] },
+
+  { seq: 16, step: "changedFiles", status: "done", stage: "review", boot: 2, ms: 90, result: ["…5 files"] },
+  { seq: 17, step: "agent:reviewer", label: "reviewer 1/5", status: "done", stage: "review", boot: 2, ms: 212_000, tokens: 96_600,
+    result: { complaints: [
+      { file: "apps/api/src/devices/bulk-archive.service.ts", line: 27, text: "`BULK_LIMIT` is referenced but never defined or exported. This does not compile." },
+      { file: "apps/api/src/devices/bulk-archive.service.ts", line: 30, text: "`assertAll` runs N queries inside the transaction. rules/api.md forbids N+1 inside a transaction — do one `inArray` check." },
+      { file: "apps/web/src/routes/devices/device-list.tsx", line: 22, text: "`next.has(id) ? next.delete(id) : next.add(id)` uses a ternary for effect. rules/frontend.md: statements, not expressions." },
+    ] },
+    chatter: ["Read  all 5 changed files in full", "Read  .rocky/rules/api.md, .rocky/rules/frontend.md, .rocky/rules/testing.md", "Bash  pnpm -F api typecheck  → error TS2304: Cannot find name 'BULK_LIMIT'"] },
+  { seq: 18, step: "agent:fixer", label: "fixer 1/5", status: "done", stage: "review", boot: 2, ms: 178_000, tokens: 71_200,
+    result: { fixed: ["Exported BULK_LIMIT = 500 from constants.ts", "assertAll now does a single inArray query", "Ternary → if/else"], disagreed: [] },
+    chatter: ["Edit  constants.ts", "Edit  bulk-archive.service.ts (+9 −6)", "Edit  device-list.tsx (+4 −1)", "Bash  pnpm -F api typecheck → ok"] },
+  { seq: 19, step: "changedFiles", status: "done", stage: "review", boot: 2, ms: 92, result: ["…6 files"] },
+  { seq: 20, step: "agent:reviewer", label: "reviewer 2/5", status: "done", stage: "review", boot: 2, ms: 154_000, tokens: 89_400,
+    result: { complaints: [] }, chatter: ["All three complaints resolved.", "Bash  pnpm -F api test devices → 31 passed"] },
+
+  { seq: 21, step: "exec:git push -u origin ng-412-bulk-archive", status: "done", stage: "pr", boot: 2, ms: 2_100,
+    result: { exitCode: 0, stdout: "branch 'ng-412-bulk-archive' set up to track 'origin/ng-412-bulk-archive'", stderr: "" } },
+  { seq: 22, step: "scm:openPr", status: "done", stage: "pr", boot: 2, ms: 1_400,
+    result: { number: 2841, url: "https://github.com/digimondo/niotix-grid/pull/2841", headSha: "7d31b90" } },
+
+  { seq: 23, step: "scm:waitForCi", status: "done", stage: "ci", boot: 2, ms: 494_000,
+    result: { status: "failed", failedJobs: [
+      { name: "web / e2e", excerpt: "devices.spec.ts:88 › archives selection\n  TimeoutError: locator.click: waiting for getByRole('button', { name: 'Archive' })\n  ↳ the confirm dialog renders in a portal; the test asserts on the table subtree" },
+      { name: "api / lint", excerpt: "bulk-archive.service.ts:24  @typescript-eslint/no-magic-numbers  '500' is a magic number" },
+    ] },
+    chatter: ["poll  GET /repos/…/commits/7d31b90/check-runs  (every 15s, 304 × 22)", "check-runs: 6 total, 4 success, 2 failure", "fetching logs for failed jobs only"] },
+  { seq: 24, step: "agent:ci-fixer", label: "ci-fixer 1/3", status: "done", stage: "ci", boot: 3, ms: 221_000, tokens: 83_500,
+    result: { fixed: ["e2e now queries the dialog by role from `page`, not the table", "BULK_LIMIT moved to constants and referenced by name"], disagreed: [] },
+    chatter: ["Read  devices.spec.ts:70-110", "Edit  devices.spec.ts", "Edit  constants.ts", "Bash  pnpm -F web e2e devices → 12 passed"] },
+  { seq: 25, step: "exec:git push", status: "done", stage: "ci", boot: 3, ms: 1_900, result: { exitCode: 0, stdout: "7d31b90..c04ab21  ng-412-bulk-archive", stderr: "" } },
+  { seq: 26, step: "scm:waitForCi", status: "done", stage: "ci", boot: 3, ms: 431_000,
+    result: { status: "passed", failedJobs: [] },
+    chatter: ["poll  GET /repos/…/commits/c04ab21/check-runs  (every 15s, 304 × 19)", "check-runs: 6 total, 6 success"] },
+
+  { seq: 27, step: "checkpoint", label: "NG-412 is green and mergeable", status: "waiting", stage: "checkpoint", boot: 3,
+    waitingSince: "10:03", result: null,
+    chatter: ["POST /agentActivityCreate { type: 'elicitation' } → session awaitingInput", "externalUrl → http://localhost:4173/?run=NG-412#checkpoint"] },
+];
+const ci = {
+  sha: "c04ab21",
+  conclusion: "success",
+  jobs: [
+    { name: "web / typecheck", status: "success", ms: 71_000 },
+    { name: "web / unit", status: "success", ms: 128_000 },
+    { name: "web / e2e", status: "success", ms: 402_000 },
+    { name: "api / lint", status: "success", ms: 44_000 },
+    { name: "api / test", status: "success", ms: 186_000 },
+    { name: "build", status: "success", ms: 233_000 },
+  ],
+  previous: { sha: "7d31b90", conclusion: "failure" },
+};
+const activeRun = {
+  id: "NG-412",
+  issue: {
+    identifier: "NG-412",
+    title: "Bulk-archive action on the device list",
+    url: "https://linear.app/digimondo/issue/NG-412",
+    description: "Operators drowning in decommissioned devices need to clear them in one go instead of 40 clicks.",
+  },
+  repo: "digimondo/niotix-grid",
+  branch: "ng-412-bulk-archive",
+  workflow: ".rocky/workflow.ts",
+  status: "awaiting-checkpoint",
+  startedAt: "09:12",
+  now: "10:47",
+  boots: 3,
+  bootNotes: [
+    { boot: 2, at: "09:26", note: "daemon restarted (laptop slept) — replayed 11 Steps, executed from #11" },
+    { boot: 3, at: "09:58", note: "daemon restarted (rocky update) — replayed 24 Steps, retried #23's effect" },
+  ],
+  pr: { number: 2841, url: "https://github.com/digimondo/niotix-grid/pull/2841", state: "open", draft: false,
+        mergeable: "clean", reviews: [], additions: 199, deletions: 8, files: 6 },
+  journal: J,
+  ci,
+  diff,
+  thread,
+};
+const otherRuns = [
+  { id: "NG-418", issue: { identifier: "NG-418", title: "Rate-limit the webhook ingest endpoint" }, repo: "digimondo/niotix-grid",
+    status: "running", stage: "review", label: "reviewer 2/5", startedAt: "10:31", now: "10:47", boots: 1, elapsed: "16m" },
+  { id: "NG-406", issue: { identifier: "NG-406", title: "Fix timezone drift in the export scheduler" }, repo: "digimondo/niotix-grid",
+    status: "awaiting-checkpoint", stage: "checkpoint", label: "NG-406 is green and mergeable", startedAt: "08:02", now: "10:47", boots: 2, elapsed: "2h 45m", waitingSince: "08:51" },
+  { id: "NG-402", issue: { identifier: "NG-402", title: "Add device tags to the CSV export" }, repo: "digimondo/niotix-grid",
+    status: "merged", stage: "merge", startedAt: "Yesterday 14:10", elapsed: "51m", boots: 1, pr: 2836 },
+  { id: "NG-397", issue: { identifier: "NG-397", title: "Migrate the alarm rules table to Drizzle" }, repo: "digimondo/niotix-grid",
+    status: "exhausted", stage: "review", label: "reviewer 5/5", startedAt: "Yesterday 09:40", elapsed: "3h 12m", boots: 4, pr: 2831,
+    stuck: "code review did not converge within its cap — 2 unresolved Complaints" },
+  { id: "NG-388", issue: { identifier: "NG-388", title: "Dark mode for the public status page" }, repo: "digimondo/rocky-site",
+    status: "rejected", stage: "checkpoint", startedAt: "Mon 16:20", elapsed: "1h 04m", boots: 2, pr: 41 },
+];
+const runs = [activeRun, ...otherRuns];
+
+// ── Derived helpers every variant may use ─────────────────────────────────
+const STAGES = [
+  { key: "plan", name: "Plan" },
+  { key: "implement", name: "Implement" },
+  { key: "compliance", name: "Compliance" },
+  { key: "ui", name: "UI" },
+  { key: "review", name: "Review" },
+  { key: "pr", name: "PR" },
+  { key: "ci", name: "CI" },
+  { key: "checkpoint", name: "Checkpoint" },
+  { key: "merge", name: "Merge" },
+];
+
+/** Steps that are pure bookkeeping — every variant has to decide about these. */
+const isNoise = (e) => e.step === "changedFiles" || e.step === "post";
+const complaintsOf = (e) => e.result?.complaints ?? [];
+/** A Step "went badly" if it raised Complaints or reported a red pipeline. */
+const isBad = (e) => complaintsOf(e).length > 0 || e.result?.status === "failed";
+const isAgent = (e) => e.step.startsWith("agent:");
+const agentName = (e) => e.step.replace(/^agent:/, "");
+const fmtMs = (ms) =>
+  ms == null ? "" : ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+
+/** Group the flat journal into stages, and loop iterations within a stage. */
+function byStage(journal) {
+  const out = [];
+  for (const e of journal) {
+    let g = out[out.length - 1];
+    if (!g || g.key !== e.stage) { g = { key: e.stage, name: STAGES.find((s) => s.key === e.stage)?.name ?? e.stage, entries: [] }; out.push(g); }
+    g.entries.push(e);
+  }
+  return out;
+}
+
+/** "reviewer 2/5" → { n: 2, cap: 5 } */
+function iteration(e) {
+  const m = /(\d+)\/(\d+)$/.exec(e.label ?? "");
+  return m ? { n: +m[1], cap: +m[2] } : null;
+}
+
+/** PROTOTYPE (NG-573) — the tiny bit of shared plumbing. Not shared layout. */
+const VARIANTS = [
+  { key: "A", name: "Inbox", file: "./variant-a.js" },
+  { key: "B", name: "Pipeline rail", file: "./variant-b.js" },
+  { key: "C", name: "Review desk", file: "./variant-c.js" },
+  { key: "D", name: "Terminal", file: "./variant-d.js" },
+];
+
+const listeners = new Set();
+const state = new Proxy(read(), {
+  set(t, k, v) { t[k] = v; write(t); listeners.forEach((f) => f(t)); return true; },
+});
+
+function read() {
+  const p = new URLSearchParams(location.search);
+  return {
+    variant: (p.get("variant") ?? "A").toUpperCase(),
+    run: p.get("run") ?? "NG-412",
+    screen: p.get("screen") ?? "list", // list | run | checkpoint
+  };
+}
+
+function write(t) {
+  const p = new URLSearchParams();
+  p.set("variant", t.variant); p.set("run", t.run); p.set("screen", t.screen);
+  history.replaceState(null, "", `?${p}`);
+}
+const onChange = (f) => { listeners.add(f); return () => listeners.delete(f); };
+function go(patch) { Object.assign(state, patch); }
+
+/** el('div.card', {onclick}, child, child) — enough DOM sugar for a prototype. */
+function el(spec, props, ...kids) {
+  const [tag, ...cls] = spec.split(".");
+  const n = document.createElement(tag || "div");
+  if (cls.length) n.className = cls.join(" ");
+  if (props && (props.nodeType || typeof props === "string" || Array.isArray(props))) { kids.unshift(props); props = null; }
+  for (const [k, v] of Object.entries(props ?? {})) {
+    if (k === "html") n.innerHTML = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat(9)) if (k != null && k !== false) n.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return n;
+}
+
+const VARIANT_A = (() => {
+/**
+ * VARIANT A — "Inbox".
+ *
+ * The bet: Rocky is a correspondent, not a machine you supervise. Watching a
+ * Run is reading a thread; being called into one is an unread message that
+ * wants a reply. Steps are messages, chatter is quoted text you expand,
+ * diffs and screenshots are attachments. The Checkpoint is a reply box.
+ *
+ * Structurally: two panes, text-first, high density, light. No spatial map
+ * of the pipeline at all — you scroll, like mail.
+ */
+const css = `
+.variant-A { background: #f6f7f9; color: #10141a; }
+.a-wrap { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+.a-list { border-right: 1px solid #dde1e8; background: #fff; overflow: auto; }
+.a-listhead { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #eceef2; padding: 14px 16px 10px; }
+.a-listhead h1 { margin: 0; font-size: 15px; letter-spacing: .01em; }
+.a-listhead p { margin: 2px 0 0; font-size: 12px; color: #6b7480; }
+.a-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 11px 16px; border-bottom: 1px solid #f0f2f5; cursor: pointer; }
+.a-item:hover { background: #fafbfc; }
+.a-item[data-sel] { background: #eef3ff; box-shadow: inset 3px 0 0 #2f6df6; }
+.a-item[data-unread] .a-subj { font-weight: 650; }
+.a-row1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.a-from { font-size: 12px; color: #4a5461; }
+.a-when { font-size: 11px; color: #99a2ae; white-space: nowrap; }
+.a-subj { font-size: 13px; margin: 1px 0; }
+.a-prev { font-size: 12px; color: #6b7480; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.a-dot { display: inline-block; width: 7px; height: 7px; border-radius: 99px; margin-right: 6px; vertical-align: 1px; }
+.a-read { overflow: auto; padding: 0 0 200px; }
+.a-hdr { position: sticky; top: 0; background: #f6f7f9; border-bottom: 1px solid #dde1e8; padding: 18px 32px 14px; }
+.a-hdr h2 { margin: 0 0 4px; font-size: 19px; }
+.a-meta { font-size: 12px; color: #6b7480; display: flex; gap: 14px; flex-wrap: wrap; }
+.a-thread { max-width: 860px; margin: 0 auto; padding: 8px 32px; }
+.a-msg { border-bottom: 1px solid #e7eaf0; padding: 14px 0; }
+.a-msg-h { display: flex; gap: 10px; align-items: baseline; }
+.a-who { font-weight: 620; font-size: 13px; }
+.a-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #eceef2; color: #4a5461; }
+.a-tag.loop { background: #fff2d6; color: #8a5a00; }
+.a-tag.clean { background: #dff3e4; color: #1c6b34; }
+.a-tag.bad { background: #ffe3e3; color: #a1242a; }
+.a-time { margin-left: auto; font-size: 11px; color: #99a2ae; }
+.a-body { margin-top: 6px; font-size: 13.5px; }
+.a-body p { margin: 0 0 6px; }
+.a-quote { margin-top: 8px; border-left: 2px solid #ccd3dd; padding-left: 12px; color: #5a6472;
+  font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+.a-fold { border: 0; background: none; color: #2f6df6; font-size: 12px; cursor: pointer; padding: 4px 0; }
+.a-att { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.a-att button { border: 1px solid #dde1e8; background: #fff; border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.a-shot { width: 132px; height: 82px; object-fit: cover; object-position: top left; border-radius: 4px; border: 1px solid #dde1e8; }
+.a-complaint { border-left: 3px solid #e5484d; background: #fff; padding: 8px 12px; margin: 6px 0; font-size: 13px; }
+.a-complaint code { font-size: 12px; color: #6b7480; }
+.a-noise { color: #99a2ae; font-size: 12px; padding: 3px 0; font-family: ui-monospace, Menlo, monospace; }
+.a-boot { text-align: center; margin: 14px 0; font-size: 11.5px; color: #8a94a2; }
+.a-boot span { background: #ecf0f6; padding: 3px 10px; border-radius: 99px; }
+.a-compose { position: sticky; bottom: 0; background: #fff; border-top: 2px solid #2f6df6; padding: 14px 32px 22px; margin-top: 20px; }
+.a-compose h3 { margin: 0 0 8px; font-size: 14px; }
+.a-compose textarea { width: 100%; min-height: 74px; border: 1px solid #dde1e8; border-radius: 8px; padding: 10px; font: inherit; resize: vertical; }
+.a-acts { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.a-acts button { border: 0; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+.a-approve { background: #1c8b45; color: #fff; }
+.a-reject { background: #fff; color: #a1242a; border: 1px solid #f0c2c4 !important; }
+.a-steer { background: #2f6df6; color: #fff; }
+.a-kbd { margin-left: auto; font-size: 11px; color: #99a2ae; }
+.a-lightbox { position: fixed; inset: 0; background: rgba(10,14,20,.86); z-index: 500; display: grid; place-items: center; padding: 40px; }
+.a-lightbox img { max-width: 100%; max-height: 84vh; border-radius: 8px; }
+.a-lightbox p { color: #cfd6e0; text-align: center; font-size: 13px; }
+.a-diff { background: #fff; border: 1px solid #dde1e8; border-radius: 8px; margin-top: 10px; overflow: hidden; font: 12px/1.6 ui-monospace, Menlo, monospace; }
+.a-diff h4 { margin: 0; padding: 7px 12px; background: #f2f4f8; border-bottom: 1px solid #e7eaf0; font-size: 12px; font-weight: 600; font-family: ui-sans-serif, system-ui; }
+.a-diff .l { padding: 0 12px; white-space: pre-wrap; }
+.a-diff .add { background: #e6ffed; } .a-diff .del { background: #ffeef0; } .a-diff .hunk { color: #8a94a2; background: #fafbfc; }
+`;
+
+const STATUS = {
+  "awaiting-checkpoint": ["#f5a623", "needs you"],
+  running: ["#2f6df6", "working"],
+  merged: ["#1c8b45", "merged"],
+  exhausted: ["#e5484d", "stuck"],
+  rejected: ["#8a94a2", "rejected"],
+};
+function mount(root) {
+  const open = new Set();       // expanded chatter, by seq
+  let lightbox = null;
+
+  const wrap = el("div.a-wrap");
+  root.append(wrap);
+  draw();
+
+  function draw() {
+    wrap.innerHTML = "";
+    wrap.append(list(), reader());
+  }
+
+  // ── left: the mail list ────────────────────────────────────────────────
+  function list() {
+    const n = runs.filter((r) => r.status === "awaiting-checkpoint").length;
+    const pane = el("div.a-list", {},
+      el("div.a-listhead", {}, el("h1", {}, "Rocky"), el("p", {}, `${n} waiting on you · ${runs.length} runs today`)));
+    for (const r of runs) {
+      const [colour, word] = STATUS[r.status];
+      const sel = r.id === state.run;
+      pane.append(el("button.a-item", {
+        "data-sel": sel || false, "data-unread": r.status === "awaiting-checkpoint" || false,
+        onclick: () => { go({ run: r.id, screen: r.status === "awaiting-checkpoint" ? "checkpoint" : "run" }); },
+      },
+        el("div.a-row1", {},
+          el("span.a-from", {}, el("span.a-dot", { style: `background:${colour}` }), r.repo.split("/")[1]),
+          el("span.a-when", {}, r.status === "running" ? `${r.elapsed} ⟳` : (r.waitingSince ?? r.startedAt))),
+        el("div.a-subj", {}, `${r.issue.identifier} ${r.issue.title}`),
+        el("div.a-prev", {}, preview(r, word))));
+    }
+    return pane;
+  }
+
+  function preview(r, word) {
+    if (r.id === activeRun.id) return "Green and mergeable — approve, reject or steer.";
+    if (r.stuck) return r.stuck;
+    return r.label ? `${word} · ${r.label}` : `${word} · ${r.stage}`;
+  }
+
+  // ── right: the thread ──────────────────────────────────────────────────
+  function reader() {
+    const r = runs.find((x) => x.id === state.run) ?? activeRun;
+    const pane = el("div.a-read");
+    if (r.id !== activeRun.id) {
+      pane.append(el("div.a-hdr", {}, el("h2", {}, `${r.issue.identifier} ${r.issue.title}`),
+        meta(r.repo, `started ${r.startedAt}`, `${r.boots} boot${r.boots > 1 ? "s" : ""}`)));
+      pane.append(el("div.a-thread", {}, el("p", { style: "color:#6b7480" },
+        "This run has no journal in the prototype — only NG-412 is fully populated.")));
+      return pane;
+    }
+
+    pane.append(el("div.a-hdr", {},
+      el("h2", {}, `${r.issue.identifier} ${r.issue.title}`),
+      meta(r.repo, `branch ${r.branch}`, `PR #${r.pr.number} · +${r.pr.additions}/−${r.pr.deletions}`,
+        `started ${r.startedAt}`, `${r.boots} daemon boots`, "CI green")));
+
+    const t = el("div.a-thread");
+    let lastBoot = 1;
+    for (const e of r.journal) {
+      if (e.boot !== lastBoot) {
+        const note = r.bootNotes.find((b) => b.boot === e.boot);
+        t.append(el("div.a-boot", {}, el("span", {}, `⟲ ${note?.note ?? `boot ${e.boot}`} — ${note?.at ?? ""}`)));
+        lastBoot = e.boot;
+      }
+      t.append(message(e, r));
+    }
+    pane.append(t);
+    if (r.status === "awaiting-checkpoint") pane.append(compose(r));
+    return pane;
+  }
+
+  function meta(...bits) { return el("div.a-meta", {}, bits.map((b) => el("span", {}, b))); }
+
+  function message(e, r) {
+    if (isNoise(e)) return el("div.a-noise", {}, `#${e.seq} ${e.step}${e.step === "post" ? " → Linear" : ` → ${(e.result ?? []).length || ""} files`}`);
+    if (e.step === "checkpoint") return checkpointMsg(e, r);
+
+    const it = iteration(e);
+    const complaints = complaintsOf(e);
+    const who = isAgent(e) ? agentName(e) : e.step.split(":")[0] === "scm" ? `scm.${e.step.split(":")[1]}` : e.step.split(":")[0];
+    const m = el("div.a-msg");
+    m.append(el("div.a-msg-h", {},
+      el("span.a-who", {}, who),
+      it && el("span.a-tag.loop", {}, `pass ${it.n} of ${it.cap}`),
+      isAgent(e) && complaints.length === 0 && e.result?.complaints && el("span.a-tag.clean", {}, "clean"),
+      complaints.length > 0 && el("span.a-tag.bad", {}, `${complaints.length} complaint${complaints.length > 1 ? "s" : ""}`),
+      el("span.a-time", {}, fmtMs(e.ms) + (e.tokens ? ` · ${(e.tokens / 1000).toFixed(0)}k tok` : ""))));
+
+    const body = el("div.a-body");
+    body.append(summarise(e));
+    for (const c of complaints)
+      body.append(el("div.a-complaint", {}, c.file && el("code", {}, `${c.file}${c.line ? `:${c.line}` : ""} `), c.text));
+    for (const d of e.result?.disagreed ?? [])
+      body.append(el("div.a-complaint", { style: "border-left-color:#f5a623" }, el("b", {}, "disagreed — "), d.why));
+    if (e.shots) body.append(el("div.a-att", {}, e.shots.map((id) =>
+      el("button", { onclick: () => showShot(id) }, el("img.a-shot", { src: screenshots[id].src }), screenshots[id].caption.split("—")[1] ?? "screenshot"))));
+    if (e.step === "scm:openPr") body.append(el("div.a-att", {}, el("button", { onclick: () => go({ screen: "checkpoint" }) }, "📎 diff · 6 files, +199/−8")));
+    if (e.chatter) {
+      const id = e.seq;
+      body.append(el("button.a-fold", { onclick: () => { open.has(id) ? open.delete(id) : open.add(id); draw(); } },
+        open.has(id) ? "▾ hide what it did" : `▸ ${e.chatter.length} lines of what it did`));
+      if (open.has(id)) body.append(el("div.a-quote", {}, e.chatter.join("\n")));
+    }
+    m.append(body);
+    return m;
+  }
+
+  function summarise(e) {
+    const r = e.result;
+    if (e.step === "agent:planner") return el("div", {}, el("p", {}, r.summary),
+      el("ol", { style: "margin:0;padding-left:20px;color:#4a5461" }, r.steps.map((s) => el("li", {}, s))));
+    if (e.step === "post") return el("p", {}, "posted to Linear");
+    if (r?.fixed) return el("p", {}, r.fixed.length ? `Fixed: ${r.fixed.join("; ")}` : "Nothing fixed.");
+    if (r?.summary) return el("p", {}, r.summary);
+    if (e.step === "scm:openPr") return el("p", {}, `Opened PR #${r.number}.`);
+    if (e.step === "scm:waitForCi") return r.status === "passed"
+      ? el("p", {}, "CI passed — 6 of 6 checks green.")
+      : el("div", {}, el("p", {}, `CI failed — ${r.failedJobs.length} jobs.`),
+          r.failedJobs.map((j) => el("div.a-quote", {}, `${j.name}\n${j.excerpt}`)));
+    if (e.step.startsWith("exec:")) return el("p", {}, el("code", {}, e.step.slice(5)), ` → exit ${r.exitCode}`);
+    if (r?.complaints?.length === 0) return el("p", {}, "No complaints.");
+    return el("p", {}, "");
+  }
+
+  // ── the Checkpoint, as the message that wants a reply ───────────────────
+  function checkpointMsg(e, r) {
+    const m = el("div.a-msg", { style: "border-bottom:0" });
+    m.append(el("div.a-msg-h", {}, el("span.a-who", {}, "rocky"),
+      el("span.a-tag", { style: "background:#fff2d6;color:#8a5a00" }, "waiting for you since " + e.waitingSince),
+      el("span.a-time", {}, "44m")));
+    const b = el("div.a-body");
+    b.append(el("p", {}, el("b", {}, e.label)));
+    b.append(el("p", { style: "color:#4a5461" },
+      "Compliance, UI inspection and code review all passed. CI is green on c04ab21. The PR is mergeable with no blocking reviews."));
+    b.append(el("div.a-att", {}, ["final", "confirm"].map((id) =>
+      el("button", { onclick: () => showShot(id) }, el("img.a-shot", { src: screenshots[id].src }), "screenshot"))));
+    b.append(diffBlock());
+    m.append(b);
+    return m;
+  }
+
+  function diffBlock() {
+    const d = el("div.a-diff");
+    for (const f of activeRun.diff.files) {
+      d.append(el("h4", {}, `${f.path}  +${f.added} −${f.removed}`));
+      for (const h of f.hunks) {
+        d.append(el("div.l.hunk", {}, h.header));
+        for (const [sign, text] of h.lines)
+          d.append(el("div.l" + (sign === "+" ? ".add" : sign === "-" ? ".del" : ""), {}, `${sign}${text}`));
+      }
+    }
+    return d;
+  }
+
+  function compose(r) {
+    const ta = el("textarea", { placeholder: "Reply to steer — your words go straight to the fixer, then back through CI and back to here." });
+    const c = el("div.a-compose", {},
+      el("h3", {}, "Your answer"),
+      ta,
+      el("div.a-acts", {},
+        el("button.a-approve", { onclick: () => answer("approve") }, "Approve & merge"),
+        el("button.a-steer", { onclick: () => answer("steer", ta.value) }, "Send as steer"),
+        el("button.a-reject", { onclick: () => answer("reject") }, "Reject"),
+        el("span.a-kbd", {}, "e approve · s steer · r reject · j/k move · u back")));
+    return c;
+  }
+
+  function answer(kind, text) {
+    alert(`PROTOTYPE — no backend.\n\ndecision: ${kind}${text ? `\nmessage: ${text}` : ""}\n\nJournal #27 would flip waiting → done with this result, and the Run resumes at #28.`);
+  }
+
+  function showShot(id) {
+    lightbox?.remove();
+    lightbox = el("div.a-lightbox", { onclick: () => { lightbox.remove(); lightbox = null; } },
+      el("div", {}, el("img", { src: screenshots[id].src }), el("p", {}, screenshots[id].caption)));
+    document.body.append(lightbox);
+  }
+
+  // ── keyboard: mail keys ────────────────────────────────────────────────
+  const onKey = (ev) => {
+    if (ev.target.matches?.("input,textarea,[contenteditable]")) return;
+    const i = runs.findIndex((r) => r.id === state.run);
+    if (ev.key === "j") { go({ run: runs[Math.min(i + 1, runs.length - 1)].id }); }
+    if (ev.key === "k") { go({ run: runs[Math.max(i - 1, 0)].id }); }
+    if (ev.key === "u") { go({ screen: "list" }); }
+    if (ev.key === "Escape") { lightbox?.remove(); lightbox = null; }
+    if (ev.key === "e") answer("approve");
+    if (ev.key === "r") answer("reject");
+    if (ev.key === "s") document.querySelector(".a-compose textarea")?.focus();
+    if (ev.key === "o") { activeRun.journal.forEach((e) => e.chatter && (open.size ? open.clear() : open.add(e.seq))); draw(); }
+  };
+  addEventListener("keydown", onKey);
+  return () => removeEventListener("keydown", onKey);
+}
+
+return { css, mount };
+})();
+
+const VARIANT_B = (() => {
+/**
+ * VARIANT B — "Pipeline rail".
+ *
+ * The bet: a Run is a build, and you learn a build by learning where things
+ * are. So the layout is spatial and fixed: a stage rail across the top that
+ * never moves, the selected stage's detail on the left, and an artifact pane
+ * on the right that is ALWAYS showing something (diff, screenshots, CI) —
+ * because the artifacts are the reason this is a web UI.
+ *
+ * Loops are the interesting rendering problem here, and the rail answers it
+ * literally: each stage carries its iteration pips (●●○○○ 2/5).
+ *
+ * Structurally opposite to A: no scrolling thread, nothing chronological,
+ * chatter hidden in a drawer you pull up rather than inline quoting.
+ */
+const css = `
+.variant-B { background: #0d1117; color: #c9d1d9; }
+.b-wrap { display: grid; grid-template-rows: auto auto 1fr auto; height: 100%; }
+.b-top { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid #1f2630; background: #0f141b; }
+.b-top h1 { margin: 0; font-size: 14px; font-weight: 600; }
+.b-top .sub { color: #7d8794; font-size: 12px; }
+.b-pill { font-size: 11px; padding: 2px 9px; border-radius: 99px; border: 1px solid; }
+.b-runs { margin-left: auto; display: flex; gap: 6px; }
+.b-runs button { background: #161b22; border: 1px solid #262d38; color: #8b949e; border-radius: 6px; padding: 4px 9px; font-size: 11px; cursor: pointer; }
+.b-runs button[data-sel] { border-color: #316dca; color: #d7e3f5; background: #10233f; }
+.b-runs button b { color: #e6edf3; font-weight: 600; }
+
+.b-rail { display: flex; align-items: stretch; gap: 0; padding: 14px 18px 0; overflow-x: auto; background: #0f141b; border-bottom: 1px solid #1f2630; }
+.b-stage { position: relative; min-width: 118px; padding: 0 6px 14px; border: 0; background: none; color: inherit; cursor: pointer; text-align: left; }
+.b-stage:not(:last-child)::after { content: ""; position: absolute; right: -6px; top: 13px; width: 12px; height: 2px; background: #262d38; }
+.b-orb { width: 26px; height: 26px; border-radius: 99px; display: grid; place-items: center; font-size: 12px; border: 2px solid; margin-bottom: 6px; }
+.b-name { font-size: 12px; display: block; }
+.b-sub { font-size: 10.5px; color: #6e7781; display: block; height: 13px; }
+.b-pips { display: flex; gap: 3px; margin-top: 4px; }
+.b-pip { width: 6px; height: 6px; border-radius: 99px; background: #262d38; }
+.b-pip[data-on] { background: #d29922; } .b-pip[data-ok] { background: #2ea043; }
+.b-stage[data-sel] .b-name { color: #79c0ff; font-weight: 600; }
+.b-stage[data-sel]::before { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 2px; background: #79c0ff; }
+
+.b-body { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.25fr); overflow: hidden; }
+.b-left { overflow: auto; padding: 16px 18px 40px; border-right: 1px solid #1f2630; }
+.b-right { overflow: auto; background: #010409; }
+.b-h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: #6e7781; margin: 0 0 10px; }
+.b-step { border: 1px solid #21262d; border-radius: 8px; margin-bottom: 8px; background: #0f141b; }
+.b-step-h { display: flex; gap: 8px; align-items: center; padding: 9px 12px; cursor: pointer; }
+.b-step-h b { font-size: 13px; font-weight: 550; }
+.b-step-h .t { margin-left: auto; font-size: 11px; color: #6e7781; }
+.b-step-b { padding: 0 12px 12px; font-size: 13px; }
+.b-cmp { border-left: 2px solid #f85149; background: #17191c; padding: 7px 10px; margin: 6px 0; border-radius: 0 4px 4px 0; }
+.b-cmp code { color: #6e7781; font-size: 11.5px; }
+.b-dis { border-left-color: #d29922; }
+.b-ok { color: #3fb950; }
+.b-mono { font: 12px/1.6 ui-monospace, Menlo, monospace; color: #8b949e; white-space: pre-wrap; }
+.b-noise { font: 11.5px/1.7 ui-monospace, Menlo, monospace; color: #484f58; padding-left: 12px; }
+
+.b-tabs { display: flex; gap: 2px; padding: 8px 10px 0; background: #0d1117; border-bottom: 1px solid #1f2630; position: sticky; top: 0; z-index: 2; }
+.b-tabs button { border: 0; background: none; color: #7d8794; font-size: 12px; padding: 6px 12px; border-radius: 6px 6px 0 0; cursor: pointer; }
+.b-tabs button[data-sel] { background: #010409; color: #e6edf3; box-shadow: inset 0 -2px 0 #79c0ff; }
+.b-art { padding: 14px; }
+.b-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.b-shots figure { margin: 0; }
+.b-shots img { width: 100%; border-radius: 6px; border: 1px solid #21262d; cursor: zoom-in; }
+.b-shots figcaption { font-size: 11px; color: #6e7781; padding-top: 5px; }
+.b-file { border: 1px solid #21262d; border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+.b-file h4 { margin: 0; padding: 8px 12px; background: #0f141b; font: 12px ui-monospace, Menlo, monospace; color: #c9d1d9; display: flex; gap: 10px; }
+.b-file h4 span { margin-left: auto; }
+.b-split { display: grid; grid-template-columns: 1fr 1fr; font: 12px/1.55 ui-monospace, Menlo, monospace; }
+.b-split > div { border-top: 1px solid #161b22; }
+.b-split .c { padding: 0 10px; white-space: pre-wrap; min-height: 19px; }
+.b-split .add { background: #0d2f1a; } .b-split .del { background: #3a1418; } .b-split .nil { background: #0a0d11; }
+.b-split .hunk { grid-column: 1 / -1; color: #6e7781; background: #0f141b; padding: 2px 10px; }
+.b-job { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 6px; font-size: 12.5px; }
+.b-job .t { margin-left: auto; color: #6e7781; font-size: 11px; }
+
+.b-drawer { border-top: 1px solid #1f2630; background: #010409; }
+.b-drawer-h { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 11.5px; color: #6e7781; cursor: pointer; }
+.b-drawer-h b { color: #8b949e; font-weight: 500; }
+.b-log { height: 190px; overflow: auto; padding: 8px 14px 14px; font: 11.5px/1.65 ui-monospace, Menlo, monospace; color: #7d8794; }
+.b-log .s { color: #58a6ff; }
+
+.b-cta { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; padding: 12px 14px; background: #0f141b; border-top: 2px solid #d29922; }
+.b-cta button { border: 0; border-radius: 6px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; }
+.b-go { background: #238636; color: #fff; } .b-no { background: #21262d; color: #f85149; } .b-st { background: #1f6feb; color: #fff; }
+.b-cta input { flex: 1; background: #010409; border: 1px solid #262d38; color: #c9d1d9; border-radius: 6px; padding: 7px 10px; font: inherit; }
+.b-lightbox { position: fixed; inset: 0; background: rgba(1,4,9,.9); z-index: 500; display: grid; place-items: center; padding: 40px; }
+.b-lightbox img { max-width: 100%; max-height: 86vh; border-radius: 8px; }
+`;
+
+const ORB = {
+  done: ["#2ea043", "#0d2f1a", "✓"],
+  waiting: ["#d29922", "#2b2113", "◔"],
+  todo: ["#30363d", "#0f141b", ""],
+};
+function mount(root) {
+  const r = activeRun;
+  const groups = byStage(r.journal);
+  let stage = state.screen === "checkpoint" ? "checkpoint" : (groups[groups.length - 1]?.key ?? "plan");
+  let tab = "diff";
+  let logOpen = false;
+  let lightbox = null;
+
+  const wrap = el("div.b-wrap");
+  root.append(wrap);
+  draw();
+
+  function draw() {
+    wrap.innerHTML = "";
+    wrap.append(top(), rail(), body(), drawer());
+  }
+
+  function top() {
+    return el("div.b-top", {},
+      el("h1", {}, `${r.issue.identifier} ${r.issue.title}`),
+      el("span.sub", {}, `${r.repo} · ${r.branch} · PR #${r.pr.number}`),
+      el("span.b-pill", { style: "border-color:#d29922;color:#d29922" }, "waiting for you · 44m"),
+      el("span.sub", {}, `${r.boots} boots`),
+      el("div.b-runs", {}, runs.map((x) => el("button", { "data-sel": x.id === state.run || false, onclick: () => go({ run: x.id }) },
+        el("b", {}, x.id), " ", x.status === "running" ? "⟳" : x.status === "awaiting-checkpoint" ? "◔" : x.status === "merged" ? "✓" : x.status === "exhausted" ? "!" : "×"))));
+  }
+
+  // ── the rail: the whole Run as one fixed row ───────────────────────────
+  function rail() {
+    const bar = el("div.b-rail");
+    for (const s of STAGES) {
+      const g = groups.find((x) => x.key === s.key);
+      const entries = g?.entries ?? [];
+      const last = entries[entries.length - 1];
+      const kind = !g ? "todo" : last.status === "waiting" ? "waiting" : "done";
+      const [border, bg, glyph] = ORB[kind];
+      const its = entries.filter(iteration).map(iteration);
+      const cap = its[0]?.cap;
+      const passes = its.length ? Math.max(...its.map((i) => i.n)) : 0;
+      const clean = entries.some((e) => e.result?.complaints?.length === 0);
+      bar.append(el("button.b-stage", { "data-sel": stage === s.key || false, onclick: () => { stage = s.key; draw(); } },
+        el("div.b-orb", { style: `border-color:${border};background:${bg};color:${border}` }, glyph),
+        el("span.b-name", {}, s.name),
+        el("span.b-sub", {}, subtitle(s.key, g, entries)),
+        cap ? el("div.b-pips", {}, Array.from({ length: cap }, (_, i) =>
+          el("span.b-pip", { "data-on": i < passes && !(clean && i === passes - 1) || false, "data-ok": (clean && i === passes - 1) || false })))
+          : el("div.b-pips", {})));
+    }
+    return bar;
+  }
+
+  function subtitle(key, g, entries) {
+    if (!g) return key === "merge" ? "blocked" : "";
+    if (key === "checkpoint") return "since 10:03";
+    const its = entries.filter(iteration).map(iteration);
+    if (its.length) return `${Math.max(...its.map((i) => i.n))}/${its[0].cap} passes`;
+    const ms = entries.reduce((a, e) => a + (e.ms ?? 0), 0);
+    return fmtMs(ms);
+  }
+
+  // ── body: stage detail | pinned artifact ───────────────────────────────
+  function body() {
+    return el("div.b-body", {}, left(), right());
+  }
+
+  function left() {
+    const g = groups.find((x) => x.key === stage);
+    const pane = el("div.b-left", {}, el("h3.b-h3", {}, `${STAGES.find((s) => s.key === stage)?.name ?? stage} — steps`));
+    if (!g) { pane.append(el("p", { style: "color:#6e7781" }, "Not reached. The Run is parked at the Checkpoint.")); return pane; }
+    for (const e of g.entries) {
+      if (isNoise(e)) { pane.append(el("div.b-noise", {}, `#${e.seq} ${e.step}`)); continue; }
+      const cs = complaintsOf(e);
+      const box = el("div.b-step");
+      box.append(el("div.b-step-h", {}, 
+        el("span", { style: `color:${e.status === "waiting" ? "#d29922" : isBad(e) ? "#f85149" : "#3fb950"}` }, e.status === "waiting" ? "◔" : isBad(e) ? "!" : "✓"),
+        el("b", {}, e.label ?? (isAgent(e) ? agentName(e) : e.step)),
+        el("span.t", {}, `#${e.seq} · boot ${e.boot} · ${fmtMs(e.ms)}`)));
+      const b = el("div.b-step-b");
+      if (e.step === "agent:planner") b.append(el("div", {}, e.result.summary));
+      else if (e.result?.summary) b.append(el("div", {}, e.result.summary));
+      else if (e.result?.fixed) b.append(el("div", {}, e.result.fixed.map((f) => el("div", {}, "✓ " + f))));
+      else if (e.step === "scm:waitForCi") b.append(el("div", {}, e.result.status === "passed" ? el("span.b-ok", {}, "6/6 green") : `${e.result.failedJobs.length} jobs failed`));
+      else if (e.step === "checkpoint") b.append(el("div", {}, "Parked. Linear session is ", el("code", {}, "awaitingInput"), "."));
+      else if (e.step.startsWith("exec:")) b.append(el("div.b-mono", {}, `$ ${e.step.slice(5)}\n${e.result.stdout}`));
+      else if (cs.length === 0 && e.result?.complaints) b.append(el("div.b-ok", {}, "no complaints"));
+      for (const c of cs) b.append(el("div.b-cmp", {}, c.file && el("code", {}, `${c.file}${c.line ? ":" + c.line : ""} `), c.text));
+      for (const d of e.result?.disagreed ?? []) b.append(el("div.b-cmp.b-dis", {}, el("b", {}, "fixer disagreed: "), d.why));
+      box.append(b);
+      pane.append(box);
+    }
+    if (stage === "checkpoint") pane.append(cta());
+    return pane;
+  }
+
+  function cta() {
+    const inp = el("input", { placeholder: "steer…" });
+    return el("div.b-cta", {},
+      el("button.b-go", { onclick: () => answer("approve") }, "Approve"),
+      el("button.b-no", { onclick: () => answer("reject") }, "Reject"),
+      inp,
+      el("button.b-st", { onclick: () => answer("steer", inp.value) }, "Steer ⏎"));
+  }
+
+  function right() {
+    const pane = el("div.b-right");
+    pane.append(el("div.b-tabs", {}, [["diff", `Diff · ${r.diff.files.length} files`], ["shots", "Screenshots · 5"], ["ci", "CI · 6 checks"], ["issue", "Ticket"]]
+      .map(([k, label]) => el("button", { "data-sel": tab === k || false, onclick: () => { tab = k; draw(); } }, label))));
+    const art = el("div.b-art");
+    if (tab === "diff") art.append(...r.diff.files.map(fileBlock));
+    if (tab === "shots") art.append(el("div.b-shots", {}, Object.values(screenshots).map((s) =>
+      el("figure", {}, el("img", { src: s.src, onclick: () => zoom(s) }), el("figcaption", {}, s.caption)))));
+    if (tab === "ci") art.append(...r.ci.jobs.map((j) => el("div.b-job", {},
+      el("span", { style: "color:#3fb950" }, "✓"), j.name, el("span.t", {}, fmtMs(j.ms)))),
+      el("div.b-job", { style: "border-color:#3a1418" }, el("span", { style: "color:#f85149" }, "×"),
+        `previous attempt ${r.ci.previous.sha} — 2 failures, fixed by ci-fixer 1/3`));
+    if (tab === "issue") art.append(el("div", { style: "font-size:13px" }, el("h4", {}, r.issue.title), el("p", {}, r.issue.description),
+      el("p", { style: "color:#6e7781" }, r.issue.url)));
+    pane.append(art);
+    return pane;
+  }
+
+  /** Split diff — B's claim is that the artifact deserves the bigger pane. */
+  function fileBlock(f) {
+    const box = el("div.b-file", {}, el("h4", {}, f.path, el("span", {}, `+${f.added} −${f.removed}`)));
+    const g = el("div.b-split");
+    for (const h of f.hunks) {
+      g.append(el("div.hunk", {}, h.header));
+      for (const [sign, text] of h.lines) {
+        if (sign === " ") { g.append(el("div.c", {}, text), el("div.c", {}, text)); }
+        else if (sign === "-") { g.append(el("div.c.del", {}, text), el("div.c.nil", {}, "")); }
+        else { g.append(el("div.c.nil", {}, ""), el("div.c.add", {}, text)); }
+      }
+    }
+    box.append(g);
+    return box;
+  }
+
+  function drawer() {
+    const lines = r.journal.flatMap((e) => (e.chatter ?? []).map((c) => [e, c]));
+    const d = el("div.b-drawer", {},
+      el("div.b-drawer-h", { onclick: () => { logOpen = !logOpen; draw(); } },
+        el("b", {}, logOpen ? "▾" : "▸"), `raw agent stream · ${lines.length} lines · press ~`,
+        el("span", { style: "margin-left:auto" }, "hidden by default")));
+    if (logOpen) d.append(el("div.b-log", {}, lines.map(([e, c]) =>
+      el("div", {}, el("span.s", {}, `#${String(e.seq).padStart(2, "0")} ${(e.label ?? e.step).padEnd(24)} `), c))));
+    return d;
+  }
+
+  function zoom(s) {
+    lightbox?.remove();
+    lightbox = el("div.b-lightbox", { onclick: () => { lightbox.remove(); lightbox = null; } }, el("img", { src: s.src }));
+    document.body.append(lightbox);
+  }
+
+  function answer(kind, text) {
+    alert(`PROTOTYPE — no backend.\n\ndecision: ${kind}${text ? `\nmessage: ${text}` : ""}\n\nJournal #27 flips waiting → done; the Run resumes at #28 (scm:updateBranch).`);
+  }
+
+  const onKey = (ev) => {
+    if (ev.target.matches?.("input,textarea")) { if (ev.key === "Escape") ev.target.blur(); return; }
+    const i = STAGES.findIndex((s) => s.key === stage);
+    if (ev.key === "h") { stage = STAGES[Math.max(0, i - 1)].key; draw(); }
+    if (ev.key === "l") { stage = STAGES[Math.min(STAGES.length - 1, i + 1)].key; draw(); }
+    if (/^[1-9]$/.test(ev.key)) { stage = STAGES[+ev.key - 1].key; draw(); }
+    if (ev.key === "~") { logOpen = !logOpen; draw(); }
+    if (ev.key === "d") { tab = "diff"; draw(); }
+    if (ev.key === "p") { tab = "shots"; draw(); }
+    if (ev.key === "c") { tab = "ci"; draw(); }
+    if (ev.key === "a") answer("approve");
+    if (ev.key === "Escape") { lightbox?.remove(); lightbox = null; }
+  };
+  addEventListener("keydown", onKey);
+  return () => removeEventListener("keydown", onKey);
+}
+
+return { css, mount };
+})();
+
+const VARIANT_C = (() => {
+/**
+ * VARIANT C — "Review desk".
+ *
+ * The bet: whatever else Rocky did, what you are being asked to sign off is
+ * *code*. So this is a code-review tool, and the diff is the page — not a
+ * pane, not an attachment. The Run is demoted to a collapsible tree in the
+ * left rail (stages are folders, loop passes are nested children), and a
+ * persistent right-hand conversation carries both agent commentary and the
+ * Checkpoint decision. Screenshots are just another file type in the tree.
+ *
+ * Structurally opposite to B: nothing is pinned spatially except the diff,
+ * and the pipeline has no visual map at all — you navigate it like a
+ * project tree, cmd+k to jump.
+ */
+const css = `
+.variant-C { background: #101418; color: #d4d9e0; }
+.c-wrap { display: grid; grid-template-columns: 52px 268px 1fr 340px; height: 100%; }
+.c-rail { background: #0a0d10; border-right: 1px solid #1b2027; display: flex; flex-direction: column; align-items: center; padding-top: 10px; gap: 6px; }
+.c-rail button { width: 36px; height: 36px; border-radius: 9px; border: 1px solid #1b2027; background: #12171d; color: #7f8a99; font-size: 11px; cursor: pointer; position: relative; }
+.c-rail button[data-sel] { border-color: #3d7dfa; color: #cfe0ff; background: #131e33; }
+.c-rail .badge { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 99px; background: #e8a33d; border: 2px solid #0a0d10; }
+
+.c-tree { background: #0d1116; border-right: 1px solid #1b2027; overflow: auto; padding: 10px 0 30px; }
+.c-treehead { padding: 6px 14px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #5d6874; }
+.c-node { display: flex; gap: 6px; align-items: center; width: 100%; border: 0; background: none; color: #b8c1cd; text-align: left; padding: 3px 14px 3px 10px; font-size: 12.5px; cursor: pointer; }
+.c-node:hover { background: #141a21; }
+.c-node[data-sel] { background: #16233a; color: #dce8ff; }
+.c-node .g { width: 13px; color: #5d6874; font-size: 10px; }
+.c-node .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-node .x { margin-left: auto; font-size: 10px; color: #5d6874; }
+.c-l1 { padding-left: 26px; } .c-l2 { padding-left: 42px; }
+.c-bad { color: #ff7b72; } .c-ok { color: #56d364; } .c-wait { color: #e8a33d; }
+
+.c-main { overflow: auto; background: #101418; }
+.c-mainhead { position: sticky; top: 0; z-index: 3; background: #101418; border-bottom: 1px solid #1b2027; padding: 12px 20px; display: flex; gap: 12px; align-items: center; }
+.c-mainhead h2 { margin: 0; font: 500 14px ui-monospace, Menlo, monospace; }
+.c-mainhead .sp { margin-left: auto; font-size: 11.5px; color: #5d6874; }
+.c-filebar { display: flex; gap: 4px; padding: 8px 20px; border-bottom: 1px solid #1b2027; overflow-x: auto; background: #0d1116; position: sticky; top: 45px; z-index: 2; }
+.c-filebar button { border: 1px solid #1b2027; background: #12171d; color: #8b95a3; border-radius: 6px; padding: 4px 9px; font: 11.5px ui-monospace, Menlo, monospace; cursor: pointer; white-space: nowrap; }
+.c-filebar button[data-sel] { border-color: #3d7dfa; color: #dce8ff; }
+.c-diff { font: 12.5px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.c-fh { padding: 14px 20px 6px; color: #8b95a3; font-size: 12px; display: flex; gap: 10px; }
+.c-fh b { color: #d4d9e0; font-weight: 500; }
+.c-line { display: grid; grid-template-columns: 46px 46px 1fr; }
+.c-line .ln { color: #3f4a56; text-align: right; padding-right: 10px; user-select: none; }
+.c-line .t { padding: 0 20px 0 10px; white-space: pre-wrap; }
+.c-line.add { background: #0f2718; } .c-line.add .t { color: #aff5b4; }
+.c-line.del { background: #2d1214; } .c-line.del .t { color: #ffc1bd; }
+.c-line.hunk { background: #0d1116; } .c-line.hunk .t { color: #5d6874; }
+.c-line.cmt { background: #1b1408; }
+.c-inline { margin: 6px 20px 6px 92px; border-left: 2px solid #e8a33d; background: #15191f; padding: 8px 12px; border-radius: 0 6px 6px 0; font: 13px/1.5 ui-sans-serif, system-ui; }
+.c-inline b { color: #e8a33d; font-weight: 600; }
+.c-shot { padding: 20px; }
+.c-shot img { max-width: 100%; border: 1px solid #1b2027; border-radius: 8px; }
+.c-shot p { color: #8b95a3; font-size: 12.5px; }
+
+.c-side { background: #0d1116; border-left: 1px solid #1b2027; display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+.c-sidehead { padding: 12px 14px; border-bottom: 1px solid #1b2027; font-size: 12px; color: #8b95a3; }
+.c-sidehead b { color: #dce8ff; display: block; font-size: 13px; }
+.c-conv { overflow: auto; padding: 12px 14px; }
+.c-turn { margin-bottom: 14px; }
+.c-turn .w { font-size: 11px; color: #5d6874; margin-bottom: 3px; display: flex; gap: 6px; }
+.c-turn .m { font-size: 13px; background: #141a21; border: 1px solid #1b2027; border-radius: 8px; padding: 9px 11px; }
+.c-turn.me .m { background: #16233a; border-color: #24406e; }
+.c-turn .m ul { margin: 6px 0 0; padding-left: 18px; }
+.c-more { border: 0; background: none; color: #3d7dfa; font-size: 11.5px; cursor: pointer; padding: 2px 0; }
+.c-chat { border-top: 1px solid #1b2027; padding: 10px 14px 14px; }
+.c-chat textarea { width: 100%; height: 62px; background: #0a0d10; border: 1px solid #1b2027; color: #d4d9e0; border-radius: 8px; padding: 8px 10px; font: inherit; resize: none; }
+.c-decide { display: flex; gap: 6px; margin-top: 8px; }
+.c-decide button { flex: 1; border: 0; border-radius: 7px; padding: 8px 0; font-size: 12.5px; cursor: pointer; }
+.c-yes { background: #2ea043; color: #fff; } .c-no { background: #1b2027; color: #ff7b72; } .c-steer { background: #3d7dfa; color: #fff; }
+.c-pal { position: fixed; inset: 0; background: rgba(6,9,12,.6); z-index: 600; display: grid; place-items: start center; padding-top: 14vh; }
+.c-palbox { width: 560px; background: #12171d; border: 1px solid #263041; border-radius: 12px; box-shadow: 0 24px 70px rgba(0,0,0,.6); overflow: hidden; }
+.c-palbox input { width: 100%; border: 0; background: none; color: #dce8ff; padding: 14px 16px; font: 15px ui-sans-serif, system-ui; outline: none; border-bottom: 1px solid #1b2027; }
+.c-palbox button { display: block; width: 100%; border: 0; background: none; color: #b8c1cd; text-align: left; padding: 9px 16px; font-size: 13px; cursor: pointer; }
+.c-palbox button[data-sel] { background: #16233a; color: #dce8ff; }
+.c-palbox .k { float: right; color: #5d6874; font-size: 11px; }
+`;
+function mount(root) {
+  const r = activeRun;
+  const groups = byStage(r.journal);
+  const openStages = new Set(["review", "ui", "checkpoint"]);
+  let sel = { kind: "file", id: r.diff.files[0].path };
+  let palette = null;
+  let chatterOpen = new Set();
+
+  const wrap = el("div.c-wrap");
+  root.append(wrap);
+  draw();
+
+  function draw() {
+    wrap.innerHTML = "";
+    wrap.append(rail(), tree(), main(), side());
+  }
+
+  function rail() {
+    return el("div.c-rail", {}, runs.map((x) => el("button", {
+      "data-sel": x.id === state.run || false, title: `${x.id} ${x.issue.title}`, onclick: () => go({ run: x.id }),
+    }, x.id.replace("NG-", ""), x.status === "awaiting-checkpoint" && el("span.badge"))));
+  }
+
+  // ── the Run as a project tree ──────────────────────────────────────────
+  function tree() {
+    const t = el("div.c-tree", {}, el("div.c-treehead", {}, `run ${r.issue.identifier} · ${r.journal.length} steps · ${r.boots} boots`));
+    for (const g of groups) {
+      const open = openStages.has(g.key);
+      const cs = g.entries.filter(isBad).length;
+      const waiting = g.entries.some((e) => e.status === "waiting");
+      t.append(el("button.c-node", { onclick: () => { open ? openStages.delete(g.key) : openStages.add(g.key); draw(); } },
+        el("span.g", {}, open ? "▾" : "▸"),
+        el("span.n", {}, STAGES.find((s) => s.key === g.key)?.name ?? g.key),
+        el("span.x" + (waiting ? ".c-wait" : cs ? ".c-bad" : ".c-ok"), {}, waiting ? "waiting" : `${g.entries.length}`)));
+      if (!open) continue;
+      for (const e of g.entries) {
+        if (isNoise(e)) continue;
+        const label = e.label ?? (isAgent(e) ? agentName(e) : e.step);
+        t.append(el("button.c-node.c-l1", { "data-sel": (sel.kind === "step" && sel.id === e.seq) || false,
+          onclick: () => { sel = { kind: "step", id: e.seq }; draw(); } },
+          el("span.g" + (e.status === "waiting" ? ".c-wait" : isBad(e) ? ".c-bad" : ".c-ok"), {}, e.status === "waiting" ? "◔" : isBad(e) ? "●" : "✓"),
+          el("span.n", {}, label), el("span.x", {}, fmtMs(e.ms))));
+        for (const s of e.shots ?? [])
+          t.append(el("button.c-node.c-l2", { "data-sel": (sel.kind === "shot" && sel.id === s) || false,
+            onclick: () => { sel = { kind: "shot", id: s }; draw(); } }, el("span.g", {}, "🖼"), el("span.n", {}, s + ".png")));
+      }
+    }
+    t.append(el("div.c-treehead", { style: "padding-top:18px" }, `changed files · +${r.pr.additions} −${r.pr.deletions}`));
+    for (const f of r.diff.files)
+      t.append(el("button.c-node", { "data-sel": (sel.kind === "file" && sel.id === f.path) || false,
+        onclick: () => { sel = { kind: "file", id: f.path }; draw(); } },
+        el("span.g" + (f.status === "added" ? ".c-ok" : ""), {}, f.status === "added" ? "+" : "±"),
+        el("span.n", { title: f.path }, f.path.split("/").pop()),
+        el("span.x", {}, `+${f.added}`)));
+    return t;
+  }
+
+  // ── centre: the diff is the page ───────────────────────────────────────
+  function main() {
+    const m = el("div.c-main");
+    if (sel.kind === "shot") {
+      const s = screenshots[sel.id];
+      m.append(el("div.c-mainhead", {}, el("h2", {}, sel.id + ".png"), el("span.sp", {}, "captured by ui-inspector")));
+      m.append(el("div.c-shot", {}, el("img", { src: s.src }), el("p", {}, s.caption)));
+      return m;
+    }
+    if (sel.kind === "step") {
+      const e = r.journal.find((x) => x.seq === sel.id);
+      m.append(el("div.c-mainhead", {}, el("h2", {}, e.label ?? e.step), el("span.sp", {}, `journal #${e.seq} · boot ${e.boot} · ${e.status}`)));
+      const b = el("div", { style: "padding:18px 20px;font-size:13.5px" });
+      b.append(el("pre", { style: "white-space:pre-wrap;color:#8b95a3;font:12.5px/1.7 ui-monospace,Menlo,monospace" },
+        JSON.stringify(e.result, null, 2) ?? "null"));
+      if (e.chatter) b.append(el("h4", { style: "color:#5d6874;font-size:11px;letter-spacing:.08em" }, "RAW STREAM"),
+        el("pre", { style: "white-space:pre-wrap;color:#6f7987;font:12px/1.7 ui-monospace,Menlo,monospace" }, e.chatter.join("\n")));
+      m.append(b);
+      return m;
+    }
+
+    const f = r.diff.files.find((x) => x.path === sel.id) ?? r.diff.files[0];
+    m.append(el("div.c-mainhead", {}, el("h2", {}, f.path), el("span.sp", {}, `${r.diff.base} → ${r.diff.head}`)));
+    m.append(el("div.c-filebar", {}, r.diff.files.map((x) => el("button", { "data-sel": x.path === f.path || false,
+      onclick: () => { sel = { kind: "file", id: x.path }; draw(); } }, x.path.split("/").pop(), ` +${x.added}`))));
+    const d = el("div.c-diff");
+    let ln = 14;
+    for (const h of f.hunks) {
+      d.append(el("div.c-line.hunk", {}, el("span.ln"), el("span.ln"), el("span.t", {}, h.header)));
+      for (const [sign, text] of h.lines) {
+        d.append(el("div.c-line" + (sign === "+" ? ".add" : sign === "-" ? ".del" : ""), {},
+          el("span.ln", {}, sign === "+" ? "" : ln), el("span.ln", {}, sign === "-" ? "" : ln), el("span.t", {}, `${sign} ${text}`)));
+        ln++;
+        // Complaints from the review loop, anchored where they were raised.
+        for (const e of r.journal)
+          for (const c of complaintsOf(e))
+            if (c.file === f.path && c.line === ln - 1 && !d.querySelector(`[data-c="${c.text.slice(0, 12)}"]`))
+              d.append(el("div.c-inline", { "data-c": c.text.slice(0, 12) }, el("b", {}, `${e.label} — `), c.text,
+                el("div", { style: "color:#56d364;font-size:12px;margin-top:4px" }, "✓ resolved by fixer 1/5")));
+      }
+    }
+    m.append(d);
+    return m;
+  }
+
+  // ── right: one persistent conversation, decision box at the bottom ─────
+  function side() {
+    const s = el("div.c-side");
+    s.append(el("div.c-sidehead", {}, el("b", {}, "Checkpoint"), "waiting since 10:03 · everything green"));
+    const conv = el("div.c-conv");
+    for (const e of r.journal) {
+      if (isNoise(e) || e.step.startsWith("exec:") || e.step === "changedFiles") continue;
+      const cs = complaintsOf(e);
+      const t = el("div.c-turn", {}, el("div.w", {}, el("span", {}, e.label ?? (isAgent(e) ? agentName(e) : e.step)),
+        el("span", { style: "margin-left:auto" }, fmtMs(e.ms))));
+      const m = el("div.m");
+      if (e.step === "agent:planner") m.append(e.result.summary, el("ul", {}, e.result.steps.map((x) => el("li", {}, x))));
+      else if (cs.length) m.append(`${cs.length} complaints:`, el("ul", {}, cs.map((c) => el("li", {}, c.text))));
+      else if (e.result?.fixed) m.append(el("ul", {}, e.result.fixed.map((x) => el("li", {}, x))));
+      else if (e.result?.complaints) m.append(el("span.c-ok", {}, "clean"));
+      else if (e.step === "scm:waitForCi") m.append(e.result.status === "passed" ? el("span.c-ok", {}, "CI green (6/6)") : `CI failed: ${e.result.failedJobs.map((j) => j.name).join(", ")}`);
+      else if (e.step === "scm:openPr") m.append(`Opened PR #${e.result.number}`);
+      else if (e.step === "checkpoint") m.append(el("b", {}, e.label));
+      else if (e.result?.summary) m.append(e.result.summary);
+      if (e.chatter) {
+        const on = chatterOpen.has(e.seq);
+        m.append(el("button.c-more", { onclick: () => { on ? chatterOpen.delete(e.seq) : chatterOpen.add(e.seq); draw(); } }, on ? "less" : "…"));
+        if (on) m.append(el("pre", { style: "white-space:pre-wrap;color:#6f7987;font:11.5px/1.6 ui-monospace,Menlo,monospace;margin:6px 0 0" }, e.chatter.join("\n")));
+      }
+      t.append(m);
+      conv.append(t);
+    }
+    s.append(conv);
+    const ta = el("textarea", { placeholder: "Ask Rocky something, or type an instruction and hit Steer…" });
+    s.append(el("div.c-chat", {}, ta, el("div.c-decide", {},
+      el("button.c-yes", { onclick: () => answer("approve") }, "Approve"),
+      el("button.c-steer", { onclick: () => answer("steer", ta.value) }, "Steer"),
+      el("button.c-no", { onclick: () => answer("reject") }, "Reject"))));
+    return s;
+  }
+
+  function answer(kind, text) {
+    alert(`PROTOTYPE — no backend.\n\ndecision: ${kind}${text ? `\nmessage: ${text}` : ""}\n\nSteer feeds the fixer (workflow.ts:73), pushes, and re-runs the CI loop before coming back here.`);
+  }
+
+  // ── cmd+k ──────────────────────────────────────────────────────────────
+  function openPalette() {
+    const items = [
+      ...r.diff.files.map((f) => ({ label: f.path, k: "file", run: () => { sel = { kind: "file", id: f.path }; } })),
+      ...r.journal.filter((e) => !isNoise(e)).map((e) => ({ label: `#${e.seq} ${e.label ?? e.step}`, k: "step", run: () => { sel = { kind: "step", id: e.seq }; } })),
+      ...Object.values(screenshots).map((s) => ({ label: `${s.id}.png — ${s.caption}`, k: "shot", run: () => { sel = { kind: "shot", id: s.id }; } })),
+      { label: "Approve checkpoint", k: "action", run: () => answer("approve") },
+      { label: "Reject checkpoint", k: "action", run: () => answer("reject") },
+      ...runs.map((x) => ({ label: `Go to run ${x.id} — ${x.issue.title}`, k: "run", run: () => go({ run: x.id }) })),
+    ];
+    let q = "", cur = 0;
+    const input = el("input", { placeholder: "Jump to a file, step, screenshot or run…", autofocus: true });
+    const list = el("div");
+    const box = el("div.c-palbox", {}, input, list);
+    palette = el("div.c-pal", { onclick: (e) => e.target === palette && close() }, box);
+    document.body.append(palette);
+    const render = () => {
+      const hits = items.filter((i) => i.label.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
+      list.innerHTML = "";
+      hits.forEach((h, i) => list.append(el("button", { "data-sel": i === cur || false, onclick: () => { h.run(); close(); draw(); } },
+        h.label, el("span.k", {}, h.k))));
+      return hits;
+    };
+    let hits = render();
+    input.addEventListener("input", () => { q = input.value; cur = 0; hits = render(); });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); cur = Math.min(cur + 1, hits.length - 1); render(); }
+      if (e.key === "ArrowUp") { e.preventDefault(); cur = Math.max(cur - 1, 0); render(); }
+      if (e.key === "Enter") { hits[cur]?.run(); close(); draw(); }
+      if (e.key === "Escape") close();
+      e.stopPropagation();
+    });
+    input.focus();
+  }
+  const close = () => { palette?.remove(); palette = null; };
+
+  const onKey = (ev) => {
+    if (ev.metaKey && ev.key === "k") { ev.preventDefault(); return openPalette(); }
+    if (ev.target.matches?.("input,textarea")) return;
+    const files = r.diff.files.map((f) => f.path);
+    const i = files.indexOf(sel.id);
+    if (ev.key === "j" && sel.kind === "file") { sel = { kind: "file", id: files[Math.min(i + 1, files.length - 1)] }; draw(); }
+    if (ev.key === "k" && sel.kind === "file") { sel = { kind: "file", id: files[Math.max(i - 1, 0)] }; draw(); }
+    if (ev.key === "a") answer("approve");
+    if (ev.key === "Escape") close();
+  };
+  addEventListener("keydown", onKey);
+  return () => { removeEventListener("keydown", onKey); close(); };
+}
+
+return { css, mount };
+})();
+
+const VARIANT_D = (() => {
+/**
+ * VARIANT D — "Terminal".
+ *
+ * Not a fourth style. This variant exists to answer the question the ticket
+ * asks out loud: *does this want to be a TUI after all?* The map ruled a TUI
+ * out for v1 because "screenshots and diffs render badly in a terminal", and
+ * that claim deserved evidence rather than assertion.
+ *
+ * So: a real TUI shape rendered in the browser — 80-ish columns of
+ * monospace, box drawing, a status line, modal keys, `:` for commands, no
+ * mouse affordances anywhere. Screenshots are drawn the way a terminal image
+ * protocol actually gives them to you (downscaled, pixelated, cell-aligned),
+ * which is the honest test. Diffs get the terminal's own idiom, which is the
+ * idiom diffs were born in.
+ *
+ * Judge it against A/B/C and the TUI question answers itself.
+ */
+const css = `
+.variant-D { background: #05070a; color: #b7c2cc; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
+.d-wrap { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font-size: 13px; line-height: 1.45; }
+.d-tabs { display: flex; gap: 0; background: #0a0f14; border-bottom: 1px solid #16202b; }
+.d-tabs span { padding: 4px 12px; color: #55636f; }
+.d-tabs span[data-sel] { background: #16202b; color: #7ee1a8; }
+.d-tabs .right { margin-left: auto; padding-right: 12px; color: #55636f; }
+.d-body { display: grid; grid-template-columns: 38ch 1fr; overflow: hidden; }
+.d-pane { overflow: auto; padding: 6px 0 10px; }
+.d-left { border-right: 1px solid #16202b; }
+.d-row { white-space: pre; padding: 0 10px; }
+.d-row[data-cur] { background: #10305a; color: #dbe9ff; }
+.d-dim { color: #4d5a66; } .d-ok { color: #7ee1a8; } .d-bad { color: #ff7f76; } .d-wait { color: #ffcc66; } .d-key { color: #78b7ff; }
+.d-hd { color: #55636f; padding: 8px 10px 2px; white-space: pre; }
+.d-status { background: #16202b; color: #9fb0be; padding: 2px 10px; white-space: pre; display: flex; }
+.d-status .mode { background: #7ee1a8; color: #05070a; padding: 0 8px; margin-right: 10px; font-weight: 700; }
+.d-status .right { margin-left: auto; }
+.d-cmd { background: #05070a; border-top: 1px solid #16202b; padding: 2px 10px; }
+.d-cmd input { background: none; border: 0; color: #dbe9ff; font: inherit; width: 100%; outline: none; }
+.d-add { color: #7ee1a8; } .d-del { color: #ff7f76; } .d-hunk { color: #78b7ff; }
+.d-shotwrap { padding: 8px 10px; }
+.d-shot { image-rendering: pixelated; width: 62ch; max-width: 100%; display: block; border: 1px solid #16202b; opacity: .92; }
+.d-note { color: #ffcc66; white-space: pre-wrap; padding: 6px 10px; }
+.d-box { color: #2b3b4a; }
+`;
+
+const G = { done: "✓", waiting: "◔", bad: "✗" };
+function mount(root) {
+  const r = activeRun;
+  const groups = byStage(r.journal);
+
+  // A flat, cursor-addressable list — the TUI's only navigation model.
+  const rows = [];
+  for (const g of groups) {
+    rows.push({ kind: "stage", key: g.key, label: STAGES.find((s) => s.key === g.key)?.name ?? g.key });
+    for (const e of g.entries) rows.push({ kind: "step", e });
+  }
+  for (const f of r.diff.files) rows.push({ kind: "file", f });
+  for (const s of Object.values(screenshots)) rows.push({ kind: "shot", s });
+
+  let cur = rows.findIndex((x) => x.kind === "step" && x.e.status === "waiting");
+  let mode = "NORMAL";
+  let cmd = null;
+  let showNoise = false;
+  let msg = "run NG-412 · parked at #27 checkpoint · 44m";
+
+  /** Paths keep their tail (the filename); names keep their head. */
+  function trunc(s, n) { return s.length > n ? "…" + s.slice(-(n - 1)) : s; }
+  function truncName(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+  function wrapText(s, n, pad) { return s.replace(new RegExp(`(.{1,${n}})(\\s|$)`, "g"), (m) => m.trim() + "\n" + pad).trim(); }
+
+  const wrap = el("div.d-wrap");
+  root.append(wrap);
+  draw();
+
+  function visible() { return rows.filter((x) => !(x.kind === "step" && isNoise(x.e) && !showNoise)); }
+
+  function draw() {
+    wrap.innerHTML = "";
+    wrap.append(tabs(), el("div.d-body", {}, left(), right()), status(), cmd != null ? cmdline() : bindings());
+    wrap.querySelector("[data-cur]")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function tabs() {
+    return el("div.d-tabs", {}, runs.map((x) => el("span", { "data-sel": x.id === state.run || false },
+      `${x.id}${x.status === "awaiting-checkpoint" ? " ◔" : x.status === "running" ? " ⟳" : x.status === "merged" ? " ✓" : x.status === "exhausted" ? " ✗" : " ×"}`)),
+      el("span.right", {}, `rocky 0.1.0  ${r.now}`));
+  }
+
+  function left() {
+    const p = el("div.d-pane.d-left", {}, el("div.d-hd", {}, `┌ run ${r.issue.identifier} ${"─".repeat(6)} ${r.journal.length} steps ┐`));
+    const vis = visible();
+    for (const row of vis) {
+      const i = rows.indexOf(row);
+      if (row.kind === "stage") { p.append(el("div.d-row.d-dim", { "data-cur": i === cur || false }, `▾ ${row.label}`)); continue; }
+      if (row.kind === "file") { p.append(el("div.d-row", { "data-cur": i === cur || false }, `  ± ${trunc(row.f.path, 26)} `, el("span.d-add", {}, `+${row.f.added}`))); continue; }
+      if (row.kind === "shot") { p.append(el("div.d-row.d-dim", { "data-cur": i === cur || false }, `  🖼 ${row.s.id}.png`)); continue; }
+      const e = row.e;
+      const bad = isBad(e);
+      const cls = e.status === "waiting" ? "d-wait" : bad ? "d-bad" : isNoise(e) ? "d-dim" : "d-ok";
+      p.append(el("div.d-row", { "data-cur": i === cur || false },
+        el("span", { class: cls }, `  ${e.status === "waiting" ? G.waiting : bad ? G.bad : G.done} `),
+        `${truncName(e.label ?? (isAgent(e) ? agentName(e) : e.step), 22).padEnd(23)}`,
+        el("span.d-dim", {}, fmtMs(e.ms).padStart(7))));
+    }
+    p.append(el("div.d-hd", {}, `└${"─".repeat(34)}┘`));
+    return p;
+  }
+
+  function right() {
+    const row = rows[cur];
+    const p = el("div.d-pane");
+    if (!row) return p;
+
+    if (row.kind === "file") {
+      p.append(el("div.d-hd", {}, `── ${row.f.path}  +${row.f.added} −${row.f.removed} ${"─".repeat(4)}`));
+      for (const h of row.f.hunks) {
+        p.append(el("div.d-row.d-hunk", {}, h.header));
+        for (const [sign, text] of h.lines)
+          p.append(el("div.d-row" + (sign === "+" ? ".d-add" : sign === "-" ? ".d-del" : ""), {}, `${sign} ${text}`));
+      }
+      p.append(el("div.d-note", {}, "\n※ finding: this is the format diffs were invented in. Nothing about\n  a terminal hurts here — arguably the reverse."));
+      return p;
+    }
+
+    if (row.kind === "shot") {
+      p.append(el("div.d-hd", {}, `── ${row.s.id}.png ${"─".repeat(20)}`));
+      p.append(el("div.d-shotwrap", {}, el("img.d-shot", { src: row.s.src })));
+      p.append(el("div.d-row.d-dim", {}, row.s.caption));
+      p.append(el("div.d-note", {},
+        "\n※ finding: this is a 1280×800 screenshot at ~62 columns, which is what\n" +
+        "  kitty/iTerm inline images actually give you in a split pane. The\n" +
+        "  overlap bug in iter1.png is *just about* visible. Reading a\n" +
+        "  validation message, or judging spacing, is not.\n\n" +
+        "  Terminals with no image protocol (Terminal.app, most SSH) get\n" +
+        "  nothing at all — the fallback is `open` in a browser, which is\n" +
+        "  the browser again, one step later."));
+      return p;
+    }
+
+    if (row.kind === "stage") {
+      const g = groups.find((x) => x.key === row.key);
+      p.append(el("div.d-hd", {}, `── ${row.label} ${"─".repeat(24)}`));
+      p.append(el("div.d-row", {}, `${g.entries.length} steps, ${fmtMs(g.entries.reduce((a, e) => a + (e.ms ?? 0), 0))}, ${g.entries.flatMap(complaintsOf).length} complaints raised`));
+      return p;
+    }
+
+    const e = row.e;
+    p.append(el("div.d-hd", {}, `── #${e.seq} ${e.label ?? e.step}  [boot ${e.boot}] ${"─".repeat(8)}`));
+    if (e.step === "scm:waitForCi" && e.result.status === "failed") {
+      p.append(el("div.d-row.d-bad", {}, `\n  pipeline red — ${e.result.failedJobs.length} failing jobs\n`));
+      for (const j of e.result.failedJobs)
+        p.append(el("div.d-row", {}, el("span.d-bad", {}, `  ✗ ${j.name}\n`), el("span.d-dim", {}, j.excerpt.split("\n").map((l) => "      " + l).join("\n") + "\n")));
+      p.append(el("div.d-note", {}, "\n※ finding: CI log excerpts are the other thing a terminal is native at."));
+      return p;
+    }
+    if (e.step === "checkpoint") {
+      p.append(el("div.d-row.d-wait", {}, `\n  ${e.label}\n`));
+      p.append(el("div.d-row", {}, "  compliance ✓   ui ✓   review ✓   ci ✓ 6/6   mergeable: clean\n"));
+      p.append(el("div.d-row", {}, `  ${r.pr.url}\n`));
+      p.append(el("div.d-row", {}, "  ", el("span.d-key", {}, "a"), " approve   ", el("span.d-key", {}, "x"), " reject   ",
+        el("span.d-key", {}, ":steer <text>"), " steer\n"));
+      p.append(el("div.d-note", {}, "\n※ finding: the Checkpoint itself is perfectly good in a terminal.\n  It is a question with three answers. It never needed pixels."));
+      return p;
+    }
+    p.append(el("div.d-row", {}, `  status  ${e.status}`));
+    for (const c of complaintsOf(e)) p.append(el("div.d-row.d-bad", {}, `  ! ${c.file ? c.file + (c.line ? ":" + c.line : "") + " " : ""}${wrapText(c.text, 74, "    ")}`));
+    for (const d of e.result?.disagreed ?? []) p.append(el("div.d-row.d-wait", {}, `  ~ disagreed: ${wrapText(d.why, 70, "    ")}`));
+    if (e.result && !e.result.complaints) p.append(el("div.d-row", {}, "\n" + wrapText(JSON.stringify(e.result, null, 1), 78, "  ")));
+    if (e.chatter) {
+      p.append(el("div.d-hd", {}, `\n── raw stream ${"─".repeat(22)}`));
+      p.append(el("div.d-row.d-dim", {}, e.chatter.map((c) => "  " + c).join("\n")));
+    }
+    return p;
+  }
+
+  function status() {
+    return el("div.d-status", {},
+      el("span.mode", {}, mode),
+      msg,
+      el("span.right", {}, `${cur + 1}/${rows.length}  ${showNoise ? "all" : "signal"}  boots:${r.boots}`));
+  }
+
+  function bindings() {
+    return el("div.d-cmd", {}, el("span.d-dim", {},
+      "j/k move  gg/G top/bottom  za noise  a approve  x reject  :steer <text>  :runs  :diff  ? help"));
+  }
+
+  function cmdline() {
+    const inp = el("input", { value: cmd });
+    inp.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") { cmd = null; mode = "NORMAL"; draw(); }
+      if (e.key === "Enter") { run(inp.value); cmd = null; mode = "NORMAL"; draw(); }
+    });
+    queueMicrotask(() => inp.focus());
+    return el("div.d-cmd", {}, inp);
+  }
+
+  function run(line) {
+    const [c, ...rest] = line.replace(/^:/, "").split(" ");
+    if (c === "steer") return answer("steer", rest.join(" "));
+    if (c === "approve") return answer("approve");
+    if (c === "reject") return answer("reject");
+    if (c === "diff") { cur = rows.findIndex((x) => x.kind === "file"); msg = "jumped to the diff"; return; }
+    if (c === "runs") { msg = runs.map((x) => x.id).join("  "); return; }
+    if (c === "q") { msg = "a TUI you quit; a web UI you leave open. that is also a finding."; return; }
+    msg = `unknown command: ${c}`;
+  }
+
+  function answer(kind, text) {
+    alert(`PROTOTYPE — no backend.\n\ndecision: ${kind}${text ? `\nmessage: ${text}` : ""}\n\nJournal #27 flips waiting → done; the Run resumes at #28.`);
+  }
+
+
+  const onKey = (ev) => {
+    if (ev.target.matches?.("input,textarea")) return;
+    const vis = visible();
+    const at = vis.indexOf(rows[cur]);
+    const move = (d) => { const t = vis[Math.max(0, Math.min(vis.length - 1, at + d))]; cur = rows.indexOf(t); draw(); };
+    if (ev.key === "j" || ev.key === "n") { ev.preventDefault(); move(1); }
+    if (ev.key === "k" || ev.key === "p") { ev.preventDefault(); move(-1); }
+    if (ev.key === "G") { cur = rows.length - 1; draw(); }
+    if (ev.key === "g") { cur = 0; draw(); }
+    if (ev.key === ":") { ev.preventDefault(); cmd = ":"; mode = "COMMAND"; draw(); }
+    if (ev.key === "z") { showNoise = !showNoise; msg = showNoise ? "showing post/changedFiles bookkeeping" : "hiding bookkeeping steps"; draw(); }
+    if (ev.key === "a") answer("approve");
+    if (ev.key === "x") answer("reject");
+    if (ev.key === "?") msg = "j/k move · z noise · a approve · x reject · : command · `  raw journal";
+  };
+  addEventListener("keydown", onKey);
+  return () => removeEventListener("keydown", onKey);
+}
+
+return { css, mount };
+})();
+/**
+ * PROTOTYPE (NG-573) — the floating variant switcher.
+ * Deliberately ugly and high-contrast so it reads as scaffolding, not design.
+ */
+function mountSwitcher() {
+  document.querySelector(".proto-bar")?.remove();
+  const i = VARIANTS.findIndex((v) => v.key === state.variant);
+  const cur = VARIANTS[i] ?? VARIANTS[0];
+  const cycle = (d) => go({ variant: VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].key });
+
+  const bar = el("div.proto-bar", {},
+    el("button.proto-btn", { onclick: () => cycle(-1), title: "← previous variant" }, "‹"),
+    el("div.proto-label", {},
+      el("b", {}, `${cur.key} · ${cur.name}`),
+      el("span.proto-state", {}, ` run ${state.run} · ${state.screen}`)),
+    el("button.proto-btn", { onclick: () => cycle(1), title: "next variant →" }, "›"),
+    el("span.proto-hint", {}, "PROTOTYPE NG-573 — ←/→ switches variant, ` dumps journal"),
+  );
+  document.body.append(bar);
+}
+function installGlobalKeys() {
+  addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (t.matches?.("input,textarea,[contenteditable]")) return;
+    const i = VARIANTS.findIndex((v) => v.key === state.variant);
+    if (e.key === "ArrowLeft" && !e.metaKey) { e.preventDefault(); go({ variant: VARIANTS[(i - 1 + VARIANTS.length) % VARIANTS.length].key }); }
+    if (e.key === "ArrowRight" && !e.metaKey) { e.preventDefault(); go({ variant: VARIANTS[(i + 1) % VARIANTS.length].key }); }
+    if (e.key === "`") { e.preventDefault(); toggleJournalDump(); }
+  });
+}
+
+/** Rule 5: surface the state. ` shows the raw journal behind whatever is drawn. */
+function toggleJournalDump() {
+  const open = document.querySelector(".proto-dump");
+  if (open) return open.remove();
+  
+  const json = JSON.stringify(
+    activeRun.journal.map(({ seq, step, label, status, result }) => ({ seq, step, label, status, result })),
+    null, 1);
+  document.body.append(el("div.proto-dump", { onclick: (e) => e.target.closest(".proto-dump") === e.target && e.target.remove() },
+    el("pre", {}, `// the raw journal — the only thing that actually exists.\n// Everything each variant draws is a reading of this.\n\n${json}`)));
+}
+
+
+const IMPL = { A: VARIANT_A, B: VARIANT_B, C: VARIANT_C, D: VARIANT_D };
+const root = document.getElementById("app");
+let teardown = null;
+function render() {
+  teardown?.();
+  root.innerHTML = "";
+  document.querySelectorAll("style[data-variant]").forEach((s) => s.remove());
+  document.body.className = `variant-${state.variant}`;
+  const v = VARIANTS.find((x) => x.key === state.variant) ?? VARIANTS[0];
+  const mod = IMPL[v.key];
+  if (mod.css) {
+    const s = document.createElement("style");
+    s.dataset.variant = v.key; s.textContent = mod.css; document.head.append(s);
+  }
+  teardown = mod.mount(root) ?? null;
+  mountSwitcher();
+}
+onChange(render);
+installGlobalKeys();
+render();
+
+</script>
+</body>
+</html>

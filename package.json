@@ -4,6 +4,7 @@
   "description": "PROTOTYPE (NG-573) — throwaway. Answers: what does it feel like to watch a Run, and to be called into one?",
   "type": "module",
   "scripts": {
-    "ui": "bun ui/serve.ts"
+    "ui": "bun ui/serve.ts",
+    "build": "bun ui/build.js"
   }
 }
