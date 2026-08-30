@@ -14,11 +14,14 @@ Everything Rocky does for a repo lives in that repo, as files you can read and e
 
 ```
 .rocky/
-  config.ts        # repo-level knobs: how to run the app, tests, dev server
-  workflow.ts      # the pipeline itself, as imperative TypeScript
-  agents/*.md      # one file per agent: prompt, model, output schema, tools
+  workflow.ts      # a config block, then the pipeline, as imperative TypeScript
+  schemas.ts       # the agent output contracts, as ordinary zod values
+  mcp.json         # MCP servers; the only file Rocky reads outside a run
+  agents/*.md      # one file per agent: prompt only, no frontmatter
   rules/*.md       # plain-markdown review rules
 ```
+
+Model, tools and output schema are given where an agent is *called*, in `workflow.ts`, not in the agent's own file — so the one place that answers "what could this step touch" is the call site.
 
 The shipped defaults *are* those files, so customising means editing something already visible, and opting out means deleting a directory and a line. Rocky refuses to work on a repo without `.rocky/` — and that refusal hands over the fix: it inspects the repo, generates a config tuned to what it found, opens a PR, and asks you to merge it and re-delegate.
 
@@ -39,9 +42,11 @@ GitHub and GitLab are both first-class, including the awkward parts: merge queue
 | **Workflow** | The TypeScript definition in `.rocky/workflow.ts`. |
 | **Run** | One execution of a Workflow for one Linear issue. |
 | **Step** | One journaled unit inside a Run: an Agent call, a shell command, or a Checkpoint. |
-| **Agent** | A named prompt + model + output schema + tool policy, as a file in `.rocky/agents/`. |
+| **Agent** | A prompt file in `.rocky/agents/`, run with the model, tools and output schema its call site gives it. |
 | **Checkpoint** | The human-in-the-loop Step. Notifies Linear, links to the web UI, and blocks until answered. |
 | **Complaint** | One objection a reviewing Step emits and a fixer Step consumes. |
+| **Check** | One thing the UI inspector must verify in the running app. |
+| **Observation** | What a failed Check produces — a url, screenshots and prose. Becomes a Complaint once anchored to a file. |
 | **Harness** | The agent CLI behind a Step. |
 
 ## Status
