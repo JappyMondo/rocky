@@ -1,0 +1,30 @@
+{
+  "name": "rocky",
+  "version": "0.0.0",
+  "license": "MIT",
+  "description": "Rocky's CLI — a thin client for the per-developer local daemon.",
+  "type": "module",
+  "bin": {
+    "rocky": "./dist/main.js"
+  },
+  "main": "./dist/cli.js",
+  "types": "./dist/cli.d.ts",
+  "exports": {
+    ".": {
+      "@rocky/source": "./src/cli.ts",
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@rocky/daemon": "workspace:*",
+    "commander": "^14.0.2"
+  }
+}

@@ -49,9 +49,29 @@ GitHub and GitLab are both first-class, including the awkward parts: merge queue
 | **Observation** | What a failed Check produces — a url, screenshots and prose. Becomes a Complaint once anchored to a file. |
 | **Harness** | The agent CLI behind a Step. |
 
+## Working on Rocky itself
+
+An Nx workspace, pnpm, Node 24. Four buildable pieces:
+
+```
+packages/daemon   @rocky/daemon  the long-running local process: API + web UI on one port
+packages/cli      rocky          the thin client; `npx rocky` is the distribution
+packages/sdk      @rocky/sdk     types and Trigger builders for a repo's .rocky/ — never behaviour
+apps/web          web            the Vite/React shell the daemon serves
+```
+
+```sh
+pnpm install
+pnpm exec nx run-many -t build typecheck lint test   # what CI runs
+pnpm exec nx build @rocky/daemon                     # builds web and bundles it in
+node packages/cli/dist/main.js start                 # http://127.0.0.1:7625
+```
+
+`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Most of the command table is stubbed — each stub names the ticket that owns its semantics.
+
 ## Status
 
-Pre-implementation. The design is being settled ticket by ticket on the wayfinder map, [Rocky as an AI development-lifecycle platform](https://linear.app/digimondo/issue/NG-566).
+Pre-implementation. The workspace is scaffolded ([NG-515](https://linear.app/digimondo/issue/NG-515)); the design is being settled ticket by ticket on the wayfinder map, [Rocky as an AI development-lifecycle platform](https://linear.app/digimondo/issue/NG-566).
 
 ## Project management
 
