@@ -1,0 +1,23 @@
+{
+  "name": "@rocky/sdk",
+  "version": "0.0.0",
+  "license": "MIT",
+  "description": "Types and Trigger builders for a repo's .rocky/ — never behaviour.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "@rocky/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "zod": "^4.1.13"
+  }
+}

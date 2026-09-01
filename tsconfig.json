@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    { "path": "./packages/sdk" },
+    { "path": "./packages/daemon" },
+    { "path": "./packages/cli" },
+    { "path": "./apps/web" }
+  ],
+  "compilerOptions": {}
+}
