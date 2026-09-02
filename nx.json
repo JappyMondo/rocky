@@ -6,6 +6,7 @@
       "default",
       "!{projectRoot}/eslint.config.mjs",
       "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/**/*.fixtures.ts",
       "!{projectRoot}/tsconfig.spec.json",
       "!{projectRoot}/vitest.config.mts"
     ],

@@ -67,6 +67,32 @@ export const harnessSchema = z.looseObject({
   env: z.record(nonEmpty, z.string()).optional(),
 });
 
+/**
+ * Who Rocky commits as. NG-580 asks for worktree-local `user.name`/`user.email`
+ * = "the configured Rocky identity" but never says where that is configured,
+ * and NG-578's `config.json` shape does not name it — so it lands here.
+ *
+ * Defaulted rather than required, because the alternative to a default is a
+ * worktree that falls back to the machine's global git config, which is the one
+ * outcome NG-521 rules out. It is deliberately *not* the developer's own
+ * address: Rocky is the author, and the human's credit is the
+ * `Co-authored-by:` trailer, which NG-580 keeps as prompt content.
+ */
+export const DEFAULT_IDENTITY = {
+  name: 'Rocky',
+  email: 'rocky@localhost',
+} as const;
+
+export const identitySchema = z.looseObject({
+  name: nonEmpty.default(DEFAULT_IDENTITY.name),
+  // `rocky@localhost` has no TLD, so `z.email()` would reject the default.
+  // The check that earns its keep is the one git does not do: git accepts
+  // `user.email = "Rocky"` and writes an unreplyable commit.
+  email: nonEmpty
+    .regex(/^[^\s<>@]+@[^\s<>@]+$/, 'must look like an email address')
+    .default(DEFAULT_IDENTITY.email),
+});
+
 export const serverSchema = z.looseObject({
   host: nonEmpty.default(DEFAULT_HOST),
   port: z.number().int().min(0).max(65535).default(DEFAULT_PORT),
@@ -85,6 +111,7 @@ const instanceConfigShape = z.looseObject({
   // schema for the field defaults inside it to apply.
   server: serverSchema.prefault({}),
   retention: retentionSchema.prefault({}),
+  identity: identitySchema.prefault({}),
   repos: z.array(repoEntrySchema).default([]),
   groups: z.array(repoGroupSchema).default([]),
   harnesses: z.record(nonEmpty, harnessSchema).default({}),
@@ -92,6 +119,7 @@ const instanceConfigShape = z.looseObject({
 
 export type RepoEntry = z.infer<typeof repoEntrySchema>;
 export type RepoGroup = z.infer<typeof repoGroupSchema>;
+export type RockyIdentity = z.infer<typeof identitySchema>;
 export type HarnessConfig = z.infer<typeof harnessSchema>;
 export type InstanceConfig = z.infer<typeof instanceConfigShape>;
 

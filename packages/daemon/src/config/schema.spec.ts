@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ConfigError,
+  DEFAULT_IDENTITY,
   SHIPPED_HARNESSES,
   parseCredentials,
   parseInstanceConfig,
@@ -39,6 +40,44 @@ describe('an empty config', () => {
     expect(config.repos).toEqual([]);
     expect(config.groups).toEqual([]);
     expect(config.harnesses).toEqual({});
+    expect(config.identity).toEqual(DEFAULT_IDENTITY);
+  });
+});
+
+/**
+ * NG-580 asks for worktree-local `user.name`/`user.email` = "the configured
+ * Rocky identity" without saying where it is configured, and NG-578's
+ * `config.json` shape never named it. It lives here, and it is defaulted
+ * rather than required: a worktree that could not be given an identity would
+ * fall back to the machine's global config, which is the one outcome NG-521's
+ * third acceptance criterion rules out.
+ */
+describe('the Rocky identity', () => {
+  it('defaults, so a fresh machine can still author a commit', () => {
+    expect(parseInstanceConfig({}).identity).toEqual({
+      name: 'Rocky',
+      email: 'rocky@localhost',
+    });
+  });
+
+  it('is whatever the developer wrote', () => {
+    const config = parseInstanceConfig({
+      identity: { name: 'Rocky (niotix)', email: 'rocky@digimondo.de' },
+    });
+
+    expect(config.identity).toEqual({
+      name: 'Rocky (niotix)',
+      email: 'rocky@digimondo.de',
+    });
+  });
+
+  it('refuses a blank name or a non-address, since git would take either', () => {
+    expect(() => parseInstanceConfig({ identity: { name: '' } })).toThrow(
+      /identity[\s\S]*name/,
+    );
+    expect(() =>
+      parseInstanceConfig({ identity: { email: 'not-an-address' } }),
+    ).toThrow(/identity[\s\S]*email/);
   });
 });
 
