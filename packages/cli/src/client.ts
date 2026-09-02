@@ -59,10 +59,16 @@ export class DaemonClient {
     return this.request('/api/health');
   }
 
-  private async request<T>(path: string): Promise<T> {
+  /** Asks the daemon to stop. It answers before it goes (NG-595). */
+  async shutdown(): Promise<{ status: string }> {
+    return this.request('/api/shutdown', 'POST');
+  }
+
+  private async request<T>(path: string, method = 'GET'): Promise<T> {
     let response: Response;
     try {
       response = await this.doFetch(`${this.baseUrl}${path}`, {
+        method,
         headers: { [CLIENT_VERSION_HEADER]: this.cliVersion },
       });
     } catch {

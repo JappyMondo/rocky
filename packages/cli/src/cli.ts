@@ -1,9 +1,14 @@
 import {
-  openConfigStore,
   rockyPaths,
-  startDaemon,
+  runDaemon,
+  runDoctor,
+  anyFailed,
+  DaemonAlreadyRunningError,
   DEFAULT_HOST,
   DEFAULT_PORT,
+  type DoctorCheck,
+  type DoctorOptions,
+  type RockyPaths,
 } from '@rocky/daemon';
 import { Command } from 'commander';
 
@@ -22,6 +27,21 @@ import {
 } from './repo.js';
 import { createConsolePrompter } from './setup/prompter.js';
 import { runSetup } from './setup/wizard.js';
+import {
+  daemonStatus,
+  startDetached,
+  stopDaemon,
+  StartFailedError,
+  type AddressFlags,
+  type ControlOptions,
+} from './daemon-control.js';
+import { followLog, readTail } from './logs.js';
+import {
+  installService,
+  uninstallService,
+  UnsupportedPlatformError,
+  type ServiceEnvironment,
+} from './service.js';
 import { CLI_VERSION } from './version.js';
 
 export interface CliIo {
@@ -34,18 +54,29 @@ const CONSOLE_IO: CliIo = {
   err: (line) => console.error(line),
 };
 
+/** Everything a test needs to drive the CLI without a real daemon or disk. */
+export interface CliOptions extends ControlOptions {
+  paths?: RockyPaths;
+  /** Resolves to stop `logs -f`. Defaults to SIGINT. */
+  until?: Promise<void>;
+  /**
+   * Kept apart from the control options above: doctor's `fetch` goes through
+   * the *public* URL while the control commands' goes to loopback, and a test
+   * that stubs one rarely means the other.
+   */
+  doctor?: DoctorOptions;
+  /** Overrides where the service unit is written and what it runs. */
+  service?: ServiceEnvironment;
+  /** Setup seams stay on the CLI because the wizard owns terminal I/O. */
+  runSetup?: typeof runSetup;
+  createPrompter?: typeof createConsolePrompter;
+}
+
 /**
  * The three things a command does that a test cannot: talk to a terminal, bind
  * a socket, and watch a file. Defaulted to the real ones, so production reads
  * exactly as if they were called directly.
  */
-export interface CliDeps {
-  runSetup?: typeof runSetup;
-  createPrompter?: typeof createConsolePrompter;
-  startDaemon?: typeof startDaemon;
-  openConfigStore?: typeof openConfigStore;
-}
-
 /**
  * `repo add <url>` is a `repo` command with an `add` subcommand, but
  * `trigger <name> <issue>` is one command taking two arguments. The difference
@@ -77,15 +108,57 @@ function attachStub(program: Command, stub: StubbedCommand, io: CliIo): void {
   }
 }
 
+/** The `--host`/`--port` pair, deliberately without commander defaults. */
+type AddressOptionValues = { host?: string; port?: string };
+
+/**
+ * An unset flag stays unset, so `daemon-control` can fall back to the pidfile
+ * and then to `config.json`. A commander default would erase that difference
+ * and address the wrong daemon whenever the port is not 7625.
+ */
+function addressFlags(options: AddressOptionValues): AddressFlags {
+  return {
+    ...(options.host === undefined ? {} : { host: options.host }),
+    ...(options.port === undefined ? {} : { port: Number(options.port) }),
+  };
+}
+
+function withAddressOptions(command: Command): Command {
+  return command
+    .option('--host <host>', `Bind address. Defaults to ${DEFAULT_HOST}.`)
+    .option(
+      '--port <port>',
+      `Port for the local API and the web UI. Defaults to ${String(DEFAULT_PORT)}.`,
+    );
+}
+
+/** A doctor check as one block: the verdict, what was found, what to do. */
+function renderCheck(check: DoctorCheck): string[] {
+  const mark = check.skipped
+    ? '–'
+    : check.ok
+      ? '✓'
+      : check.advisory
+        ? '!'
+        : '✗';
+  const lines = [`${mark} ${check.name}`, `    ${check.detail}`];
+  if (check.fix !== undefined) {
+    lines.push(`    fix: ${check.fix}`);
+  }
+  return lines;
+}
+
 /**
  * Builds the whole `rocky` surface. Commander is configured not to call
  * `process.exit`, so the CLI is drivable from a test.
  */
-export function buildCli(io: CliIo = CONSOLE_IO, deps: CliDeps = {}): Command {
-  const setup = deps.runSetup ?? runSetup;
-  const prompterFor = deps.createPrompter ?? createConsolePrompter;
-  const start = deps.startDaemon ?? startDaemon;
-  const openConfig = deps.openConfigStore ?? openConfigStore;
+export function buildCli(
+  io: CliIo = CONSOLE_IO,
+  cli: CliOptions = {},
+): Command {
+  const paths = cli.paths ?? rockyPaths();
+  const setup = cli.runSetup ?? runSetup;
+  const prompterFor = cli.createPrompter ?? createConsolePrompter;
 
   const program = new Command('rocky')
     .description("Rocky's per-developer local daemon and its client.")
@@ -118,93 +191,241 @@ export function buildCli(io: CliIo = CONSOLE_IO, deps: CliDeps = {}): Command {
       }
     });
 
-  program
-    .command('start')
-    .description('Run the daemon, serving the local API and the web UI.')
-    .option('-d, --detach', 'Run in the background.')
-    .option('--host <host>', 'Bind address.', DEFAULT_HOST)
-    .option(
-      '--port <port>',
-      'Port for the local API and the web UI.',
-      String(DEFAULT_PORT),
-    )
-    .action(
-      async (options: { detach?: boolean; host: string; port: string }) => {
-        if (options.detach) {
-          // NG-594 laid out ~/.rocky; writing daemon.pid and rotating
-          // logs/daemon.log is the daemon-lifecycle ticket's job.
-          io.err(
-            '`rocky start -d` is not implemented yet — NG-595 owns the pidfile and log rotation. Run without `-d` for now.',
-          );
-          process.exitCode = 1;
+  const fail = (message: string): void => {
+    io.err(message);
+    process.exitCode = 1;
+  };
+
+  withAddressOptions(
+    program
+      .command('start')
+      .description('Run the daemon, serving the local API and the web UI.')
+      .option('-d, --detach', 'Run in the background.'),
+  ).action(async (options: AddressOptionValues & { detach?: boolean }) => {
+    const flags = addressFlags(options);
+
+    if (options.detach) {
+      try {
+        const address = await startDetached(paths, flags, cli);
+        io.out(`Rocky is listening on ${address.url}`);
+      } catch (error) {
+        if (error instanceof StartFailedError) {
+          fail(error.message);
           return;
         }
+        throw error;
+      }
+      return;
+    }
 
-        // The live view of `~/.rocky`, so the endpoint and the webhook secret
-        // follow a hot config reload rather than being frozen at boot (NG-578).
-        const store = await openConfig(rockyPaths(), { warn: io.err });
+    try {
+      const daemon = await runDaemon({
+        paths,
+        ...flags,
+        // A foreground daemon shows its log in the terminal as well as
+        // writing it, so `rocky start` is not a silent process.
+        echo: process.stdout,
+      });
+      io.out(`Rocky is listening on ${daemon.url}`);
+      // Held open by the server; `stopped` settles on SIGTERM, SIGINT or an
+      // API shutdown, which is what lets the command return cleanly.
+      await daemon.stopped;
+    } catch (error) {
+      if (error instanceof DaemonAlreadyRunningError) {
+        fail(error.message);
+        return;
+      }
+      throw error;
+    }
+  });
 
-        const daemon = await start({
-          host: options.host,
-          port: Number(options.port),
-          publicUrl: () => store.current.publicUrl,
-          webhookSecret: async () =>
-            (await store.readCredentials()).linear?.webhookSecret,
-          logger: true,
-        });
-
-        io.out(`Rocky is listening on ${daemon.url}`);
-        if (!store.current.publicUrl) {
-          io.out(
-            'No public URL configured, so Linear cannot deliver webhooks — run `rocky setup`.',
-          );
-        }
-      },
+  withAddressOptions(
+    program.command('status').description('Ask the running daemon how it is.'),
+  ).action(async (options: AddressOptionValues) => {
+    const status = await daemonStatus(
+      paths,
+      addressFlags(options),
+      cli,
+      io.err,
     );
 
+    if (!status.running) {
+      if (status.staleReason !== undefined) {
+        io.err(status.staleReason);
+      }
+      fail(
+        `no daemon answering at ${status.address.url} — \`rocky start\` to launch one`,
+      );
+      return;
+    }
+
+    io.out(
+      `Rocky v${status.version ?? '?'} is running on ${status.address.url}`,
+    );
+    if (status.record) {
+      io.out(
+        `pid ${String(status.record.pid)}, up since ${status.record.startedAt}`,
+      );
+    }
+    if (status.web === false) {
+      io.out('The web UI is not built into this daemon.');
+    }
+    // A repo can appear through a hand-edit of `config.json` and be cloned
+    // by the daemon with nobody watching, so `rocky status` is where that
+    // becomes visible (NG-521).
+    io.out(await repoSummary());
+    if (!status.endpoint?.configured) {
+      io.out('No public URL configured — run `rocky setup`.');
+    } else if (status.endpoint.ok) {
+      io.out('The public endpoint is reachable.');
+    } else {
+      io.err(
+        `Warning: Linear cannot reach Rocky — the public endpoint ${status.endpoint.detail ?? 'is not answering'}. Webhooks will not arrive until it is back; Runs still progress via polling. See docs/public-endpoint.md.`,
+      );
+    }
+  });
+
+  withAddressOptions(
+    program.command('stop').description('Stop the running daemon.'),
+  ).action(async (options: AddressOptionValues) => {
+    const outcome = await stopDaemon(paths, addressFlags(options), cli);
+
+    if (outcome.stopped) {
+      io.out(
+        `Rocky stopped${outcome.pid === undefined ? '' : ` (pid ${String(outcome.pid)})`}.`,
+      );
+      return;
+    }
+
+    if (outcome.reason === 'not-running') {
+      if (outcome.cleanedStalePidfile) {
+        // Detected, not obeyed — and cleared, so the next start is quiet.
+        io.out(
+          `No daemon was running. Removed the stale ${paths.pidFile} it left behind.`,
+        );
+        return;
+      }
+      io.out('No daemon is running.');
+      return;
+    }
+
+    fail(
+      `pid ${String(outcome.pid)} did not stop, over the API or on SIGTERM — \`kill -9 ${String(outcome.pid)}\` is the last resort`,
+    );
+  });
+
+  withAddressOptions(
+    program
+      .command('restart')
+      .description('Stop the running daemon and start it again.'),
+  ).action(async (options: AddressOptionValues) => {
+    const flags = addressFlags(options);
+    const outcome = await stopDaemon(paths, flags, cli);
+
+    if (!outcome.stopped && outcome.reason === 'would-not-die') {
+      fail(
+        `pid ${String(outcome.pid)} did not stop, so it was not restarted — \`kill -9 ${String(outcome.pid)}\` is the last resort`,
+      );
+      return;
+    }
+
+    try {
+      const address = await startDetached(paths, flags, cli);
+      io.out(`Rocky is listening on ${address.url}`);
+    } catch (error) {
+      if (error instanceof StartFailedError) {
+        fail(error.message);
+        return;
+      }
+      throw error;
+    }
+  });
+
   program
-    .command('status')
-    .description('Ask the running daemon how it is.')
-    .option('--host <host>', 'Bind address.', DEFAULT_HOST)
-    .option(
-      '--port <port>',
-      'Port the daemon listens on.',
-      String(DEFAULT_PORT),
-    )
-    .action(async (options: { host: string; port: string }) => {
-      const client = new DaemonClient({
-        host: options.host,
-        port: Number(options.port),
-        warn: io.err,
+    .command('logs')
+    .description("Print the daemon's log.")
+    .option('-f, --follow', 'Stream new lines.')
+    .option('-n, --lines <count>', 'How many lines of history to print.', '200')
+    .action(async (options: { follow?: boolean; lines: string }) => {
+      const lines = Number(options.lines);
+      for (const line of await readTail(paths, { lines })) {
+        io.out(line);
+      }
+
+      if (!options.follow) {
+        return;
+      }
+
+      await followLog(paths, io.out, {
+        until:
+          cli.until ??
+          new Promise<void>((resolve) => {
+            process.once('SIGINT', () => resolve());
+          }),
       });
+    });
 
+  program
+    .command('doctor')
+    .description(
+      'Endpoint self-ping, config validation and harness sign-in checks.',
+    )
+    .action(async () => {
+      const report = await runDoctor(paths, cli.doctor ?? {});
+
+      for (const check of report) {
+        for (const line of renderCheck(check)) {
+          io.out(line);
+        }
+      }
+
+      if (anyFailed(report)) {
+        fail('`rocky doctor` found problems. Each ✗ above names its fix.');
+        return;
+      }
+      io.out('All checks passed.');
+    });
+
+  const service = program.command('service').description('`service` commands.');
+
+  service
+    .command('install')
+    .description(
+      'Write a launchd or systemd user unit so the daemon survives a reboot.',
+    )
+    .action(async () => {
       try {
-        const health = await client.health();
-        io.out(`Rocky v${health.version} is running on ${client.url}`);
-        if (!health.web) {
-          io.out('The web UI is not built into this daemon.');
-        }
-        // A repo can appear through a hand-edit of `config.json` and be cloned
-        // by the daemon with nobody watching, so `rocky status` is where that
-        // becomes visible (NG-521).
-        io.out(await repoSummary());
-
-        const endpoint = health.endpoint;
-        if (!endpoint || !endpoint.configured) {
-          io.out('No public URL configured — run `rocky setup`.');
-        } else if (endpoint.ok) {
-          io.out('The public endpoint is reachable.');
-        } else {
-          // A warning, not a failure: Runs keep working, more slowly, and
-          // nothing here offers to restart a tunnel Rocky does not manage.
-          io.err(
-            `Warning: Linear cannot reach Rocky — the public endpoint ${endpoint.detail ?? 'is not answering'}. Webhooks will not arrive until it is back; Runs still progress via polling. See docs/public-endpoint.md.`,
-          );
-        }
+        const { target, changed } = await installService(paths, cli.service);
+        io.out(
+          changed
+            ? `Wrote ${target.file}`
+            : `${target.file} was already up to date`,
+        );
+        io.out(`Load it now with: ${target.loadHint}`);
       } catch (error) {
-        if (error instanceof DaemonUnreachableError) {
-          io.err(error.message);
-          process.exitCode = 1;
+        if (error instanceof UnsupportedPlatformError) {
+          fail(error.message);
+          return;
+        }
+        throw error;
+      }
+    });
+
+  service
+    .command('uninstall')
+    .description('Remove the launchd or systemd user unit.')
+    .action(async () => {
+      try {
+        const { target, removed } = await uninstallService(cli.service);
+        if (!removed) {
+          io.out(`No unit at ${target.file}.`);
+          return;
+        }
+        io.out(`Removed ${target.file}`);
+        io.out(`If it is still loaded, unload it with: ${target.unloadHint}`);
+      } catch (error) {
+        if (error instanceof UnsupportedPlatformError) {
+          fail(error.message);
           return;
         }
         throw error;
@@ -251,3 +472,5 @@ export function buildCli(io: CliIo = CONSOLE_IO, deps: CliDeps = {}): Command {
 
   return program;
 }
+
+export { DaemonClient, DaemonUnreachableError };

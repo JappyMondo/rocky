@@ -6,6 +6,10 @@ export default defineConfig({
     name: 'rocky',
     environment: 'node',
     include: ['src/**/*.spec.ts'],
+    // `daemon-control.spec.ts` spawns real detached daemons and binds real
+    // ports, which is the only honest way to test `start -d` and `stop`.
+    fileParallelism: false,
+    testTimeout: 20_000,
     coverage: {
       provider: 'v8',
       reportsDirectory: 'test-output/vitest/coverage',

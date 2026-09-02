@@ -4,11 +4,15 @@
  * v1 surface parses, and that a stub is honest about being one.
  */
 import {
-  openConfigStore,
   startDaemon,
   type RunningDaemon,
 } from '@rocky/daemon';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { rockyPaths } from '@rocky/daemon';
 
 import { buildCli, type CliIo } from './cli.js';
 import { STUBBED_COMMANDS, notImplementedMessage } from './commands.js';
@@ -203,85 +207,21 @@ describe('`rocky setup`', () => {
     expect(close).toHaveBeenCalled();
   });
 });
-
-describe('`rocky start`', () => {
-  it('refuses to daemonize until the pidfile has an owner', async () => {
-    const { lines, io: cliIo } = io();
-
-    await buildCli(cliIo).parseAsync(['node', 'rocky', 'start', '-d']);
-
-    expect(lines.err).toEqual([
-      '`rocky start -d` is not implemented yet — NG-595 owns the pidfile and log rotation. Run without `-d` for now.',
-    ]);
-    expect(process.exitCode).toBe(1);
-  });
-
-  /**
-   * The wiring, not the daemon: that the endpoint and the webhook secret are
-   * read out of the live config store rather than frozen at boot (NG-578).
-   */
-  describe('the wiring it hands the daemon', () => {
-    function withStore(publicUrl: string | undefined, webhookSecret?: string) {
-      const { lines, io: cliIo } = io();
-      const started: Record<string, unknown>[] = [];
-
-      const cli = buildCli(cliIo, {
-        openConfigStore: (async () => ({
-          current: { publicUrl },
-          readCredentials: async () => ({ linear: { webhookSecret } }),
-        })) as unknown as typeof openConfigStore,
-        startDaemon: (async (options: Record<string, unknown>) => {
-          started.push(options);
-          return { url: 'http://127.0.0.1:7625', close: async () => undefined };
-        }) as unknown as typeof startDaemon,
-      });
-
-      return { cli, lines, started };
-    }
-
-    it('reads the public URL and the webhook secret through the store', async () => {
-      const { cli, lines, started } = withStore(
-        'https://rocky.example.com',
-        'whsec-1',
-      );
-
-      await cli.parseAsync(['node', 'rocky', 'start']);
-
-      const options = started[0];
-      expect((options.publicUrl as () => string)()).toBe(
-        'https://rocky.example.com',
-      );
-      expect(await (options.webhookSecret as () => Promise<string>)()).toBe(
-        'whsec-1',
-      );
-      expect(lines.out).toContain(
-        'Rocky is listening on http://127.0.0.1:7625',
-      );
-    });
-
-    it('says webhooks cannot arrive when no public URL is set', async () => {
-      const { cli, lines } = withStore(undefined);
-
-      await cli.parseAsync(['node', 'rocky', 'start']);
-
-      expect(lines.out.join('\n')).toContain(
-        'No public URL configured, so Linear cannot deliver webhooks — run `rocky setup`.',
-      );
-    });
-  });
-});
-
 describe('`rocky status`', () => {
   it('points at `rocky start` when no daemon answers', async () => {
     const { lines, io: cliIo } = io();
+    // A temp root, so the developer's own ~/.rocky cannot decide the result.
+    const root = mkdtempSync(join(tmpdir(), 'rocky-cli-'));
 
-    await buildCli(cliIo).parseAsync([
+    await buildCli(cliIo, { paths: rockyPaths(root) }).parseAsync([
       'node',
       'rocky',
       'status',
       '--port',
       '7',
     ]);
+
+    rmSync(root, { recursive: true, force: true });
 
     expect(lines.err).toEqual([
       'no daemon answering at http://127.0.0.1:7 — `rocky start` to launch one',

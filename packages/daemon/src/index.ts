@@ -86,3 +86,25 @@ export { resolveWebRoot } from './web-root.js';
 export * from './config/index.js';
 
 export * from './repos/index.js';
+export * from './lifecycle/index.js';
+
+export {
+  AUTH_PROBES,
+  checkHarnessAuth,
+  harnessAuthEnv,
+  isShippedHarness,
+  type AuthProbe,
+  type CheckAuthOptions,
+  type HarnessAuthResult,
+  type ProbeResult,
+  type ProbeRunner,
+  type ShippedHarness,
+} from './harness/check-auth.js';
+
+export {
+  anyFailed,
+  runDoctor,
+  type DoctorCheck,
+  type DoctorOptions,
+  type DoctorReport,
+} from './doctor/doctor.js';

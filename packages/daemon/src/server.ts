@@ -64,6 +64,13 @@ export interface DaemonOptions {
   selfPing?: boolean;
   /** Injected for tests; the self-ping leaves the machine in production. */
   fetch?: typeof fetch;
+  /**
+   * What `rocky stop` asking over the local API does (NG-595). It runs after
+   * the reply is on the wire, so the client learns the request landed rather
+   * than watching the socket drop mid-answer. Omitted, the route reports that
+   * this daemon does not manage its own lifecycle.
+   */
+  onShutdown?: () => void;
 }
 
 export interface HealthStatus {
@@ -163,6 +170,28 @@ export async function createDaemon(
         ),
       );
   });
+
+  // `rocky stop` talks to the daemon over the local API rather than signalling
+  // it, so that stopping is one code path whether the caller is the developer,
+  // a service manager, or the CLI on another machine's behalf.
+  app.post('/api/shutdown', async (_request, reply) => {
+    if (!options.onShutdown) {
+      return reply.status(501).send({
+        error: 'this daemon does not manage its own lifecycle',
+      });
+    }
+    return reply.send({ status: 'stopping' });
+  });
+
+  if (options.onShutdown) {
+    // `onResponse` fires once the reply is fully written, which is what makes
+    // the answer reach the client before the process it describes goes away.
+    app.addHook('onResponse', async (request) => {
+      if (request.method === 'POST' && request.url === '/api/shutdown') {
+        options.onShutdown?.();
+      }
+    });
+  }
 
   if (webRoot) {
     await app.register(fastifyStatic, { root: webRoot });

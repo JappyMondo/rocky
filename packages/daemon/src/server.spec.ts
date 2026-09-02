@@ -135,6 +135,50 @@ describe('a daemon with no web shell beside it', () => {
   });
 });
 
+describe('the shutdown route', () => {
+  it('answers before the daemon goes away, so `rocky stop` learns it landed', async () => {
+    const asked: number[] = [];
+    daemon = await startDaemon({
+      port: 0,
+      webRoot: false,
+      onShutdown: () => asked.push(Date.now()),
+    });
+
+    const response = await fetch(`${daemon.url}/api/shutdown`, {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'stopping' });
+    expect(asked).toHaveLength(1);
+  });
+
+  it('says so plainly when this daemon does not manage its own lifecycle', async () => {
+    daemon = await startDaemon({ port: 0, webRoot: false });
+
+    const response = await fetch(`${daemon.url}/api/shutdown`, {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(501);
+    expect(await response.json()).toEqual({
+      error: 'this daemon does not manage its own lifecycle',
+    });
+  });
+
+  it('is not reachable by GET, so a browser cannot stop the daemon', async () => {
+    daemon = await startDaemon({
+      port: 0,
+      webRoot: false,
+      onShutdown: () => undefined,
+    });
+
+    const response = await fetch(`${daemon.url}/api/shutdown`);
+
+    expect(response.status).toBe(404);
+  });
+});
+
 describe('the bind address and port', () => {
   it('are configurable, so the docs can carry the exposure warning', async () => {
     daemon = await startDaemon({ host: '127.0.0.1', port: 7626, webRoot });
