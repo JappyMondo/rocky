@@ -13,10 +13,8 @@
     "@nx/eslint": "23.1.1",
     "@nx/eslint-plugin": "23.1.1",
     "@nx/js": "23.1.1",
-    "@nx/react": "23.1.1",
     "@nx/vite": "23.1.1",
     "@nx/vitest": "23.1.1",
-    "@nx/web": "23.1.1",
     "@swc-node/register": "1.11.1",
     "@swc/core": "1.15.8",
     "@swc/helpers": "0.5.23",
@@ -43,5 +41,16 @@
     "vite": "^8.0.0",
     "vitest": "~4.1.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "pnpm": {
+    "overrides": {
+      "brace-expansion@>=4.0.0 <5.0.9": ">=5.0.9"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-w3rx-r6r6-pgpr",
+        "GHSA-5p2g-fcmc-qvqq"
+      ]
+    }
+  }
 }
