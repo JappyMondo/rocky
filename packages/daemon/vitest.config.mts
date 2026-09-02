@@ -20,13 +20,16 @@ export default defineConfig({
       // Without this, v8 only reports files a test happens to import, so a new
       // untested file would land without moving the number the gate watches.
       include: ['src/**/*.ts'],
-      // Pinned to the measured baseline: vitest fails the run on any drop, so
-      // the gate is the same locally as in CI. Raise these when coverage rises.
+      // Pinned to the baseline measured *on the CI runner*, which is the
+      // platform of record: this suite covers one statement, branch and line
+      // more on darwin than on the linux runner (327/348 against 326/348), so
+      // pinning a local reading would fail every CI run. A local run therefore
+      // sits at or above these numbers. Raise them when coverage rises.
       thresholds: {
-        statements: 93.96,
-        branches: 86.27,
+        statements: 93.67,
+        branches: 85.62,
         functions: 95.83,
-        lines: 94.36,
+        lines: 94.06,
       },
     },
   },

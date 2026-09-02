@@ -80,6 +80,17 @@ jobs:
         if: always()
         run: cat coverage-report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # The thresholds are pinned to what this runner measures, so when a run
+      # fails on a drop the per-file numbers are what tell you which line moved
+      # — and they are not in the log, only in the report on disk.
+      - name: Keep the coverage summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summaries
+          path: '*/*/test-output/vitest/coverage/coverage-summary.json'
+          if-no-files-found: warn
+
       # One comment per PR, edited in place on every push rather than stacking.
       - name: Comment the coverage report on the pull request
         if: always() && github.event_name == 'pull_request'
@@ -106,8 +117,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # This service will hold provider and SCM credentials, so a known-exploitable
-      # dependency is a merge blocker. Relax the level here if a transitive
-      # advisory with no fix available starts blocking unrelated work.
+      # dependency is a merge blocker. An advisory with no fix available is
+      # waived one GHSA at a time in `pnpm.auditConfig.ignoreGhsas` (JSON takes
+      # no comments, so the README carries the reason) — never by relaxing this
+      # level, which would waive the next real one silently too.
       - name: Audit dependencies
         run: pnpm audit --audit-level=high
 
