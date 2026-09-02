@@ -145,7 +145,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   // The daemon serves the OAuth callback and answers the self-ping, so it is
   // up for the rest of the wizard. It is not the daemon the developer will run
   // afterwards — that is what `rocky start` is for.
-  const daemon = await startDaemon({
+  const daemon = await startWizardDaemon({
     host,
     port,
     webRoot: false,
@@ -263,6 +263,27 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
     return { ok: endpoint.ok, publicUrl, endpoint };
   } finally {
     await daemon.close();
+  }
+}
+
+/**
+ * Re-running `rocky setup` on a machine that already has a daemon up is a
+ * normal thing to do — re-authorizing after a refresh token is finally refused
+ * looks exactly like this. The port clash it causes is not, on its own,
+ * readable.
+ */
+async function startWizardDaemon(
+  options: Parameters<typeof startDaemon>[0],
+): Promise<RunningDaemon> {
+  try {
+    return await startDaemon(options);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      throw new Error(
+        `Port ${options?.port} is already in use, most likely by a daemon that is already running. Setup needs the port for Linear's OAuth callback — stop it with \`rocky stop\` and run \`rocky setup\` again.`,
+      );
+    }
+    throw error;
   }
 }
 

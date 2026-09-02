@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { rockyPaths } from '@rocky/daemon';
+import { rockyPaths, startDaemon } from '@rocky/daemon';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Prompter } from './prompter.js';
@@ -164,6 +164,41 @@ describe('the order the wizard enforces', () => {
     // The one assertion AC2 is really about: no manifest, so no app.
     expect(harness.said.join('\n')).not.toContain('manifest=');
     expect(harness.said.join('\n')).not.toContain('applications/new');
+  });
+});
+
+describe('a port that is already taken', () => {
+  it('names the running daemon rather than reporting EADDRINUSE', async () => {
+    const occupant = await startDaemon({ port: 0, webRoot: false });
+
+    try {
+      const harness = scripted(['Jan Jaap', PUBLIC_URL]);
+
+      await expect(
+        runSetup({
+          prompter: harness.prompter,
+          paths: rockyPaths(home),
+          port: occupant.port,
+        }),
+      ).rejects.toThrow(/already in use.*rocky stop/s);
+    } finally {
+      await occupant.close();
+    }
+  });
+
+  it('passes any other bind failure through untouched', async () => {
+    const harness = scripted(['Jan Jaap', PUBLIC_URL]);
+
+    await expect(
+      runSetup({
+        prompter: harness.prompter,
+        paths: rockyPaths(home),
+        port: 0,
+        // TEST-NET-3: a routable-looking address no interface holds, so the
+        // bind fails for a reason that is not a port clash.
+        host: '203.0.113.1',
+      }),
+    ).rejects.toThrow(/EADDRNOTAVAIL|EINVAL/);
   });
 });
 
