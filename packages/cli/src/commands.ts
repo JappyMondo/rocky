@@ -59,17 +59,17 @@ export const STUBBED_COMMANDS: readonly StubbedCommand[] = [
   {
     signature: 'repo add <url>',
     description: 'Clone a repo eagerly and add it to the instance config.',
-    owner: 'NG-594',
+    owner: 'NG-521',
   },
   {
     signature: 'repo list',
     description: 'List the configured repos and repo groups.',
-    owner: 'NG-594',
+    owner: 'NG-521',
   },
   {
     signature: 'repo remove <name>',
     description: 'Remove a repo entry from the instance config.',
-    owner: 'NG-594',
+    owner: 'NG-521',
   },
   {
     signature: 'init',

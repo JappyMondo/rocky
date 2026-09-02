@@ -15,3 +15,5 @@ export {
 } from './version.js';
 
 export { resolveWebRoot } from './web-root.js';
+
+export * from './config/index.js';
