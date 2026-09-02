@@ -3,7 +3,7 @@
  * and NG-595's first acceptance criterion is about the case where it lies: "a
  * stale pidfile is detected, not obeyed."
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -183,6 +183,49 @@ describe('removing the pidfile', () => {
     await removePidFile(paths, { pid: 4242 });
 
     expect(await readPidFile(paths)).toBeUndefined();
+  });
+});
+
+describe('a pidfile the filesystem will not cooperate with', () => {
+  /**
+   * A directory where the pidfile should be. Every operation hits a different
+   * `errno` than the ENOENT each one special-cases, and none of them should
+   * be swallowed as "no daemon" — a filesystem problem is not a verdict about
+   * whether Rocky is running.
+   */
+  const putADirectoryThere = () =>
+    mkdirSync(paths.pidFile, { recursive: true });
+
+  it('does not read as "no pidfile"', async () => {
+    putADirectoryThere();
+
+    await expect(readPidFile(paths)).rejects.toThrow();
+  });
+
+  it('does not remove as "nothing to remove"', async () => {
+    putADirectoryThere();
+    // A non-empty directory cannot be unlinked on either platform.
+    await writeFile(join(paths.pidFile, 'in-the-way'), 'x');
+
+    await expect(removePidFile(paths)).rejects.toThrow();
+  });
+
+  it('surfaces a write it could not finish', async () => {
+    putADirectoryThere();
+    await writeFile(join(paths.pidFile, 'in-the-way'), 'x');
+
+    await expect(writePidFile(paths, RECORD)).rejects.toThrow();
+  });
+
+  it('leaves no temp file behind when the write fails', async () => {
+    putADirectoryThere();
+    await writeFile(join(paths.pidFile, 'in-the-way'), 'x');
+
+    await writePidFile(paths, RECORD).catch(() => undefined);
+
+    expect(readdirSync(root).filter((name) => name.endsWith('.tmp'))).toEqual(
+      [],
+    );
   });
 });
 

@@ -67,16 +67,30 @@ await runDaemon({
 });
 `;
 
+/**
+ * Nothing listens on the discard port. Pinned in every temp config so that a
+ * command finding no pidfile falls back to *this* rather than to the default
+ * 7625 — where another suite's daemon may well be answering, and where a
+ * `stop` would then stop somebody else's.
+ */
+const NOWHERE = 9;
+
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'rocky-ctl-'));
   paths = rockyPaths(root);
   entry = join(root, 'fake-rocky.mjs');
   await writeFile(entry, CHILD);
+  await writeInstanceConfig(paths, {
+    server: { host: '127.0.0.1', port: NOWHERE },
+  });
 });
 
 afterEach(async () => {
-  // Whatever a test left running, so a failure never leaks a daemon.
-  await stopDaemon(paths, {}, control()).catch(() => undefined);
+  // Whatever a test left running, so a failure never leaks a daemon — but
+  // only ever a daemon this test started, which is what the pidfile says.
+  if (await readPidFile(paths)) {
+    await stopDaemon(paths, {}, control()).catch(() => undefined);
+  }
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -213,7 +227,11 @@ describe('a pidfile naming the process doing the stopping', () => {
       startedAt: new Date().toISOString(),
     });
 
-    const outcome = await stopDaemon(paths, {}, { ...control(), timeoutMs: 200 });
+    const outcome = await stopDaemon(
+      paths,
+      {},
+      { ...control(), timeoutMs: 200 },
+    );
 
     // Still alive to make the assertion at all, which is most of the point.
     expect(pidIsAlive(process.pid)).toBe(true);
@@ -307,6 +325,12 @@ describe('resolving which daemon to talk to', () => {
   });
 
   it('falls back to the default port when there is nothing else', async () => {
-    expect((await resolveAddress(paths, {})).port).toBe(7625);
+    // A root with neither a pidfile nor a config, unlike the pinned one the
+    // other tests use.
+    const bare = rockyPaths(mkdtempSync(join(tmpdir(), 'rocky-bare-')));
+
+    expect((await resolveAddress(bare, {})).port).toBe(7625);
+
+    rmSync(bare.root, { recursive: true, force: true });
   });
 });

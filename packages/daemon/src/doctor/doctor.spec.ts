@@ -255,6 +255,26 @@ describe('the harness checks', () => {
   });
 });
 
+describe('a check that goes wrong rather than failing', () => {
+  it('is reported as a failed check, not as a doctor that died', async () => {
+    // A doctor that throws on the first problem cannot tell you about the
+    // second, which is the entire reason to run it.
+    await writeInstanceConfig(paths, { harnesses: { 'claude-code': {} } });
+
+    const report = await runDoctor(paths, {
+      ...OFFLINE,
+      checkHarness: () => Promise.reject(new Error('the probe exploded')),
+    });
+
+    expect(check(report, 'harness claude-code').ok).toBe(false);
+    expect(check(report, 'harness claude-code').detail).toContain(
+      'the probe exploded',
+    );
+    // And the checks after it still ran.
+    expect(check(report, 'harness opencode')).toBeTruthy();
+  });
+});
+
 describe('the verdict over the whole run', () => {
   it('is a pass when every check passed', async () => {
     const report = await runDoctor(paths, OFFLINE);

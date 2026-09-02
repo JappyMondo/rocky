@@ -234,8 +234,10 @@ describe('running the probe for real', () => {
   });
 
   it('reads a real non-zero exit as not signed in', async () => {
+    // node, handed `auth status` as filenames, exits non-zero — and it is the
+    // one binary this suite is guaranteed to have on any platform.
     const result = await checkHarnessAuth('claude-code', {
-      command: '/usr/bin/false',
+      command: process.execPath,
     });
 
     expect(result.ok).toBe(false);

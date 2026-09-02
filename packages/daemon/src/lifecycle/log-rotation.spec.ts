@@ -152,6 +152,19 @@ describe('the rotating log', () => {
   });
 });
 
+describe('keeping nothing at all', () => {
+  it('drops the old file rather than numbering it', async () => {
+    // `keep: 0` is a legitimate "I only ever want the current log": the cap
+    // still has to hold, and there is nowhere to move the old file to.
+    const stream = rotatingLogStream(file, { maxBytes: 10, keep: 0 });
+
+    await writeLines(stream, ['aaaaaaaaa', 'bbbbbbbbb']);
+
+    expect(filesInDir()).toEqual(['daemon.log']);
+    expect(readFileSync(file, 'utf8')).toBe('bbbbbbbbb\n');
+  });
+});
+
 describe('a log destination that goes wrong', () => {
   it('surfaces the error on the stream rather than crashing the daemon', async () => {
     // The directory is removed underneath a rotation, so reopening fails.

@@ -9,6 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { readPidFile, writePidFile } from './pidfile.js';
@@ -243,6 +244,123 @@ describe('a second daemon on the same ~/.rocky', () => {
     daemon = await runDaemon({ paths, ...EPHEMERAL });
 
     expect((await readPidFile(paths))?.pid).toBe(process.pid);
+  });
+});
+
+describe('a foreground daemon', () => {
+  it('echoes its log to the terminal as well as writing it', async () => {
+    // `rocky start` without `-d` should not be a silent process, and what it
+    // shows must still end up where `rocky logs` will find it.
+    const shown: string[] = [];
+    const echo = new Writable({
+      write(chunk: Buffer | string, _encoding, callback) {
+        shown.push(chunk.toString());
+        callback();
+      },
+    });
+
+    daemon = await runDaemon({ paths, ...EPHEMERAL, echo });
+    daemon.log.info('a line for both');
+
+    await daemon.stop();
+    daemon = undefined;
+
+    expect(shown.join('')).toContain('a line for both');
+    expect(readFileSync(paths.daemonLog, 'utf8')).toContain('a line for both');
+  });
+
+  it('redacts the echo too — a secret must not reach the terminal', async () => {
+    await writeCredentials(paths, {
+      linear: { accessToken: 'lin_PLANTED_FOR_THE_TERMINAL' },
+    });
+    const shown: string[] = [];
+    const echo = new Writable({
+      write(chunk: Buffer | string, _encoding, callback) {
+        shown.push(chunk.toString());
+        callback();
+      },
+    });
+
+    daemon = await runDaemon({ paths, ...EPHEMERAL, echo });
+    daemon.log.info('token is lin_PLANTED_FOR_THE_TERMINAL');
+
+    await daemon.stop();
+    daemon = undefined;
+
+    expect(shown.join('')).not.toContain('lin_PLANTED_FOR_THE_TERMINAL');
+    expect(shown.join('')).toContain('[redacted]');
+  });
+
+  it('leaves the terminal open when it ends, having only borrowed it', async () => {
+    let ended = false;
+    const echo = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback();
+      },
+      final(callback) {
+        ended = true;
+        callback();
+      },
+    });
+
+    daemon = await runDaemon({ paths, ...EPHEMERAL, echo });
+    await daemon.stop();
+    daemon = undefined;
+
+    // Closing the developer's stdout on the way out would be a rude daemon.
+    expect(ended).toBe(false);
+  });
+});
+
+describe('a port that is already taken', () => {
+  it('fails without leaving a pidfile claiming the daemon started', async () => {
+    daemon = await runDaemon({ paths, ...EPHEMERAL });
+    const taken = daemon.port;
+    const second = rockyPaths(mkdtempSync(join(tmpdir(), 'rocky-busy-')));
+
+    await expect(
+      runDaemon({ paths: second, port: taken, webRoot: false }),
+    ).rejects.toThrow();
+
+    expect(await readPidFile(second)).toBeUndefined();
+    rmSync(second.root, { recursive: true, force: true });
+  });
+});
+
+describe('a warning raised before the log exists', () => {
+  it('reaches the log once there is one', async () => {
+    // The stale-pidfile notice is raised while the redaction set is still
+    // being built, so it has nowhere to go yet. Losing it would make a
+    // replaced pidfile invisible after the fact.
+    await writePidFile(paths, {
+      pid: 2 ** 22,
+      host: '127.0.0.1',
+      port: 7625,
+      url: 'http://127.0.0.1:7625',
+      version: DAEMON_VERSION,
+      startedAt: new Date().toISOString(),
+    });
+
+    daemon = await runDaemon({ paths, ...EPHEMERAL });
+    await daemon.stop();
+    daemon = undefined;
+
+    expect(readFileSync(paths.daemonLog, 'utf8')).toContain('is not running');
+  });
+});
+
+describe('the signal handler itself', () => {
+  it('stops the daemon when it fires', async () => {
+    daemon = await runDaemon({ paths, ...EPHEMERAL });
+    // Invoked directly rather than by raising a real SIGTERM, which would
+    // reach the test runner's own handlers too.
+    const ours = process.listeners('SIGTERM').at(-1) as () => void;
+
+    ours();
+    await daemon.stopped;
+
+    expect(await readPidFile(paths)).toBeUndefined();
+    daemon = undefined;
   });
 });
 

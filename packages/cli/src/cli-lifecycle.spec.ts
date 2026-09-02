@@ -29,12 +29,16 @@ let home: string;
 let paths: RockyPaths;
 let originalExitCode: typeof process.exitCode;
 
-beforeEach(() => {
+beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'rocky-cmd-'));
   home = mkdtempSync(join(tmpdir(), 'rocky-cmd-home-'));
   paths = rockyPaths(root);
-  // The daemon lays this out at boot; these tests never start one.
+  // The daemon lays this out at boot; most of these tests never start one.
   mkdirSync(paths.logsDir, { recursive: true });
+  // Nothing listens on the discard port. Pinned so that a command finding no
+  // pidfile falls back to *this* rather than to the default 7625, where
+  // another suite's daemon may well be answering.
+  await writeInstanceConfig(paths, { server: { host: '127.0.0.1', port: 9 } });
   originalExitCode = process.exitCode;
 });
 
@@ -235,7 +239,9 @@ describe('the commands that need a daemon to be there', () => {
 
     const lines = await run(['stop']);
 
-    expect(lines.out[0]).toContain(`Rocky stopped (pid ${String(process.pid)})`);
+    expect(lines.out[0]).toContain(
+      `Rocky stopped (pid ${String(process.pid)})`,
+    );
     await daemon?.stopped;
     daemon = undefined;
   });
@@ -245,9 +251,7 @@ describe('the commands that need a daemon to be there', () => {
 
     const lines = await run(['start', '-d']);
 
-    expect(lines.err.join('\n')).toContain(
-      `already running on ${running.url}`,
-    );
+    expect(lines.err.join('\n')).toContain(`already running on ${running.url}`);
     expect(process.exitCode).toBe(1);
   });
 
