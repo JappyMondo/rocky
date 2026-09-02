@@ -66,6 +66,7 @@ pnpm exec prettier --check .                         # CI checks this repo-wide
 pnpm exec nx run-many -t build typecheck lint        # what CI runs on main
 pnpm exec nx run-many -t test --coverage             # the coverage gate, as CI runs it
 pnpm exec nx build @rocky/daemon                     # builds web and bundles it in
+node packages/cli/dist/main.js setup                 # the first-run wizard
 node packages/cli/dist/main.js start                 # http://127.0.0.1:7625
 ```
 
@@ -75,7 +76,9 @@ Two `image-size` advisories are waived in `pnpm.auditConfig.ignoreGhsas` (`GHSA-
 
 `main` is protected: the `CI` job is the required status check, commits must be signed, a pull request needs one approving review, and history stays linear — merges are squashes ([NG-562](https://linear.app/digimondo/issue/NG-562)).
 
-`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Most of the command table is stubbed — each stub names the ticket that owns its semantics.
+`rocky setup` is the interactive first-run wizard: it asks for your public URL first — a Linear webhook URL is fixed when the OAuth app is created and cannot be changed afterwards — then prints a manifest URL to hand to a workspace admin, takes the app's credentials, runs the OAuth flow locally, and verifies the endpoint with a self-ping. See [docs/public-endpoint.md](docs/public-endpoint.md) for tunnel recipes.
+
+`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. The public endpoint fronts the webhook only, never the web UI. Most of the rest of the command table is stubbed — each stub names the ticket that owns its semantics.
 
 ## Status
 

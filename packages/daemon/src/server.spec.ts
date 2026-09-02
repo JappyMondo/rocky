@@ -66,6 +66,9 @@ describe('a daemon serving the web shell', () => {
       status: 'ok',
       version: DAEMON_VERSION,
       web: true,
+      // No `publicUrl` on this daemon, so the endpoint is unconfigured rather
+      // than failing — a machine that has not run `rocky setup` yet.
+      endpoint: { configured: false, ok: false },
     });
   });
 
@@ -126,6 +129,7 @@ describe('a daemon with no web shell beside it', () => {
       status: 'ok',
       version: DAEMON_VERSION,
       web: false,
+      endpoint: { configured: false, ok: false },
     });
     expect(shell.status).toBe(404);
   });

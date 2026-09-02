@@ -3,6 +3,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   VERSION_HEADER,
+  type HealthStatus,
 } from '@rocky/daemon';
 
 import { CLI_VERSION } from './version.js';
@@ -49,7 +50,12 @@ export class DaemonClient {
     return this.baseUrl;
   }
 
-  async health(): Promise<{ status: string; version: string; web: boolean }> {
+  /**
+   * `endpoint` is optional on the way in: a CLI can be newer than the daemon it
+   * is talking to, and the version handshake already warns about that — it
+   * should not additionally crash reading a field the old daemon never sent.
+   */
+  async health(): Promise<Partial<HealthStatus> & { version: string }> {
     return this.request('/api/health');
   }
 

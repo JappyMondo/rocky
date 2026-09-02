@@ -2,10 +2,19 @@ import { useEffect, useState } from 'react';
 
 import styles from './app.module.css';
 
+interface EndpointHealth {
+  /** False on a machine that has not run `rocky setup` yet. */
+  configured: boolean;
+  ok: boolean;
+  checkedAt?: string;
+  detail?: string;
+}
+
 interface Health {
   status: string;
   version: string;
   web: boolean;
+  endpoint?: EndpointHealth;
 }
 
 type State =
@@ -38,9 +47,26 @@ export function App() {
     };
   }, []);
 
+  const endpoint =
+    state.kind === 'connected' ? state.health.endpoint : undefined;
+
   return (
     <main className={styles.shell}>
       <h1>Rocky</h1>
+      {/*
+       * Only when the endpoint is configured *and* failing. Unconfigured is a
+       * machine mid-setup, not a fault, and NG-578 rules out any remediation —
+       * so the banner explains and points at the docs rather than offering a
+       * button that would restart something Rocky does not manage.
+       */}
+      {endpoint?.configured && !endpoint.ok && (
+        <p role="status" className={styles.banner}>
+          <strong>Linear cannot reach Rocky.</strong> The public endpoint{' '}
+          {endpoint.detail ?? 'is not answering'}. Webhooks will not arrive
+          until it is back — Runs still progress, more slowly. See{' '}
+          <code>docs/public-endpoint.md</code>.
+        </p>
+      )}
       {state.kind === 'loading' && <p>Reaching the daemon…</p>}
       {state.kind === 'connected' && (
         <p>

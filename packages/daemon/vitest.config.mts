@@ -25,11 +25,16 @@ export default defineConfig({
       // more on darwin than on the linux runner (327/348 against 326/348), so
       // pinning a local reading would fail every CI run. A local run therefore
       // sits at or above these numbers. Raise them when coverage rises.
+      //
+      // Raised by NG-600, which measured 96.09 / 88.62 / 96.38 / 96.48 on
+      // darwin. Each number below is that reading less about half a point, so
+      // the one-unit darwin/linux gap above cannot fail an honest run — the
+      // margin is for the platform, not for slack.
       thresholds: {
-        statements: 93.67,
-        branches: 85.62,
+        statements: 95.5,
+        branches: 88,
         functions: 95.83,
-        lines: 94.06,
+        lines: 96,
       },
     },
   },

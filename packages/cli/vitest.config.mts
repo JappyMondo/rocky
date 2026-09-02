@@ -18,11 +18,15 @@ export default defineConfig({
       exclude: ['src/main.ts'],
       // Pinned to the measured baseline: vitest fails the run on any drop, so
       // the gate is the same locally as in CI. Raise these when coverage rises.
+      //
+      // Raised by NG-600, which measured 94.02 / 81.7 / 81.57 / 94.5. Held half
+      // a point under that, for the same platform reason the daemon's config
+      // spells out.
       thresholds: {
-        statements: 80,
-        branches: 80.55,
-        functions: 66.66,
-        lines: 81.25,
+        statements: 93.4,
+        branches: 81,
+        functions: 81,
+        lines: 94,
       },
     },
   },
