@@ -3,10 +3,7 @@
  * tickets named in `commands.ts` fill it in. So these assert that the whole
  * v1 surface parses, and that a stub is honest about being one.
  */
-import {
-  startDaemon,
-  type RunningDaemon,
-} from '@rocky/daemon';
+import { startDaemon, type RunningDaemon } from '@rocky/daemon';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
