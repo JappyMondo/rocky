@@ -20,17 +20,17 @@ export default defineConfig({
       // Without this, v8 only reports files a test happens to import, so a new
       // untested file would land without moving the number the gate watches.
       include: ['src/**/*.ts'],
-       // Pinned just under the measured baseline, because this suite covers
-      // slightly more on darwin than on the linux runner — a few `POSIX`
-      // guards — so pinning a local reading exactly would fail every CI run.
-      // The margin below is about two units of each metric. Measured on darwin
-      // at 95.27 / 87.45 / 95.97 / 95.66 (571 statements, 311 branches, 149
-      // functions, 553 lines). Raise them when coverage rises.
+       // Pinned to the baseline measured *on the CI runner*, which is the
+      // platform of record: this suite covers two statements, one branch and
+      // two lines more on darwin than on the linux runner (542/571, 271/311
+      // and 527/553 there), so pinning a local reading would fail every CI
+      // run. A local run therefore sits at or above these numbers. Raise them
+      // when coverage rises.
       thresholds: {
-        statements: 94.9,
-        branches: 86.8,
-         functions: 95.3,
-         lines: 95.3,
+        statements: 94.92,
+        branches: 87.13,
+         functions: 95.97,
+         lines: 95.29,
        },
     },
   },
