@@ -6,7 +6,13 @@
  * These are the file-format tests. The replay semantics built on top of them
  * live in `replay.spec.ts`.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -64,6 +70,12 @@ describe('an absent journal', () => {
     expect(journal.nextBoot).toBe(1);
     expect(journal.truncated).toBe(false);
     expect(journal.end).toBeUndefined();
+  });
+
+  it('surfaces an unreadable journal rather than treating it as absent', async () => {
+    mkdirSync(path);
+
+    await expect(openJournal(path)).rejects.toMatchObject({ code: 'EISDIR' });
   });
 });
 
