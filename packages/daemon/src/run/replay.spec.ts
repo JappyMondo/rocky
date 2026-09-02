@@ -49,9 +49,14 @@ function clock(): () => number {
   return () => Date.UTC(2026, 8, 2, 10, 0, 0) + tick++;
 }
 
-type Workflow = (ctx: BootContext) => Promise<'merged' | 'rejected' | 'exhausted'>;
+type Workflow = (
+  ctx: BootContext,
+) => Promise<'merged' | 'rejected' | 'exhausted'>;
 
-function boot(workflow: Workflow, over: Partial<Parameters<typeof runBoot>[0]> = {}) {
+function boot(
+  workflow: Workflow,
+  over: Partial<Parameters<typeof runBoot>[0]> = {},
+) {
   return runBoot({ journalPath: path, workflow, now: clock(), ...over });
 }
 
@@ -137,20 +142,24 @@ describe('the first Boot', () => {
 });
 
 describe('a replaying Boot', () => {
-  const script = (touched: string[]): Workflow => async (ctx) => {
-    const plan = await ctx.step('agent', { label: 'plan' }, async () => {
-      touched.push('agent');
-      return { status: 'done', result: { touchesUi: true } };
-    });
-    // Plain TypeScript between Steps: re-executes every Boot, which is safe
-    // precisely because the Steps around it do not.
-    touched.push(`between:${String((plan as { touchesUi: boolean }).touchesUi)}`);
-    await ctx.step('exec', {}, async () => {
-      touched.push('exec');
-      return { status: 'done', result: { exitCode: 0 } };
-    });
-    return 'merged';
-  };
+  const script =
+    (touched: string[]): Workflow =>
+    async (ctx) => {
+      const plan = await ctx.step('agent', { label: 'plan' }, async () => {
+        touched.push('agent');
+        return { status: 'done', result: { touchesUi: true } };
+      });
+      // Plain TypeScript between Steps: re-executes every Boot, which is safe
+      // precisely because the Steps around it do not.
+      touched.push(
+        `between:${String((plan as { touchesUi: boolean }).touchesUi)}`,
+      );
+      await ctx.step('exec', {}, async () => {
+        touched.push('exec');
+        return { status: 'done', result: { exitCode: 0 } };
+      });
+      return 'merged';
+    };
 
   it('hands back recorded results without touching the world', async () => {
     const first: string[] = [];
@@ -248,7 +257,10 @@ describe('a waiting Step', () => {
     await boot(async (ctx) => {
       await ctx.step('checkpoint', {}, async () => ({ status: 'waiting' }));
       reached = true;
-      await ctx.step('post', {}, async () => ({ status: 'done', result: null }));
+      await ctx.step('post', {}, async () => ({
+        status: 'done',
+        result: null,
+      }));
       return 'merged';
     });
 
@@ -354,7 +366,10 @@ describe('a failed Step', () => {
       } catch (error) {
         caught.push(error as Error);
       }
-      await ctx.step('post', {}, async () => ({ status: 'done', result: null }));
+      await ctx.step('post', {}, async () => ({
+        status: 'done',
+        result: null,
+      }));
       return 'exhausted';
     });
 
@@ -376,7 +391,9 @@ describe('a failed Step', () => {
     });
 
     expect(result).toMatchObject({ status: 'failed' });
-    expect(result.status === 'failed' && result.error.message).toBe('unhandled');
+    expect(result.status === 'failed' && result.error.message).toBe(
+      'unhandled',
+    );
     expect((await openJournal(path)).end?.result).toMatchObject({
       status: 'failed',
     });
@@ -434,7 +451,10 @@ describe('attempts', () => {
     });
 
     await boot(async (ctx) => {
-      await ctx.step('agent', {}, async () => ({ status: 'done', result: 'ok' }));
+      await ctx.step('agent', {}, async () => ({
+        status: 'done',
+        result: 'ok',
+      }));
       return 'merged';
     });
 
@@ -468,7 +488,10 @@ describe('divergence', () => {
   /** Journals a two-Step Run that parked, so the next Boot replays it. */
   async function parkedAfterTwoSteps(): Promise<void> {
     await boot(async (ctx) => {
-      await ctx.step('agent', {}, async () => ({ status: 'done', result: 'a' }));
+      await ctx.step('agent', {}, async () => ({
+        status: 'done',
+        result: 'a',
+      }));
       await ctx.step('exec', {}, async () => ({ status: 'done', result: 'b' }));
       await ctx.step('checkpoint', {}, async () => ({ status: 'waiting' }));
       return 'merged';
@@ -481,8 +504,14 @@ describe('divergence', () => {
 
     const result = await boot(async (ctx) => {
       await ctx.step('exec', {}, async () => ({ status: 'done', result: 'b' }));
-      await ctx.step('agent', {}, async () => ({ status: 'done', result: 'a' }));
-      await ctx.step('checkpoint', {}, async () => ({ status: 'done', result: {} }));
+      await ctx.step('agent', {}, async () => ({
+        status: 'done',
+        result: 'a',
+      }));
+      await ctx.step('checkpoint', {}, async () => ({
+        status: 'done',
+        result: {},
+      }));
       return 'merged';
     });
 
@@ -512,7 +541,10 @@ describe('divergence', () => {
 
     const result = await boot(async (ctx) => {
       try {
-        await ctx.step('exec', {}, async () => ({ status: 'done', result: 'b' }));
+        await ctx.step('exec', {}, async () => ({
+          status: 'done',
+          result: 'b',
+        }));
       } catch {
         // Swallowed on purpose.
       }
@@ -529,7 +561,10 @@ describe('divergence', () => {
     await parkedAfterTwoSteps();
 
     const result = await boot(async (ctx) => {
-      await ctx.step('agent', {}, async () => ({ status: 'done', result: 'a' }));
+      await ctx.step('agent', {}, async () => ({
+        status: 'done',
+        result: 'a',
+      }));
       return 'merged';
     });
 
@@ -645,7 +680,10 @@ describe('an unreadable journal', () => {
       startedAt: '2026-09-02T10:00:00.000Z',
     });
     const { writeFile } = await import('node:fs/promises');
-    await writeFile(path, '{"v":99,"seq":0,"step":"agent","status":"done","boot":1,"startedAt":"x"}\n');
+    await writeFile(
+      path,
+      '{"v":99,"seq":0,"step":"agent","status":"done","boot":1,"startedAt":"x"}\n',
+    );
 
     let ran = false;
     await expect(
@@ -656,7 +694,7 @@ describe('an unreadable journal', () => {
     ).rejects.toThrow(JournalFormatError);
 
     expect(ran).toBe(false);
-    expect((await openJournal(path).catch(() => undefined))).toBeUndefined();
+    expect(await openJournal(path).catch(() => undefined)).toBeUndefined();
   });
 });
 
@@ -739,7 +777,12 @@ describe('a Run killed at each phase boundary', () => {
   const completeJournal = [
     { seq: 0, step: 'agent', status: 'done', result: { summary: 'planned' } },
     { seq: 1, step: 'exec', status: 'done', result: { exitCode: 0 } },
-    { seq: 2, step: END_STEP, status: 'done', result: { status: 'finished', outcome: 'merged' } },
+    {
+      seq: 2,
+      step: END_STEP,
+      status: 'done',
+      result: { status: 'finished', outcome: 'merged' },
+    },
   ];
 
   it('replays to the same journal when killed before the effect', async () => {

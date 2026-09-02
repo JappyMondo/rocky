@@ -60,8 +60,7 @@ export class CrashLoopError extends Error {
  * again, which is the same shape for a Checkpoint and for CI (NG-574 §8).
  */
 export type StepOutcome<T> =
-  | { status: 'done'; result: T; sessionId?: string }
-  | { status: 'waiting' };
+  { status: 'done'; result: T; sessionId?: string } | { status: 'waiting' };
 
 export interface EffectHandle {
   /**
@@ -342,7 +341,11 @@ function endResultFor(journal: Journal): BootResult | undefined {
     return undefined;
   }
   const runEnd = parseRunEnd(end.result);
-  const counts = { boot: Math.max(1, journal.nextBoot - 1), replayed: 0, executed: 0 };
+  const counts = {
+    boot: Math.max(1, journal.nextBoot - 1),
+    replayed: 0,
+    executed: 0,
+  };
 
   if (!runEnd) {
     return {

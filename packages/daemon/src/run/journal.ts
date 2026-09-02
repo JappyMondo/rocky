@@ -169,7 +169,10 @@ export interface Journal {
   interruptedBoots(seq: number): number;
 }
 
-function parseLines(path: string, text: string): {
+function parseLines(
+  path: string,
+  text: string,
+): {
   entries: JournalEntry[];
   truncated: boolean;
   keptBytes: number;

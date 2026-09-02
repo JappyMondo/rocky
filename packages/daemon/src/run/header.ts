@@ -36,12 +36,7 @@ export const RUN_HEADER_VERSION = 1;
  * Workflow author writing a new parking Step needs no new Run state.
  */
 export type RunStatus =
-  | 'queued'
-  | 'running'
-  | 'parked'
-  | 'finished'
-  | 'failed'
-  | 'cancelled';
+  'queued' | 'running' | 'parked' | 'finished' | 'failed' | 'cancelled';
 
 export interface RunHeader {
   v: number;

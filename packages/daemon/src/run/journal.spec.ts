@@ -224,7 +224,10 @@ describe('recording thrown values', () => {
 
 describe('two-phase writes', () => {
   it('lets the last line for a seq win', async () => {
-    await appendEntry(path, entry({ seq: 1, status: 'running', ms: undefined }));
+    await appendEntry(
+      path,
+      entry({ seq: 1, status: 'running', ms: undefined }),
+    );
     await appendEntry(path, entry({ seq: 1, status: 'done', result: 'ok' }));
 
     const journal = await openJournal(path);
@@ -236,7 +239,10 @@ describe('two-phase writes', () => {
 
   it('distinguishes interrupted from never-reached', async () => {
     await appendEntry(path, entry({ seq: 1, status: 'done' }));
-    await appendEntry(path, entry({ seq: 2, status: 'running', ms: undefined }));
+    await appendEntry(
+      path,
+      entry({ seq: 2, status: 'running', ms: undefined }),
+    );
 
     const journal = await openJournal(path);
 

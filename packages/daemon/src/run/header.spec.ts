@@ -67,7 +67,12 @@ function header(over: Partial<RunHeader> = {}): RunHeader {
 
 /** Journals a Boot's worth of lines for `NG-601-1`. */
 async function journal(
-  ...entries: { seq: number; step: string; status: 'running' | 'done'; boot?: number }[]
+  ...entries: {
+    seq: number;
+    step: string;
+    status: 'running' | 'done';
+    boot?: number;
+  }[]
 ): Promise<void> {
   for (const entry of entries) {
     await appendEntry(
@@ -174,14 +179,18 @@ describe('reading a broken header', () => {
     await writeRunHeader(paths, header({ v: RUN_HEADER_VERSION + 1 }));
 
     await expect(readRunHeader(paths, 'NG-601-1')).rejects.toThrow(
-      new RegExp(`header version ${RUN_HEADER_VERSION + 1}.*version ${RUN_HEADER_VERSION}`),
+      new RegExp(
+        `header version ${RUN_HEADER_VERSION + 1}.*version ${RUN_HEADER_VERSION}`,
+      ),
     );
   });
 });
 
 describe('terminal header outcomes', () => {
   it('converts every complete terminal header to its journal payload', () => {
-    expect(runEndFor(header({ status: 'finished', outcome: 'merged' }))).toEqual({
+    expect(
+      runEndFor(header({ status: 'finished', outcome: 'merged' })),
+    ).toEqual({
       status: 'finished',
       outcome: 'merged',
     });
@@ -192,7 +201,10 @@ describe('terminal header outcomes', () => {
           error: { name: 'Error', message: 'disk full' },
         }),
       ),
-    ).toEqual({ status: 'failed', error: { name: 'Error', message: 'disk full' } });
+    ).toEqual({
+      status: 'failed',
+      error: { name: 'Error', message: 'disk full' },
+    });
     expect(runEndFor(header({ status: 'cancelled' }))).toEqual({
       status: 'cancelled',
     });
