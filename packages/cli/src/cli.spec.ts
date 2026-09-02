@@ -120,13 +120,13 @@ describe('a stubbed command', () => {
 });
 
 describe('`rocky start`', () => {
-  it('refuses to daemonize until ~/.rocky exists', async () => {
+  it('refuses to daemonize until the pidfile has an owner', async () => {
     const { lines, io: cliIo } = io();
 
     await buildCli(cliIo).parseAsync(['node', 'rocky', 'start', '-d']);
 
     expect(lines.err).toEqual([
-      '`rocky start -d` is not implemented yet — NG-594 owns `~/.rocky`. Run without `-d` for now.',
+      '`rocky start -d` is not implemented yet — NG-595 owns the pidfile and log rotation. Run without `-d` for now.',
     ]);
     expect(process.exitCode).toBe(1);
   });

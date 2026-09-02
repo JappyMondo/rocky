@@ -1,7 +1,10 @@
 import type { AddressInfo } from 'node:net';
 
 import fastifyStatic from '@fastify/static';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, {
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from 'fastify';
 
 import { DAEMON_VERSION, VERSION_HEADER } from './version.js';
 import { resolveWebRoot } from './web-root.js';
@@ -25,7 +28,12 @@ export interface DaemonOptions {
    * beside it does.
    */
   webRoot?: string | false;
-  logger?: boolean;
+  /**
+   * `true` for Fastify's default, or a pino option object. NG-594 wires the
+   * daemon log through a redacting stream this way, so no secret in either
+   * `~/.rocky` file can reach the file on disk.
+   */
+  logger?: FastifyServerOptions['logger'];
 }
 
 export interface HealthStatus {
@@ -81,6 +89,8 @@ export interface RunningDaemon {
   /** The port actually bound, which differs from the request when it was 0. */
   port: number;
   url: string;
+  /** The daemon's own logger, so the process that started it can use it too. */
+  log: FastifyInstance['log'];
   close(): Promise<void>;
 }
 
@@ -98,6 +108,7 @@ export async function startDaemon(
     host,
     port,
     url: `http://${host}:${port}`,
+    log: app.log,
     close: () => app.close(),
   };
 }

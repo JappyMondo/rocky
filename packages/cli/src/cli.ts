@@ -77,9 +77,10 @@ export function buildCli(io: CliIo = CONSOLE_IO): Command {
     .action(
       async (options: { detach?: boolean; host: string; port: string }) => {
         if (options.detach) {
-          // Daemonizing needs ~/.rocky for daemon.pid and the rotated log.
+          // NG-594 laid out ~/.rocky; writing daemon.pid and rotating
+          // logs/daemon.log is the daemon-lifecycle ticket's job.
           io.err(
-            '`rocky start -d` is not implemented yet — NG-594 owns `~/.rocky`. Run without `-d` for now.',
+            '`rocky start -d` is not implemented yet — NG-595 owns the pidfile and log rotation. Run without `-d` for now.',
           );
           process.exitCode = 1;
           return;
