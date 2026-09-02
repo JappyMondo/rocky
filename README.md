@@ -62,10 +62,16 @@ apps/web          web            the Vite/React shell the daemon serves
 
 ```sh
 pnpm install
-pnpm exec nx run-many -t build typecheck lint test   # what CI runs
+pnpm exec prettier --check .                         # CI checks this repo-wide
+pnpm exec nx run-many -t build typecheck lint        # what CI runs on main
+pnpm exec nx run-many -t test --coverage             # the coverage gate, as CI runs it
 pnpm exec nx build @rocky/daemon                     # builds web and bundles it in
 node packages/cli/dist/main.js start                 # http://127.0.0.1:7625
 ```
+
+A pull request checks only the projects it touched (`nx affected`); a push to `main` re-checks everything, so a wrong `affected` answer can never leave `main` unverified. Each project pins `coverage.thresholds` in its `vitest.config.mts` at the level it currently holds, which is what makes a coverage drop fail the build in CI and locally alike — raise them when you raise coverage. Task results are cached in GitHub's own Actions cache rather than Nx Cloud, so no third party sits in the loop of a repo that will hold provider and SCM credentials, and dependencies are gated at high severity by `pnpm audit` and `dependency-review`. Node comes from `.nvmrc` alone — Rocky ships as a daemon whose runtime we control, so there is no version matrix.
+
+`main` is protected: the `CI` job is the required status check, commits must be signed, a pull request needs one approving review, and history stays linear — merges are squashes ([NG-562](https://linear.app/digimondo/issue/NG-562)).
 
 `rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Most of the command table is stubbed — each stub names the ticket that owns its semantics.
 
