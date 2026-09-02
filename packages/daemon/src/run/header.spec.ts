@@ -102,6 +102,17 @@ describe('a new header', () => {
     expect(created.outcome).toBeUndefined();
     expect(created.endedAt).toBeUndefined();
   });
+
+  it('does not invent a Trigger when a Run was started without one', () => {
+    const created = newRunHeader({
+      runId: 'NG-601-1',
+      issue,
+      branch: 'ng-601-journal-and-replay',
+      now: '2026-09-02T10:00:00.000Z',
+    });
+
+    expect(created.trigger).toBeUndefined();
+  });
 });
 
 describe('writing the header', () => {
@@ -265,6 +276,61 @@ describe('loading a header the journal disagrees with', () => {
 
     expect(loaded.status).toBe('failed');
     expect(loaded.error?.name).toBe('DivergenceError');
+  });
+
+  it('rebuilds a cancelled Run from its terminal journal entry', async () => {
+    await writeRunHeader(paths, header({ status: 'running', boots: 1 }));
+    await appendEntry(
+      paths.run('NG-601-1').journal,
+      {
+        v: JOURNAL_FORMAT_VERSION,
+        seq: 0,
+        step: END_STEP,
+        status: 'done',
+        boot: 1,
+        startedAt: '2026-09-02T11:30:00.000Z',
+        result: { status: 'cancelled' },
+      },
+      { runner: true },
+    );
+
+    const loaded = await loadRunHeader(paths, 'NG-601-1');
+
+    expect(loaded).toMatchObject({
+      status: 'cancelled',
+      endedAt: '2026-09-02T11:30:00.000Z',
+    });
+  });
+
+  it('does not rewrite a terminal header that already matches its journal', async () => {
+    const endedAt = '2026-09-02T11:45:00.000Z';
+    await writeRunHeader(
+      paths,
+      header({
+        status: 'finished',
+        outcome: 'merged',
+        boots: 1,
+        endedAt,
+      }),
+    );
+    await appendEntry(
+      paths.run('NG-601-1').journal,
+      {
+        v: JOURNAL_FORMAT_VERSION,
+        seq: 0,
+        step: END_STEP,
+        status: 'done',
+        boot: 1,
+        startedAt: endedAt,
+        result: { status: 'finished', outcome: 'merged' },
+      },
+      { runner: true },
+    );
+
+    const before = statSync(paths.run('NG-601-1').runJson).mtimeMs;
+    await loadRunHeader(paths, 'NG-601-1');
+
+    expect(statSync(paths.run('NG-601-1').runJson).mtimeMs).toBe(before);
   });
 
   it('leaves an agreeing header untouched', async () => {
