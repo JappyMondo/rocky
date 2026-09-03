@@ -64,7 +64,7 @@ const config = {
       workflow: 'niotix',
     },
   ],
-  harnesses: { 'claude-code': { command: '/opt/claude/claude' } },
+  harnesses: { opencode: { command: '/opt/opencode/opencode' } },
 };
 
 const credentials = {
