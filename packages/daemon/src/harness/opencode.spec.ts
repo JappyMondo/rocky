@@ -223,20 +223,24 @@ describe('createScopedOpencodeConfig', () => {
       mkdirSync(globalConfigPath);
       writeFileSync(
         join(globalConfigPath, 'opencode.jsonc'),
-        '{\n  // retain provider configuration\n  "provider": { "anthropic": {} },\n  "mcp": { "personal": { "type": "remote" } }\n}',
+        '{\n  // retain provider configuration\n  "provider": { "anthropic": {} },\n  "permission": { "bash": "allow" },\n  "mcp": { "personal": { "type": "remote" } }\n}',
       );
 
       const scoped = await createScopedOpencodeConfig({
         cwd,
         capabilities: ['read'],
         mcpServers: [],
-        env: { XDG_CONFIG_HOME: globalConfigHome },
+        env: {
+          XDG_CONFIG_HOME: globalConfigHome,
+          OPENCODE_CONFIG_CONTENT: '{"permission":{"bash":"allow"}}',
+        },
       });
 
       try {
         expect(scoped.cwd).toBe(cwd);
         expect(scoped.env.OPENCODE_CONFIG).toBeDefined();
         expect(scoped.env.XDG_CONFIG_HOME).not.toBe(globalConfigHome);
+        expect(scoped.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
         expect(
           JSON.parse(readFileSync(scoped.env.OPENCODE_CONFIG!, 'utf8')),
         ).toEqual({
