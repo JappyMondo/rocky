@@ -1,8 +1,22 @@
-import { readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { parseOpencodeStream } from './opencode.js';
+import {
+  createScopedOpencodeConfig,
+  parseOpencodeStream,
+  renderOpencodeMcpServers,
+  renderOpencodePermissions,
+} from './opencode.js';
 
 const toolCallFixture = readFileSync(
   new URL('./fixtures/opencode-1.17.7-tool-call.jsonl', import.meta.url),
@@ -128,5 +142,167 @@ describe('parseOpencodeStream', () => {
     expect(() =>
       parseOpencodeStream(['{"type":"step_start"}']),
     ).toThrow('OpenCode stream did not include a session ID');
+  });
+});
+
+describe('renderOpencodePermissions', () => {
+  it('renders a closed capability mapping', () => {
+    expect(renderOpencodePermissions(['read', 'edit', 'bash'])).toEqual({
+      '*': 'deny',
+      read: 'allow',
+      glob: 'allow',
+      grep: 'allow',
+      edit: 'allow',
+      bash: 'allow',
+    });
+  });
+
+  it('does not grant native tools for omitted capabilities', () => {
+    expect(renderOpencodePermissions(['read'])).toEqual({
+      '*': 'deny',
+      read: 'allow',
+      glob: 'allow',
+      grep: 'allow',
+    });
+  });
+});
+
+describe('renderOpencodeMcpServers', () => {
+  it('renders local servers and preserves local options', () => {
+    expect(
+      renderOpencodeMcpServers([
+        {
+          name: 'local-tools',
+          config: {
+            command: ['node', 'server.mjs'],
+            cwd: '/workspace',
+            environment: { TOKEN: 'test-token' },
+          },
+        },
+      ]),
+    ).toEqual({
+      'local-tools': {
+        type: 'local',
+        command: ['node', 'server.mjs'],
+        cwd: '/workspace',
+        environment: { TOKEN: 'test-token' },
+        enabled: true,
+      },
+    });
+  });
+
+  it('renders remote servers with supplied authorization without OAuth', () => {
+    expect(
+      renderOpencodeMcpServers([
+        {
+          name: 'remote-tools',
+          config: { url: 'https://mcp.example.test' },
+          authorization: 'Bearer static-token',
+        },
+      ]),
+    ).toEqual({
+      'remote-tools': {
+        type: 'remote',
+        url: 'https://mcp.example.test',
+        enabled: true,
+        headers: { Authorization: 'Bearer static-token' },
+        oauth: false,
+      },
+    });
+  });
+});
+
+describe('createScopedOpencodeConfig', () => {
+  it('isolates personal MCP configuration while preserving JSONC global settings', async () => {
+    const globalConfigHome = mkdtempSync(join(tmpdir(), 'rocky-opencode-global-'));
+    const globalConfigPath = join(globalConfigHome, 'opencode');
+    const cwd = '/workspace/checkout';
+
+    try {
+      mkdirSync(globalConfigPath);
+      writeFileSync(
+        join(globalConfigPath, 'opencode.jsonc'),
+        '{\n  // retain provider configuration\n  "provider": { "anthropic": {} },\n  "mcp": { "personal": { "type": "remote" } }\n}',
+      );
+
+      const scoped = await createScopedOpencodeConfig({
+        cwd,
+        capabilities: ['read'],
+        mcpServers: [],
+        env: { XDG_CONFIG_HOME: globalConfigHome },
+      });
+
+      try {
+        expect(scoped.cwd).toBe(cwd);
+        expect(scoped.env.OPENCODE_CONFIG).toBeDefined();
+        expect(scoped.env.XDG_CONFIG_HOME).not.toBe(globalConfigHome);
+        expect(JSON.parse(readFileSync(scoped.env.OPENCODE_CONFIG!, 'utf8'))).toEqual({
+          permission: {
+            '*': 'deny',
+            read: 'allow',
+            glob: 'allow',
+            grep: 'allow',
+          },
+          mcp: {},
+        });
+        expect(
+          JSON.parse(
+            readFileSync(
+              join(scoped.env.XDG_CONFIG_HOME!, 'opencode', 'opencode.json'),
+              'utf8',
+            ),
+          ),
+        ).toEqual({ provider: { anthropic: {} } });
+      } finally {
+        await scoped.dispose();
+      }
+    } finally {
+      rmSync(globalConfigHome, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the per-call and scoped global configuration on disposal', async () => {
+    const globalConfigHome = mkdtempSync(join(tmpdir(), 'rocky-opencode-global-'));
+    const scoped = await createScopedOpencodeConfig({
+      cwd: '/workspace/checkout',
+      capabilities: [],
+      mcpServers: [],
+      env: { XDG_CONFIG_HOME: globalConfigHome },
+    });
+
+    try {
+      const configPath = scoped.env.OPENCODE_CONFIG!;
+      const configHome = scoped.env.XDG_CONFIG_HOME!;
+      expect(existsSync(configPath)).toBe(true);
+      expect(existsSync(configHome)).toBe(true);
+
+      await scoped.dispose();
+
+      expect(existsSync(configPath)).toBe(false);
+      expect(existsSync(configHome)).toBe(false);
+    } finally {
+      await scoped.dispose();
+      rmSync(globalConfigHome, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid JSONC global configuration', async () => {
+    const globalConfigHome = mkdtempSync(join(tmpdir(), 'rocky-opencode-global-'));
+    const opencodeDir = join(globalConfigHome, 'opencode');
+    mkdirSync(opencodeDir);
+    writeFileSync(join(opencodeDir, 'opencode.json'), '{ invalid');
+
+    try {
+      await expect(
+        createScopedOpencodeConfig({
+          cwd: '/workspace/checkout',
+          capabilities: [],
+          mcpServers: [],
+          env: { XDG_CONFIG_HOME: globalConfigHome },
+        }),
+      ).rejects.toThrow('Invalid OpenCode global configuration');
+    } finally {
+      rmSync(globalConfigHome, { recursive: true, force: true });
+    }
   });
 });
