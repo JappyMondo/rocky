@@ -23,21 +23,6 @@ export interface StubbedCommand {
 export const STUBBED_COMMANDS: readonly StubbedCommand[] = [
   // `setup` left this table in NG-600; `cli.ts` implements it.
   {
-    signature: 'repo add <url>',
-    description: 'Clone a repo eagerly and add it to the instance config.',
-    owner: 'NG-521',
-  },
-  {
-    signature: 'repo list',
-    description: 'List the configured repos and repo groups.',
-    owner: 'NG-521',
-  },
-  {
-    signature: 'repo remove <name>',
-    description: 'Remove a repo entry from the instance config.',
-    owner: 'NG-521',
-  },
-  {
     signature: 'init',
     description:
       'Write the default `.rocky/` into the working copy, uncommitted.',
