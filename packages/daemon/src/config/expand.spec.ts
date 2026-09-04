@@ -49,18 +49,18 @@ describe('expanding one value', () => {
 describe('expanding a harness block', () => {
   it('expands the command and every env value', () => {
     const resolved = expandHarness(
-      'claude-code',
+      'opencode',
       {
-        command: '${TOOLS}/claude',
-        env: { CLAUDE_CONFIG_DIR: '${ROCKY_WORK_CLAUDE}', PLAIN: 'kept' },
+        command: '${TOOLS}/opencode',
+        env: { OPENCODE_CONFIG_DIR: '${ROCKY_WORK_OPENCODE}', PLAIN: 'kept' },
       },
-      { TOOLS: '/opt', ROCKY_WORK_CLAUDE: '/home/dev/.claude-work' },
+      { TOOLS: '/opt', ROCKY_WORK_OPENCODE: '/home/dev/.opencode-work' },
     );
 
     expect(resolved).toEqual({
-      command: '/opt/claude',
+      command: '/opt/opencode',
       env: {
-        CLAUDE_CONFIG_DIR: '/home/dev/.claude-work',
+        OPENCODE_CONFIG_DIR: '/home/dev/.opencode-work',
         PLAIN: 'kept',
       },
     });
@@ -68,8 +68,8 @@ describe('expanding a harness block', () => {
 
   it('names the harness in the error, so the fix is obvious', () => {
     expect(() =>
-      expandHarness('claude-code', { env: { X: '${NOPE}' } }, {}),
-    ).toThrow(/claude-code/);
+      expandHarness('opencode', { env: { X: '${NOPE}' } }, {}),
+    ).toThrow(/opencode/);
   });
 
   it('is happy with an empty block', () => {
