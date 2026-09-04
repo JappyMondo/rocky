@@ -83,6 +83,7 @@ export async function createScopedOpencodeConfig(input: {
   const env = input.env ?? process.env;
   const globalConfig = await readGlobalOpencodeConfig(env);
   delete globalConfig.mcp;
+  delete globalConfig.permission;
 
   const temporaryRoot = await createTemporaryRoot();
   const configHome = join(temporaryRoot, 'xdg');
@@ -106,10 +107,13 @@ export async function createScopedOpencodeConfig(input: {
     throw error;
   }
 
+  const scopedEnv = { ...env };
+  delete scopedEnv.OPENCODE_CONFIG_CONTENT;
+
   return {
     cwd: input.cwd,
     env: {
-      ...env,
+      ...scopedEnv,
       XDG_CONFIG_HOME: configHome,
       OPENCODE_CONFIG: customConfigPath,
     },
