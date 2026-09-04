@@ -1,6 +1,161 @@
-import type { HarnessEvent, HarnessResult, HarnessUsage } from './types.js';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
+
+import type {
+  Capability,
+  HarnessEvent,
+  HarnessResult,
+  HarnessUsage,
+  ResolvedMcpServer,
+} from './types.js';
 
 type JsonObject = Record<string, unknown>;
+
+type OpencodePermission = 'allow' | 'deny';
+
+export interface ScopedOpencodeConfig {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  dispose(): Promise<void>;
+}
+
+export function renderOpencodePermissions(
+  capabilities: readonly Capability[],
+): Record<string, OpencodePermission> {
+  const permissions: Record<string, OpencodePermission> = { '*': 'deny' };
+
+  if (capabilities.includes('read')) {
+    permissions.read = 'allow';
+    permissions.glob = 'allow';
+    permissions.grep = 'allow';
+  }
+  if (capabilities.includes('edit')) permissions.edit = 'allow';
+  if (capabilities.includes('bash')) permissions.bash = 'allow';
+
+  return permissions;
+}
+
+export function renderOpencodeMcpServers(
+  servers: readonly ResolvedMcpServer[],
+): Record<string, JsonObject> {
+  return Object.fromEntries(
+    servers.map(({ name, config, authorization }) => {
+      const command = config.command;
+      if (Array.isArray(command) && command.every((part) => typeof part === 'string')) {
+        return [
+          name,
+          { ...config, type: 'local', command, enabled: true },
+        ] as const;
+      }
+
+      if (typeof config.url === 'string') {
+        return [
+          name,
+          {
+            ...config,
+            type: 'remote',
+            url: config.url,
+            enabled: true,
+            ...(authorization === undefined
+              ? {}
+              : { headers: { Authorization: authorization }, oauth: false }),
+          },
+        ] as const;
+      }
+
+      throw new Error(`Invalid OpenCode MCP server configuration: ${name}`);
+    }),
+  );
+}
+
+export async function createScopedOpencodeConfig(input: {
+  cwd: string;
+  capabilities: readonly Capability[];
+  mcpServers: readonly ResolvedMcpServer[];
+  env?: NodeJS.ProcessEnv;
+}): Promise<ScopedOpencodeConfig> {
+  const env = input.env ?? process.env;
+  const globalConfig = await readGlobalOpencodeConfig(env);
+  delete globalConfig.mcp;
+
+  const temporaryRoot = await createTemporaryRoot();
+  const configHome = join(temporaryRoot, 'xdg');
+  const customConfigPath = join(temporaryRoot, 'opencode.json');
+
+  try {
+    await mkdir(join(configHome, 'opencode'), { recursive: true });
+    await writeFile(
+      join(configHome, 'opencode', 'opencode.json'),
+      JSON.stringify(globalConfig),
+    );
+    await writeFile(
+      customConfigPath,
+      JSON.stringify({
+        permission: renderOpencodePermissions(input.capabilities),
+        mcp: renderOpencodeMcpServers(input.mcpServers),
+      }),
+    );
+  } catch (error) {
+    await rm(temporaryRoot, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    cwd: input.cwd,
+    env: {
+      ...env,
+      XDG_CONFIG_HOME: configHome,
+      OPENCODE_CONFIG: customConfigPath,
+    },
+    dispose: () => rm(temporaryRoot, { recursive: true, force: true }),
+  };
+}
+
+async function readGlobalOpencodeConfig(env: NodeJS.ProcessEnv): Promise<JsonObject> {
+  const configHome = env.XDG_CONFIG_HOME ?? join(homedir(), '.config');
+  const configDirectory = join(configHome, 'opencode');
+
+  for (const filename of ['opencode.json', 'opencode.jsonc']) {
+    const path = join(configDirectory, filename);
+    try {
+      return parseGlobalConfig(await readFile(path, 'utf8'), path);
+    } catch (error: unknown) {
+      if (isMissingFile(error)) continue;
+      throw error;
+    }
+  }
+
+  return {};
+}
+
+function parseGlobalConfig(source: string, path: string): JsonObject {
+  const errors: ParseError[] = [];
+  const config = parseJsonc(source, errors, {
+    allowTrailingComma: true,
+    disallowComments: false,
+  });
+  if (
+    errors.length > 0 ||
+    typeof config !== 'object' ||
+    config === null ||
+    Array.isArray(config)
+  ) {
+    throw new Error(`Invalid OpenCode global configuration: ${path}`);
+  }
+  return config as JsonObject;
+}
+
+async function createTemporaryRoot(): Promise<string> {
+  const { mkdtemp } = await import('node:fs/promises');
+  return mkdtemp(join(tmpdir(), 'rocky-opencode-'));
+}
+
+function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
 
 export function parseOpencodeStream(
   lines: readonly string[],
