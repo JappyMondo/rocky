@@ -21,8 +21,7 @@ import {
 const toolCallFixture = readFileSync(
   new URL('./fixtures/opencode-1.17.7-tool-call.jsonl', import.meta.url),
   'utf8',
-)
-  .split('\n');
+).split('\n');
 
 describe('parseOpencodeStream', () => {
   it('parses the OpenCode 1.17.7 tool-call stream', () => {
@@ -139,9 +138,9 @@ describe('parseOpencodeStream', () => {
   });
 
   it('rejects streams without a session ID', () => {
-    expect(() =>
-      parseOpencodeStream(['{"type":"step_start"}']),
-    ).toThrow('OpenCode stream did not include a session ID');
+    expect(() => parseOpencodeStream(['{"type":"step_start"}'])).toThrow(
+      'OpenCode stream did not include a session ID',
+    );
   });
 });
 
@@ -214,7 +213,9 @@ describe('renderOpencodeMcpServers', () => {
 
 describe('createScopedOpencodeConfig', () => {
   it('isolates personal MCP configuration while preserving JSONC global settings', async () => {
-    const globalConfigHome = mkdtempSync(join(tmpdir(), 'rocky-opencode-global-'));
+    const globalConfigHome = mkdtempSync(
+      join(tmpdir(), 'rocky-opencode-global-'),
+    );
     const globalConfigPath = join(globalConfigHome, 'opencode');
     const cwd = '/workspace/checkout';
 
@@ -236,7 +237,9 @@ describe('createScopedOpencodeConfig', () => {
         expect(scoped.cwd).toBe(cwd);
         expect(scoped.env.OPENCODE_CONFIG).toBeDefined();
         expect(scoped.env.XDG_CONFIG_HOME).not.toBe(globalConfigHome);
-        expect(JSON.parse(readFileSync(scoped.env.OPENCODE_CONFIG!, 'utf8'))).toEqual({
+        expect(
+          JSON.parse(readFileSync(scoped.env.OPENCODE_CONFIG!, 'utf8')),
+        ).toEqual({
           permission: {
             '*': 'deny',
             read: 'allow',
@@ -262,7 +265,9 @@ describe('createScopedOpencodeConfig', () => {
   });
 
   it('removes the per-call and scoped global configuration on disposal', async () => {
-    const globalConfigHome = mkdtempSync(join(tmpdir(), 'rocky-opencode-global-'));
+    const globalConfigHome = mkdtempSync(
+      join(tmpdir(), 'rocky-opencode-global-'),
+    );
     const scoped = await createScopedOpencodeConfig({
       cwd: '/workspace/checkout',
       capabilities: [],
@@ -287,7 +292,9 @@ describe('createScopedOpencodeConfig', () => {
   });
 
   it('rejects invalid JSONC global configuration', async () => {
-    const globalConfigHome = mkdtempSync(join(tmpdir(), 'rocky-opencode-global-'));
+    const globalConfigHome = mkdtempSync(
+      join(tmpdir(), 'rocky-opencode-global-'),
+    );
     const opencodeDir = join(globalConfigHome, 'opencode');
     mkdirSync(opencodeDir);
     writeFileSync(join(opencodeDir, 'opencode.json'), '{ invalid');
