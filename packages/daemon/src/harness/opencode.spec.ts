@@ -8,7 +8,6 @@ const toolCallFixture = readFileSync(
   new URL('./fixtures/opencode-1.17.7-tool-call.jsonl', import.meta.url),
   'utf8',
 )
-  .trim()
   .split('\n');
 
 describe('parseOpencodeStream', () => {
@@ -63,6 +62,54 @@ describe('parseOpencodeStream', () => {
     ]);
 
     expect(result.usage).toBeUndefined();
+  });
+
+  it('retains an empty usage object when tokens are supplied', () => {
+    const result = parseOpencodeStream([
+      '{"type":"step_start","sessionID":"ses_1"}',
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{}}}',
+    ]);
+
+    expect(result.usage).toEqual({});
+  });
+
+  it('accepts trailing blank records', () => {
+    expect(
+      parseOpencodeStream([
+        '{"type":"step_start","sessionID":"ses_1"}',
+        '{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}',
+        '',
+        '',
+      ]),
+    ).toMatchObject({ sessionId: 'ses_1' });
+  });
+
+  it('rejects blank records between JSON events', () => {
+    expect(() =>
+      parseOpencodeStream([
+        '{"type":"step_start","sessionID":"ses_1"}',
+        '',
+        '{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}',
+      ]),
+    ).toThrow('Invalid OpenCode JSONL');
+  });
+
+  it('rejects malformed token values', () => {
+    expect(() =>
+      parseOpencodeStream([
+        '{"type":"step_start","sessionID":"ses_1"}',
+        '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":-1}}}',
+      ]),
+    ).toThrow('Invalid OpenCode usage');
+  });
+
+  it('rejects non-finite native cost', () => {
+    expect(() =>
+      parseOpencodeStream([
+        '{"type":"step_start","sessionID":"ses_1"}',
+        '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","cost":1e999}}',
+      ]),
+    ).toThrow('Invalid OpenCode usage');
   });
 
   it('rejects invalid JSON', () => {

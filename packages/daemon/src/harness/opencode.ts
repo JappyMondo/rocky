@@ -11,8 +11,18 @@ export function parseOpencodeStream(
   let hasUsage = false;
   let sessionId: string | undefined;
 
-  for (const line of lines) {
+  let parsedEvent = false;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (
+      parsedEvent &&
+      line.trim() === '' &&
+      lines.slice(index).every((trailingLine) => trailingLine.trim() === '')
+    ) {
+      break;
+    }
     const event = parseEvent(line);
+    parsedEvent = true;
     const eventSessionId = event.sessionID;
     if (typeof eventSessionId === 'string') sessionId ??= eventSessionId;
 
@@ -107,19 +117,20 @@ function addUsage(
   foundUsage: () => void,
 ): void {
   const tokens = part.tokens;
-  if (typeof tokens === 'object' && tokens !== null && !Array.isArray(tokens)) {
-    const tokenValues = tokens as JsonObject;
+  if (tokens !== undefined) {
+    const tokenValues = usageObject(tokens);
+    foundUsage();
     addToken(usage, 'inputTokens', tokenValues.input, foundUsage);
     addToken(usage, 'outputTokens', tokenValues.output, foundUsage);
     const cache = tokenValues.cache;
-    if (typeof cache === 'object' && cache !== null && !Array.isArray(cache)) {
-      const cacheValues = cache as JsonObject;
+    if (cache !== undefined) {
+      const cacheValues = usageObject(cache);
       addToken(usage, 'cacheReadTokens', cacheValues.read, foundUsage);
       addToken(usage, 'cacheCreationTokens', cacheValues.write, foundUsage);
     }
   }
-  if (typeof part.cost === 'number') {
-    usage.usd = (usage.usd ?? 0) + part.cost;
+  if (part.cost !== undefined) {
+    usage.usd = (usage.usd ?? 0) + usageNumber(part.cost);
     foundUsage();
   }
 }
@@ -130,8 +141,25 @@ function addToken(
   value: unknown,
   foundUsage: () => void,
 ): void {
-  if (typeof value === 'number') {
-    usage[key] = (usage[key] ?? 0) + value;
-    foundUsage();
+  if (value === undefined) return;
+  usage[key] = (usage[key] ?? 0) + usageNumber(value);
+  foundUsage();
+}
+
+function usageObject(value: unknown): JsonObject {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Invalid OpenCode usage');
   }
+  return value as JsonObject;
+}
+
+function usageNumber(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0
+  ) {
+    throw new Error('Invalid OpenCode usage');
+  }
+  return value;
 }
