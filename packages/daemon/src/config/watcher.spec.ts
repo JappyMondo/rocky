@@ -204,7 +204,7 @@ describe('the redactor', () => {
 
     writeConfig({
       repos: [repo('niotix', 'rocky')],
-      harnesses: { 'claude-code': { env: { API_KEY: 'planted_later' } } },
+      harnesses: { opencode: { env: { API_KEY: 'planted_later' } } },
     });
     await opened.reload();
 

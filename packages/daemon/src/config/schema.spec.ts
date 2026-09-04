@@ -209,21 +209,25 @@ describe('a repo group', () => {
 });
 
 describe('the harnesses block', () => {
-  it('takes an optional pinned binary and an optional env, per harness', () => {
+  it('accepts opencode but refuses claude-code', () => {
     const config = parseInstanceConfig({
       ...oneRepo,
       harnesses: {
-        'claude-code': {
-          command: '/opt/claude/claude',
-          env: { CLAUDE_CONFIG_DIR: '${ROCKY_WORK_CLAUDE}' },
+        opencode: {
+          command: '/opt/opencode/opencode',
+          env: { OPENCODE_CONFIG_DIR: '${ROCKY_WORK_OPENCODE}' },
         },
       },
     });
 
-    expect(config.harnesses['claude-code']).toEqual({
-      command: '/opt/claude/claude',
-      env: { CLAUDE_CONFIG_DIR: '${ROCKY_WORK_CLAUDE}' },
+    expect(config.harnesses.opencode).toEqual({
+      command: '/opt/opencode/opencode',
+      env: { OPENCODE_CONFIG_DIR: '${ROCKY_WORK_OPENCODE}' },
     });
+
+    expect(() =>
+      parseInstanceConfig({ ...oneRepo, harnesses: { 'claude-code': {} } }),
+    ).toThrow(/claude-code.*opencode/s);
   });
 
   it('refuses a harness Rocky ships no adapter for, and names the ones it does', () => {
@@ -231,9 +235,9 @@ describe('the harnesses block', () => {
     // not degraded, it is broken.
     expect(() =>
       parseInstanceConfig({ ...oneRepo, harnesses: { cursor: {} } }),
-    ).toThrow(/cursor.*claude-code.*opencode/s);
+    ).toThrow(/cursor.*opencode/s);
 
-    expect(SHIPPED_HARNESSES).toEqual(['claude-code', 'opencode']);
+    expect(SHIPPED_HARNESSES).toEqual(['opencode']);
   });
 });
 
