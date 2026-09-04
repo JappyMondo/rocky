@@ -1,10 +1,14 @@
 /**
- * The v1 command table (NG-578's "CLI surface, complete for v1", plus the
- * manual-Trigger command from NG-580 and `rocky upgrade` from ADR 0003).
+ * The commands of the v1 surface that are still stubs (NG-578's "CLI surface,
+ * complete for v1", plus the manual-Trigger command from NG-580 and
+ * `rocky upgrade` from ADR 0003).
  *
- * NG-515 scaffolds the table; the semantics land in the tickets named here.
- * Keeping it as data rather than as a run of `program.command(...)` calls is
- * what lets `commands.spec.ts` assert the whole surface at once.
+ * NG-515 scaffolded the whole table; the semantics land in the tickets named
+ * here, and each command leaves this list as its ticket implements it. NG-595
+ * took `start -d`, `stop`, `restart`, `logs`, `doctor` and `service`, which is
+ * why the daemon-lifecycle commands are no longer below. Keeping the rest as
+ * data rather than as a run of `program.command(...)` calls is what lets
+ * `cli.spec.ts` assert the whole surface at once.
  */
 
 export interface StubbedCommand {
@@ -18,39 +22,6 @@ export interface StubbedCommand {
 
 export const STUBBED_COMMANDS: readonly StubbedCommand[] = [
   // `setup` left this table in NG-600; `cli.ts` implements it.
-  {
-    signature: 'stop',
-    description: 'Stop the running daemon.',
-    owner: 'NG-578',
-  },
-  {
-    signature: 'restart',
-    description: 'Stop the running daemon and start it again.',
-    owner: 'NG-578',
-  },
-  {
-    signature: 'logs',
-    description: "Print the daemon's log.",
-    owner: 'NG-578',
-    options: [{ flags: '-f, --follow', description: 'Stream new lines.' }],
-  },
-  {
-    signature: 'doctor',
-    description:
-      'Endpoint self-ping, config validation and harness sign-in checks.',
-    owner: 'NG-578',
-  },
-  {
-    signature: 'service install',
-    description:
-      'Write a launchd or systemd user unit so the daemon survives a reboot.',
-    owner: 'NG-578',
-  },
-  {
-    signature: 'service uninstall',
-    description: 'Remove the launchd or systemd user unit.',
-    owner: 'NG-578',
-  },
   {
     signature: 'init',
     description:

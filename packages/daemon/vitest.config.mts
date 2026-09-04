@@ -21,20 +21,16 @@ export default defineConfig({
       // untested file would land without moving the number the gate watches.
       include: ['src/**/*.ts'],
       // Pinned to the baseline measured *on the CI runner*, which is the
-      // platform of record: this suite covers one statement, branch and line
-      // more on darwin than on the linux runner (327/348 against 326/348), so
-      // pinning a local reading would fail every CI run. A local run therefore
-      // sits at or above these numbers. Raise them when coverage rises.
-      //
-      // Raised by NG-600, which measured 96.09 / 88.62 / 96.38 / 96.48 on
-      // darwin. Each number below is that reading less about half a point, so
-      // the one-unit darwin/linux gap above cannot fail an honest run — the
-      // margin is for the platform, not for slack.
+      // platform of record: this suite covers two statements, one branch and
+      // two lines more on darwin than on the linux runner (542/571, 271/311
+      // and 527/553 there), so pinning a local reading would fail every CI
+      // run. A local run therefore sits at or above these numbers. Raise them
+      // when coverage rises.
       thresholds: {
-        statements: 95.5,
-        branches: 88,
-        functions: 95.83,
-        lines: 96,
+        statements: 94.92,
+        branches: 87.13,
+        functions: 95.97,
+        lines: 95.29,
       },
     },
   },

@@ -80,6 +80,23 @@ Two `image-size` advisories are waived in `pnpm.auditConfig.ignoreGhsas` (`GHSA-
 
 `rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. The public endpoint fronts the webhook only, never the web UI. Most of the rest of the command table is stubbed — each stub names the ticket that owns its semantics.
 
+### The daemon's lifecycle
+
+```sh
+rocky start                 # foreground; the log goes to the terminal and to the file
+rocky start -d              # background: writes ~/.rocky/daemon.pid, logs to ~/.rocky/logs/
+rocky status                # version, address, pid and uptime of the running daemon
+rocky logs -f               # follow the live log, across rotations
+rocky restart               # stop, then start -d again
+rocky stop                  # asks over the local API, falls back to SIGTERM
+rocky doctor                # config, endpoint and harness sign-in; non-zero if anything fails
+rocky service install       # a launchd (macOS) or systemd (Linux) *user* unit, for boot
+```
+
+`~/.rocky/logs/daemon.log` is size-rotated — 5 MB, five kept — so a daemon left running for months cannot fill the disk. A pidfile whose process is gone is reported and replaced rather than obeyed, so a killed daemon never leaves Rocky unstartable.
+
+The service unit is per-user on both platforms and never system-level: Rocky runs as you, inheriting your harness logins, SSH agent and git credentials, so there is no `sudo` anywhere in the install path.
+
 ## Status
 
 Pre-implementation. The workspace is scaffolded ([NG-515](https://linear.app/digimondo/issue/NG-515)); the design is being settled ticket by ticket on the wayfinder map, [Rocky as an AI development-lifecycle platform](https://linear.app/digimondo/issue/NG-566).

@@ -27,7 +27,7 @@ export class ConfigError extends Error {
  * untested" as a category, so this list is exhaustive and a third harness is
  * an adapter contribution rather than a config key.
  */
-export const SHIPPED_HARNESSES = ['opencode'] as const;
+export const SHIPPED_HARNESSES = ['claude-code', 'opencode'] as const;
 
 /** Names become directory names under `~/.rocky` — see `paths.ts`. */
 const segment = z
