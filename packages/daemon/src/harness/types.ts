@@ -9,6 +9,7 @@ export interface ResolvedMcpServer {
 export interface HarnessInvocation {
   cwd: string;
   prompt: string;
+  sessionStorage: 'rocky' | 'opencode';
   model?: string;
   capabilities: readonly Capability[];
   mcpServers: readonly ResolvedMcpServer[];
