@@ -119,7 +119,7 @@ function addUsage(
     }
   }
   if (typeof part.cost === 'number') {
-    usage.usd = part.cost;
+    usage.usd = (usage.usd ?? 0) + part.cost;
     foundUsage();
   }
 }
