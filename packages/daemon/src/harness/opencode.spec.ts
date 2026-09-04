@@ -32,6 +32,39 @@ describe('parseOpencodeStream', () => {
     });
   });
 
+  it('aggregates native cost from every finished step', () => {
+    const result = parseOpencodeStream([
+      '{"type":"step_start","sessionID":"ses_1"}',
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","cost":0.001}}',
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","cost":0.0042}}',
+    ]);
+
+    expect(result.usage).toEqual({ usd: 0.0052 });
+  });
+
+  it('concatenates text parts in event order', () => {
+    const result = parseOpencodeStream([
+      '{"type":"step_start","sessionID":"ses_1"}',
+      '{"type":"text","part":{"type":"text","text":"ping"}}',
+      '{"type":"text","part":{"type":"text","text":" pong"}}',
+    ]);
+
+    expect(result.text).toBe('ping pong');
+    expect(result.events).toEqual([
+      { kind: 'text', text: 'ping' },
+      { kind: 'text', text: ' pong' },
+    ]);
+  });
+
+  it('omits usage when finished steps contain no token or cost fields', () => {
+    const result = parseOpencodeStream([
+      '{"type":"step_start","sessionID":"ses_1"}',
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}',
+    ]);
+
+    expect(result.usage).toBeUndefined();
+  });
+
   it('rejects invalid JSON', () => {
     expect(() => parseOpencodeStream(['not json'])).toThrow(
       'Invalid OpenCode JSONL',
