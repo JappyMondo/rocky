@@ -126,6 +126,7 @@ const instanceConfigShape = z.looseObject({
 export type RepoEntry = z.infer<typeof repoEntrySchema>;
 export type RepoGroup = z.infer<typeof repoGroupSchema>;
 export type RockyIdentity = z.infer<typeof identitySchema>;
+export type HarnessConfigInput = z.input<typeof harnessSchema>;
 export type HarnessConfig = z.infer<typeof harnessSchema>;
 export type InstanceConfig = z.infer<typeof instanceConfigShape>;
 
