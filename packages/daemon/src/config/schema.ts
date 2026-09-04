@@ -65,6 +65,7 @@ export const repoGroupSchema = z.looseObject({
 export const harnessSchema = z.looseObject({
   command: nonEmpty.optional(),
   env: z.record(nonEmpty, z.string()).optional(),
+  sessionStorage: z.enum(['rocky', 'opencode']).default('rocky'),
 });
 
 /**
