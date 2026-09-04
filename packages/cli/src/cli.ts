@@ -13,6 +13,13 @@ import {
   notImplementedMessage,
   type StubbedCommand,
 } from './commands.js';
+import {
+  addRepo,
+  listRepos,
+  removeRepo,
+  repoSummary,
+  type AddRepoOptions,
+} from './repo.js';
 import { createConsolePrompter } from './setup/prompter.js';
 import { runSetup } from './setup/wizard.js';
 import { CLI_VERSION } from './version.js';
@@ -177,6 +184,10 @@ export function buildCli(io: CliIo = CONSOLE_IO, deps: CliDeps = {}): Command {
         if (!health.web) {
           io.out('The web UI is not built into this daemon.');
         }
+        // A repo can appear through a hand-edit of `config.json` and be cloned
+        // by the daemon with nobody watching, so `rocky status` is where that
+        // becomes visible (NG-521).
+        io.out(await repoSummary());
 
         const endpoint = health.endpoint;
         if (!endpoint || !endpoint.configured) {
@@ -199,6 +210,40 @@ export function buildCli(io: CliIo = CONSOLE_IO, deps: CliDeps = {}): Command {
         throw error;
       }
     });
+
+  // NG-521 owns these three. `add` clones before it writes anything, which is
+  // why it lives in the CLI rather than behind the daemon's API: the failure
+  // has to reach the terminal a human is sitting at.
+  const repo = program.command('repo').description('`repo` commands.');
+
+  repo
+    .command('add <url>')
+    .description('Clone a repo eagerly and add it to the instance config.')
+    .option(
+      '--name <name>',
+      'Repo name. Defaults to the last path segment of the url.',
+    )
+    .option(
+      '--label <label>',
+      'The Linear label that routes a delegation here. Defaults to the repo name.',
+    )
+    .option(
+      '--base-branch <branch>',
+      "Branch new work starts from. Defaults to the upstream's own default branch.",
+    )
+    .action((url: string, options: AddRepoOptions) =>
+      addRepo(io, url, options),
+    );
+
+  repo
+    .command('list')
+    .description('List the configured repos and repo groups.')
+    .action(() => listRepos(io));
+
+  repo
+    .command('remove <name>')
+    .description('Remove a repo entry from the instance config.')
+    .action((name: string) => removeRepo(io, name));
 
   for (const stub of STUBBED_COMMANDS) {
     attachStub(program, stub, io);

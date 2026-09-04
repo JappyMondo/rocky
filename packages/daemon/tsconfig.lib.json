@@ -8,7 +8,7 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.spec.ts"],
+  "exclude": ["src/**/*.spec.ts", "src/**/*.fixtures.ts"],
   "references": [
     {
       "path": "../sdk/tsconfig.lib.json"

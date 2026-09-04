@@ -12,9 +12,11 @@ export {
 
 export {
   ConfigError,
+  DEFAULT_IDENTITY,
   SHIPPED_HARNESSES,
   credentialsSchema,
   harnessSchema,
+  identitySchema,
   instanceConfigSchema,
   labelKey,
   parseCredentials,
@@ -28,6 +30,7 @@ export {
   type InstanceConfig,
   type RepoEntry,
   type RepoGroup,
+  type RockyIdentity,
 } from './schema.js';
 
 export { expandHarness, expandVars, type Env } from './expand.js';

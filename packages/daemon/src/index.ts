@@ -84,3 +84,5 @@ export {
 export { resolveWebRoot } from './web-root.js';
 
 export * from './config/index.js';
+
+export * from './repos/index.js';

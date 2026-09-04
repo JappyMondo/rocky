@@ -83,6 +83,15 @@ describe('the command table', () => {
     expect(surface).toContain('mcp login');
   });
 
+  it('has no stub left for the `repo` commands, which NG-521 implemented', () => {
+    expect(STUBBED_COMMANDS.map((command) => command.signature)).not.toContain(
+      expect.stringContaining('repo'),
+    );
+    expect(STUBBED_COMMANDS.some((command) => command.owner === 'NG-521')).toBe(
+      false,
+    );
+  });
+
   it('takes the manual Trigger as one command with two arguments', () => {
     const program = buildCli(io().io);
     const trigger = program.commands.find((c) => c.name() === 'trigger');
