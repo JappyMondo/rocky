@@ -97,6 +97,17 @@ async function commitInside(dir: string, message: string): Promise<string> {
 }
 
 describe('a plain Run', () => {
+  it('refuses a Run with no member repos', async () => {
+    await expect(
+      createWorkspace(ctx, {
+        runId: 'NG-601-1',
+        branch: BRANCH,
+        members: [],
+        lead: 'niotix',
+      }),
+    ).rejects.toThrow(WorkspaceError);
+  });
+
   it('is a workspace with one child', async () => {
     const workspace = await createWorkspace(ctx, {
       runId: 'NG-601-1',
