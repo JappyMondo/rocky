@@ -1,0 +1,6 @@
+{"type":"step_start","sessionID":"ses_opencode_1_17_7"}
+{"type":"tool_use","part":{"type":"tool","tool":"bash","state":{"status":"completed"}}}
+{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":120,"output":40,"cache":{"read":30,"write":10}}}}
+{"type":"step_start","sessionID":"ses_opencode_1_17_7"}
+{"type":"text","part":{"type":"text","text":"pong"}}
+{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":{"input":80,"output":20,"cache":{"read":5,"write":2}},"cost":0.0042}}

@@ -1,0 +1,137 @@
+import type { HarnessEvent, HarnessResult, HarnessUsage } from './types.js';
+
+type JsonObject = Record<string, unknown>;
+
+export function parseOpencodeStream(
+  lines: readonly string[],
+): HarnessResult {
+  const events: HarnessEvent[] = [];
+  const text: string[] = [];
+  const usage: HarnessUsage = {};
+  let hasUsage = false;
+  let sessionId: string | undefined;
+
+  for (const line of lines) {
+    const event = parseEvent(line);
+    const eventSessionId = event.sessionID;
+    if (typeof eventSessionId === 'string') sessionId ??= eventSessionId;
+
+    switch (event.type) {
+      case 'step_start':
+        break;
+      case 'tool_use': {
+        const part = objectAt(event, 'part', 'tool_use');
+        if (
+          part.type !== 'tool' ||
+          typeof part.tool !== 'string' ||
+          objectAt(part, 'state', 'tool_use').status !== 'completed'
+        ) {
+          throw new Error('Invalid OpenCode tool_use event');
+        }
+        events.push(
+          { kind: 'tool-call', name: part.tool },
+          { kind: 'tool-result', name: part.tool },
+        );
+        break;
+      }
+      case 'step_finish': {
+        const part = objectAt(event, 'part', 'step_finish');
+        if (part.type !== 'step-finish' || typeof part.reason !== 'string') {
+          throw new Error('Invalid OpenCode step_finish event');
+        }
+        if (part.reason === 'tool-calls') {
+          events.push({ kind: 'turn-boundary' });
+        }
+        addUsage(part, usage, () => {
+          hasUsage = true;
+        });
+        break;
+      }
+      case 'text': {
+        const part = objectAt(event, 'part', 'text');
+        if (part.type !== 'text' || typeof part.text !== 'string') {
+          throw new Error('Invalid OpenCode text event');
+        }
+        text.push(part.text);
+        events.push({ kind: 'text', text: part.text });
+        break;
+      }
+      default:
+        throw new Error(`Unknown OpenCode stream event: ${String(event.type)}`);
+    }
+  }
+
+  if (sessionId === undefined) {
+    throw new Error('OpenCode stream did not include a session ID');
+  }
+
+  return {
+    sessionId,
+    text: text.join(''),
+    events,
+    ...(hasUsage ? { usage } : {}),
+  };
+}
+
+function parseEvent(line: string): JsonObject {
+  try {
+    const event: unknown = JSON.parse(line);
+    if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+      throw new Error('not an object');
+    }
+    const jsonEvent = event as JsonObject;
+    if (typeof jsonEvent.type !== 'string') {
+      throw new Error('missing type');
+    }
+    return jsonEvent;
+  } catch {
+    throw new Error('Invalid OpenCode JSONL event');
+  }
+}
+
+function objectAt(
+  event: JsonObject,
+  key: string,
+  eventType: string,
+): JsonObject {
+  const value = event[key];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`Invalid OpenCode ${eventType} event`);
+  }
+  return value as JsonObject;
+}
+
+function addUsage(
+  part: JsonObject,
+  usage: HarnessUsage,
+  foundUsage: () => void,
+): void {
+  const tokens = part.tokens;
+  if (typeof tokens === 'object' && tokens !== null && !Array.isArray(tokens)) {
+    const tokenValues = tokens as JsonObject;
+    addToken(usage, 'inputTokens', tokenValues.input, foundUsage);
+    addToken(usage, 'outputTokens', tokenValues.output, foundUsage);
+    const cache = tokenValues.cache;
+    if (typeof cache === 'object' && cache !== null && !Array.isArray(cache)) {
+      const cacheValues = cache as JsonObject;
+      addToken(usage, 'cacheReadTokens', cacheValues.read, foundUsage);
+      addToken(usage, 'cacheCreationTokens', cacheValues.write, foundUsage);
+    }
+  }
+  if (typeof part.cost === 'number') {
+    usage.usd = part.cost;
+    foundUsage();
+  }
+}
+
+function addToken(
+  usage: HarnessUsage,
+  key: Exclude<keyof HarnessUsage, 'usd'>,
+  value: unknown,
+  foundUsage: () => void,
+): void {
+  if (typeof value === 'number') {
+    usage[key] = (usage[key] ?? 0) + value;
+    foundUsage();
+  }
+}
