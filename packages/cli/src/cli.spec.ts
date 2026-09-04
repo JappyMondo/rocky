@@ -3,10 +3,16 @@
  * tickets named in `commands.ts` fill it in. So these assert that the whole
  * v1 surface parses, and that a stub is honest about being one.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  openConfigStore,
+  startDaemon,
+  type RunningDaemon,
+} from '@rocky/daemon';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildCli, type CliIo } from './cli.js';
 import { STUBBED_COMMANDS, notImplementedMessage } from './commands.js';
+import type { createConsolePrompter } from './setup/prompter.js';
 
 /** Every command a developer can type, flattened out of the nesting. */
 const V1_SURFACE = [
@@ -128,6 +134,76 @@ describe('a stubbed command', () => {
   });
 });
 
+describe('`rocky setup`', () => {
+  /** A wizard stand-in, so the command's own behaviour is what is asserted. */
+  function withSetup(
+    result: Promise<{
+      ok: boolean;
+      publicUrl: string;
+      endpoint: { configured: boolean; ok: boolean };
+    }>,
+  ) {
+    const close = vi.fn();
+    const { lines, io: cliIo } = io();
+    const cli = buildCli(cliIo, {
+      runSetup: () => result,
+      createPrompter: () =>
+        ({
+          say: () => undefined,
+          ask: async () => '',
+          askSecret: async () => '',
+          waitFor: async () => undefined,
+          close,
+        }) as unknown as ReturnType<typeof createConsolePrompter>,
+    });
+
+    return { cli, lines, close };
+  }
+
+  it('succeeds quietly when the wizard finished and the endpoint verified', async () => {
+    const { cli, lines, close } = withSetup(
+      Promise.resolve({
+        ok: true,
+        publicUrl: 'https://rocky.example.com',
+        endpoint: { configured: true, ok: true },
+      }),
+    );
+
+    await cli.parseAsync(['node', 'rocky', 'setup']);
+
+    expect(process.exitCode).not.toBe(1);
+    expect(lines.err).toEqual([]);
+    expect(close).toHaveBeenCalled();
+  });
+
+  it('exits non-zero when the endpoint did not verify', async () => {
+    const { cli } = withSetup(
+      Promise.resolve({
+        ok: false,
+        publicUrl: 'https://rocky.example.com',
+        endpoint: { configured: true, ok: false },
+      }),
+    );
+
+    await cli.parseAsync(['node', 'rocky', 'setup']);
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('reports what went wrong and still closes the prompt', async () => {
+    const { cli, lines, close } = withSetup(
+      Promise.reject(new Error('Linear refused the token request: bad secret')),
+    );
+
+    await cli.parseAsync(['node', 'rocky', 'setup']);
+
+    expect(lines.err).toEqual(['Linear refused the token request: bad secret']);
+    expect(process.exitCode).toBe(1);
+    // A readline left open holds stdin and the process never exits.
+    expect(close).toHaveBeenCalled();
+  });
+});
+
 describe('`rocky start`', () => {
   it('refuses to daemonize until the pidfile has an owner', async () => {
     const { lines, io: cliIo } = io();
@@ -138,6 +214,60 @@ describe('`rocky start`', () => {
       '`rocky start -d` is not implemented yet — NG-595 owns the pidfile and log rotation. Run without `-d` for now.',
     ]);
     expect(process.exitCode).toBe(1);
+  });
+
+  /**
+   * The wiring, not the daemon: that the endpoint and the webhook secret are
+   * read out of the live config store rather than frozen at boot (NG-578).
+   */
+  describe('the wiring it hands the daemon', () => {
+    function withStore(publicUrl: string | undefined, webhookSecret?: string) {
+      const { lines, io: cliIo } = io();
+      const started: Record<string, unknown>[] = [];
+
+      const cli = buildCli(cliIo, {
+        openConfigStore: (async () => ({
+          current: { publicUrl },
+          readCredentials: async () => ({ linear: { webhookSecret } }),
+        })) as unknown as typeof openConfigStore,
+        startDaemon: (async (options: Record<string, unknown>) => {
+          started.push(options);
+          return { url: 'http://127.0.0.1:7625', close: async () => undefined };
+        }) as unknown as typeof startDaemon,
+      });
+
+      return { cli, lines, started };
+    }
+
+    it('reads the public URL and the webhook secret through the store', async () => {
+      const { cli, lines, started } = withStore(
+        'https://rocky.example.com',
+        'whsec-1',
+      );
+
+      await cli.parseAsync(['node', 'rocky', 'start']);
+
+      const options = started[0];
+      expect((options.publicUrl as () => string)()).toBe(
+        'https://rocky.example.com',
+      );
+      expect(await (options.webhookSecret as () => Promise<string>)()).toBe(
+        'whsec-1',
+      );
+      expect(lines.out).toContain(
+        'Rocky is listening on http://127.0.0.1:7625',
+      );
+    });
+
+    it('says webhooks cannot arrive when no public URL is set', async () => {
+      const { cli, lines } = withStore(undefined);
+
+      await cli.parseAsync(['node', 'rocky', 'start']);
+
+      expect(lines.out.join('\n')).toContain(
+        'No public URL configured, so Linear cannot deliver webhooks — run `rocky setup`.',
+      );
+    });
   });
 });
 
@@ -157,5 +287,88 @@ describe('`rocky status`', () => {
       'no daemon answering at http://127.0.0.1:7 — `rocky start` to launch one',
     ]);
     expect(process.exitCode).toBe(1);
+  });
+
+  /**
+   * AC4's third surface. The daemon is a real one, so what `status` prints is
+   * what the health route actually said rather than a hand-built fixture.
+   */
+  describe('against a running daemon', () => {
+    let daemon: RunningDaemon | undefined;
+
+    afterEach(async () => {
+      await daemon?.close();
+      daemon = undefined;
+    });
+
+    async function statusAgainst(
+      publicUrl: () => string | undefined,
+      check = true,
+    ) {
+      daemon = await startDaemon({
+        port: 0,
+        webRoot: false,
+        publicUrl,
+        selfPing: false,
+      });
+      if (check) {
+        await daemon.endpoint.check();
+      }
+
+      const { lines, io: cliIo } = io();
+      await buildCli(cliIo).parseAsync([
+        'node',
+        'rocky',
+        'status',
+        '--port',
+        String(daemon.port),
+      ]);
+      return lines;
+    }
+
+    it('warns when the endpoint is dead, and says Runs keep going', async () => {
+      const lines = await statusAgainst(() => 'http://127.0.0.1:1');
+
+      expect(lines.err.join('\n')).toMatch(/Linear cannot reach Rocky/);
+      expect(lines.err.join('\n')).toMatch(/Runs still progress via polling/);
+      expect(lines.err.join('\n')).toMatch(/docs\/public-endpoint\.md/);
+    });
+
+    it('says so plainly when the endpoint is reachable', async () => {
+      // The URL is only knowable once a port is bound, so it is read through a
+      // box the test fills in — which is also how a real tunnel behaves.
+      const endpoint: { url: string | undefined } = { url: undefined };
+      daemon = await startDaemon({
+        port: 0,
+        webRoot: false,
+        publicUrl: () => endpoint.url,
+        selfPing: false,
+      });
+      endpoint.url = daemon.url;
+      await daemon.endpoint.check();
+
+      const { lines, io: cliIo } = io();
+      await buildCli(cliIo).parseAsync([
+        'node',
+        'rocky',
+        'status',
+        '--port',
+        String(daemon.port),
+      ]);
+
+      expect(lines.out.join('\n')).toContain(
+        'The public endpoint is reachable.',
+      );
+      expect(lines.err).toEqual([]);
+    });
+
+    it('points at `rocky setup` on a machine with no public URL', async () => {
+      const lines = await statusAgainst(() => undefined);
+
+      expect(lines.out.join('\n')).toContain(
+        'No public URL configured — run `rocky setup`.',
+      );
+      expect(lines.err).toEqual([]);
+    });
   });
 });

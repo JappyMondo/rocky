@@ -217,6 +217,25 @@ const linearCredentialsSchema = z.looseObject({
   accessToken: z.string().optional(),
   refreshToken: z.string().optional(),
   webhookSecret: z.string().optional(),
+  /**
+   * The rest is written by `rocky setup` and by the client when it rotates a
+   * token (NG-600). Access tokens last 24 hours and refresh tokens rotate on
+   * use, so `expiresAt` is what stops every call finding out by 401.
+   */
+  expiresAt: z.number().int().optional(),
+  scope: z.string().optional(),
+  /**
+   * Fixed at OAuth-app creation alongside the webhook URL, so it is recorded
+   * rather than recomputed: moving the daemon's port breaks re-authorization
+   * exactly as it breaks the webhook.
+   */
+  redirectUri: z.string().optional(),
+  /**
+   * Rocky's own user id in this workspace. Linear recommends storing it beside
+   * the token; it is how a webhook is recognised as this app's (NG-567 §6).
+   */
+  appUserId: z.string().optional(),
+  organizationId: z.string().optional(),
 });
 
 export const credentialsSchema = z.looseObject({

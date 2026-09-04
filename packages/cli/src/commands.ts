@@ -17,12 +17,7 @@ export interface StubbedCommand {
 }
 
 export const STUBBED_COMMANDS: readonly StubbedCommand[] = [
-  {
-    signature: 'setup',
-    description:
-      'Interactive first-run wizard: public URL, the Linear OAuth app, credentials.',
-    owner: 'NG-578',
-  },
+  // `setup` left this table in NG-600; `cli.ts` implements it.
   {
     signature: 'stop',
     description: 'Stop the running daemon.',

@@ -1,4 +1,10 @@
-import { startDaemon, DEFAULT_HOST, DEFAULT_PORT } from '@rocky/daemon';
+import {
+  openConfigStore,
+  rockyPaths,
+  startDaemon,
+  DEFAULT_HOST,
+  DEFAULT_PORT,
+} from '@rocky/daemon';
 import { Command } from 'commander';
 
 import { DaemonClient, DaemonUnreachableError } from './client.js';
@@ -14,6 +20,8 @@ import {
   repoSummary,
   type AddRepoOptions,
 } from './repo.js';
+import { createConsolePrompter } from './setup/prompter.js';
+import { runSetup } from './setup/wizard.js';
 import { CLI_VERSION } from './version.js';
 
 export interface CliIo {
@@ -25,6 +33,18 @@ const CONSOLE_IO: CliIo = {
   out: (line) => console.log(line),
   err: (line) => console.error(line),
 };
+
+/**
+ * The three things a command does that a test cannot: talk to a terminal, bind
+ * a socket, and watch a file. Defaulted to the real ones, so production reads
+ * exactly as if they were called directly.
+ */
+export interface CliDeps {
+  runSetup?: typeof runSetup;
+  createPrompter?: typeof createConsolePrompter;
+  startDaemon?: typeof startDaemon;
+  openConfigStore?: typeof openConfigStore;
+}
 
 /**
  * `repo add <url>` is a `repo` command with an `add` subcommand, but
@@ -61,7 +81,12 @@ function attachStub(program: Command, stub: StubbedCommand, io: CliIo): void {
  * Builds the whole `rocky` surface. Commander is configured not to call
  * `process.exit`, so the CLI is drivable from a test.
  */
-export function buildCli(io: CliIo = CONSOLE_IO): Command {
+export function buildCli(io: CliIo = CONSOLE_IO, deps: CliDeps = {}): Command {
+  const setup = deps.runSetup ?? runSetup;
+  const prompterFor = deps.createPrompter ?? createConsolePrompter;
+  const start = deps.startDaemon ?? startDaemon;
+  const openConfig = deps.openConfigStore ?? openConfigStore;
+
   const program = new Command('rocky')
     .description("Rocky's per-developer local daemon and its client.")
     .version(CLI_VERSION)
@@ -69,6 +94,28 @@ export function buildCli(io: CliIo = CONSOLE_IO): Command {
     .configureOutput({
       writeOut: (str) => io.out(str.replace(/\n$/, '')),
       writeErr: (str) => io.err(str.replace(/\n$/, '')),
+    });
+
+  program
+    .command('setup')
+    .description(
+      'Interactive first-run wizard: public URL, the Linear OAuth app, credentials.',
+    )
+    .action(async () => {
+      const prompter = prompterFor();
+      try {
+        const result = await setup({ prompter });
+        // A tunnel that is not up yet is a real failure to report, but the
+        // credentials are written either way — see the wizard.
+        if (!result.ok) {
+          process.exitCode = 1;
+        }
+      } catch (error) {
+        io.err(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+      } finally {
+        prompter.close();
+      }
     });
 
   program
@@ -93,11 +140,25 @@ export function buildCli(io: CliIo = CONSOLE_IO): Command {
           return;
         }
 
-        const daemon = await startDaemon({
+        // The live view of `~/.rocky`, so the endpoint and the webhook secret
+        // follow a hot config reload rather than being frozen at boot (NG-578).
+        const store = await openConfig(rockyPaths(), { warn: io.err });
+
+        const daemon = await start({
           host: options.host,
           port: Number(options.port),
+          publicUrl: () => store.current.publicUrl,
+          webhookSecret: async () =>
+            (await store.readCredentials()).linear?.webhookSecret,
+          logger: true,
         });
+
         io.out(`Rocky is listening on ${daemon.url}`);
+        if (!store.current.publicUrl) {
+          io.out(
+            'No public URL configured, so Linear cannot deliver webhooks — run `rocky setup`.',
+          );
+        }
       },
     );
 
@@ -127,6 +188,19 @@ export function buildCli(io: CliIo = CONSOLE_IO): Command {
         // by the daemon with nobody watching, so `rocky status` is where that
         // becomes visible (NG-521).
         io.out(await repoSummary());
+
+        const endpoint = health.endpoint;
+        if (!endpoint || !endpoint.configured) {
+          io.out('No public URL configured — run `rocky setup`.');
+        } else if (endpoint.ok) {
+          io.out('The public endpoint is reachable.');
+        } else {
+          // A warning, not a failure: Runs keep working, more slowly, and
+          // nothing here offers to restart a tunnel Rocky does not manage.
+          io.err(
+            `Warning: Linear cannot reach Rocky — the public endpoint ${endpoint.detail ?? 'is not answering'}. Webhooks will not arrive until it is back; Runs still progress via polling. See docs/public-endpoint.md.`,
+          );
+        }
       } catch (error) {
         if (error instanceof DaemonUnreachableError) {
           io.err(error.message);

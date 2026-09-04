@@ -4,20 +4,18 @@
  * Cyrus's lesson is the whole design brief here: it had no hot reload, tokens
  * inline in one file, and a graveyard of hand-made `.bak` copies because a
  * half-written config was a real way to lose a machine's setup. So every write
- * here is atomic — temp file, then rename — and `credentials.json` is 0600
- * from the moment it exists, temp file included.
+ * here is atomic — temp file, then rename, in `../atomic-write.ts` — and
+ * `credentials.json` is 0600 from the moment it exists, temp file included.
  */
-import {
-  chmod,
-  mkdir,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-} from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 
+import {
+  PUBLIC_MODE as CONFIG_MODE,
+  ROOT_MODE,
+  SECRET_MODE,
+  serializeJson as serialize,
+  writeAtomic,
+} from '../atomic-write.js';
 import type { RockyPaths } from './paths.js';
 import {
   ConfigError,
@@ -26,13 +24,6 @@ import {
   type Credentials,
   type InstanceConfig,
 } from './schema.js';
-
-/** `credentials.json`, and the temp file it is renamed from. */
-const SECRET_MODE = 0o600;
-/** `config.json` — no secrets in it, and the web UI shows it. */
-const CONFIG_MODE = 0o644;
-/** The root holds `credentials.json`, so it is nobody else's business. */
-const ROOT_MODE = 0o700;
 
 const POSIX = process.platform !== 'win32';
 
@@ -87,40 +78,6 @@ async function readJson(
  */
 function withoutQuotedInput(message: string): string {
   return message.replace(/"[^"]*"/g, '…');
-}
-
-/**
- * Write, then rename over the target. The rename is atomic within a
- * directory, so a reader sees either the old file or the new one and never a
- * half-written one — which is what the `.bak` habit was working around.
- */
-async function writeAtomic(
-  path: string,
-  contents: string,
-  mode: number,
-): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: ROOT_MODE });
-
-  const temp = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
-  try {
-    // The mode goes on at creation: a rename keeps the temp file's mode, so a
-    // 0644 temp file would leak the secrets for as long as it existed.
-    await writeFile(temp, contents, { mode });
-    await rename(temp, path);
-  } catch (error) {
-    await unlink(temp).catch(() => undefined);
-    throw error;
-  }
-
-  if (POSIX) {
-    // `writeFile`'s mode applies only when it creates the file, so a reused
-    // temp name would otherwise keep whatever mode it had before.
-    await chmod(path, mode);
-  }
-}
-
-function serialize(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 export async function readInstanceConfig(
