@@ -44,7 +44,10 @@ export function renderOpencodeMcpServers(
   return Object.fromEntries(
     servers.map(({ name, config, authorization }) => {
       const command = config.command;
-      if (Array.isArray(command) && command.every((part) => typeof part === 'string')) {
+      if (
+        Array.isArray(command) &&
+        command.every((part) => typeof part === 'string')
+      ) {
         return [
           name,
           { ...config, type: 'local', command, enabled: true },
@@ -114,7 +117,9 @@ export async function createScopedOpencodeConfig(input: {
   };
 }
 
-async function readGlobalOpencodeConfig(env: NodeJS.ProcessEnv): Promise<JsonObject> {
+async function readGlobalOpencodeConfig(
+  env: NodeJS.ProcessEnv,
+): Promise<JsonObject> {
   const configHome = env.XDG_CONFIG_HOME ?? join(homedir(), '.config');
   const configDirectory = join(configHome, 'opencode');
 
@@ -154,12 +159,14 @@ async function createTemporaryRoot(): Promise<string> {
 }
 
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT';
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
 }
 
-export function parseOpencodeStream(
-  lines: readonly string[],
-): HarnessResult {
+export function parseOpencodeStream(lines: readonly string[]): HarnessResult {
   const events: HarnessEvent[] = [];
   const text: string[] = [];
   const usage: HarnessUsage = {};
@@ -309,11 +316,7 @@ function usageObject(value: unknown): JsonObject {
 }
 
 function usageNumber(value: unknown): number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new Error('Invalid OpenCode usage');
   }
   return value;
