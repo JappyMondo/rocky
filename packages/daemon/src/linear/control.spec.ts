@@ -5,6 +5,7 @@ import {
   type LinearRunControlOptions,
 } from './control.js';
 import type { LinearSessionActivity, PostActivityOptions } from './client.js';
+import type { AgentSessionEvent } from './events.js';
 
 function fixture() {
   const values = new Map<string, unknown>();
@@ -226,6 +227,26 @@ describe('Checkpoint Answer intake', () => {
     });
   });
 
+  it('refuses a second waiting Checkpoint and an elicitation Linear did not confirm', async () => {
+    const f = fixture();
+    const control = f.open();
+    await control.checkpoint('0', question);
+    await expect(control.checkpoint('1', question)).rejects.toThrow(
+      /already has a waiting Checkpoint/,
+    );
+
+    const unconfirmedFixture = fixture();
+    const unconfirmed = unconfirmedFixture.open({
+      client: {
+        ...unconfirmedFixture.client,
+        ensureActivity: async ({ id }) => ({ id, success: false }),
+      },
+    });
+    await expect(unconfirmed.checkpoint('0', question)).rejects.toThrow(
+      /did not confirm the Checkpoint elicitation/,
+    );
+  });
+
   it('stays silent for three days and preserves exact free text in the exclusive Answer', async () => {
     const f = fixture();
     const control = f.open();
@@ -360,6 +381,39 @@ describe('Checkpoint Answer intake', () => {
     expect(await f.open().checkpoint('1', question)).toEqual({
       status: 'done',
       result: { decision: 'reject', reason: 'Linear delegation was dismissed' },
+    });
+  });
+
+  it('recovers a missing webhook source time from the original session activity', async () => {
+    const f = fixture();
+    const control = f.open();
+    await control.checkpoint('0', question);
+    const checkpoint = await control.waiting();
+    if (!checkpoint) throw new Error('expected a waiting Checkpoint');
+    f.prompts.push({
+      id: 'timestamp-recovery',
+      sessionId: 'session',
+      createdAt: '2026-09-07T10:00:01.000Z',
+      content: { type: 'prompt', body: checkpoint.approveValue },
+      ephemeral: false,
+    });
+    const event: AgentSessionEvent = {
+      action: 'prompted',
+      sessionId: 'session',
+      issueId: 'issue',
+      appUserId: 'app',
+      organizationId: 'org',
+      prompt: {
+        activityId: 'timestamp-recovery',
+        body: checkpoint.approveValue,
+      },
+      payload: {} as AgentSessionEvent['payload'],
+    };
+
+    await expect(control.prompted(event)).resolves.toBe('accepted');
+    expect(await control.checkpoint('0', question)).toEqual({
+      status: 'done',
+      result: { decision: 'approve' },
     });
   });
 });

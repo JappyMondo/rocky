@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
 import { LinearRunControl } from './control.js';
+import type { AgentSessionEvent } from './events.js';
 import { createLinearControlHandler } from './intake.js';
 import { registerLinearWebhook } from './webhook.js';
 
@@ -108,4 +109,36 @@ it('routes a verified HTTP prompt and a local Answer through the same generation
   } finally {
     await app.close();
   }
+});
+
+it('accepts only the installed app and workspace before routing created or prompted events', async () => {
+  const created: string[] = [];
+  const handler = createLinearControlHandler({
+    appUserId: 'app',
+    organizationId: 'org',
+    find: async () => undefined,
+    created: async (event) => {
+      created.push(event.sessionId);
+    },
+  });
+  const event: AgentSessionEvent = {
+    action: 'created',
+    sessionId: 'session',
+    issueId: 'issue',
+    appUserId: 'app',
+    organizationId: 'org',
+    payload: {} as AgentSessionEvent['payload'],
+  };
+
+  await handler(event);
+  expect(created).toEqual(['session']);
+  await expect(handler({ ...event, appUserId: 'other' })).rejects.toThrow(
+    /installed app and workspace/,
+  );
+  await expect(handler({ ...event, organizationId: 'other' })).rejects.toThrow(
+    /installed app and workspace/,
+  );
+  await expect(handler({ ...event, action: 'prompted' })).rejects.toThrow(
+    /No Run owns Linear session/,
+  );
 });
