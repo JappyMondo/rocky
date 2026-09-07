@@ -60,6 +60,28 @@ it('prepares once across a delegation race and refuses a live manual Trigger bef
   await scheduler.close();
 });
 
+it('does not consume a Run number when preparation refuses before publication', async () => {
+  const { scheduler } = await setup();
+  await expect(
+    scheduler.admit({
+      issueIdentifier: 'NG-598',
+      prepare: async () => {
+        throw new Error('Fix .rocky/workflow.ts');
+      },
+    }),
+  ).rejects.toThrow('Fix .rocky/workflow.ts');
+
+  const admitted = await scheduler.admit({
+    issueIdentifier: 'NG-598',
+    prepare: async () => input,
+  });
+  expect(admitted).toMatchObject({
+    kind: 'started',
+    run: { runId: 'NG-598-1' },
+  });
+  await scheduler.close();
+});
+
 it('publishes the snapshot and metadata together and leaves no Run for a refused preparation', async () => {
   const { root, paths, scheduler } = await setup();
   await expect(

@@ -45,10 +45,9 @@ snapshot-relative helpers including `.js` imports of `.ts` files. It writes no
 loader/config/build artifacts into the snapshot. Each load has an independent
 module-cache identity, including relative dependencies.
 
-MCP validation consumes `readMcpConfig` through `run/mcp-contract.ts`, whose
-runtime implementation is NG-599's `mcp/index.ts`. That dependency must be
-integrated by the coordinator; there is no substitute parser. Missing Agent files
-and unknown MCP call-site names remain Step errors.
+MCP validation consumes the merged NG-599 `mcp/index.ts` API through
+`run/mcp-contract.ts`; there is no substitute parser. Missing Agent files and
+unknown MCP call-site names remain Step errors.
 
 ## Boundaries
 
@@ -69,10 +68,10 @@ consumer TypeScript fixtures, a packed SDK with a relocated loader and Zod,
 and real child-process owner loss. SDK `dist/` must exist, as with the repo's
 normal dependency-build-before-test convention.
 
-NG-599 is not yet in this worktree. Focused snapshot tests inject the same public
-`readMcpConfig(file)` contract; production loads the actual dependency by name and
-fails with a named integration fix if it is absent. This keeps the snapshot loader
-free of a second parser while allowing the stacked branch to typecheck.
+NG-599 is in `main`. Focused snapshot tests still inject the public
+`readMcpConfig(file)` contract so declaration validation remains isolated; production
+uses the merged implementation directly and keeps the snapshot loader free of a
+second parser.
 
 Coordinator edits still required: exports, receipt/admission, publication before
 header, trigger/sourceCommit persistence, live-Run refusal, built-in Onboarding

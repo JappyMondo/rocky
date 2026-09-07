@@ -1,9 +1,8 @@
 # Execution Integration
 
-Prerequisite boundary: runtime PR #13,
-`51c6a624c96242f536b6eeb3f04bcc1c8a7616c2`, fast-forwarded from `d6588aa` before
-lane edits. Delivery targets the runtime branch as a stacked draft, not main.
-Harness #16 and MCP #14 are separate prerequisites, not included by that base.
+Prerequisite boundary: `main` at `99add03`, which includes runtime PR #13 and MCP
+PR #14. Harness successor PR #20 remains a separate runnable-adapter gate; this
+lane invokes its `getHarnessAdapter` contract only when an Agent Step runs.
 
 ## Admission And Identity
 

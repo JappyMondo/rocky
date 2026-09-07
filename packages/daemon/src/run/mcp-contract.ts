@@ -1,10 +1,13 @@
 import type { RockyPaths } from '../config/paths.js';
+import {
+  expandMcpConfig,
+  readMcpConfig,
+  resolveMcpServers,
+  type McpServer,
+} from '../mcp/index.js';
 
-/** The NG-599 consumer contract, kept structural while this stacked lane lands. */
-export interface ResolvedMcpServer {
-  name: string;
-  config: Record<string, unknown>;
-}
+/** The exact server shape passed from NG-599 to a Harness invocation. */
+export type ResolvedMcpServer = McpServer;
 
 export interface McpRuntime {
   readMcpConfig(file: string): Promise<unknown>;
@@ -22,35 +25,21 @@ export interface McpRuntime {
   ): Promise<ResolvedMcpServer[]>;
 }
 
-/** The implementation is supplied by the stacked NG-599 dependency. */
-export class McpRuntimeUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'McpRuntimeUnavailableError';
-  }
-}
-
-const mcpModule = ['..', 'mcp', 'index.js'].join('/');
-
 export async function loadMcpRuntime(): Promise<McpRuntime> {
-  let loaded: unknown;
-  try {
-    loaded = await import(mcpModule);
-  } catch (error) {
-    throw new McpRuntimeUnavailableError(
-      `The NG-599 MCP runtime is unavailable: ${error instanceof Error ? error.message : String(error)}. Integrate its readMcpConfig, expandMcpConfig and resolveMcpServers contract before running this Workflow.`,
-    );
-  }
-  if (
-    !loaded ||
-    typeof loaded !== 'object' ||
-    typeof (loaded as Partial<McpRuntime>).readMcpConfig !== 'function' ||
-    typeof (loaded as Partial<McpRuntime>).expandMcpConfig !== 'function' ||
-    typeof (loaded as Partial<McpRuntime>).resolveMcpServers !== 'function'
-  ) {
-    throw new McpRuntimeUnavailableError(
-      'The NG-599 MCP runtime does not expose readMcpConfig, expandMcpConfig and resolveMcpServers. Integrate the documented MCP contract before running this Workflow.',
-    );
-  }
-  return loaded as McpRuntime;
+  // NG-599 is on main. Keep this narrow structural boundary only so snapshot
+  // tests can supply a declaration parser without starting OAuth machinery.
+  return {
+    readMcpConfig,
+    expandMcpConfig: (declarations, options) =>
+      expandMcpConfig(
+        declarations as Parameters<typeof expandMcpConfig>[0],
+        options,
+      ),
+    resolveMcpServers: (config, names, options) =>
+      resolveMcpServers(
+        config as Parameters<typeof resolveMcpServers>[0],
+        names,
+        options,
+      ),
+  };
 }

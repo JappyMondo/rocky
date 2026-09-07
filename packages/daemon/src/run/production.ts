@@ -18,6 +18,8 @@ export interface ProductionRuntimeOptions {
   request(request: BootRequest): Promise<unknown>;
   onEvent?: AgentOptions['onEvent'];
   steer?: AgentOptions['steer'];
+  /** Harness #20 is injectable for production-seam tests and future adapters. */
+  adapterFor?: AgentOptions['adapterFor'];
   /** SCM and Linear adapters receive branch-local Steps and cancellation unchanged. */
   external?: WorkflowRuntimeOptions['external'];
   preflight?: WorkflowRuntimeOptions['beforeWorkflow'];
@@ -128,6 +130,7 @@ export function createProductionRuntime(
               signal: attemptSignal,
             });
           },
+          adapterFor: options.adapterFor,
           onEvent: options.onEvent,
           steer: options.steer,
         }),
