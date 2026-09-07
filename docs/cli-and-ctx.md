@@ -1,9 +1,9 @@
 # CLI and Workflow context contract
 
 This reconciles [NG-618](https://linear.app/digimondo/issue/NG-618) against the
-shipped foundation at `1512454`, plus the ingress/distribution slice. It is not
-a claim that the remaining MVP integration already runs. Recheck the tables
-when the runtime, Harness, MCP and content lanes land.
+current distribution, Runtime and MCP OAuth slices. It is not a claim that the
+remaining MVP integration already runs. Recheck the tables when the Harness and
+shipped-content lanes land.
 
 ## CLI
 
@@ -22,7 +22,7 @@ when the runtime, Harness, MCP and content lanes land.
 | `rocky repo add <url>`, `list`, `remove <name>` | Implemented | NG-521; Rocky-owned clones |
 | `rocky init` | Named failing stub | NG-607 implements NG-581's uncommitted default `.rocky/` copy |
 | `rocky upgrade` | Named failing stub | NG-608 implements ADR 0003's interactive comparison, not an automatic merge |
-| `rocky mcp login <server>` | Named failing stub at this base | NG-599 implements NG-583's URL-keyed machine login; MCP lane owns it |
+| `rocky mcp login <server>` | Implemented | NG-599/583; URL-keyed machine OAuth is documented in [MCP OAuth](mcp.md) |
 | `rocky trigger <name> <issue>` | Named failing stub | NG-580; admission/loader/local API wiring follows NG-540/598/609 |
 | `rocky-ingress [--port <port>] [--daemon-port <port>]` | Implemented operator utility | NG-651; separate webhook/ping-only filter, not a tunnel manager |
 
@@ -61,7 +61,7 @@ daemon implementations:
 | `agent`, `exec`, `step`, `checkpoint`, `post`, `changedFiles` | Declared | NG-572 as amended by NG-575; effects are journaled |
 | `scm` | Eight declared operations | NG-580; platform API only, git remains `exec`/Agent bash |
 | `linear.setState(name)` | Declared | NG-578; case-insensitive exact state name, named failure on unknown state |
-| `ports`, background `exec`, `parallel`, `stage` | Not in the SDK at this base | NG-597/631, owned by runtime-foundation |
+| `ports`, background `exec`, `parallel`, `stage` | Implemented | NG-597/631; [Run Runtime](run-runtime.md) defines their replay and parking behavior |
 
 `ctx.parallel` was **not dropped**. NG-597, informed by NG-577 section 5,
 specifies one parent Journal entry and an index-keyed sub-Journal per branch,
@@ -71,12 +71,10 @@ be caught, not silently corrupt the Journal. NG-597 owns the exact callback type
 branch-local context, result ordering and mixed Parked/failing-branch behavior.
 Do not infer those from a prototype or add a second implementation here.
 
-### Pending runtime integration
+### Runtime integration
 
-The runtime lane has since submitted [PR #13](https://github.com/JappyMondo/rocky/pull/13),
-head `d6588aaaea87be644e9aa337a47f6af5b984856c`, with green CI and review still
-required. Its SDK and documentation were read without importing or modifying
-the branch. It adds these declaration shapes (named result/options types expanded):
+The merged runtime exposes these declaration shapes (named result/options types
+expanded):
 
 ```ts
 readonly ports: number[];
@@ -91,13 +89,14 @@ parallel<T, R>(
 
 The callback captures the same `ctx`; it does not receive a second context
 parameter. Async-local routing supplies branch-local Journals. `ports` is a
-readonly property holding a mutable array, not a deeply readonly array. That
-PR also corrects CONTEXT's Step definition to exclude `stage()` and replaces
+readonly property holding a mutable array, not a deeply readonly array. The
+runtime corrects CONTEXT's Step definition to exclude `stage()` and replaces
 ADR 0005's stale member count with the named surface. Its poll Boots retry waits
 without starting new Steps or background commands; working Boots renew those
-resources. None of these additions is installed by this packaging branch yet.
+resources. The isolated SDK consumer typechecks these members from the packed
+SDK.
 
-After that reviewed head lands, a valid example is:
+A valid example is:
 
 ```ts
 const results = await ctx.parallel(['lint', 'test'], async (command, index) => {
@@ -117,10 +116,8 @@ on Boot; wrap effects in `step` when their outcome must be journaled.
 
 ## Remaining reconciliation
 
-NG-618 remains open until PR #13 lands and this document matches the integrated
-SDK and tested parking/failure semantics. Use the existing NG-597/631 tickets,
-not competing edits. Then update the current-implementation table, verify the
-pending callback example against the merged signature, and re-run the SDK-only
-consumer typecheck including the new members. CLI
-Trigger admission and NG-608/599 functionality must likewise stop being called
-implemented merely because their command names exist.
+NG-618 remains open while CLI Trigger admission and the Onboarding/upgrade work
+remain unimplemented. Use the existing NG-597/631 tickets, not competing edits,
+for runtime behavior. Re-run the SDK-only consumer typecheck when that surface
+changes. Trigger admission and NG-608 functionality must likewise stop being
+called implemented merely because their command names exist.
