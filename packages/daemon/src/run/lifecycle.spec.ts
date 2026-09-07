@@ -62,6 +62,28 @@ function alive(pid: number) {
   }
 }
 
+it('runs the explicit Start-Preflight seam before loading the workflow', async () => {
+  const order: string[] = [];
+  runtime = new WorkflowRuntime({
+    paths,
+    startPreflight: async (_run, steps) => {
+      order.push('preflight');
+      await steps.step('preflight', {}, async () => ({
+        status: 'done',
+        result: undefined,
+      }));
+    },
+    loadWorkflow: async () => {
+      order.push('workflow');
+      return async () => 'merged';
+    },
+  });
+  expect(
+    (await runtime.boot(header, 'run', new AbortController().signal)).status,
+  ).toBe('finished');
+  expect(order).toEqual(['preflight', 'workflow']);
+});
+
 it('captures real command output and records renewed ports in the header', async () => {
   const ports: number[] = [];
   let done = false;

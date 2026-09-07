@@ -8,6 +8,16 @@ import { startCommand, type OwnedCommand } from './process.js';
 
 export interface WorkflowRuntimeOptions {
   paths: RockyPaths;
+  /**
+   * Optional composition seam for NG-605. The composition root binds this to
+   * runPreflight plus frozen members and MCP config; the runtime owns only the
+   * journal ordering and replay.
+   */
+  startPreflight?(
+    run: RunHeader,
+    steps: BootContext,
+    signal: AbortSignal,
+  ): Promise<void>;
   /** NG-598 supplies the snapshotted Workflow, never a mutable repo import. */
   loadWorkflow(run: RunHeader): Promise<Workflow>;
   workspace?(run: RunHeader): string;
@@ -65,6 +75,7 @@ export class WorkflowRuntime {
             this.ports.set(run.runId, [port]);
             run = await updateRunHeader(paths, run.runId, { ports: [port] });
           }
+          await this.options.startPreflight?.(run, steps, signal);
           const workflow = await this.options.loadWorkflow(run);
           const cwd =
             this.options.workspace?.(run) ?? paths.run(run.runId).workspaceDir;
