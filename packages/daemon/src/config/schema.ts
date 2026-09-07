@@ -104,6 +104,10 @@ export const retentionSchema = z.looseObject({
   keepSessionsAndScreenshots: z.number().int().min(1).default(40),
 });
 
+export const concurrencySchema = z.looseObject({
+  maxRuns: z.number().int().min(1).default(3),
+});
+
 const instanceConfigShape = z.looseObject({
   /** The stable public URL Linear's webhook points at. BYO — no tunnel. */
   publicUrl: z.url().optional(),
@@ -111,6 +115,7 @@ const instanceConfigShape = z.looseObject({
   // schema for the field defaults inside it to apply.
   server: serverSchema.prefault({}),
   retention: retentionSchema.prefault({}),
+  concurrency: concurrencySchema.prefault({}),
   identity: identitySchema.prefault({}),
   repos: z.array(repoEntrySchema).default([]),
   groups: z.array(repoGroupSchema).default([]),

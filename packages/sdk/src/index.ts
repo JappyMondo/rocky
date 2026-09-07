@@ -22,12 +22,14 @@ export type {
 
 export type {
   AgentCallOpts,
+  BackgroundExecResult,
   CheckpointAnswer,
   CiResult,
   ExecResult,
   FailedJob,
   Issue,
   LinearOps,
+  ParallelOptions,
   Pr,
   ReviewThread,
   RunOutcome,

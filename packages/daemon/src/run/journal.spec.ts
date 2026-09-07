@@ -109,7 +109,11 @@ describe('appending', () => {
   });
 
   it('accepts the runner-owned keys from the runner itself', async () => {
-    await appendEntry(path, entry({ step: END_STEP }), { runner: true });
+    await appendEntry(
+      path,
+      entry({ step: END_STEP, result: { status: 'cancelled' } }),
+      { runner: true },
+    );
 
     const journal = await openJournal(path);
 
@@ -139,13 +143,10 @@ describe('a torn final line', () => {
     expect(journal.entries.map((e) => e.seq)).toEqual([1]);
   });
 
-  it('is dropped when it parses but is not a valid entry', async () => {
+  it('is corruption when it parses but is not a valid entry', async () => {
     writeLines(line({ seq: 1 }), '{"v":1,"seq":2}\n');
 
-    const journal = await openJournal(path);
-
-    expect(journal.truncated).toBe(true);
-    expect(journal.entries.map((e) => e.seq)).toEqual([1]);
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
   });
 
   it('repairs the file, so the next append lands on a clean line', async () => {
@@ -182,6 +183,12 @@ describe('a torn final line', () => {
 });
 
 describe('a format-version mismatch', () => {
+  it('treats a parseable null line as journal corruption', async () => {
+    writeLines('null\n');
+
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
+  });
+
   it('fails the Run rather than replaying it wrong', async () => {
     writeLines(line({ seq: 1, v: JOURNAL_FORMAT_VERSION + 1 }));
 

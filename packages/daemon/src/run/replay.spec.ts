@@ -49,6 +49,16 @@ function clock(): () => number {
   return () => Date.UTC(2026, 8, 2, 10, 0, 0) + tick++;
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  return {
+    promise: new Promise<T>((done) => {
+      resolve = done;
+    }),
+    resolve: (value) => resolve(value),
+  };
+}
+
 type Workflow = (
   ctx: BootContext,
 ) => Promise<'merged' | 'rejected' | 'exhausted'>;
@@ -306,7 +316,9 @@ describe('a failed Step', () => {
         throw new Error('the harness died');
       });
     } catch (error) {
-      caught.push(error as Error);
+      expect(error).toBeInstanceOf(Error);
+      if (!(error instanceof Error)) throw error;
+      caught.push(error);
     }
     await ctx.step('post', {}, async () => ({ status: 'done', result: null }));
     return 'exhausted';
@@ -347,7 +359,9 @@ describe('a failed Step', () => {
           throw new Error('the harness died');
         });
       } catch (error) {
-        caught.push(error as Error);
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw error;
+        caught.push(error);
       }
       await ctx.step('post', {}, async () => ({ status: 'waiting' }));
       return 'exhausted';
@@ -364,7 +378,9 @@ describe('a failed Step', () => {
           return { status: 'done', result: 'this must never happen' };
         });
       } catch (error) {
-        caught.push(error as Error);
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw error;
+        caught.push(error);
       }
       await ctx.step('post', {}, async () => ({
         status: 'done',
@@ -380,6 +396,53 @@ describe('a failed Step', () => {
       message: live?.message,
     });
     expect(result.status).toBe('finished');
+  });
+
+  it('records an unserializable result as failed and rethrows it on replay', async () => {
+    const caught: Error[] = [];
+    const first = await boot(async (ctx) => {
+      try {
+        await ctx.step('agent', {}, async () => ({
+          status: 'done',
+          result: 1n,
+        }));
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw error;
+        caught.push(error);
+      }
+      await ctx.step('wait', {}, async () => ({ status: 'waiting' }));
+      return 'merged';
+    });
+
+    expect(first.status).toBe('parked');
+    expect((await openJournal(path)).latest(0)?.status).toBe('failed');
+
+    let reran = false;
+    const second = await boot(async (ctx) => {
+      try {
+        await ctx.step('agent', {}, async () => {
+          reran = true;
+          return { status: 'done', result: 'must not run' };
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw error;
+        caught.push(error);
+      }
+      await ctx.step('wait', {}, async () => ({
+        status: 'done',
+        result: null,
+      }));
+      return 'merged';
+    });
+
+    expect(reran).toBe(false);
+    expect(caught.map((error) => error.message)).toEqual([
+      'Do not know how to serialize a BigInt',
+      'Do not know how to serialize a BigInt',
+    ]);
+    expect(second.status).toBe('finished');
   });
 
   it('fails the Run when the Workflow does not catch it', async () => {
@@ -480,6 +543,733 @@ describe('the stage marker', () => {
     expect(journal.latest(0)?.stage).toBe('Planning');
     expect(journal.latest(1)?.stage).toBe('Code review');
     // Two Steps, two seqs — the marker took none of them.
+    expect(journal.latest(2)?.step).toBe(END_STEP);
+  });
+});
+
+describe('journaled parallel', () => {
+  it.each([
+    [
+      'top-level entry',
+      (entry: Record<string, unknown>) => ({ ...entry, extra: true }),
+    ],
+    [
+      'attempt',
+      (entry: Record<string, unknown>) => ({
+        ...entry,
+        attempts: [
+          {
+            kind: 'steer',
+            startedAt: '2026-09-02T10:00:00.000Z',
+            ms: 1,
+            note: 'continue',
+            extra: true,
+          },
+        ],
+      }),
+    ],
+    [
+      'error',
+      (entry: Record<string, unknown>) => ({
+        ...entry,
+        error: { name: 'Error', message: 'bad', extra: true },
+      }),
+    ],
+    [
+      'nested branch entry',
+      (entry: Record<string, unknown>) => ({
+        ...entry,
+        step: '$parallel',
+        parallel: {
+          count: 1,
+          branches: [[{ ...entry, extra: true }]],
+        },
+      }),
+    ],
+    [
+      'nested branch version',
+      (entry: Record<string, unknown>) => ({
+        ...entry,
+        step: '$parallel',
+        parallel: {
+          count: 1,
+          branches: [[{ ...entry, v: JOURNAL_FORMAT_VERSION + 1 }]],
+        },
+      }),
+    ],
+    [
+      'invalid status enum',
+      (entry: Record<string, unknown>) => ({ ...entry, status: 'settled' }),
+    ],
+    [
+      'invalid field type',
+      (entry: Record<string, unknown>) => ({ ...entry, boot: 'first' }),
+    ],
+  ])('rejects unknown or incompatible data in a %s', async (_name, mutate) => {
+    const { writeFile } = await import('node:fs/promises');
+    const base: Record<string, unknown> = {
+      v: JOURNAL_FORMAT_VERSION,
+      seq: 0,
+      step: 'agent',
+      status: 'done',
+      boot: 1,
+      startedAt: '2026-09-02T10:00:00.000Z',
+    };
+    await writeFile(path, `${JSON.stringify(mutate(base))}\n`);
+
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
+  });
+
+  it('validates parallel journal data and every nested branch entry', async () => {
+    const base = {
+      v: JOURNAL_FORMAT_VERSION,
+      seq: 0,
+      status: 'done' as const,
+      boot: 1,
+      startedAt: '2026-09-02T10:00:00.000Z',
+    };
+
+    await expect(
+      appendEntry(path, { ...base, step: '$parallel' }, { runner: true }),
+    ).rejects.toThrow(/parallel/i);
+    await expect(
+      appendEntry(path, {
+        ...base,
+        step: 'agent',
+        parallel: { count: 1, branches: [[]] },
+      }),
+    ).rejects.toThrow(/parallel/i);
+    await expect(
+      appendEntry(
+        path,
+        {
+          ...base,
+          step: '$parallel',
+          parallel: { count: 2, branches: [[]] },
+        },
+        { runner: true },
+      ),
+    ).rejects.toThrow(/branches.*count/i);
+    await expect(
+      appendEntry(
+        path,
+        {
+          ...base,
+          step: '$parallel',
+          parallel: {
+            count: 1,
+            branches: [[{ ...base, step: '$parallel' }]],
+          },
+        },
+        { runner: true },
+      ),
+    ).rejects.toThrow(/parallel/i);
+  });
+
+  it('replays every multi-Step branch by index despite reversed settlement timing', async () => {
+    const firstEffects: string[] = [];
+    const slow = deferred<void>();
+    const first = await boot(async (ctx) => {
+      await ctx.parallel('work', ['slow', 'fast'], {}, async (branch, item) => {
+        await branch.step(`${item}:one`, {}, async () => {
+          if (item === 'slow') {
+            await slow.promise;
+          }
+          firstEffects.push(`${item}:one`);
+          return { status: 'done', result: item };
+        });
+        await branch.step(`${item}:two`, {}, async () => {
+          firstEffects.push(`${item}:two`);
+          if (item === 'fast') {
+            slow.resolve();
+          }
+          return item === 'fast'
+            ? { status: 'waiting' }
+            : { status: 'done', result: item };
+        });
+      });
+      return 'merged';
+    });
+
+    expect(first.status).toBe('parked');
+    expect(firstEffects).toEqual([
+      'fast:one',
+      'fast:two',
+      'slow:one',
+      'slow:two',
+    ]);
+
+    const replayedEffects: string[] = [];
+    const second = await boot(async (ctx) => {
+      await ctx.parallel('work', ['slow', 'fast'], {}, async (branch, item) => {
+        await branch.step(`${item}:one`, {}, async () => {
+          replayedEffects.push(`${item}:one`);
+          return { status: 'done', result: item };
+        });
+        await branch.step(`${item}:two`, {}, async () => {
+          replayedEffects.push(`${item}:two`);
+          return { status: 'done', result: item };
+        });
+      });
+      return 'merged';
+    });
+
+    expect(second).toMatchObject({
+      status: 'finished',
+      replayed: 3,
+      executed: 1,
+    });
+    expect(replayedEffects).toEqual(['fast:two']);
+    const parallel = (await openJournal(path)).latest(0)?.parallel;
+    expect(parallel?.count).toBe(2);
+    expect(
+      parallel?.branches.map((branch) =>
+        [...new Map(branch.map((entry) => [entry.seq, entry])).values()].map(
+          (entry) => entry.step,
+        ),
+      ),
+    ).toEqual([
+      ['slow:one', 'slow:two'],
+      ['fast:one', 'fast:two'],
+    ]);
+  });
+
+  it('fails when a replay changes a parallel item count', async () => {
+    await boot(async (ctx) => {
+      await ctx.parallel('work', ['one'], {}, async (branch, _item) => {
+        await branch.step('work', {}, async () => ({ status: 'waiting' }));
+      });
+      return 'merged';
+    });
+
+    const result = await boot(async (ctx) => {
+      await ctx.parallel('work', ['one', 'two'], {}, async (branch, _item) => {
+        await branch.step('work', {}, async () => ({
+          status: 'done',
+          result: null,
+        }));
+      });
+      return 'merged';
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.status === 'failed' && result.error.message).toMatch(
+      /parallel.*count.*1.*2/is,
+    );
+    expect((await openJournal(path)).latest(0)).toMatchObject({
+      status: 'failed',
+      error: { name: 'DivergenceError' },
+    });
+  });
+
+  it('keeps nested parallel journals separate by every parent index', async () => {
+    const firstEffects: string[] = [];
+    const first = await boot(async (ctx) => {
+      await ctx.parallel(
+        'outer',
+        ['outer-a', 'outer-b'],
+        {},
+        async (branch, outer) => {
+          await branch.parallel(
+            'inner',
+            ['left', 'right'],
+            {},
+            async (nested, inner) => {
+              await nested.step(`${outer}:${inner}`, {}, async () => {
+                firstEffects.push(`${outer}:${inner}`);
+                return outer === 'outer-b' && inner === 'right'
+                  ? { status: 'waiting' }
+                  : { status: 'done', result: `${outer}:${inner}` };
+              });
+            },
+          );
+        },
+      );
+      return 'merged';
+    });
+
+    expect(first.status).toBe('parked');
+    expect(firstEffects.sort()).toEqual([
+      'outer-a:left',
+      'outer-a:right',
+      'outer-b:left',
+      'outer-b:right',
+    ]);
+
+    const replayedEffects: string[] = [];
+    const second = await boot(async (ctx) => {
+      await ctx.parallel(
+        'outer',
+        ['outer-a', 'outer-b'],
+        {},
+        async (branch, outer) => {
+          await branch.parallel(
+            'inner',
+            ['left', 'right'],
+            {},
+            async (nested, inner) => {
+              await nested.step(`${outer}:${inner}`, {}, async () => {
+                replayedEffects.push(`${outer}:${inner}`);
+                return { status: 'done', result: `${outer}:${inner}` };
+              });
+            },
+          );
+        },
+      );
+      return 'merged';
+    });
+
+    expect(second).toMatchObject({
+      status: 'finished',
+      replayed: 3,
+      executed: 1,
+    });
+    expect(replayedEffects).toEqual(['outer-b:right']);
+    const outer = (await openJournal(path)).latest(0)?.parallel;
+    expect(
+      outer?.branches.map(
+        (branch) => branch.at(-1)?.parallel?.branches[0]?.at(-1)?.step,
+      ),
+    ).toEqual(['outer-a:left', 'outer-b:left']);
+  });
+
+  it('fails rather than parking when a sibling branch throws', async () => {
+    const result = await boot(async (ctx) => {
+      await ctx.parallel('work', ['park', 'fail'], {}, async (branch, item) => {
+        await branch.step(item, {}, async () => {
+          if (item === 'park') {
+            return { status: 'waiting' };
+          }
+          throw new Error('sibling failed');
+        });
+      });
+      return 'merged';
+    });
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(result.status === 'failed' && result.error.message).toBe(
+      'sibling failed',
+    );
+  });
+
+  const caughtStructuralCases: [string, JournalEntry[]][] = [
+    [
+      'DivergenceError',
+      [
+        {
+          v: JOURNAL_FORMAT_VERSION,
+          seq: 0,
+          step: 'recorded',
+          status: 'done',
+          boot: 1,
+          startedAt: '2026-09-02T10:00:00.000Z',
+        },
+      ],
+    ],
+    [
+      'CrashLoopError',
+      Array.from({ length: CRASH_LOOP_LIMIT }, (_, boot): JournalEntry => ({
+        v: JOURNAL_FORMAT_VERSION,
+        seq: 0,
+        step: 'work',
+        status: 'running',
+        boot: boot + 1,
+        startedAt: '2026-09-02T10:00:00.000Z',
+      })),
+    ],
+  ];
+
+  it.each(caughtStructuralCases)(
+    'latches a caught branch-local %s as fatal',
+    async (name, branch) => {
+      await appendEntry(
+        path,
+        {
+          v: JOURNAL_FORMAT_VERSION,
+          seq: 0,
+          step: '$parallel',
+          status: 'running',
+          boot: 1,
+          startedAt: '2026-09-02T10:00:00.000Z',
+          parallel: { count: 1, branches: [branch] },
+        },
+        { runner: true },
+      );
+
+      const result = await boot(async (ctx) => {
+        await ctx.parallel(
+          'work',
+          ['only'],
+          {},
+          async (branchContext, _item) => {
+            try {
+              await branchContext.step(
+                name === 'DivergenceError' ? 'other' : 'work',
+                {},
+                async () => ({
+                  status: 'done',
+                  result: null,
+                }),
+              );
+            } catch {
+              // A branch cannot catch a structural replay failure away.
+            }
+          },
+        );
+        return 'merged';
+      });
+
+      expect(result.status === 'failed' && result.error.name).toBe(name);
+      expect((await openJournal(path)).latest(0)).toMatchObject({
+        status: 'failed',
+        error: { name },
+      });
+    },
+  );
+
+  it('prevents a delayed sibling branch from executing after structural failure', async () => {
+    await appendEntry(
+      path,
+      {
+        v: JOURNAL_FORMAT_VERSION,
+        seq: 0,
+        step: '$parallel',
+        status: 'running',
+        boot: 1,
+        startedAt: '2026-09-02T10:00:00.000Z',
+        parallel: {
+          count: 2,
+          branches: [
+            [
+              {
+                v: JOURNAL_FORMAT_VERSION,
+                seq: 0,
+                step: 'recorded',
+                status: 'done',
+                boot: 1,
+                startedAt: '2026-09-02T10:00:00.000Z',
+                result: null,
+              },
+            ],
+            [],
+          ],
+        },
+      },
+      { runner: true },
+    );
+
+    let touched = false;
+    const structuralStarted = deferred<void>();
+    const result = await boot(async (ctx) => {
+      await ctx.parallel(
+        'work',
+        ['structural', 'delayed'],
+        {},
+        async (branch, item) => {
+          if (item === 'structural') {
+            structuralStarted.resolve();
+            await branch.step('other', {}, async () => ({
+              status: 'done',
+              result: null,
+            }));
+            return;
+          }
+          await structuralStarted.promise;
+          await branch.step('delayed', {}, async () => {
+            touched = true;
+            return { status: 'done', result: null };
+          });
+        },
+      );
+      return 'merged';
+    });
+
+    expect(touched).toBe(false);
+    expect(result.status === 'failed' && result.error.name).toBe(
+      'DivergenceError',
+    );
+  });
+
+  it('keeps a latched structural failure ahead of a later ordinary rejection', async () => {
+    await appendEntry(
+      path,
+      {
+        v: JOURNAL_FORMAT_VERSION,
+        seq: 0,
+        step: '$parallel',
+        status: 'running',
+        boot: 1,
+        startedAt: '2026-09-02T10:00:00.000Z',
+        parallel: {
+          count: 2,
+          branches: [
+            [
+              {
+                v: JOURNAL_FORMAT_VERSION,
+                seq: 0,
+                step: 'recorded',
+                status: 'done',
+                boot: 1,
+                startedAt: '2026-09-02T10:00:00.000Z',
+                result: null,
+              },
+            ],
+            [],
+          ],
+        },
+      },
+      { runner: true },
+    );
+    const structuralStarted = deferred<void>();
+    const result = await boot(async (ctx) => {
+      await ctx.parallel(
+        'work',
+        ['structural', 'ordinary'],
+        {},
+        async (branch, item) => {
+          if (item === 'ordinary') {
+            await structuralStarted.promise;
+            throw new Error('ordinary failure');
+          }
+          structuralStarted.resolve();
+          await branch.step('other', {}, async () => ({
+            status: 'done',
+            result: null,
+          }));
+        },
+      );
+      return 'merged';
+    });
+    expect(result.status === 'failed' && result.error.name).toBe(
+      'DivergenceError',
+    );
+    expect((await openJournal(path)).latest(0)?.error?.name).toBe(
+      'DivergenceError',
+    );
+  });
+
+  it('settles a parent when a run callback throws synchronously', async () => {
+    const result = await boot(async (ctx) => {
+      await ctx.parallel('work', ['only'], {}, () => {
+        throw new Error('synchronous failure');
+      });
+      return 'merged';
+    });
+    expect(result.status === 'failed' && result.error.message).toBe(
+      'synchronous failure',
+    );
+    expect((await openJournal(path)).latest(0)?.status).toBe('failed');
+  });
+
+  it('applies the crash-loop guard to an interrupted parallel parent', async () => {
+    for (let boot = 1; boot <= CRASH_LOOP_LIMIT; boot += 1) {
+      await appendEntry(
+        path,
+        {
+          v: JOURNAL_FORMAT_VERSION,
+          seq: 0,
+          step: '$parallel',
+          status: 'running',
+          boot,
+          startedAt: '2026-09-02T10:00:00.000Z',
+          parallel: { count: 1, branches: [[]] },
+        },
+        { runner: true },
+      );
+    }
+
+    let ran = false;
+    const result = await boot(async (ctx) => {
+      await ctx.parallel('work', ['only'], {}, async (branch, _item) => {
+        ran = true;
+        await branch.step('work', {}, async () => ({
+          status: 'done',
+          result: null,
+        }));
+      });
+      return 'merged';
+    });
+
+    expect(ran).toBe(false);
+    expect(result.status === 'failed' && result.error.name).toBe(
+      'CrashLoopError',
+    );
+    expect((await openJournal(path)).latest(0)).toMatchObject({
+      status: 'failed',
+      error: { name: 'CrashLoopError' },
+    });
+  });
+
+  it('settles a parked parent as waiting so polling never becomes a crash loop', async () => {
+    const workflow: Workflow = async (ctx) => {
+      await ctx.parallel('work', ['only'], {}, async (branch, _item) => {
+        await branch.step('wait', {}, async () => ({ status: 'waiting' }));
+      });
+      return 'merged';
+    };
+
+    for (let attempt = 0; attempt < CRASH_LOOP_LIMIT + 2; attempt += 1) {
+      expect((await boot(workflow)).status).toBe('parked');
+      expect((await openJournal(path)).latest(0)?.status).toBe('waiting');
+    }
+  });
+
+  it('parks every enclosing parent when a branch catches nested ParkSignal', async () => {
+    const result = await boot(async (ctx) => {
+      await ctx.parallel('outer', ['outer'], {}, async (outer, _item) => {
+        try {
+          await outer.parallel(
+            'inner',
+            ['inner'],
+            {},
+            async (inner, _nested) => {
+              await inner.step('wait', {}, async () => ({ status: 'waiting' }));
+            },
+          );
+        } catch {
+          // A user catch cannot make the enclosing parent complete.
+        }
+      });
+      return 'merged';
+    });
+
+    expect(result.status).toBe('parked');
+    const parent = (await openJournal(path)).latest(0);
+    expect(parent?.status).toBe('waiting');
+    expect(parent?.parallel?.branches[0]?.at(-1)?.status).toBe('waiting');
+  });
+
+  it('fails when a branch returns before replaying its recorded subjournal', async () => {
+    await appendEntry(
+      path,
+      {
+        v: JOURNAL_FORMAT_VERSION,
+        seq: 0,
+        step: '$parallel',
+        status: 'running',
+        boot: 1,
+        startedAt: '2026-09-02T10:00:00.000Z',
+        parallel: {
+          count: 1,
+          branches: [
+            [
+              {
+                v: JOURNAL_FORMAT_VERSION,
+                seq: 0,
+                step: 'recorded',
+                status: 'done',
+                boot: 1,
+                startedAt: '2026-09-02T10:00:00.000Z',
+                result: null,
+              },
+            ],
+          ],
+        },
+      },
+      { runner: true },
+    );
+
+    const result = await boot(async (ctx) => {
+      await ctx.parallel('work', ['only'], {}, async () => undefined);
+      return 'merged';
+    });
+
+    expect(result.status === 'failed' && result.error.name).toBe(
+      'DivergenceError',
+    );
+  });
+
+  it('records and rethrows an ordinary branch failure across Boots', async () => {
+    const caught: Error[] = [];
+    const first = await boot(async (ctx) => {
+      try {
+        await ctx.parallel('work', ['only'], {}, async (branch, _item) => {
+          await branch.step('work', {}, async () => {
+            throw new Error('branch failed');
+          });
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw error;
+        caught.push(error);
+      }
+      await ctx.step('wait', {}, async () => ({ status: 'waiting' }));
+      return 'merged';
+    });
+
+    expect(first.status).toBe('parked');
+    expect((await openJournal(path)).latest(0)?.status).toBe('failed');
+
+    let reran = false;
+    const second = await boot(async (ctx) => {
+      try {
+        await ctx.parallel('work', ['only'], {}, async (branch, _item) => {
+          reran = true;
+          await branch.step('work', {}, async () => ({
+            status: 'done',
+            result: null,
+          }));
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        if (!(error instanceof Error)) throw error;
+        caught.push(error);
+      }
+      await ctx.step('wait', {}, async () => ({
+        status: 'done',
+        result: null,
+      }));
+      return 'merged';
+    });
+
+    expect(reran).toBe(false);
+    expect(caught.map((error) => error.message)).toEqual([
+      'branch failed',
+      'branch failed',
+    ]);
+    expect(second.status).toBe('finished');
+  });
+
+  it('fails when workflow code catches parallel waiting then throws', async () => {
+    const result = await boot(async (ctx) => {
+      try {
+        await ctx.parallel('work', ['only'], {}, async (branch, _item) => {
+          await branch.step('wait', {}, async () => ({ status: 'waiting' }));
+        });
+      } catch {
+        // Deliberately continue into an ordinary workflow failure.
+      }
+      throw new Error('after waiting');
+    });
+
+    expect(result.status === 'failed' && result.error.message).toBe(
+      'after waiting',
+    );
+  });
+
+  it('reserves one top-level sequence and leaves the next serial Step after it', async () => {
+    await boot(async (ctx) => {
+      ctx.stage('Parallel work');
+      await ctx.parallel('work', [1, 2], {}, async (branch, item) => {
+        await branch.step(`branch:${item}`, {}, async () => ({
+          status: 'done',
+          result: item,
+        }));
+      });
+      await ctx.step('after', {}, async () => ({
+        status: 'done',
+        result: null,
+      }));
+      return 'merged';
+    });
+
+    const journal = await openJournal(path);
+    expect(journal.latest(0)?.step).toBe('$parallel');
+    expect(journal.latest(0)?.status).toBe('done');
+    expect(journal.latest(0)?.parallel?.branches[0]?.at(-1)?.stage).toBe(
+      'Parallel work',
+    );
+    expect(journal.latest(1)?.step).toBe('after');
     expect(journal.latest(2)?.step).toBe(END_STEP);
   });
 });
