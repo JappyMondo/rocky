@@ -24,6 +24,52 @@ const toolCallFixture = readFileSync(
 ).split('\n');
 
 describe('parseOpencodeStream', () => {
+  it('preserves permanent native model authentication failure with the exact login fix', () => {
+    try {
+      parseOpencodeStream([
+        JSON.stringify({
+          type: 'error',
+          error: {
+            name: 'APIError',
+            data: {
+              statusCode: 401,
+              isRetryable: false,
+              message: 'Invalid API key',
+              responseBody: 'not for the Journal',
+            },
+          },
+        }),
+      ]);
+      expect.fail('expected an authentication failure');
+    } catch (error) {
+      expect(error).toMatchObject({
+        retryable: false,
+        fix: 'opencode auth login',
+        message: expect.stringContaining('Invalid API key'),
+      });
+      expect((error as Error).message).not.toContain('not for the Journal');
+    }
+  });
+  it('turns a named native MCP initialization rejection into its MCP login fix', () => {
+    expect(() =>
+      parseOpencodeStream(
+        [
+          JSON.stringify({
+            type: 'error',
+            error: {
+              name: 'MCPError',
+              data: {
+                statusCode: 401,
+                server: 'api',
+                message: 'MCP authentication failed',
+              },
+            },
+          }),
+        ],
+        [{ name: 'api', config: {} }],
+      ),
+    ).toThrow(/rocky mcp login api/);
+  });
   it('pins a newly recorded live tool boundary and same-session continuation', () => {
     const lines = readFileSync(
       new URL('./fixtures/opencode-1.18.29-live.jsonl', import.meta.url),

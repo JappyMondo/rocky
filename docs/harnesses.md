@@ -31,15 +31,17 @@ using `OPENCODE_DB`: `rocky` overrides it with `sessions/opencode.db` beside the
 Transcript; `opencode` leaves the native store selection unchanged. Retention of a
 Run does not remove sessions kept in the ordinary OpenCode store. OpenCode auth,
 caches and logs remain in the CLI's ordinary locations. Rocky does not copy or edit
-that credential store. Claude always keeps native state in a per-Step directory
-under the Run's `sessions/`; `opencode` storage is not a Claude mode.
+that credential store. Claude routes only its native session artifacts into a
+per-Step directory under the Run's `sessions/`; `opencode` storage is not a Claude
+mode.
 
-Claude's supported `CLAUDE_CONFIG_DIR` isolation also isolates keychain/file login
-state. Doctor detects a login that cannot be used in that isolated directory and
-names the fix: `claude login`, then supply `CLAUDE_CODE_OAUTH_TOKEN` (from
-`claude setup-token`) or `ANTHROPIC_API_KEY` through the Harness environment.
-Rocky never extracts keychain secrets, relocates credentials, or changes the login.
-This limitation is explicit, not a claim that a host-only keychain login works.
+Claude retains the configured execution environment, including a host `CLAUDE_CONFIG_DIR`,
+for authentication. Rocky disables user/project settings and routes only the native
+session artifacts using its SessionStart hook. Doctor runs that exact execution probe
+and reports its identity only when the probe reports one; it fails closed if that
+identity differs from the configured probe. Rocky never extracts keychain secrets,
+relocates credentials, or changes the login. Local session-routing fixtures do not
+prove an authenticated Claude continuation; that remains a live acceptance gate.
 
 ## Policy Enforcement
 

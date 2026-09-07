@@ -26,6 +26,24 @@ function adapter(name: 'claude-code' | 'opencode') {
 }
 
 describe('the shipped Harness adapters', () => {
+  it('rejects a known account switch and reports the execution identity', async () => {
+    let count = 0;
+    const result = await adapter('claude-code').checkAuth({}, { env: {}, run: async () => ok(JSON.stringify({ loggedIn: true, authMethod: 'oauth_token', email: ++count === 1 ? 'configured@example.test' : 'different@example.test' })) });
+    expect(result).toMatchObject({ ok: false, identity: { email: 'different@example.test' }, detail: expect.stringContaining('different@example.test'), fix: expect.stringContaining('claude login') });
+  });
+
+  it('does not present an unverified host identity when execution omits it', async () => {
+    let count = 0;
+    const result = await adapter('claude-code').checkAuth({}, { env: {}, run: async () => ok(JSON.stringify({ loggedIn: true, ...(++count === 1 ? { email: 'host@example.test' } : {}) })) });
+    expect(result).toMatchObject({ ok: false, detail: expect.stringContaining('identity') });
+    expect(result.detail).not.toContain('signed in as host@example.test');
+  });
+
+  it('reports the actual execution identity when the host probe has no identity', async () => {
+    let count = 0;
+    const result = await adapter('claude-code').checkAuth({}, { env: {}, run: async () => ok(JSON.stringify({ loggedIn: true, ...(++count === 2 ? { email: 'execution@example.test', orgId: 'org-1' } : {}) })) });
+    expect(result).toMatchObject({ ok: true, identity: { email: 'execution@example.test', organizationId: 'org-1' }, detail: expect.stringContaining('execution@example.test') });
+  });
   it('recognizes native environment-backed OpenCode auth without a stored credential', async () => {
     const result = await adapter('opencode').checkAuth(
       {},
@@ -39,7 +57,7 @@ describe('the shipped Harness adapters', () => {
       detail: expect.stringContaining('environment'),
     });
   });
-  it('refuses a host login that cannot be used with isolated Claude session storage', async () => {
+  it('refuses a login that is unavailable under actual execution settings', async () => {
     let calls = 0;
     const result = await adapter('claude-code').checkAuth(
       {},
@@ -47,8 +65,8 @@ describe('the shipped Harness adapters', () => {
     );
     expect(result).toMatchObject({
       ok: false,
-      detail: expect.stringContaining('session storage'),
-      fix: expect.stringContaining('CLAUDE_CODE_OAUTH_TOKEN'),
+      detail: expect.stringContaining('execution settings'),
+      fix: 'claude login',
     });
   });
   it('fails if the isolated account probe throws', async () => {
@@ -145,7 +163,8 @@ describe('the shipped Harness adapters', () => {
         CLAUDE_CONFIG_DIR: '/work/claude',
       },
     });
-    expect(calls[1].env.CLAUDE_CONFIG_DIR).not.toBe('/work/claude');
+    expect(calls[1].env.CLAUDE_CONFIG_DIR).toBe('/work/claude');
+    expect(calls[1].args).toEqual(['--setting-sources', '', 'auth', 'status']);
     expect(calls[1].command).toBe('/opt/claude');
   });
   it('uses the default binary and forwards its timeout', async () => {

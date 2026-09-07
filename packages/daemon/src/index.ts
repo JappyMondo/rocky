@@ -99,6 +99,7 @@ export {
   type CheckAuthOptions,
   type HarnessAdapter,
   type HarnessAuthResult,
+  type HarnessAuthIdentity,
   type ProbeResult,
   type ProbeRunner,
   type ShippedHarness,

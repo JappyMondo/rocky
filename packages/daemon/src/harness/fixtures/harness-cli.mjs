@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // Synthetic CLI boundary fixture. Never represented as a real Harness stream.
-import { readFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { appendFileSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { execSync, spawn } from 'node:child_process';
 const args = process.argv.slice(2);
 const mode = process.env.FIXTURE_MODE;
 const emit = (value) => console.log(JSON.stringify(value));
 async function hang(claude, sessionId) {
   process.on('SIGTERM', () => undefined);
+  process.on('SIGINT', () => undefined);
   const child = spawn(
     process.execPath,
     ['-e', 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'],
@@ -49,6 +51,32 @@ async function hang(claude, sessionId) {
 if (args.includes('--output-format')) {
   const configPath = args[args.indexOf('--mcp-config') + 1];
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  const requestedId =
+    args[
+      args.indexOf(args.includes('--resume') ? '--resume' : '--session-id') + 1
+    ];
+  const nativePath = join(
+    process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME, '.claude'),
+    'projects',
+    'fixture',
+    `${requestedId}.jsonl`,
+  );
+  mkdirSync(dirname(nativePath), { recursive: true });
+  const settings = JSON.parse(
+    readFileSync(args[args.indexOf('--settings') + 1], 'utf8'),
+  );
+  const hook = settings.hooks.SessionStart[0].hooks[0];
+  const hookResult = JSON.parse(
+    execSync(hook.command, {
+      input: JSON.stringify({
+        session_id: requestedId,
+        transcript_path: nativePath,
+      }),
+      encoding: 'utf8',
+    }),
+  );
+  if (!hookResult.continue) throw new Error(hookResult.stopReason);
+  appendFileSync(nativePath, 'fixture native record\n');
   const session_id =
     mode === 'wrong-session'
       ? '22222222-2222-4222-8222-222222222222'
@@ -57,7 +85,17 @@ if (args.includes('--output-format')) {
             args.includes('--resume') ? '--resume' : '--session-id',
           ) + 1
         ];
-  console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id }));
+  console.log(
+    JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id,
+      mcp_servers: Object.keys(config.mcpServers).map((name) => ({
+        name,
+        status: 'connected',
+      })),
+    }),
+  );
   if (mode === 'missing-result') process.exit(0);
   if (mode === 'hang') await hang(true, session_id);
   if (mode === 'auth-error') {
@@ -79,7 +117,8 @@ if (args.includes('--output-format')) {
         args,
         config,
         configPath,
-        native: process.env.CLAUDE_CONFIG_DIR,
+        native: readlinkSync(nativePath),
+        authConfig: process.env.CLAUDE_CONFIG_DIR,
       }),
     }),
   );
@@ -113,6 +152,10 @@ if (args[0] === 'debug') {
 } else {
   if (mode === 'stderr-only') {
     console.error('Unknown model');
+    process.exit(1);
+  }
+  if (mode === 'stderr-auth') {
+    console.error('APIError: 401 Invalid API key');
     process.exit(1);
   }
   if (mode === 'large') {
