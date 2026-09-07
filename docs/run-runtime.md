@@ -57,9 +57,11 @@ Do not restate a member count. `stage(label)` takes no sequence and sets display
 metadata on later entries without teaching the framework product-stage names.
 
 `createWorkflowContext(steps, header, services)` binds the SDK surface to
-branch-local Steps. External adapters receive `BootContext` and must journal
-their operations through it; they are not automatically wrapped twice. Effects
-return `{ status: 'done', result }` or `{ status: 'waiting' }`.
+branch-local Steps. External SCM and other adapters receive `BootContext` and
+must journal their operations through it; they are not automatically wrapped
+twice. `ctx.checkpoint` is framework-owned: it journals its one Step while its
+external adapter returns a raw answer. Effects return `{ status: 'done', result
+}` or `{ status: 'waiting' }`.
 `EffectHandle.record(attempt)` records failed attempts or Steers without another
 sequence. Missing external members name the adapter to wire.
 

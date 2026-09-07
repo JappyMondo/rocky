@@ -306,10 +306,30 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           'Do not reopen a completed PR.',
           current,
         );
-      if (input?.body !== undefined)
-        await http.request('PATCH', `${root}/pulls/${pr.number}`, pullSchema, {
-          body: input.body,
-        });
+      if (input?.body !== undefined) {
+        const patched = await http.request(
+          'PATCH',
+          `${root}/pulls/${pr.number}`,
+          pullSchema,
+          {
+            body: input.body,
+          },
+        );
+        validateOwnership(patched);
+        const returned = handle(patched);
+        if (
+          returned.id !== current.id ||
+          returned.sourceBranch !== current.sourceBranch ||
+          returned.baseBranch !== current.baseBranch
+        )
+          throw refuse(
+            options.repo.id,
+            'invalid_response',
+            'PR content mutation returned a different PR identity.',
+            'Inspect the PR identity before retrying.',
+            returned,
+          );
+      }
       if (current.draft !== draft) {
         const operation = draft
           ? 'convertPullRequestToDraft'
@@ -318,7 +338,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           ? 'ConvertPullRequestToDraftInput'
           : 'MarkPullRequestReadyForReviewInput';
         const verified = await read(pr);
-        await http.graphql(
+        const response = await http.graphql(
           `mutation Draft($input: ${inputType}!) { ${operation}(input: $input) { pullRequest { id } } }`,
           { input: { pullRequestId: verified.id } },
           z.object({
@@ -327,6 +347,14 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             }),
           }),
         );
+        if (response[operation].pullRequest.id !== verified.id)
+          throw refuse(
+            options.repo.id,
+            'invalid_response',
+            'Draft mutation returned a different PR identity.',
+            'Inspect the PR identity before retrying.',
+            verified,
+          );
       }
       const updated = await read(pr);
       if (updated.draft !== draft)
@@ -549,8 +577,8 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           current,
         );
       if (node.isMergeQueueEnabled) {
-        await http.graphql(
-          'mutation Arm($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id } } }',
+        const response = await http.graphql(
+          'mutation Arm($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id pullRequest { id } } } }',
           {
             input: {
               pullRequestId: verified.id,
@@ -559,10 +587,24 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           },
           z.object({
             enqueuePullRequest: z.object({
-              mergeQueueEntry: z.object({ id: z.string() }).nullable(),
+              mergeQueueEntry: z
+                .object({
+                  id: z.string(),
+                  pullRequest: z.object({ id: z.string() }),
+                })
+                .nullable(),
             }),
           }),
         );
+        const entry = response.enqueuePullRequest.mergeQueueEntry;
+        if (!entry || entry.pullRequest.id !== verified.id)
+          throw refuse(
+            options.repo.id,
+            'invalid_response',
+            'Merge-queue enrollment did not return the requested PR.',
+            'Inspect the merge-queue entry before retrying.',
+            current,
+          );
       } else {
         const mergeMethod = node.repository.squashMergeAllowed
           ? 'SQUASH'
@@ -579,7 +621,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             'Ask a maintainer to verify merge policy.',
             current,
           );
-        await http.graphql(
+        const response = await http.graphql(
           'mutation Arm($input: EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input: $input) { pullRequest { id } } }',
           {
             input: {
@@ -594,6 +636,14 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             }),
           }),
         );
+        if (response.enablePullRequestAutoMerge.pullRequest.id !== verified.id)
+          throw refuse(
+            options.repo.id,
+            'invalid_response',
+            'Auto-merge mutation returned a different PR identity.',
+            'Inspect the PR identity before retrying.',
+            current,
+          );
       }
       return { status: 'waiting' };
     },
