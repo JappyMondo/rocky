@@ -110,6 +110,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@rocky/local-contracts':
+        specifier: workspace:*
+        version: link:../../packages/local-contracts
       react:
         specifier: ^19.0.0
         version: 19.2.8
@@ -138,6 +141,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.5.4)
+      '@rocky/local-contracts':
+        specifier: workspace:*
+        version: link:../local-contracts
       '@rocky/sdk':
         specifier: workspace:*
         version: link:../sdk
@@ -157,6 +163,8 @@ importers:
       '@types/proper-lockfile':
         specifier: 4.1.4
         version: 4.1.4
+
+  packages/local-contracts: {}
 
   packages/sdk:
     dependencies:

@@ -10,6 +10,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.spec.ts", "src/**/*.fixtures.ts"],
   "references": [
+    { "path": "../local-contracts/tsconfig.lib.json" },
     {
       "path": "../sdk/tsconfig.lib.json"
     }
