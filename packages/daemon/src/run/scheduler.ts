@@ -267,9 +267,7 @@ export class RunScheduler {
           );
           const runId = `${request.issueIdentifier}-${suffix + 1}`;
           this.options.paths.run(runId);
-          this.counters[request.issueIdentifier] = suffix + 1;
-          await this.saveCounters();
-          return { kind: 'reserved' as const, runId };
+          return { kind: 'reserved' as const, runId, number: suffix + 1 };
         });
         if (reservation.kind !== 'reserved') return reservation;
         const input = await request.prepare(
@@ -295,6 +293,10 @@ export class RunScheduler {
           if (input.linear) run.linear = structuredClone(input.linear);
           if (input.execution) run.execution = structuredClone(input.execution);
           run.queueOrder = ++this.queueOrder;
+          // A Refusal never starts a Run, so it cannot consume a visible Run
+          // number. Persist immediately before the directory becomes visible.
+          this.counters[request.issueIdentifier] = reservation.number;
+          await this.saveCounters();
           if (input.snapshotDir) {
             // Staging is outside runs/: recovery must never discover a partial Run.
             const staging = join(this.options.paths.root, 'admissions');

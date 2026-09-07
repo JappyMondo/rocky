@@ -61,6 +61,7 @@ resume. Control records between Steps remain the control service's responsibilit
 ## Acceptance Scope
 
 Focused `runBoot` tests exercise the Journal boundary and a programmable Harness
-with MCP preparation. Both real Harnesses, live account authentication, production
-composition and Linear intake are separate integration gates. No live external
-delegation is performed by these tests.
+with MCP preparation. `run/production.spec.ts` covers the production Boot seam
+with a snapshotted prompt/MCP declaration and a programmable Harness. Both real
+Harnesses, live account authentication and Linear intake remain separate
+integration gates. No live external delegation is performed by these tests.

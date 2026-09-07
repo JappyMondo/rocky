@@ -68,7 +68,7 @@ export interface AgentSteerRegistry {
 
 export type AgentCapability = 'read' | 'edit' | 'bash';
 
-/** Matches Harness #16 without taking ownership of the Harness implementation. */
+/** Matches the Harness #20 invocation contract without owning its adapters. */
 export interface AgentHarnessInvocation {
   cwd: string;
   prompt: string;
@@ -158,7 +158,7 @@ async function adapterFor(
     loaded = await import(harnessModule);
   } catch (error) {
     throw new Error(
-      `Harness ${name} is unavailable: ${error instanceof Error ? error.message : String(error)}. Integrate Harness #16 before running this Agent Step.`,
+      `Harness ${name} is unavailable: ${error instanceof Error ? error.message : String(error)}. Integrate Harness #20 before running this Agent Step.`,
     );
   }
   const resolve =
@@ -167,10 +167,23 @@ async function adapterFor(
       : undefined;
   if (typeof resolve !== 'function') {
     throw new Error(
-      'Harness #16 must expose getHarnessAdapter(name) before running this Agent Step.',
+      'Harness #20 must expose getHarnessAdapter(name) before running this Agent Step.',
     );
   }
-  return resolve(name) as AgentHarnessAdapter | undefined;
+  const adapter = resolve(name);
+  if (
+    !adapter ||
+    typeof adapter !== 'object' ||
+    !('run' in adapter) ||
+    typeof adapter.run !== 'function' ||
+    !('resume' in adapter) ||
+    typeof adapter.resume !== 'function'
+  ) {
+    throw new Error(
+      `Harness #20 returned no runnable adapter for ${name}; configure claude-code or opencode in the instance config.`,
+    );
+  }
+  return adapter as AgentHarnessAdapter;
 }
 
 function repairPrompt(error: string | undefined): string {

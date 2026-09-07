@@ -375,6 +375,7 @@ it('prepares MCP before every resume and never journals resolved authorization',
     {
       name: 'api',
       config: {
+        type: 'http',
         url: 'https://example.com',
         headers: { Authorization: secret },
       },
