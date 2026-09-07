@@ -16,14 +16,11 @@
  * from a colleague, or a stale tunnel still pointed at another machine.
  */
 
-/** The one route the ping needs, and the only other one the tunnel must front. */
-export const PING_PATH = '/api/ping';
+import { readPingIdentity } from './ping.js';
+export { PING_PATH } from './ping.js';
 
 /** Boot, then hourly (NG-578). */
 export const SELF_PING_INTERVAL_MS = 60 * 60 * 1000;
-
-/** How long to wait before calling the round trip dead. */
-const PING_TIMEOUT_MS = 10_000;
 
 export interface EndpointHealth {
   /** False when no `publicUrl` is set — a machine mid-setup, not a failure. */
@@ -61,30 +58,14 @@ async function ping(
   instanceId: string,
   doFetch: typeof fetch,
 ): Promise<string | undefined> {
-  const target = `${url.replace(/\/$/, '')}${PING_PATH}`;
-
-  let response: Response;
+  let actual: string;
   try {
-    response = await doFetch(target, {
-      signal: AbortSignal.timeout(PING_TIMEOUT_MS),
-      headers: { accept: 'application/json' },
-    });
+    actual = await readPingIdentity(url, doFetch);
   } catch (error) {
-    return `could not be reached — ${error instanceof Error ? error.message : String(error)}`;
+    return error instanceof Error ? error.message : 'ping failed';
   }
 
-  if (!response.ok) {
-    return `answered ${response.status}`;
-  }
-
-  let body: { instanceId?: string };
-  try {
-    body = (await response.json()) as { instanceId?: string };
-  } catch {
-    return 'answered something that is not this daemon — check that the tunnel points at Rocky';
-  }
-
-  if (body.instanceId !== instanceId) {
+  if (actual !== instanceId) {
     // A 200 from the wrong daemon is the failure a status code cannot show:
     // Linear's webhooks would be arriving on somebody else's machine.
     return 'reached another daemon, not this one — the tunnel is pointed somewhere else';
@@ -124,7 +105,7 @@ export function createEndpointMonitor(
       // repeat of the same line is what makes a log stop being read.
       if (!warned) {
         logWarn(
-          `Linear cannot reach Rocky: ${publicUrl} ${failure}. Webhooks will not arrive until it is back; Runs still progress, more slowly. See docs/public-endpoint.md.`,
+          `Linear cannot reach Rocky: the public endpoint ${failure}. Webhooks will not arrive until it is back; Runs still progress, more slowly. See docs/public-endpoint.md.`,
         );
         warned = true;
       }
@@ -133,7 +114,7 @@ export function createEndpointMonitor(
 
     health = { configured: true, ok: true, checkedAt };
     if (warned) {
-      logInfo(`${publicUrl} is reachable again.`);
+      logInfo('The public endpoint is reachable again.');
       warned = false;
     }
     return health;

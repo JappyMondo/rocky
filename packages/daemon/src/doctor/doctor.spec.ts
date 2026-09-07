@@ -130,13 +130,13 @@ describe('the endpoint check', () => {
       ...OFFLINE,
       fetch: (url) => {
         asked.push(String(url));
-        return Promise.resolve(new Response('{}', { status: 200 }));
+        return Promise.resolve(Response.json({ instanceId: 'fixture' }));
       },
     });
 
     // Through the public URL, not the loopback one — the whole point is that
     // it is what Linear will reach.
-    expect(asked[0]).toContain('https://rocky.example.com');
+    expect(asked[1]).toBe('https://rocky.example.com/api/ping');
   });
 
   it('passes when the ping comes back', async () => {
@@ -146,7 +146,7 @@ describe('the endpoint check', () => {
 
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
+      fetch: () => Promise.resolve(Response.json({ instanceId: 'fixture' })),
     });
 
     expect(check(report, 'publicUrl').ok).toBe(true);
@@ -172,7 +172,12 @@ describe('the endpoint check', () => {
 
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      fetch: () => Promise.resolve(new Response('nope', { status: 502 })),
+      fetch: (url) =>
+        Promise.resolve(
+          String(url).startsWith('http://127.0.0.1:')
+            ? Response.json({ instanceId: 'fixture' })
+            : new Response('nope', { status: 502 }),
+        ),
     });
 
     expect(check(report, 'publicUrl').ok).toBe(false);

@@ -19,6 +19,8 @@ import {
 import type { RockyPaths } from '../config/paths.js';
 import { SHIPPED_HARNESSES, type HarnessConfig } from '../config/schema.js';
 import { readInstanceConfig } from '../config/store.js';
+import { readPingIdentity } from '../endpoint/ping.js';
+import { inspectPidFile } from '../lifecycle/pidfile.js';
 
 export interface DoctorCheck {
   /** Short and stable — the CLI prints it as the check's label. */
@@ -64,34 +66,50 @@ function messageOf(error: unknown): string {
 
 async function pingEndpoint(
   publicUrl: string,
+  paths: RockyPaths,
+  configuredPort: number,
   options: DoctorOptions,
 ): Promise<DoctorCheck> {
   const doFetch = options.fetch ?? fetch;
-  // The health route, through the public URL: reaching the root proves a
-  // tunnel is up, but not that it lands on this daemon.
-  const url = new URL('/api/health', publicUrl).toString();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let localIdentity: string;
+  try {
+    const pid = await inspectPidFile(paths);
+    const port = pid.state === 'running' ? pid.record.port : configuredPort;
+    localIdentity = await readPingIdentity(
+      `http://127.0.0.1:${port}`,
+      doFetch,
+      timeoutMs,
+    );
+  } catch {
+    return {
+      name: 'publicUrl',
+      ok: false,
+      detail: 'cannot establish the running local daemon instance identity',
+      fix: 'run `rocky start` with a loopback listener and check its port; then rerun `rocky doctor` (docs/public-endpoint.md)',
+    };
+  }
 
   try {
-    const response = await doFetch(url, {
-      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      return {
-        name: 'publicUrl',
-        ok: false,
-        detail: `${url} answered ${String(response.status)}`,
-        fix: 'the URL is reachable but is not this daemon — check what your tunnel points at, and that `rocky start` is running',
-      };
+    const publicIdentity = await readPingIdentity(
+      publicUrl,
+      doFetch,
+      timeoutMs,
+    );
+    if (publicIdentity !== localIdentity) {
+      throw new Error('reached another daemon, not the running local instance');
     }
-
-    return { name: 'publicUrl', ok: true, detail: `${url} answered 200` };
+    return {
+      name: 'publicUrl',
+      ok: true,
+      detail: 'public /api/ping matches the running local daemon instance',
+    };
   } catch (error) {
     return {
       name: 'publicUrl',
       ok: false,
-      detail: `${url} could not be reached — ${messageOf(error)}`,
-      fix: 'start the daemon, and check the tunnel holding this URL open (the docs carry cloudflared, ngrok and Tailscale Funnel recipes)',
+      detail: `public /api/ping ${messageOf(error)}`,
+      fix: "point the tunnel at this daemon's webhook/ping-only filter; check `rocky-ingress` and publicUrl using docs/public-endpoint.md, then rerun `rocky doctor`",
     };
   }
 }
@@ -135,7 +153,12 @@ export async function runDoctor(
           detail:
             'not set — Linear has nowhere to deliver webhooks yet. `rocky setup` asks for it first.',
         }
-      : await pingEndpoint(config.publicUrl, options),
+      : await pingEndpoint(
+          config.publicUrl,
+          paths,
+          config.server.port,
+          options,
+        ),
   );
 
   const check =

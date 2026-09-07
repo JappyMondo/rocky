@@ -5,7 +5,8 @@
   "description": "Rocky's CLI — a thin client for the per-developer local daemon.",
   "type": "module",
   "bin": {
-    "rocky": "./dist/main.js"
+    "rocky": "./dist/main.js",
+    "rocky-ingress": "./dist/ingress-main.js"
   },
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",
