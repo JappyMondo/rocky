@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { rockyPaths } from '@rocky/daemon';
+import { AUTH_PROBES, rockyPaths } from '@rocky/daemon';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   initContent,
@@ -129,12 +129,110 @@ it('OpenCode uses its TUI, preserves account/storage config, and overrides autom
   ).toEqual(permission);
 });
 
+it('uses the configured native defaults without inheriting an OpenCode policy', async () => {
+  const { repo, shippedDir } = await fixture();
+  const paths = rockyPaths(join(repo, 'instance'));
+  const requests: InteractiveRequest[] = [];
+  const launch = vi.fn(async (request: InteractiveRequest) => {
+    requests.push(request);
+    return { code: 0, signal: null };
+  });
+  await upgradeContent({
+    repo,
+    shippedDir,
+    interactive: true,
+    paths,
+    env: {},
+    launch,
+  });
+  await upgradeContent({
+    repo,
+    shippedDir,
+    harness: 'opencode',
+    interactive: true,
+    paths,
+    env: {},
+    launch,
+  });
+  const [claude, opencode] = requests;
+  if (!claude || !opencode) throw new Error('Expected both native sessions.');
+  expect(claude.command).toBe(AUTH_PROBES['claude-code'].command);
+  expect(opencode.command).toBe(AUTH_PROBES.opencode.command);
+  expect(JSON.parse(opencode.env.OPENCODE_CONFIG_CONTENT ?? '{}')).toEqual({
+    agent: {
+      'rocky-upgrade': {
+        description: 'Negotiate Workflow changes with the human',
+        mode: 'primary',
+        permission: JSON.parse(opencode.env.OPENCODE_PERMISSION ?? '{}'),
+      },
+    },
+  });
+});
+
+it('uses default storage and environment only after interactive consent', async () => {
+  const { repo, shippedDir } = await fixture();
+  const requests: InteractiveRequest[] = [];
+  vi.stubEnv('ROCKY_HOME', join(repo, 'default-instance'));
+  try {
+    await upgradeContent({
+      repo,
+      shippedDir,
+      interactive: true,
+      launch: async (request) => {
+        requests.push(request);
+        return { code: 0, signal: null };
+      },
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+  expect(requests[0]?.command).toBe(AUTH_PROBES['claude-code'].command);
+});
+
+it('rejects an invalid Harness and an incomplete packaged default before launching', async () => {
+  const { repo, shippedDir } = await fixture();
+  const launch = vi.fn(async () => ({ code: 0, signal: null }));
+  await expect(
+    upgradeContent({
+      repo,
+      shippedDir,
+      harness: JSON.parse('"not-a-harness"'),
+      interactive: true,
+      launch,
+    }),
+  ).rejects.toThrow('Use --harness claude-code or --harness opencode');
+  await rm(join(shippedDir, 'workflow.ts'));
+  await expect(
+    upgradeContent({ repo, shippedDir, interactive: true, launch }),
+  ).rejects.toThrow('packaging failure');
+  expect(launch).not.toHaveBeenCalled();
+});
+
+it('preserves an unexpected native launch failure', async () => {
+  const { repo, shippedDir } = await fixture();
+  const failure = new Error('native session failed');
+  await expect(
+    upgradeContent({
+      repo,
+      shippedDir,
+      interactive: true,
+      resolveHarness: async () => ({ command: 'claude', env: {} }),
+      launch: async () => {
+        throw failure;
+      },
+    }),
+  ).rejects.toBe(failure);
+});
+
 it('refuses missing terminal, local content, and packaged assets before launching', async () => {
   const { repo, shippedDir } = await fixture();
   const launch = vi.fn(async () => ({ code: 0, signal: null }));
   await expect(
     upgradeContent({ repo, shippedDir, interactive: false, launch }),
   ).rejects.toThrow('interactive terminal');
+  await expect(upgradeContent({ repo, shippedDir, launch })).rejects.toThrow(
+    'interactive terminal',
+  );
   await expect(
     upgradeContent({
       repo,
