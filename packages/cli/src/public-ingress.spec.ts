@@ -138,6 +138,23 @@ it('only forwards the two exact public method/target pairs, never local controls
   expect(
     (await send(port, 'POST', '/api/linear/webhook', raw, 'bad')).status,
   ).toBe(401);
+  expect(
+    (await send(port, 'POST', '/api/linear/webhook', `${raw} `, signature))
+      .status,
+  ).toBe(401);
+  const expired = JSON.stringify({
+    type: 'AgentSessionEvent',
+    action: 'created',
+    agentSession: { id: 'session' },
+    webhookTimestamp: Date.now() - 60 * 60 * 1000,
+  });
+  const expiredSignature = createHmac('sha256', 'fixture-secret')
+    .update(expired)
+    .digest('hex');
+  expect(
+    (await send(port, 'POST', '/api/linear/webhook', expired, expiredSignature))
+      .status,
+  ).toBe(401);
   expect(events).toBe(1);
   seen.length = 0;
 

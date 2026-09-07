@@ -32,10 +32,17 @@ export async function readPingIdentity(
   }
   let body: unknown;
   try {
-    body = await response.json();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    for await (const chunk of response.body ?? []) {
+      bytes += chunk.byteLength;
+      if (bytes > 1024) throw new Error('ping body too large');
+      chunks.push(chunk);
+    }
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new Error(
-      'did not return a complete JSON ping response before the timeout; check the tunnel target',
+      'did not return a complete JSON ping response within 1024 bytes and the timeout; check the tunnel target',
     );
   }
   if (

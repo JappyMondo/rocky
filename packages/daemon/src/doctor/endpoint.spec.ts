@@ -49,6 +49,14 @@ it.each([
   ['missing identity', () => Response.json({})],
   ['empty identity', () => Response.json({ instanceId: '' })],
   ['non-string identity', () => Response.json({ instanceId: 42 })],
+  [
+    'oversized body',
+    () =>
+      Response.json({
+        instanceId: 'local-instance',
+        padding: 'x'.repeat(2048),
+      }),
+  ],
   ['malformed JSON', () => new Response('password=secret-not-for-diagnostics')],
   [
     'HTTP failure',

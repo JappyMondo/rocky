@@ -160,8 +160,8 @@ and green CI for [NG-651](https://linear.app/digimondo/issue/NG-651).
 `rocky doctor` first reads `/api/ping` directly on loopback (the live pidfile's
 port, otherwise the configured port), then compares the public `/api/ping`
 identity. Missing local identity is a failure, not a reason to trust the public
-answer. Each request and its response body has a 10-second timeout; redirects
-are rejected. Doctor never requires public `/api/health` and does not print
+answer. Each request and its response body has a 10-second timeout and a 1024-byte
+decoded body limit; redirects are rejected. Doctor never requires public `/api/health` and does not print
 remote bodies, transport errors or URL credentials. The local identity check
 requires an IPv4 loopback listener; other local binding choices must provide
 one before using this ingress recipe.
