@@ -18,6 +18,7 @@ import { z } from 'zod';
 
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import type { RockyPaths } from '../config/paths.js';
+import { KeyedMutex } from '../repos/mutex.js';
 import {
   END_STEP,
   openJournal,
@@ -28,7 +29,7 @@ import {
 } from './journal.js';
 
 /** Bumped when the header shape changes incompatibly. */
-export const RUN_HEADER_VERSION = 1;
+export const RUN_HEADER_VERSION = 2;
 
 /**
  * NG-574 §8. `parked` carries a `reason` that is just the parking Step's key
@@ -48,6 +49,10 @@ export interface RunHeader {
   issue: Issue;
   /** Linear's own `gitBranchName`; the Run's worktree is checked out on it. */
   branch: string;
+  /** Lead repo used for retention. Immutable for the Run's life. */
+  repo: string;
+  /** Reserved again before a working Boot; poll Boots reuse these values. */
+  ports: number[];
   pr?: Pr;
   status: RunStatus;
   /** `finished` carries the Workflow's outcome. */
@@ -58,6 +63,10 @@ export interface RunHeader {
   boots: number;
   createdAt: string;
   endedAt?: string;
+  queueOrder?: number;
+  /** Durable intent: recovery retries preservation, never resumes Workflow work. */
+  cancelRequestedAt?: string;
+  artifactsPruned?: boolean;
   error?: RecordedError;
 }
 
@@ -89,6 +98,13 @@ const headerSchema = z.object({
   trigger: z.string().optional(),
   issue: issueSchema,
   branch: z.string().min(1),
+  repo: z.string().min(1),
+  ports: z
+    .array(z.number().int().min(1).max(65535))
+    .refine(
+      (ports) => new Set(ports).size === ports.length,
+      'ports must be unique',
+    ),
   pr: prSchema.optional(),
   status: z.enum([
     'queued',
@@ -103,6 +119,9 @@ const headerSchema = z.object({
   boots: z.number().int().min(0),
   createdAt: z.string(),
   endedAt: z.string().optional(),
+  queueOrder: z.number().int().min(0).optional(),
+  cancelRequestedAt: z.string().optional(),
+  artifactsPruned: z.boolean().optional(),
   error: recordedErrorSchema.optional(),
 });
 
@@ -121,6 +140,7 @@ export function newRunHeader(opts: {
   runId: string;
   issue: Issue;
   branch: string;
+  repo: string;
   trigger?: string;
   now: string;
 }): RunHeader {
@@ -130,6 +150,8 @@ export function newRunHeader(opts: {
     ...(opts.trigger === undefined ? {} : { trigger: opts.trigger }),
     issue: opts.issue,
     branch: opts.branch,
+    repo: opts.repo,
+    ports: [],
     // A Run is admitted before it works: `queued` is a real state, so a Run
     // asleep for three days does not jump the cap (NG-574 §8).
     status: 'queued',
@@ -147,6 +169,22 @@ export async function writeRunHeader(
     serializeJson(headerToWrite),
     PUBLIC_MODE,
   );
+}
+
+const updates = new KeyedMutex();
+
+/** Serializes field updates from the runtime and scheduler, preserving each other's data. */
+export async function updateRunHeader(
+  paths: RockyPaths,
+  runId: string,
+  patch: Partial<RunHeader>,
+  write = writeRunHeader,
+): Promise<RunHeader> {
+  return updates.run(paths.run(runId).runJson, async () => {
+    const header = { ...(await readRunHeader(paths, runId)), ...patch };
+    await write(paths, header);
+    return header;
+  });
 }
 
 export async function readRunHeader(
@@ -182,6 +220,9 @@ export async function readRunHeader(
       runId,
       `run.json is at header version ${parsed.data.v}, and this daemon reads version ${RUN_HEADER_VERSION}`,
     );
+  }
+  if (parsed.data.runId !== runId) {
+    throw new RunHeaderError(runId, 'run.json names a different Run directory');
   }
 
   return parsed.data;
@@ -252,6 +293,8 @@ export async function loadRunHeader(
 }
 
 export interface ReadIndexOptions {
+  /** Admission must not overlook an unreadable potentially-live Run. */
+  strict?: boolean;
   /** Where a skipped-Run warning goes. The daemon log, in production. */
   warn?(message: string): void;
 }
@@ -284,6 +327,7 @@ export async function readRunIndex(
     try {
       headers.push(await loadRunHeader(paths, runId));
     } catch (error) {
+      if (options.strict) throw error;
       options.warn?.(
         `skipping run ${runId} — ${(error as Error).message}. Its run.json is missing or unreadable, and the issue snapshot lives only there.`,
       );

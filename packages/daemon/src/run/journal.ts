@@ -54,11 +54,13 @@ export class JournalFormatError extends Error {
   }
 }
 
-const recordedErrorSchema = z.object({
-  name: z.string(),
-  message: z.string(),
-  stack: z.string().optional(),
-});
+const recordedErrorSchema = z
+  .object({
+    name: z.string(),
+    message: z.string(),
+    stack: z.string().optional(),
+  })
+  .strict();
 
 /** A thrown value flattened to something a JSONL line can hold. */
 export type RecordedError = z.infer<typeof recordedErrorSchema>;
@@ -75,57 +77,162 @@ export type RecordedError = z.infer<typeof recordedErrorSchema>;
  * Step-level `interrupted` state below is an unrelated concept.
  */
 const attemptSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('failed'),
-    startedAt: z.string(),
-    ms: z.number(),
-    error: recordedErrorSchema,
-    sessionId: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal('steer'),
-    startedAt: z.string(),
-    ms: z.number(),
-    /** The human's words, verbatim — the runner attaches no meaning. */
-    note: z.string(),
-    sessionId: z.string().optional(),
-  }),
+  z
+    .object({
+      kind: z.literal('failed'),
+      startedAt: z.string(),
+      ms: z.number(),
+      error: recordedErrorSchema,
+      sessionId: z.string().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('steer'),
+      startedAt: z.string(),
+      ms: z.number(),
+      /** The human's words, verbatim — the runner attaches no meaning. */
+      note: z.string(),
+      sessionId: z.string().optional(),
+    })
+    .strict(),
 ]);
 
 export type Attempt = z.infer<typeof attemptSchema>;
 
-const entrySchema = z.object({
-  v: z.number().int(),
-  /** The replay key: it must match the workflow's `ctx.*` call sequence. */
-  seq: z.number().int().min(0),
-  /** The step key — `agent`, `exec`, `scm:waitForCi`, or a runner `$` key. */
-  step: z.string().min(1),
-  /** Display-only, e.g. "reviewer 3/5". Never compared during replay. */
-  label: z.string().optional(),
-  status: z.enum(['running', 'done', 'waiting', 'failed']),
-  /** Set by the successful attempt only. */
-  result: z.unknown().optional(),
-  /** From `ctx.stage()`, which stamps every entry created after it (NG-631). */
-  stage: z.string().optional(),
-  /** Monotonic per-Run. What makes "⟲ replayed 11 Steps" renderable. */
-  boot: z.number().int().min(1),
-  startedAt: z.string(),
-  ms: z.number().optional(),
-  /** A pointer to the Transcript, never something resume depends on. */
-  sessionId: z.string().optional(),
-  attempts: z.array(attemptSchema).optional(),
-  error: recordedErrorSchema.optional(),
-});
+export interface ParallelJournal {
+  count: number;
+  branches: JournalEntry[][];
+  /** Envelopes preserve void results without conflating them with JSON null. */
+  results?: { value?: unknown }[];
+}
 
-export type JournalEntry = z.infer<typeof entrySchema>;
+export interface JournalEntry {
+  v: number;
+  seq: number;
+  step: string;
+  label?: string;
+  status: StepStatus;
+  result?: unknown;
+  stage?: string;
+  boot: number;
+  startedAt: string;
+  ms?: number;
+  sessionId?: string;
+  attempts?: Attempt[];
+  error?: RecordedError;
+  /** The nested journals reserved by one runner-owned `$parallel` entry. */
+  parallel?: ParallelJournal;
+}
+
+const entrySchema: z.ZodType<JournalEntry> = z
+  .object({
+    v: z.number().int(),
+    /** The replay key: it must match the workflow's `ctx.*` call sequence. */
+    seq: z.number().int().min(0),
+    /** The step key — `agent`, `exec`, `scm:waitForCi`, or a runner `$` key. */
+    step: z.string().min(1),
+    /** Display-only, e.g. "reviewer 3/5". Never compared during replay. */
+    label: z.string().optional(),
+    status: z.enum(['running', 'done', 'waiting', 'failed']),
+    /** Set by the successful attempt only. */
+    result: z.unknown().optional(),
+    /** From `ctx.stage()`, which stamps every entry created after it (NG-631). */
+    stage: z.string().optional(),
+    /** Monotonic per-Run. What makes "⟲ replayed 11 Steps" renderable. */
+    boot: z.number().int().min(1),
+    startedAt: z.string(),
+    ms: z.number().optional(),
+    /** A pointer to the Transcript, never something resume depends on. */
+    sessionId: z.string().optional(),
+    attempts: z.array(attemptSchema).optional(),
+    error: recordedErrorSchema.optional(),
+    parallel: z
+      .object({
+        count: z.number().int().min(0),
+        branches: z.array(z.array(z.lazy(() => entrySchema))),
+        results: z
+          .array(z.object({ value: z.unknown().optional() }).strict())
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((entry, context) => {
+    if (entry.step === END_STEP) {
+      const end = parseRunEnd(entry.result);
+      if (
+        !end ||
+        entry.status !== (end.status === 'failed' ? 'failed' : 'done')
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'malformed $end terminal record',
+        });
+      }
+    }
+    if (entry.v !== JOURNAL_FORMAT_VERSION) {
+      context.addIssue({
+        code: 'custom',
+        message: `journal format version ${entry.v} does not match this daemon's ${JOURNAL_FORMAT_VERSION}`,
+        path: ['v'],
+      });
+    }
+    if (entry.step === '$parallel') {
+      if (entry.parallel === undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: 'a $parallel entry must carry parallel journal data',
+          path: ['parallel'],
+        });
+      } else if (entry.parallel.branches.length !== entry.parallel.count) {
+        context.addIssue({
+          code: 'custom',
+          message: 'parallel branches length must equal its count',
+          path: ['parallel', 'branches'],
+        });
+      }
+      if (
+        entry.parallel?.branches.some((branch) =>
+          branch.some((child) => child.step === END_STEP),
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message:
+            '$end is only valid in the root Journal, never a parallel branch',
+        });
+      }
+      if (
+        entry.parallel?.results &&
+        entry.parallel.results.length !== entry.parallel.count
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'parallel results length must equal its count',
+        });
+      }
+    } else if (entry.parallel !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'only a $parallel entry may carry parallel journal data',
+        path: ['parallel'],
+      });
+    }
+  });
 
 const runEndSchema = z.discriminatedUnion('status', [
-  z.object({
-    status: z.literal('finished'),
-    outcome: z.enum(['merged', 'rejected', 'exhausted']),
-  }),
-  z.object({ status: z.literal('failed'), error: recordedErrorSchema }),
-  z.object({ status: z.literal('cancelled') }),
+  z
+    .object({
+      status: z.literal('finished'),
+      outcome: z.enum(['merged', 'rejected', 'exhausted']),
+    })
+    .strict(),
+  z
+    .object({ status: z.literal('failed'), error: recordedErrorSchema })
+    .strict(),
+  z.object({ status: z.literal('cancelled') }).strict(),
 ]);
 
 /**
@@ -181,8 +288,8 @@ function parseLines(
   // A file ending in a newline leaves '' here; anything else is a line the
   // process never finished writing.
   const unterminated = segments.pop() ?? '';
-  let complete = segments;
-  let truncated = unterminated !== '';
+  const complete = segments;
+  const truncated = unterminated !== '';
 
   const at = (index: number) => `${path} line ${index + 1}`;
 
@@ -191,12 +298,6 @@ function parseLines(
     try {
       raw.push(JSON.parse(line));
     } catch {
-      if (index === complete.length - 1) {
-        // The tail of an append-only file is the one place a crash can tear.
-        complete = complete.slice(0, index);
-        truncated = true;
-        break;
-      }
       throw new JournalFormatError(`${at(index)} is not valid JSON`);
     }
   }
@@ -204,7 +305,10 @@ function parseLines(
   // Before validating the shape: a line from an incompatible daemon is
   // well-formed rather than torn, so dropping it would lose real history.
   for (const [index, value] of raw.entries()) {
-    const version = (value as { v?: unknown }).v;
+    const version =
+      typeof value === 'object' && value !== null
+        ? (value as { v?: unknown }).v
+        : undefined;
     if (typeof version === 'number' && version !== JOURNAL_FORMAT_VERSION) {
       throw new JournalFormatError(
         `${at(index)} was written at journal format version ${version}, and this daemon reads format version ${JOURNAL_FORMAT_VERSION} — failing the Run rather than replaying it wrong`,
@@ -218,11 +322,6 @@ function parseLines(
     if (parsed.success) {
       entries.push(parsed.data);
       continue;
-    }
-    if (index === raw.length - 1) {
-      complete = complete.slice(0, index);
-      truncated = true;
-      break;
     }
     throw new JournalFormatError(
       `${at(index)} is not a journal entry — ${z.prettifyError(parsed.error)}`,
@@ -248,12 +347,30 @@ export async function openJournal(path: string): Promise<Journal> {
   try {
     text = await readFile(path, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    if (!(
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    )) {
       throw error;
     }
   }
 
   const { entries, truncated, keptBytes } = parseLines(path, text);
+  let terminal = false;
+  let highestSeq = -1;
+  for (const entry of entries) {
+    if (terminal) throw new JournalFormatError(`${path}: entry after $end`);
+    if (entry.step === END_STEP) {
+      if (entry.seq <= highestSeq)
+        throw new JournalFormatError(
+          `${path}: $end must follow every Step sequence`,
+        );
+      terminal = true;
+    }
+    highestSeq = Math.max(highestSeq, entry.seq);
+  }
   if (truncated) {
     await truncate(path, keptBytes);
   }
@@ -332,7 +449,7 @@ export async function appendEntry(
   }
 
   await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(entry)}\n`);
+  await appendFile(path, `${JSON.stringify(parsed.data)}\n`);
 }
 
 /** Flattens a thrown value into something a JSONL line can hold. */

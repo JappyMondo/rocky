@@ -25,6 +25,14 @@ export interface ExecResult {
   stderr: string;
 }
 
+export interface BackgroundExecResult {
+  pid: number;
+}
+
+export interface ParallelOptions {
+  label?: string;
+}
+
 export interface Pr {
   number: number;
   url: string;
@@ -123,7 +131,7 @@ export interface AgentCallOpts<S extends z.ZodType = z.ZodType> {
 }
 
 /**
- * Every method here is a journaled Step. Code *between* Steps is unrestricted
+ * Every method except stage is a journaled Step. Code *between* Steps is unrestricted
  * and simply re-executes on every Boot — which is safe because a completed
  * Step hands back its recorded result without touching the world.
  *
@@ -133,6 +141,11 @@ export interface WorkflowContext {
   readonly issue: Issue;
   /** Linear's own `gitBranchName`; the Run's worktree is checked out on it. */
   readonly branch: string;
+  /** Ports reserved for this Boot. The array itself remains mutable to callers. */
+  readonly ports: number[];
+
+  /** Display-only: takes no seq, stamps later entries, and re-executes on replay. */
+  stage(label: string): void;
 
   /**
    * Run an Agent — either a named prompt from `.rocky/agents/<name>.md`, or an
@@ -147,6 +160,11 @@ export interface WorkflowContext {
     opts?: AgentCallOpts,
   ): Promise<{ summary: string }>;
 
+  /** Start a shell command in the background. One journaled Step. */
+  exec(
+    cmd: string,
+    opts: { background: true; label?: string },
+  ): Promise<BackgroundExecResult>;
   /** Run a shell command in the Run's workspace. One journaled Step. */
   exec(cmd: string, opts?: { label?: string }): Promise<ExecResult>;
 
@@ -155,6 +173,13 @@ export interface WorkflowContext {
    * return is recorded, and replay hands the recorded value back. Never parks.
    */
   step<T>(label: string, fn: () => T | Promise<T>): Promise<T>;
+
+  /** Journal one parent Step while running each item in its own branch. */
+  parallel<T, R>(
+    items: readonly T[],
+    fn: (item: T, index: number) => Promise<R>,
+    opts?: ParallelOptions,
+  ): Promise<R[]>;
 
   /**
    * Park the Run for a human. Tells Linear intervention is needed, links into

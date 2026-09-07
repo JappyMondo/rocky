@@ -38,6 +38,9 @@ import {
  */
 export const CRASH_LOOP_LIMIT = 3;
 
+/** Reserved structural Step key for one journaled fan-out. */
+const PARALLEL_STEP = '$parallel';
+
 /** The code asked for a different Step than the journal recorded at that seq. */
 export class DivergenceError extends Error {
   constructor(message: string) {
@@ -76,6 +79,8 @@ export type Effect<T> = (handle: EffectHandle) => Promise<StepOutcome<T>>;
 export interface StepOptions {
   /** Display-only, e.g. "reviewer 3/5". Never compared during replay. */
   label?: string;
+  /** Background commands need a fresh process on a working Boot, never a poll. */
+  replay?: 'restart';
 }
 
 /** What a Workflow is driven through. NG-598 wires the real `ctx` onto it. */
@@ -90,6 +95,16 @@ export interface BootContext {
   stage(label: string): void;
   /** One journaled Step, written twice: `running`, then how it settled. */
   step<T>(key: string, options: StepOptions, effect: Effect<T>): Promise<T>;
+  /**
+   * Runs branches concurrently while storing each index in its own sub-journal.
+   * The parent consumes one sequence in the surrounding journal.
+   */
+  parallel<T>(
+    key: string,
+    items: readonly T[],
+    options: StepOptions,
+    run: (branch: BootContext, item: T, index: number) => Promise<unknown>,
+  ): Promise<unknown[]>;
 }
 
 interface BootCounts {
@@ -100,6 +115,8 @@ interface BootCounts {
 }
 
 export type BootResult =
+  | ({ status: 'ready' } & BootCounts)
+  | ({ status: 'cancelled' } & BootCounts)
   | ({ status: 'finished'; outcome: RunOutcome } & BootCounts)
   | ({ status: 'parked'; reason: string } & BootCounts)
   | ({ status: 'failed'; error: RecordedError } & BootCounts);
@@ -112,6 +129,8 @@ type Appender = (
 
 export interface RunBootOptions {
   journalPath: string;
+  poll?: boolean;
+  signal?: AbortSignal;
   workflow: (ctx: BootContext) => Promise<RunOutcome>;
   /** Epoch millis. Injected so a test can have a predictable `ms`. */
   now?: () => number;
@@ -134,7 +153,27 @@ function jsonClone<T>(value: T): T {
   if (value === undefined) {
     return value;
   }
-  return JSON.parse(JSON.stringify(value)) as T;
+  const text = JSON.stringify(value);
+  const validate = (item: unknown): void => {
+    if (
+      item === null ||
+      typeof item === 'string' ||
+      typeof item === 'boolean' ||
+      (typeof item === 'number' && Number.isFinite(item))
+    )
+      return;
+    if (
+      typeof item !== 'object' ||
+      (!Array.isArray(item) &&
+        Object.getPrototypeOf(item) !== Object.prototype &&
+        Object.getPrototypeOf(item) !== null)
+    ) {
+      throw new TypeError('Step result must be plain JSON data');
+    }
+    for (const child of Object.values(item)) validate(child);
+  };
+  validate(value);
+  return JSON.parse(text) as T;
 }
 
 /** Rebuilds a thrown Error from its recorded form, name and message intact. */
@@ -147,24 +186,79 @@ function rethrowable(recorded: RecordedError): Error {
   return error;
 }
 
+function replayableParallelError(recorded: RecordedError): Error {
+  if (recorded.name === 'DivergenceError') {
+    return new DivergenceError(recorded.message);
+  }
+  if (recorded.name === 'CrashLoopError') {
+    return new CrashLoopError(recorded.message);
+  }
+  return rethrowable(recorded);
+}
+
+/** Presents one persisted branch array through the normal replay lookup API. */
+function journalFor(entries: readonly JournalEntry[]): Journal {
+  const latest = new Map<number, JournalEntry>();
+  const bySeq = new Map<number, JournalEntry[]>();
+  for (const entry of entries) {
+    latest.set(entry.seq, entry);
+    const lines = bySeq.get(entry.seq);
+    if (lines) {
+      lines.push(entry);
+    } else {
+      bySeq.set(entry.seq, [entry]);
+    }
+  }
+  return {
+    entries,
+    truncated: false,
+    nextBoot: 1,
+    end: undefined,
+    latest: (seq) => latest.get(seq),
+    isInterrupted: (seq) => latest.get(seq)?.status === 'running',
+    interruptedBoots(seq) {
+      const boots = new Set<number>();
+      for (const entry of bySeq.get(seq) ?? []) {
+        if (entry.status === 'running') {
+          boots.add(entry.boot);
+        } else {
+          boots.clear();
+        }
+      }
+      return boots.size;
+    },
+  };
+}
+
 class BootRunner implements BootContext {
+  private pending: Promise<unknown> | undefined;
   private seq = 0;
-  private currentStage: string | undefined;
+  currentStage: string | undefined;
   /** Latched so workflow code cannot catch its way out of failing the Run. */
   fatal: Error | undefined;
   /** Latched likewise: a journal that cannot be written ends the Boot. */
   infra: unknown;
   parked: string | undefined;
+  ready = false;
   replayed = 0;
   executed = 0;
 
   constructor(
     readonly boot: number,
     private readonly journal: Journal,
-    private readonly path: string,
-    private readonly append: Appender,
+    private readonly writeEntry: (
+      entry: JournalEntry,
+      options?: AppendOptions,
+    ) => Promise<void>,
     private readonly now: () => number,
-  ) {}
+    initialStage?: string,
+    private readonly latchFatal?: (error: Error) => void,
+    private readonly fanoutFatal?: { error: Error | undefined },
+    private readonly poll = false,
+    private readonly signal?: AbortSignal,
+  ) {
+    this.currentStage = initialStage;
+  }
 
   /** The seq the terminal `$end` entry takes: past the code and the journal. */
   endSeq(): number {
@@ -185,19 +279,59 @@ class BootRunner implements BootContext {
   }
 
   private fail<E extends Error>(error: E): never {
-    this.fatal ??= error;
+    this.latch(error);
     throw this.fatal;
   }
 
-  async step<T>(
+  private latch(error: Error): void {
+    this.fatal ??= error;
+    this.latchFatal?.(this.fatal);
+  }
+
+  step<T>(key: string, options: StepOptions, effect: Effect<T>): Promise<T> {
+    return this.exclusive(() => this.performStep(key, options, effect));
+  }
+
+  private exclusive<T>(work: () => Promise<T>): Promise<T> {
+    if (this.signal?.aborted) return Promise.reject(new CancelSignal());
+    if (this.ready) return Promise.reject(new ReadySignal());
+    if (this.parked) return Promise.reject(new ParkSignal(this.parked));
+    if (this.pending) {
+      this.latch(
+        new DivergenceError(
+          'Concurrent ctx calls are unsupported; use ctx.parallel(items, fn)',
+        ),
+      );
+      return Promise.reject(this.fatal);
+    }
+    const pending = work().finally(() => {
+      this.pending = undefined;
+    });
+    this.pending = pending;
+    // A Workflow may forget to await. Drain it before the terminal record.
+    void pending.catch(() => undefined);
+    return pending;
+  }
+
+  async drain(): Promise<void> {
+    if (this.pending) {
+      this.latch(
+        new DivergenceError('Workflow returned with an unawaited ctx call'),
+      );
+      await this.pending.catch(() => undefined);
+    }
+  }
+
+  private async performStep<T>(
     key: string,
     options: StepOptions,
     effect: Effect<T>,
   ): Promise<T> {
     // Once the Run is failing, every later Step fails the same way rather than
     // running an effect against a journal we have already stopped trusting.
-    if (this.fatal) {
-      throw this.fatal;
+    const fatal = this.fatal ?? this.fanoutFatal?.error;
+    if (fatal) {
+      throw fatal;
     }
 
     const seq = this.seq++;
@@ -220,7 +354,10 @@ class BootRunner implements BootContext {
         );
       }
 
-      if (recorded.status === 'done') {
+      if (
+        recorded.status === 'done' &&
+        (options.replay !== 'restart' || this.poll)
+      ) {
         this.replayed += 1;
         return recorded.result as T;
       }
@@ -252,7 +389,246 @@ class BootRunner implements BootContext {
       // performs it again, which is what at-least-once means.
     }
 
+    if (this.poll && recorded?.status !== 'waiting') {
+      this.ready = true;
+      throw new ReadySignal();
+    }
+
     return await this.execute(seq, key, options, effect, recorded);
+  }
+
+  parallel<T>(
+    key: string,
+    items: readonly T[],
+    options: StepOptions,
+    run: (branch: BootContext, item: T, index: number) => Promise<unknown>,
+  ): Promise<unknown[]> {
+    return this.exclusive(() => this.performParallel(key, items, options, run));
+  }
+
+  private async performParallel<T>(
+    key: string,
+    items: readonly T[],
+    options: StepOptions,
+    run: (branch: BootContext, item: T, index: number) => Promise<unknown>,
+  ): Promise<unknown[]> {
+    const fatal = this.fatal ?? this.fanoutFatal?.error;
+    if (fatal) {
+      throw fatal;
+    }
+
+    const seq = this.seq++;
+    const recorded = this.journal.latest(seq);
+    if (this.poll && !recorded) {
+      this.ready = true;
+      throw new ReadySignal();
+    }
+    if (recorded && recorded.step !== PARALLEL_STEP) {
+      this.fail(
+        new DivergenceError(
+          `seq ${seq}: the journal recorded step "${recorded.step}" and this replay asked for parallel. The Workflow is not deterministic — a Run cannot be replayed past this point.`,
+        ),
+      );
+    }
+    const branches =
+      recorded?.parallel?.branches.map((branch) => [...branch]) ??
+      items.map(() => []);
+    const base = {
+      v: JOURNAL_FORMAT_VERSION,
+      seq,
+      step: PARALLEL_STEP,
+      boot: this.boot,
+      startedAt: new Date(this.now()).toISOString(),
+      ...(options.label === undefined
+        ? { label: key }
+        : { label: options.label }),
+      ...(this.currentStage === undefined ? {} : { stage: this.currentStage }),
+    };
+    let parent: JournalEntry = {
+      ...base,
+      status: 'running',
+      parallel: {
+        count: recorded?.parallel?.count ?? items.length,
+        branches,
+        results: recorded?.parallel?.results,
+      },
+    };
+    let writes = Promise.resolve();
+    const persist = async () => {
+      const snapshot = structuredClone(parent);
+      writes = writes.then(() => this.write(snapshot, { runner: true }));
+      await writes;
+    };
+    const settleFailed = async (reason: unknown) => {
+      parent = {
+        ...parent,
+        status: 'failed',
+        ms: this.now() - new Date(base.startedAt).getTime(),
+        error: recordError(reason),
+      };
+      await persist();
+    };
+
+    if (recorded?.parallel && recorded.parallel.count !== items.length) {
+      const error = new DivergenceError(
+        `seq ${seq}: the journal recorded parallel count ${recorded.parallel.count} and this replay asked for ${items.length}. The Workflow is not deterministic — a Run cannot be replayed past this point.`,
+      );
+      await settleFailed(error);
+      this.fail(error);
+    }
+    if (recorded?.status === 'failed') {
+      const error = replayableParallelError(
+        recorded.error ?? { name: 'Error', message: 'parallel branch failed' },
+      );
+      if (error instanceof DivergenceError || error instanceof CrashLoopError) {
+        this.fail(error);
+      }
+      throw error;
+    }
+    if (recorded?.status === 'running') {
+      const interrupted = this.journal.interruptedBoots(seq);
+      if (interrupted >= CRASH_LOOP_LIMIT) {
+        const error = new CrashLoopError(
+          `seq ${seq}: parallel was found running at boot ${interrupted} times in a row. Failing the Run rather than performing it again.`,
+        );
+        await settleFailed(error);
+        this.fail(error);
+      }
+    }
+
+    // A running parent line is the durable reservation before any branch can
+    // touch the world. On replay it also records a fresh attempt at any waiting
+    // branch, just like a normal Step's running line.
+    await persist();
+
+    const fanoutFatal: { error: Error | undefined } = { error: undefined };
+    const branchContexts = branches.map(
+      (branch) =>
+        new BootRunner(
+          this.boot,
+          journalFor(branch),
+          async (entry) => {
+            branch.push(entry);
+            await persist();
+          },
+          this.now,
+          this.currentStage,
+          (error) => {
+            fanoutFatal.error ??= error;
+            this.latch(error);
+          },
+          fanoutFatal,
+          this.poll,
+          this.signal,
+        ),
+    );
+    const settled = await Promise.allSettled(
+      items.map((item, index) =>
+        Promise.resolve()
+          .then(() => run(branchContexts[index]!, item, index))
+          .finally(() => branchContexts[index]!.drain()),
+      ),
+    );
+
+    for (const branch of branchContexts) {
+      this.replayed += branch.replayed;
+      this.executed += branch.executed;
+    }
+
+    if (this.fatal) {
+      await settleFailed(this.fatal);
+      throw this.fatal;
+    }
+    for (const result of settled) {
+      if (result.status === 'rejected') {
+        if (
+          !(result.reason instanceof ParkSignal) &&
+          !(result.reason instanceof ReadySignal) &&
+          !(result.reason instanceof CancelSignal)
+        ) {
+          await settleFailed(result.reason);
+          if (
+            result.reason instanceof DivergenceError ||
+            result.reason instanceof CrashLoopError
+          ) {
+            this.fail(result.reason);
+          }
+          throw result.reason;
+        }
+      }
+    }
+    if (this.signal?.aborted) throw new CancelSignal();
+    for (const [index, result] of settled.entries()) {
+      if (
+        result.status !== 'fulfilled' ||
+        branchContexts[index]!.ready ||
+        branchContexts[index]!.parked
+      ) {
+        continue;
+      }
+      const branch = branchContexts[index]!;
+      const beyond = branch.journal.entries.find(
+        (entry) => entry.seq >= branch.reached(),
+      );
+      if (beyond) {
+        const error = new DivergenceError(
+          `parallel branch ${index} returned after ${branch.reached()} Steps, but its journal records step "${beyond.step}" at seq ${beyond.seq}. The Workflow is not deterministic.`,
+        );
+        await settleFailed(error);
+        this.fail(error);
+      }
+    }
+
+    const parkedResult = settled.find(
+      (result): result is PromiseRejectedResult =>
+        result.status === 'rejected' && result.reason instanceof ParkSignal,
+    );
+    const parkedBranch = branchContexts.find((branch) => branch.parked);
+    if (branchContexts.some((branch) => branch.ready)) {
+      this.ready = true;
+      parent = { ...parent, status: 'waiting' };
+      await persist();
+      throw new ReadySignal();
+    }
+    if (parkedResult || parkedBranch) {
+      const signal =
+        parkedResult?.reason ?? new ParkSignal(parkedBranch!.parked!);
+      this.parked ??= signal.stepKey;
+      parent = {
+        ...parent,
+        status: 'waiting',
+        ms: this.now() - new Date(base.startedAt).getTime(),
+      };
+      await persist();
+      throw signal;
+    }
+    for (const result of settled) {
+      // Every rejected result at this point was handled by the failure loop.
+      if (result.status === 'rejected') throw result.reason;
+    }
+
+    let results: { value?: unknown }[];
+    try {
+      results =
+        recorded?.parallel?.results ??
+        settled.map((result) => {
+          if (result.status === 'rejected') throw result.reason;
+          return result.value === undefined
+            ? {}
+            : { value: jsonClone(result.value) };
+        });
+    } catch (error) {
+      await settleFailed(error);
+      throw error;
+    }
+    parent = {
+      ...parent,
+      status: 'done',
+      parallel: { count: items.length, branches, results },
+      ms: this.now() - new Date(base.startedAt).getTime(),
+    };
+    await persist();
+    return results.map((result) => result.value);
   }
 
   private async execute<T>(
@@ -288,11 +664,18 @@ class BootRunner implements BootContext {
     // Phase one, before the effect. A Run that dies from here until the line
     // below performs this Step again on the next Boot.
     await this.write({ ...base, status: 'running' });
+    if (this.signal?.aborted) throw new CancelSignal();
+    if (this.fatal ?? this.fanoutFatal?.error)
+      throw this.fatal ?? this.fanoutFatal?.error;
 
     let outcome: StepOutcome<T>;
     try {
       outcome = await effect({ record: (attempt) => attempts.push(attempt) });
+      if (outcome.status === 'done') {
+        outcome = { ...outcome, result: jsonClone(outcome.result) };
+      }
     } catch (thrown) {
+      if (this.signal?.aborted) throw new CancelSignal();
       const error = recordError(thrown);
       await this.write({ ...settle(), status: 'failed', error });
       // Into workflow code as an ordinary exception a Workflow may catch.
@@ -305,7 +688,7 @@ class BootRunner implements BootContext {
       throw new ParkSignal(key);
     }
 
-    const result = jsonClone(outcome.result);
+    const result = outcome.result;
     await this.write({
       ...settle(),
       status: 'done',
@@ -314,12 +697,19 @@ class BootRunner implements BootContext {
         ? {}
         : { sessionId: outcome.sessionId }),
     });
+    if (this.poll && recorded?.status === 'waiting') {
+      this.ready = true;
+      throw new ReadySignal();
+    }
     return result;
   }
 
-  private async write(entry: JournalEntry): Promise<void> {
+  private async write(
+    entry: JournalEntry,
+    options?: AppendOptions,
+  ): Promise<void> {
     try {
-      await this.append(this.path, entry);
+      await this.writeEntry(entry, options);
     } catch (error) {
       this.infra ??= error;
       throw error;
@@ -334,6 +724,9 @@ class ParkSignal extends Error {
     this.name = 'ParkSignal';
   }
 }
+
+class ReadySignal extends Error {}
+class CancelSignal extends Error {}
 
 function endResultFor(journal: Journal): BootResult | undefined {
   const end = journal.end;
@@ -360,11 +753,7 @@ function endResultFor(journal: Journal): BootResult | undefined {
   if (runEnd.status === 'failed') {
     return { status: 'failed', error: runEnd.error, ...counts };
   }
-  return {
-    status: 'failed',
-    error: { name: 'Cancelled', message: 'the Run was cancelled' },
-    ...counts,
-  };
+  return { status: 'cancelled', ...counts };
 }
 
 /**
@@ -388,15 +777,28 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
   }
 
   const boot = journal.nextBoot;
-  const runner = new BootRunner(boot, journal, journalPath, append, now);
+  const runner = new BootRunner(
+    boot,
+    journal,
+    (entry, appendOptions) => append(journalPath, entry, appendOptions),
+    now,
+    undefined,
+    undefined,
+    undefined,
+    options.poll,
+    options.signal,
+  );
 
   let outcome: RunOutcome | undefined;
   let thrown: unknown;
+  let didThrow = false;
   try {
     outcome = await workflow(runner);
   } catch (error) {
     thrown = error;
+    didThrow = true;
   }
+  await runner.drain();
 
   const counts = {
     boot,
@@ -409,10 +811,6 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
   if (runner.infra !== undefined) {
     throw runner.infra;
   }
-  if (runner.parked !== undefined) {
-    return { status: 'parked', reason: runner.parked, ...counts };
-  }
-
   const writeEnd = async (end: RunEnd, status: 'done' | 'failed') => {
     await append(
       journalPath,
@@ -424,6 +822,9 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
         boot,
         startedAt: new Date(now()).toISOString(),
         result: end,
+        ...(runner.currentStage === undefined
+          ? {}
+          : { stage: runner.currentStage }),
         ...(end.status === 'failed' ? { error: end.error } : {}),
       },
       { runner: true },
@@ -435,10 +836,22 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
     return { status: 'failed', error, ...counts };
   };
 
+  if (options.signal?.aborted) return { status: 'cancelled', ...counts };
   if (runner.fatal) {
     return await failWith(recordError(runner.fatal));
   }
-  if (thrown !== undefined) {
+  if (
+    didThrow &&
+    !(thrown instanceof ParkSignal) &&
+    !(thrown instanceof ReadySignal)
+  ) {
+    return await failWith(recordError(thrown));
+  }
+  if (runner.ready) return { status: 'ready', ...counts };
+  if (runner.parked !== undefined) {
+    return { status: 'parked', reason: runner.parked, ...counts };
+  }
+  if (didThrow) {
     return await failWith(recordError(thrown));
   }
 
@@ -456,6 +869,18 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
   }
 
   const settled: RunOutcome = outcome as RunOutcome;
+  if (options.poll) return { status: 'ready', ...counts };
+  if (
+    settled !== 'merged' &&
+    settled !== 'rejected' &&
+    settled !== 'exhausted'
+  ) {
+    return failWith(
+      recordError(
+        new Error('Workflow must return merged, rejected or exhausted'),
+      ),
+    );
+  }
   await writeEnd({ status: 'finished', outcome: settled }, 'done');
   return { status: 'finished', outcome: settled, ...counts };
 }

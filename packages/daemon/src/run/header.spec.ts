@@ -58,6 +58,7 @@ function header(over: Partial<RunHeader> = {}): RunHeader {
       runId: 'NG-601-1',
       issue,
       branch: 'ng-601-journal-and-replay',
+      repo: 'rocky',
       trigger: 'linear.onDelegate',
       now: '2026-09-02T10:00:00.000Z',
     }),
@@ -101,6 +102,7 @@ describe('a new header', () => {
       boots: 0,
       issue,
       branch: 'ng-601-journal-and-replay',
+      repo: 'rocky',
       trigger: 'linear.onDelegate',
       createdAt: '2026-09-02T10:00:00.000Z',
     });
@@ -113,6 +115,7 @@ describe('a new header', () => {
       runId: 'NG-601-1',
       issue,
       branch: 'ng-601-journal-and-replay',
+      repo: 'rocky',
       now: '2026-09-02T10:00:00.000Z',
     });
 
@@ -173,6 +176,27 @@ describe('reading a broken header', () => {
     await expect(readRunHeader(paths, 'NG-601-1')).rejects.toThrow(
       /run\.json is not a Run header/,
     );
+  });
+
+  it('preserves the lead repo recorded in run.json', async () => {
+    await writeRunHeader(paths, header());
+
+    await expect(readRunHeader(paths, 'NG-601-1')).resolves.toMatchObject({
+      repo: 'rocky',
+    });
+  });
+
+  it.each([
+    ['a missing', undefined],
+    ['an empty', ''],
+  ])('rejects a header with %s repo', async (_description, repo) => {
+    mkdirSync(paths.run('NG-601-1').dir, { recursive: true });
+    await writeFile(
+      paths.run('NG-601-1').runJson,
+      JSON.stringify({ ...header(), repo }),
+    );
+
+    await expect(readRunHeader(paths, 'NG-601-1')).rejects.toThrow(/repo/);
   });
 
   it('refuses a header from an incompatible daemon version', async () => {

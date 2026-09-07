@@ -1,0 +1,132 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, expect, it } from 'vitest';
+import { createWorkflowContext } from './context.js';
+import { newRunHeader } from './header.js';
+import { openJournal } from './journal.js';
+import { runBoot } from './replay.js';
+
+let dir: string;
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), 'rocky-context-'));
+});
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
+const header = newRunHeader({
+  runId: 'NG-597-1',
+  repo: 'rocky',
+  branch: 'ng-597',
+  now: '2026-09-07T10:00:00Z',
+  issue: {
+    identifier: 'NG-597',
+    title: 'Immutable',
+    description: '',
+    labels: ['rocky'],
+    url: '',
+  },
+});
+
+it('names missing external adapters without inventing behavior', async () => {
+  await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (runner) => {
+      const ctx = createWorkflowContext(runner, header, {
+        exec: async () => ({ pid: 1 }),
+        changedFiles: async () => [],
+      });
+      for (const name of [
+        'agent',
+        'checkpoint',
+        'post',
+        'scm',
+        'linear',
+      ] as const) {
+        expect(() => ctx[name]).toThrow(`ctx.${name} requires an adapter`);
+      }
+      return 'merged';
+    },
+  });
+});
+
+it('runs ordinary loops and nested parallel callbacks through the same ctx and replays their Steps', async () => {
+  const effects: string[] = [];
+  let ready = false;
+  const journalPath = join(dir, 'journal.jsonl');
+  const boot = () =>
+    runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(
+          runner,
+          { ...header, ports: [12345] },
+          {
+            exec: async () => ({ exitCode: 0, stdout: 'ok', stderr: '' }),
+            changedFiles: async () => {
+              effects.push('files');
+              return ['a.ts'];
+            },
+          },
+        );
+        expect(() => {
+          ctx.issue.labels.push('mutated');
+        }).toThrow();
+        ctx.stage('Code review');
+        for (const i of [1, 2]) {
+          const files = await ctx.changedFiles();
+          if (files.length)
+            await ctx.parallel([1, 2], async (item, index) => {
+              await new Promise((resolve) =>
+                setTimeout(resolve, item === 1 ? 3 : 0),
+              );
+              await ctx.step('first', () => {
+                effects.push(`${i}:${index}`);
+                return item;
+              });
+              return ctx.parallel([item], async (inner) =>
+                ctx.step('second', () => inner * 2),
+              );
+            });
+        }
+        await runner.step('checkpoint', {}, async () =>
+          ready ? { status: 'done', result: null } : { status: 'waiting' },
+        );
+        return 'merged';
+      },
+    });
+  expect((await boot()).status).toBe('parked');
+  const first = [...effects];
+  ready = true;
+  expect((await boot()).status).toBe('finished');
+  expect(effects).toEqual(first);
+  const journal = await openJournal(journalPath);
+  expect(journal.latest(0)?.stage).toBe('Code review');
+  expect(journal.latest(1)?.step).toBe('$parallel');
+  expect(journal.latest(4)?.step).toBe('checkpoint');
+});
+
+it.each([new Map(), new Date(), { dropped: undefined }, { n: NaN }, () => 1])(
+  'fails non-JSON Step values at record time: %j',
+  async (value) => {
+    const result = await runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(
+          runner,
+          { ...header, ports: [] },
+          {
+            exec: async () => ({ pid: 1 }),
+            changedFiles: async () => [],
+          },
+        );
+        await ctx.step('invalid', () => value);
+        return 'merged';
+      },
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { message: expect.stringMatching(/JSON/) },
+    });
+  },
+);
