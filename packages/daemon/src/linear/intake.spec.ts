@@ -6,6 +6,12 @@ import type { AgentSessionEvent } from './events.js';
 import { createLinearControlHandler } from './intake.js';
 import { registerLinearWebhook } from './webhook.js';
 
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error('Expected fixture value');
+  return value;
+}
+
 it('routes a verified HTTP prompt and a local Answer through the same generation CAS', async () => {
   const values = new Map<string, unknown>();
   const control = new LinearRunControl({
@@ -43,7 +49,7 @@ it('routes a verified HTTP prompt and a local Answer through the same generation
     body: 'Test only.',
     digest: { ci: 'passed', diffStat: '1 file', unresolved: 0 },
   });
-  const checkpoint = (await control.waiting())!;
+  const checkpoint = must(await control.waiting());
   const errors: string[] = [];
   const app = Fastify();
   const handler = createLinearControlHandler({
@@ -94,6 +100,7 @@ it('routes a verified HTTP prompt and a local Answer through the same generation
       await control.intake({
         source: 'local',
         id: 'answer-2',
+        stepKey: checkpoint.stepKey,
         generation: checkpoint.generation,
         answer: { decision: 'reject' },
       }),

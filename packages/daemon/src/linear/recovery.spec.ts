@@ -12,6 +12,19 @@ import { RunScheduler, type SchedulerBoot } from '../run/scheduler.js';
 import { RockyLinearClient } from './client.js';
 import { LinearRunControl, type LinearControlStore } from './control.js';
 
+interface FixtureGraphqlVariables {
+  filter?: { id?: { eq?: string } };
+  after?: string;
+  input?: {
+    id?: string;
+    agentSessionId?: string;
+    content?: Record<string, unknown>;
+    ephemeral?: boolean;
+    signal?: string;
+    signalMetadata?: Record<string, unknown>;
+  };
+}
+
 /** Test-only durable boundary; production binds control records into the Journal. */
 function testControlStore(path: string): LinearControlStore {
   const read = async (): Promise<Record<string, unknown>> => {
@@ -60,30 +73,32 @@ it('recovers a dead-endpoint Checkpoint by the five-minute poll, queues under a 
     signalMetadata?: string;
   }[] = [];
   const pages: unknown[] = [];
-  remote.post<{ Body: { query: string; variables: Record<string, any> } }>(
+  remote.post<{ Body: { query: string; variables: FixtureGraphqlVariables } }>(
     '/graphql',
     async (request) => {
       expect(request.headers.authorization).toBe('Bearer test-owned-app-token');
       const { query, variables: v } = request.body;
       if (query.includes('agentActivityCreate(')) {
-        if (!rows.some((row) => row.id === v.input.id))
+        const input = v.input;
+        if (!input?.id || !input.agentSessionId || !input.content)
+          throw new Error('Fixture agent activity input is incomplete');
+        if (!rows.some((row) => row.id === input.id))
           rows.push({
-            id: v.input.id,
+            id: input.id,
             createdAt: at(),
-            agentSession: { id: v.input.agentSessionId },
-            content: v.input.content,
-            ephemeral: v.input.ephemeral ?? false,
-            signal: v.input.signal,
-            ...(v.input.signalMetadata
-              ? { signalMetadata: JSON.stringify(v.input.signalMetadata) }
+            agentSession: { id: input.agentSessionId },
+            content: input.content,
+            ephemeral: input.ephemeral ?? false,
+            signal: input.signal,
+            ...(input.signalMetadata
+              ? { signalMetadata: JSON.stringify(input.signalMetadata) }
               : {}),
           });
         return { data: { agentActivityCreate: { success: true } } };
       }
       if (query.includes('agentActivities(')) {
-        const matching = v.filter.id
-          ? rows.filter((row) => row.id === v.filter.id.eq)
-          : rows;
+        const id = v.filter?.id?.eq;
+        const matching = id ? rows.filter((row) => row.id === id) : rows;
         const start = Number(v.after ?? 0);
         const nodes = matching.slice(start, start + 1);
         const next = start + nodes.length;
@@ -255,7 +270,8 @@ it('recovers a dead-endpoint Checkpoint by the five-minute poll, queues under a 
     await expect
       .poll(async () => (await scheduler.get('FIXTURE-1-1'))?.status)
       .toBe('parked');
-    const checkpoint = (await (await controlFor('FIXTURE-1-1')).waiting())!;
+    const checkpoint = await (await controlFor('FIXTURE-1-1')).waiting();
+    if (!checkpoint) throw new Error('Expected the fixture Checkpoint');
     await assertOutagePersists();
     await scheduler.close();
     controls.clear();
@@ -300,7 +316,8 @@ it('recovers a dead-endpoint Checkpoint by the five-minute poll, queues under a 
     });
     await scheduler.drain();
     await expect.poll(() => entered.length).toBe(1);
-    const first = entered[0]!;
+    const first = entered[0];
+    if (!first) throw new Error('Expected a resumed fixture Run');
     release.get(first)?.();
     if (first !== 'FIXTURE-1-1')
       await expect.poll(() => entered).toContain('FIXTURE-1-1');
