@@ -17,6 +17,9 @@
   "files": [
     "dist"
   ],
+  "scripts": {
+    "prepack": "pnpm exec tsc --build tsconfig.lib.json"
+  },
   "dependencies": {
     "zod": "^4.1.13"
   }

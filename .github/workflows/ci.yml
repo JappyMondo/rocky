@@ -69,6 +69,12 @@ jobs:
       - name: Test with coverage
         run: pnpm exec nx ${{ github.event_name == 'pull_request' && 'affected' || 'run-many' }} -t test --coverage
 
+      # Uses the default daemon port: run after, never alongside, project tests.
+      - name: Verify clean-directory distribution
+        run: |
+          pnpm exec eslint tools/package-rocky.mjs tools/distribution.spec.mjs
+          pnpm test:distribution
+
       # `always()`: a coverage drop fails the step above, and that is precisely
       # when the numbers are worth reading. Vitest writes the reports before it
       # checks the thresholds, so they are on disk either way.
