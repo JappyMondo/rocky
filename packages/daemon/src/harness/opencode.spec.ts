@@ -70,6 +70,72 @@ describe('parseOpencodeStream', () => {
       ),
     ).toThrow(/rocky mcp login api/);
   });
+  it('correlates a string-status native MCP error without mistaking a provider error', () => {
+    const api = [{ name: 'api', config: {} }];
+    expect(() =>
+      parseOpencodeStream(
+        [
+          JSON.stringify({
+            type: 'error',
+            error: {
+              name: 'UnauthorizedError',
+              data: {
+                status: '401',
+                source: 'mcp',
+                serverName: 'api',
+                message: 'Unauthorized',
+              },
+            },
+          }),
+        ],
+        api,
+      ),
+    ).toThrow(/rocky mcp login api/);
+    try {
+      parseOpencodeStream(
+        [
+          JSON.stringify({
+            type: 'error',
+            error: {
+              name: 'UnauthorizedError',
+              data: { status: '401', source: 'provider', server: 'api' },
+            },
+          }),
+        ],
+        api,
+      );
+      expect.fail('expected an authentication failure');
+    } catch (error) {
+      expect(error).toMatchObject({
+        retryable: false,
+        fix: 'opencode auth login',
+      });
+    }
+  });
+  it('recognizes permanent native auth names without exposing response bodies', () => {
+    try {
+      parseOpencodeStream([
+        JSON.stringify({
+          type: 'error',
+          error: {
+            name: 'NotLoggedInError',
+            data: {
+              status: '403',
+              message: 'not logged in',
+              responseBody: 'secret',
+            },
+          },
+        }),
+      ]);
+      expect.fail('expected an authentication failure');
+    } catch (error) {
+      expect(error).toMatchObject({
+        retryable: false,
+        fix: 'opencode auth login',
+      });
+      expect((error as Error).message).not.toContain('secret');
+    }
+  });
   it('pins a newly recorded live tool boundary and same-session continuation', () => {
     const lines = readFileSync(
       new URL('./fixtures/opencode-1.18.29-live.jsonl', import.meta.url),

@@ -154,12 +154,11 @@ async function executeOpencode(
       if (error instanceof HarnessError) throw error;
       if (!output.stderr) throw error;
       checkMcpDiagnostic(output.stderr, input.mcpServers);
-      const auth =
-        /\b40[13]\b|oauth_org_not_allowed|authentication(?:_error)?|not logged in|unauthorized|invalid (?:API key|token)/i.test(
-          output.stderr,
-        );
+      const auth = isOpenCodeAuthFailure({ message: output.stderr });
       throw new HarnessError(
-        `opencode (${input.model ?? 'default model'}): ${output.stderr.trim()}`,
+        auth
+          ? `opencode (${input.model ?? 'default model'}): OpenCode authentication failed`
+          : `opencode (${input.model ?? 'default model'}): ${output.stderr.trim()}`,
         !auth &&
           !/(?:unknown|unsupported|invalid) model|model.*(?:not found|unknown|unsupported)|ProviderModelNotFoundError/i.test(
             output.stderr,
@@ -187,6 +186,22 @@ async function executeOpencode(
 }
 
 type JsonObject = Record<string, unknown>;
+
+function isOpenCodeAuthFailure(error: JsonObject): boolean {
+  const data =
+    error.data && typeof error.data === 'object' && !Array.isArray(error.data)
+      ? (error.data as JsonObject)
+      : {};
+  const status = data.statusCode ?? data.status ?? data.code ?? error.status;
+  if (status === 401 || status === 403 || status === '401' || status === '403')
+    return true;
+  const detail = [error.name, error.message, data.name, data.message]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+  return /\b40[13]\b|oauth_org_not_allowed|auth(?:entication)?(?:[_ -]?error| failed)?|unauthorized|not[- ]?logged(?:[- ]?in)?|invalid (?:API key|token)/i.test(
+    detail,
+  );
+}
 
 type OpencodePermission = 'allow' | 'deny';
 
@@ -511,12 +526,7 @@ function createOpencodeStream(
                 ? error.message
                 : String(error.name ?? 'unknown error');
           checkMcpDiagnostic(JSON.stringify(error), servers);
-          const auth =
-            data.statusCode === 401 ||
-            data.statusCode === 403 ||
-            /oauth_org_not_allowed|authentication_error|invalid (?:API key|token)/i.test(
-              message,
-            );
+          const auth = isOpenCodeAuthFailure(error);
           throw new HarnessError(
             `opencode: ${message}`,
             !auth &&

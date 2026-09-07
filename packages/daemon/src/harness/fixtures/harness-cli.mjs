@@ -158,6 +158,12 @@ if (args[0] === 'debug') {
     console.error('APIError: 401 Invalid API key');
     process.exit(1);
   }
+  if (mode === 'stderr-mcp-auth') {
+    console.error(
+      'level=ERROR source=mcp serverName=api status=401 message=Unauthorized',
+    );
+    process.exit(1);
+  }
   if (mode === 'large') {
     process.stdout.write('x'.repeat(33 * 1024 * 1024));
     await new Promise((resolve) => process.stdout.write('', resolve));
