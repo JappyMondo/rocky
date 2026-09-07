@@ -136,12 +136,13 @@ export async function main(
     const namespace = `${name}/${revision}/1`;
     const disagreements = previous.resolutions
       .filter(({ status }) => status === 'disagreed')
-      .map(({ id, note }) => ({
-        id,
-        text: previous.complaints.find((complaint) => complaint.id === id)!
-          .text,
-        why: note,
-      }));
+      .map(({ id, note }) => {
+        const complaint = previous.complaints.find(
+          (complaint) => complaint.id === id,
+        );
+        if (!complaint) throw new Error(`Missing complaint ${id}.`);
+        return { id, text: complaint.text, why: note };
+      });
     const result = await ctx.agent(name, {
       ...read,
       label: `${name} ${revision}/${reviewCap}`,
@@ -371,7 +372,8 @@ export async function main(
           .map(({ id, note }) => {
             const complaint = ui.complaints.find(
               (complaint) => complaint.id === id,
-            )!;
+            );
+            if (!complaint) throw new Error(`Missing UI complaint ${id}.`);
             return note
               .replaceAll(id, 'the previous concern')
               .replaceAll(complaint.file, 'the implementation');
@@ -522,7 +524,9 @@ export async function addressPrConversations(
   for (const [index, thread] of threads.entries()) {
     const resolution = report.resolutions.find(
       ({ id }) => id === complaints[index].id,
-    )!;
+    );
+    if (!resolution)
+      throw new Error(`Missing resolution for ${complaints[index].id}.`);
     requireScm(
       await ctx.scm.replyToThread(
         thread,
