@@ -105,6 +105,84 @@ it('finds or creates a native draft MR and reads ready state back after a title-
   transport.done();
 });
 
+it('creates a ready MR only when the caller explicitly requests it', async () => {
+  const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
+  const ready = { ...mr, title: 'Change', draft: false };
+  const transport = scriptedFetch([
+    { path: lookup, value: [] },
+    {
+      path: `${root}/merge_requests`,
+      method: 'POST',
+      body: {
+        title: 'Change',
+        description: 'Seed',
+        source_branch: 'ng-524',
+        target_branch: 'main',
+      },
+      value: ready,
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Seed',
+      draft: false,
+    }),
+  ).resolves.toEqual({ ...pr, draft: false });
+  transport.done();
+});
+
+it('adopts an MR when a concurrent GitLab creator wins', async () => {
+  const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
+  const transport = scriptedFetch([
+    { path: lookup, value: [] },
+    { path: `${root}/merge_requests`, method: 'POST', status: 409, value: {} },
+    { path: lookup, value: [mr] },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).resolves.toEqual(pr);
+  expect(transport.calls.filter((call) => call.method === 'POST')).toHaveLength(
+    1,
+  );
+  transport.done();
+});
+
+it('converts a ready MR back to a title-prefixed draft', async () => {
+  const ready = { ...mr, title: 'Change', draft: false };
+  const draft = { ...mr, title: 'Draft: Change', draft: true };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: ready,
+    },
+    {
+      path: `${root}/merge_requests/7`,
+      method: 'PUT',
+      body: { title: 'Draft: Change', description: 'Needs work' },
+      value: draft,
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: draft,
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).markDraft(
+      { ...pr, draft: false },
+      true,
+      { body: 'Needs work' },
+    ),
+  ).resolves.toMatchObject({ draft: true });
+  transport.done();
+});
+
 it('refuses a terminal matching MR without creating a second review', async () => {
   const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
   const transport = scriptedFetch([
@@ -233,6 +311,58 @@ it('treats accepted rebase as pending and observes completion or conflict on lat
   transport.done();
 });
 
+it.each([
+  [{ ...mr, rebase_in_progress: true }, 'waiting'],
+  [{ ...mr, detailed_merge_status: 'checking' }, 'waiting'],
+  [{ ...mr, detailed_merge_status: 'mergeable' }, 'clean'],
+] as const)(
+  'reports GitLab branch state %s without a source mutation',
+  async (value, expected) => {
+    const transport = scriptedFetch([
+      {
+        path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+        value,
+      },
+    ]);
+    const result = await createGitLabScm({
+      ...options,
+      fetch: transport.fetch,
+    }).updateBranch(pr);
+    expect(result).toMatchObject(
+      expected === 'waiting'
+        ? { status: 'waiting' }
+        : { status: 'done', result: { status: 'clean' } },
+    );
+    expect(transport.calls.some((call) => call.method !== 'GET')).toBe(false);
+    transport.done();
+  },
+);
+
+it('refuses a local base-merge fallback when the GitLab source branch vanished', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, detailed_merge_status: 'need_rebase' },
+    },
+    {
+      path: `${root}/merge_requests/7/rebase`,
+      method: 'PUT',
+      status: 403,
+      value: {},
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, detailed_merge_status: 'need_rebase' },
+    },
+    { path: `${root}/repository/branches/ng-524`, status: 404, value: {} },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).updateBranch(pr),
+  ).rejects.toMatchObject({ refusal: { reason: 'source_missing' } });
+  transport.done();
+});
+
 it.each([false, true])(
   're-arms after each fix push through guarded platform auto-merge (train=%s)',
   async (train) => {
@@ -308,6 +438,29 @@ it.each([false, true])(
     ).toMatchObject({ status: 'done', result: { status: 'merged' } });
   },
 );
+
+it.each([
+  [{ ...mr, state: 'locked', draft: false }, { status: 'waiting' }],
+  [
+    { ...mr, state: 'closed', draft: false },
+    { refusal: { reason: 'not_open' } },
+  ],
+] as const)('does not arm a GitLab MR that is %s', async (value, expected) => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value,
+    },
+  ]);
+  const arm = createGitLabScm({
+    ...options,
+    fetch: transport.fetch,
+  }).armAutoMerge({ ...pr, draft: false });
+  if ('refusal' in expected) await expect(arm).rejects.toMatchObject(expected);
+  else await expect(arm).resolves.toEqual(expected);
+  expect(transport.calls.some((call) => call.method !== 'GET')).toBe(false);
+  transport.done();
+});
 
 it('refuses a stale merge-train entry without a train or auto-merge mutation', async () => {
   const transport = scriptedFetch([
@@ -572,6 +725,44 @@ it('does not retry a job after a concurrent MR closure', async () => {
   transport.done();
 });
 
+it('refuses a GitLab retry before CI has created a current pipeline', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: null },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [],
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).retryFailedJobs(pr),
+  ).rejects.toMatchObject({ refusal: { reason: 'ci_still_running' } });
+  transport.done();
+});
+
+it('keeps polling GitLab when there is no current pipeline', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: null },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [],
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).waitForCi(pr, {
+      logTailLines: 200,
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  transport.done();
+});
+
 it.each(['not_approved', 'requested_changes', 'discussions_not_resolved'])(
   'refuses GitLab blocking merge status %s before an auto-merge mutation',
   async (detailed_merge_status) => {
@@ -646,6 +837,37 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
   expect(resolved).toBe(false);
 });
 
+it('ignores GitLab discussions that contain only system notes', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: mr,
+    },
+    {
+      path: `${root}/merge_requests/7/discussions?per_page=100&page=1`,
+      value: [
+        {
+          id: 'system',
+          notes: [
+            {
+              id: 1,
+              body: 'changed title',
+              system: true,
+              resolvable: false,
+              position: null,
+            },
+          ],
+        },
+      ],
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).reviewThreads(pr),
+  ).resolves.toEqual([]);
+  transport.done();
+});
+
 it('leaves a GitLab discussion unresolved when a reviewer replies after Rocky posts', async () => {
   let reply = '';
   let reviewerReply = '';
@@ -685,4 +907,354 @@ it('leaves a GitLab discussion unresolved when a reviewer replies after Rocky po
   const [thread] = await adapter.reviewThreads(pr);
   await adapter.replyToThread(thread, 'Fixed', 'NG-524-2');
   expect(resolved).toBe(false);
+});
+
+it.each([
+  [
+    'an unsupported GitLab version',
+    { id: 5, merge_trains_enabled: false },
+    '17.10.0-ee',
+    'unsupported',
+  ],
+  [
+    'hidden GitLab merge-train configuration',
+    { id: 5 },
+    '19.1.0-ee',
+    'permission_unknown',
+  ],
+] as const)(
+  'refuses %s before requesting auto-merge',
+  async (_name, project, version, reason) => {
+    const transport = scriptedFetch([
+      { path: root, value: project },
+      {
+        path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+        value: {
+          ...mr,
+          draft: false,
+          detailed_merge_status: 'mergeable',
+          merge_when_pipeline_succeeds: false,
+        },
+      },
+      { path: '/api/v4/version', value: { version } },
+    ]);
+
+    await expect(
+      createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+        ...pr,
+        draft: false,
+      }),
+    ).rejects.toMatchObject({ refusal: { reason } });
+    expect(
+      transport.calls.some((call) => ['POST', 'PUT'].includes(call.method)),
+    ).toBe(false);
+    transport.done();
+  },
+);
+
+it('verifies a synthetic GitLab pipeline contains the current source head', async () => {
+  const pipeline = {
+    id: 9,
+    sha: 'synthetic',
+    ref: 'refs/merge-requests/7/merge',
+    status: 'success',
+  };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [pipeline],
+    },
+    {
+      path: `${root}/repository/commits/synthetic`,
+      value: { parent_ids: ['abc'] },
+    },
+    {
+      path: `${root}/pipelines/9/jobs?include_retried=false&per_page=100&page=1`,
+      value: [],
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).waitForCi(pr, {
+      logTailLines: 0,
+    }),
+  ).resolves.toEqual({
+    status: 'done',
+    result: { status: 'passed', headSha: 'abc', failedJobs: [] },
+  });
+  transport.done();
+});
+
+it('refuses GitLab CI based on a synthetic commit that excludes the source head', async () => {
+  const pipeline = {
+    id: 9,
+    sha: 'synthetic',
+    ref: 'refs/merge-requests/7/merge',
+    status: 'success',
+  };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [pipeline],
+    },
+    {
+      path: `${root}/repository/commits/synthetic`,
+      value: { parent_ids: ['another-head'] },
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).waitForCi(pr, {
+      logTailLines: 0,
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'head_changed' } });
+  transport.done();
+});
+
+it('refuses a GitLab train pipeline that has already disappeared', async () => {
+  const pipeline = {
+    id: 9,
+    sha: 'abc',
+    ref: 'refs/merge-requests/7/train',
+    status: 'running',
+  };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [pipeline],
+    },
+    { path: `${root}/merge_trains/merge_requests/7`, status: 404, value: {} },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).waitForCi(pr, {
+      logTailLines: 0,
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'train_pipeline_dropped' } });
+  transport.done();
+});
+
+it('fails closed when GitLab cannot read auto-merge state after feature checks', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: {
+        ...mr,
+        draft: false,
+        detailed_merge_status: 'mergeable',
+        merge_when_pipeline_succeeds: false,
+      },
+    },
+    { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: {
+        ...mr,
+        draft: false,
+        detailed_merge_status: 'mergeable',
+      },
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+      ...pr,
+      draft: false,
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'permission_unknown' } });
+  transport.done();
+});
+
+it('retains unanchored GitLab discussions and computes resolution from resolvable notes', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: mr,
+    },
+    {
+      path: `${root}/merge_requests/7/discussions?per_page=100&page=1`,
+      value: [
+        {
+          id: 'general',
+          notes: [
+            {
+              id: 1,
+              body: 'General review note',
+              system: false,
+              resolvable: false,
+              position: null,
+            },
+          ],
+        },
+      ],
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).reviewThreads(pr),
+  ).resolves.toEqual([
+    {
+      pr,
+      id: 'general',
+      body: 'General review note',
+      resolved: false,
+    },
+  ]);
+  transport.done();
+});
+
+it('recovers a GitLab reply when the note write committed before a conflict response', async () => {
+  let reply = '';
+  let writes = 0;
+  const fetcher: typeof fetch = async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    if (path === root)
+      return Response.json({ id: 5, merge_trains_enabled: false });
+    if (path === `${root}/merge_requests/7`) return Response.json(mr);
+    const note = {
+      id: 1,
+      body: 'Fix this',
+      system: false,
+      resolvable: true,
+      resolved: false,
+      position: { new_path: 'src/app.ts', new_line: 3 },
+    };
+    const discussion = {
+      id: 'D1',
+      notes: [note, ...(reply ? [{ ...note, id: 2, body: reply }] : [])],
+    };
+    if (init?.method === 'POST') {
+      writes++;
+      reply = JSON.parse(String(init.body)).body;
+      return Response.json({}, { status: 422 });
+    }
+    return Response.json(
+      path.endsWith('/discussions') ? [discussion] : discussion,
+    );
+  };
+
+  const adapter = createGitLabScm({ ...options, fetch: fetcher });
+  const [thread] = await adapter.reviewThreads(pr);
+  await expect(
+    adapter.replyToThread(thread, 'Fixed', 'NG-524-2'),
+  ).resolves.toBeUndefined();
+  expect(writes).toBe(1);
+});
+
+it('reports a failed GitLab pipeline even when its only jobs are allowed to fail', async () => {
+  const pipeline = { id: 9, sha: 'abc', ref: 'ng-524', status: 'failed' };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [pipeline],
+    },
+    {
+      path: `${root}/pipelines/9/jobs?include_retried=false&per_page=100&page=1`,
+      value: [
+        { id: 12, name: 'optional', status: 'failed', allow_failure: true },
+      ],
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).waitForCi(pr, {
+      logTailLines: 0,
+    }),
+  ).resolves.toMatchObject({
+    status: 'done',
+    result: {
+      status: 'failed',
+      failedJobs: [{ id: '9', name: 'Pipeline 9 (failed)', logTail: '' }],
+    },
+  });
+  transport.done();
+});
+
+it('refuses to retry a GitLab merge-train pipeline', async () => {
+  const pipeline = {
+    id: 9,
+    sha: 'abc',
+    ref: 'refs/merge-requests/7/train',
+    status: 'failed',
+  };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [pipeline],
+    },
+    {
+      path: `${root}/merge_trains/merge_requests/7`,
+      value: {
+        id: 10,
+        status: 'fresh',
+        target_branch: 'main',
+        merge_request: { id: 100, iid: 7 },
+        pipeline,
+      },
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).retryFailedJobs(pr),
+  ).rejects.toMatchObject({ refusal: { reason: 'train_pipeline_dropped' } });
+  expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
+  transport.done();
+});
+
+it('selects the newest current-head GitLab pipeline and keeps polling while it runs', async () => {
+  const older = { id: 8, sha: 'abc', ref: 'ng-524', status: 'success' };
+  const current = { id: 9, sha: 'abc', ref: 'ng-524', status: 'running' };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: null },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [older, current],
+    },
+    {
+      path: `${root}/pipelines/9/jobs?include_retried=false&per_page=100&page=1`,
+      value: [],
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: null },
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).waitForCi(pr, {
+      logTailLines: 0,
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  transport.done();
 });
