@@ -102,6 +102,9 @@ describe('LocalArtifacts', () => {
     await expect(artifacts.readScreenshot('../bad')).rejects.toMatchObject({
       statusCode: 400,
     });
+    await expect(
+      artifacts.registerTranscript('NG-609-1', 'agent/0', 'missing.jsonl'),
+    ).rejects.toMatchObject({ code: 'invalid_artifact' });
     await symlink(
       join(run.dir, 'outside.png'),
       join(run.screenshotsDir, 'escape.png'),
@@ -120,11 +123,12 @@ describe('LocalArtifacts', () => {
       annotations: [
         {
           id: 'review:0/1',
-          stepKey: 'review.1',
+          stepKey: '1/1/0',
           revision: 'revision.1',
           file: 'a.ts',
           text: 'fixed',
           state: 'fixed',
+          resolution: { stepKey: '1/1/1', label: 'fixer 1/5' },
         },
       ],
     });
@@ -141,7 +145,7 @@ describe('LocalArtifacts', () => {
     const initial = diff('revision.1', [
       {
         id: 'complaint:0/1',
-        stepKey: '0/1',
+        stepKey: '0/1/0',
         revision: 'revision.1',
         file: 'a.ts',
         line: 2,
@@ -157,7 +161,7 @@ describe('LocalArtifacts', () => {
         {
           ...initial.annotations[0],
           state: 'fixed',
-          resolution: { stepKey: '0/2', label: 'fixed' },
+          resolution: { stepKey: '0/0/2', label: 'fixed' },
         },
       ],
     });
@@ -165,10 +169,93 @@ describe('LocalArtifacts', () => {
       artifacts.saveDiff('NG-609-1', {
         ...initial,
         annotations: [
-          { ...initial.annotations[0], file: 'other.ts', state: 'fixed' },
+          {
+            ...initial.annotations[0],
+            file: 'other.ts',
+            state: 'fixed',
+            resolution: { stepKey: '0/0/2', label: 'fixed' },
+          },
         ],
       }),
     ).rejects.toMatchObject({ code: 'immutable_annotation' });
+  });
+
+  it('requires complete Resolution metadata and registered screenshot IDs', async () => {
+    const { run, artifacts } = await fixture();
+    const annotation = {
+      id: 'complaint:complete',
+      stepKey: '1/0/0',
+      revision: 'revision.1',
+      file: 'a.ts',
+      line: 2,
+      side: 'head' as const,
+      text: 'This needs a durable reply.',
+    };
+    await expect(
+      artifacts.saveDiff('NG-609-1', {
+        ...diff('revision.1'),
+        annotations: [{ ...annotation, state: 'fixed' as const }],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_diff' });
+    await expect(
+      artifacts.saveDiff('NG-609-1', {
+        ...diff('revision.1'),
+        annotations: [
+          {
+            ...annotation,
+            state: 'disagreed' as const,
+            resolution: { stepKey: '1/0/1', label: 'fixer 1/5' },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_diff' });
+    await expect(
+      artifacts.saveDiff('NG-609-1', {
+        ...diff('revision.1'),
+        annotations: [
+          {
+            ...annotation,
+            state: 'fixed' as const,
+            resolution: { stepKey: '1/0/1', label: 'fixer 1/5' },
+            screenshots: [{ id: 'not-a-screenshot', caption: 'proof' }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_diff' });
+    await expect(
+      artifacts.saveDiff('NG-609-1', {
+        ...diff('revision.1'),
+        annotations: [
+          {
+            ...annotation,
+            state: 'fixed' as const,
+            resolution: { stepKey: '1/0/1', label: 'fixer 1/5' },
+            screenshots: [
+              { id: `s_${'0'.repeat(32)}`, caption: 'missing proof' },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'unknown_screenshot' });
+    await writeFile(join(run.screenshotsDir, 'proof.png'), PNG);
+    const screenshot = await artifacts.registerScreenshot(
+      'NG-609-1',
+      'proof.png',
+      'proof',
+    );
+    await expect(
+      artifacts.saveDiff('NG-609-1', {
+        ...diff('revision.1'),
+        annotations: [
+          {
+            ...annotation,
+            state: 'fixed' as const,
+            resolution: { stepKey: '1/0/1', label: 'fixer 1/5' },
+            screenshots: [screenshot],
+          },
+        ],
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('does not treat inherited manifest keys as artifacts', async () => {
@@ -205,7 +292,7 @@ describe('LocalArtifacts', () => {
         ),
         artifacts.registerTranscript(
           'NG-609-1',
-          `step-${index}`,
+          `0/0/${index}`,
           `${index}.jsonl`,
         ),
         artifacts.saveDiff('NG-609-1', diff(`revision-${index}`)),
@@ -217,7 +304,7 @@ describe('LocalArtifacts', () => {
     await Promise.all(
       Array.from({ length: 20 }, (_, index) =>
         expect(
-          reader.transcript('NG-609-1', `step-${index}`),
+          reader.transcript('NG-609-1', `0/0/${index}`),
         ).resolves.toBeDefined(),
       ),
     );
@@ -226,22 +313,24 @@ describe('LocalArtifacts', () => {
   it('marks registered missing transcripts pruned but preserves unsafe-path errors', async () => {
     const { run, artifacts } = await fixture();
     await writeFile(join(run.sessionsDir, 'turn.jsonl'), '{}\n');
-    await artifacts.registerTranscript('NG-609-1', 'turn', 'turn.jsonl');
+    await artifacts.registerTranscript('NG-609-1', '0', 'turn.jsonl');
     await rm(join(run.sessionsDir, 'turn.jsonl'));
-    await expect(
-      artifacts.transcript('NG-609-1', 'turn'),
-    ).rejects.toMatchObject({ statusCode: 410, code: 'transcript_pruned' });
+    await expect(artifacts.transcript('NG-609-1', '0')).rejects.toMatchObject({
+      statusCode: 410,
+      code: 'transcript_pruned',
+    });
     await writeFile(join(run.dir, 'outside.jsonl'), '{}\n');
     await writeFile(join(run.sessionsDir, 'unsafe.jsonl'), '{}\n');
-    await artifacts.registerTranscript('NG-609-1', 'unsafe', 'unsafe.jsonl');
+    await artifacts.registerTranscript('NG-609-1', '1', 'unsafe.jsonl');
     await rm(join(run.sessionsDir, 'unsafe.jsonl'));
     await symlink(
       join(run.dir, 'outside.jsonl'),
       join(run.sessionsDir, 'unsafe.jsonl'),
     );
-    await expect(
-      artifacts.transcript('NG-609-1', 'unsafe'),
-    ).rejects.toMatchObject({ statusCode: 400, code: 'unsafe_artifact_path' });
+    await expect(artifacts.transcript('NG-609-1', '1')).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'unsafe_artifact_path',
+    });
   });
 
   it('refuses artifact roots and Runs redirected by symlinks, including another Run', async () => {

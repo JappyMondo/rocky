@@ -51,8 +51,9 @@ SSE events: `transcript` has JSON `{text,offset}` and an event ID equal to the
 end byte offset; `settled` closes the reader. `Last-Event-ID` takes precedence
 over `?offset=`, allowing reconnection from durable bytes after a daemon restart.
 Reads are incremental with 16 KiB chunks and bounded stream backpressure.
-Disconnect/shutdown releases readers. Diffs, lists and structured results do not
-stream. `x-rocky-version` is present on local responses, including errors/SSE.
+Transcript files are capped at 100 MiB. Disconnect/shutdown releases readers.
+Diffs, lists and structured results do not stream. `x-rocky-version` is present
+on local responses, including errors/SSE.
 
 ## Artifact Contract
 
@@ -68,8 +69,10 @@ formats are refused. Unknown, malformed and retained-but-pruned artifacts are
 distinct 404, 400 and 410 cases. Diff bodies and base/head identities are retained
 outside the workspace. A later pass may update annotation state/Resolution, not
 move an old anchor onto new source. Content supplies namespaced Complaint IDs,
-producing Step, exact revision, file and optional line/side. Directory and
-missing-file anchors remain explicit headers, never flat fallback lists.
+producing Step, exact revision, file and optional line/side. Every settled
+Complaint carries its Resolution, and annotation screenshots must already be
+registered to that Run. Directory and missing-file anchors remain explicit
+headers, never flat fallback lists.
 
 ## Settings And Security
 

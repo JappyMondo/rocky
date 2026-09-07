@@ -9,8 +9,8 @@ afterEach(cleanup);
 
 const diff: DiffView = {
   id: 'recorded-revision',
-  baseSha: 'base123',
-  headSha: 'head456',
+  baseSha: 'a'.repeat(40),
+  headSha: 'b'.repeat(40),
   availability: 'available',
   files: [
     {
@@ -33,7 +33,7 @@ const diff: DiffView = {
   annotations: [
     {
       id: 'base',
-      stepKey: 'review/1',
+      stepKey: '1/0/0',
       revision: 'recorded-revision',
       file: 'src/a.ts',
       line: 4,
@@ -43,32 +43,32 @@ const diff: DiffView = {
     },
     {
       id: 'head',
-      stepKey: 'fix/2',
+      stepKey: '2/0/0',
       revision: 'recorded-revision',
       file: 'src/a.ts',
       line: 4,
       side: 'head',
       text: 'Confirm the new behavior.',
       state: 'fixed',
-      resolution: { stepKey: 'fix/2', label: 'fixed by fixer' },
-      screenshots: [{ id: 'opaque/shot', caption: 'result' }],
+      resolution: { stepKey: '2/0/0', label: 'fixed by fixer' },
+      screenshots: [{ id: `s_${'a'.repeat(32)}`, caption: 'result' }],
     },
     {
       id: 'directory',
-      stepKey: 'review/3',
+      stepKey: '3/0/0',
       revision: 'recorded-revision',
       file: 'src/ui',
       text: 'Folder naming is unclear.',
       state: 'disagreed',
       resolution: {
-        stepKey: 'fix/3',
+        stepKey: '3/0/1',
         label: 'kept naming',
         reason: 'matches package boundary',
       },
     },
     {
       id: 'missing',
-      stepKey: 'review/4',
+      stepKey: '4/0/0',
       revision: 'old-revision',
       file: 'gone.ts',
       line: 2,
@@ -76,7 +76,7 @@ const diff: DiffView = {
       text: 'Never place me on current code.',
       state: 'withdrawn',
       resolution: {
-        stepKey: 'review/4',
+        stepKey: '4/0/0',
         label: 'withdrawn',
         reason: 'file was removed',
       },
@@ -96,12 +96,12 @@ describe('DiffViewer', () => {
     expect(screen.getByText('This old behavior fails.')).toBeTruthy();
     expect(screen.getByText('Confirm the new behavior.')).toBeTruthy();
     expect(screen.getByText('Fixed Complaint')).toBeTruthy();
-    expect(screen.getByText('Resolution · fixed by fixer')).toBeTruthy();
+    expect(screen.getByText('✓ resolved by fixed by fixer')).toBeTruthy();
     expect(
       screen
         .getByRole('link', { name: 'Screenshot: result' })
         .getAttribute('href'),
-    ).toBe('/api/screenshots/opaque%2Fshot');
+    ).toBe(`/api/screenshots/s_${'a'.repeat(32)}`);
   });
 
   it('keeps directory and historical Complaints at their owning headers', () => {
@@ -190,7 +190,7 @@ describe('DiffViewer', () => {
         ...diff.annotations,
         {
           id: 'missing-line',
-          stepKey: 'review/5',
+          stepKey: '5/0/0',
           revision: 'recorded-revision',
           file: 'not-in-files.ts',
           line: 99,
@@ -200,7 +200,7 @@ describe('DiffViewer', () => {
         },
         {
           id: 'wrong-line',
-          stepKey: 'review/6',
+          stepKey: '6/0/0',
           revision: 'recorded-revision',
           file: 'src/a.ts',
           line: 99,

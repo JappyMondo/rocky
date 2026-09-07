@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  truncate,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,6 +28,7 @@ import { RunScheduler } from '../run/scheduler.js';
 import {
   LocalArtifacts,
   LocalSettings,
+  MAX_TRANSCRIPT_BYTES,
   registerLocalApi,
   type LocalApiOptions,
 } from './index.js';
@@ -338,11 +340,13 @@ it('routes precise Answer and idempotent Steer payloads unchanged; missing integ
     requestId: '871f9907-a68b-4eb3-b91c-53159f278f8b',
     message: '  Human words\nverbatim  ',
   };
-  options.steer = async (_id, input) => ({
-    ...input,
+  const receipt = {
+    ...steer,
     receivedAt: '2026-09-07',
-    state: 'held',
-  });
+    state: 'held' as const,
+  };
+  options.steer = async () => receipt;
+  options.steers = async () => [receipt];
   expect(
     (
       await app.inject({
@@ -352,6 +356,9 @@ it('routes precise Answer and idempotent Steer payloads unchanged; missing integ
       })
     ).json(),
   ).toMatchObject({ ...steer, state: 'held' });
+  expect(
+    (await app.inject('/api/runs/NG-609-1')).json<RunDetail>().steers,
+  ).toEqual([receipt]);
   options.manual = async () => ({
     kind: 'refused',
     reason: 'NG-609-1 is still live',
@@ -403,7 +410,8 @@ it('streams durable bytes incrementally, resumes from event offsets and closes w
     { signal: abort.signal },
   );
   expect(response.headers.get('x-rocky-version')).toBe('0.0.0');
-  const reader = response.body!.getReader();
+  if (!response.body) throw new Error('Expected a Transcript response body');
+  const reader = response.body.getReader();
   let text = '';
   while (!text.includes('id: 6'))
     text += new TextDecoder().decode((await reader.read()).value);
@@ -437,36 +445,95 @@ it('serves identical screenshot bytes to the HTTP and Linear upload reader and d
   const { app, paths, artifacts, run } = await setup();
   await mkdir(paths.run(run.runId).screenshotsDir, { recursive: true });
   const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
-  await writeFile(join(paths.run(run.runId).screenshotsDir, 'evidence.png'), bytes);
-  const shot = await artifacts.registerScreenshot(run.runId, 'evidence.png', 'Local evidence');
+  await writeFile(
+    join(paths.run(run.runId).screenshotsDir, 'evidence.png'),
+    bytes,
+  );
+  const shot = await artifacts.registerScreenshot(
+    run.runId,
+    'evidence.png',
+    'Local evidence',
+  );
   const response = await app.inject(`/api/screenshots/${shot.id}`);
   expect(response.statusCode).toBe(200);
-  expect(response.rawPayload).toEqual((await artifacts.readScreenshot(shot.id)).bytes);
+  expect(response.rawPayload).toEqual(
+    (await artifacts.readScreenshot(shot.id)).bytes,
+  );
   expect(response.headers['content-type']).toBe('image/png');
   expect(response.headers['x-content-type-options']).toBe('nosniff');
   await rm(paths.run(run.runId).screenshotsDir, { recursive: true });
-  expect((await app.inject(`/api/screenshots/${shot.id}`)).statusCode).toBe(410);
-  expect((await app.inject('/api/screenshots/s_00000000000000000000000000000000')).statusCode).toBe(404);
-  expect((await app.inject('/api/screenshots/%2e%2e%2fcredentials.json')).statusCode).toBe(400);
+  expect((await app.inject(`/api/screenshots/${shot.id}`)).statusCode).toBe(
+    410,
+  );
+  expect(
+    (await app.inject('/api/screenshots/s_00000000000000000000000000000000'))
+      .statusCode,
+  ).toBe(404);
+  expect(
+    (await app.inject('/api/screenshots/%2e%2e%2fcredentials.json')).statusCode,
+  ).toBe(400);
+});
+
+it('refuses over-limit Transcript artifacts before opening an SSE reader', async () => {
+  const { app, paths, artifacts, run } = await setup();
+  await updateRunHeader(paths, run.runId, { status: 'running' });
+  await appendEntry(paths.run(run.runId).journal, {
+    v: 1,
+    seq: 0,
+    step: 'agent',
+    boot: 1,
+    startedAt: '2026-09-07',
+    status: 'running',
+  });
+  await mkdir(paths.run(run.runId).sessionsDir, { recursive: true });
+  const path = join(paths.run(run.runId).sessionsDir, 'over-limit.jsonl');
+  await writeFile(path, '');
+  await truncate(path, MAX_TRANSCRIPT_BYTES + 1);
+  await artifacts.registerTranscript(run.runId, '0', 'over-limit.jsonl');
+
+  const response = await app.inject(
+    `/api/runs/${run.runId}/steps/0/transcript`,
+  );
+  expect(response.statusCode).toBe(413);
+  expect(response.json()).toMatchObject({ code: 'transcript_too_large' });
 });
 
 it('reopens durable UTF-8 Transcripts without losing a character at the chunk boundary', async () => {
   const { app, paths, artifacts, run, options } = await setup();
-  await appendEntry(paths.run(run.runId).journal, { v: 1, seq: 0, step: 'agent', boot: 1, startedAt: '2026-09-07', status: 'done', result: { summary: 'Finished' } });
+  await appendEntry(paths.run(run.runId).journal, {
+    v: 1,
+    seq: 0,
+    step: 'agent',
+    boot: 1,
+    startedAt: '2026-09-07',
+    status: 'done',
+    result: { summary: 'Finished' },
+  });
   await mkdir(paths.run(run.runId).sessionsDir, { recursive: true });
   const text = `${'x'.repeat(16383)}${String.fromCodePoint(0x1f99d)}\nend\n`;
   await writeFile(join(paths.run(run.runId).sessionsDir, 'native'), text);
   await artifacts.registerTranscript(run.runId, '0', 'native');
   const address = await listen(app);
-  const response = await fetch(`${address}/api/runs/${run.runId}/steps/0/transcript`);
-  const events = (await response.text()).split('\n').filter((line) => line.startsWith('data: {"text"')).map((line) => JSON.parse(line.slice(6)));
+  const response = await fetch(
+    `${address}/api/runs/${run.runId}/steps/0/transcript`,
+  );
+  const events = (await response.text())
+    .split('\n')
+    .filter((line) => line.startsWith('data: {"text"'))
+    .map((line) => JSON.parse(line.slice(6)));
   expect(events.map((event) => event.text).join('')).toBe(text);
   await app.close();
   const next = Fastify();
   disposers.push(() => next.close());
-  await registerLocalApi(next, { ...options, artifacts: new LocalArtifacts(paths) });
+  await registerLocalApi(next, {
+    ...options,
+    artifacts: new LocalArtifacts(paths),
+  });
   const reopened = await listen(next);
-  const resumed = await fetch(`${reopened}/api/runs/${run.runId}/steps/0/transcript`, { headers: { 'last-event-id': String(events[0].offset) } });
+  const resumed = await fetch(
+    `${reopened}/api/runs/${run.runId}/steps/0/transcript`,
+    { headers: { 'last-event-id': String(events[0].offset) } },
+  );
   const replay = await resumed.text();
   expect(replay).toContain(String.fromCodePoint(0x1f99d));
   expect(replay).not.toContain('x'.repeat(10));
@@ -476,12 +543,21 @@ it('reopens durable UTF-8 Transcripts without losing a character at the chunk bo
 it('closes idle live SSE readers before Fastify shutdown waits on their sockets', async () => {
   const { app, paths, artifacts, run } = await setup();
   await updateRunHeader(paths, run.runId, { status: 'running' });
-  await appendEntry(paths.run(run.runId).journal, { v: 1, seq: 0, step: 'agent', boot: 1, startedAt: '2026-09-07', status: 'running' });
+  await appendEntry(paths.run(run.runId).journal, {
+    v: 1,
+    seq: 0,
+    step: 'agent',
+    boot: 1,
+    startedAt: '2026-09-07',
+    status: 'running',
+  });
   await mkdir(paths.run(run.runId).sessionsDir, { recursive: true });
   await writeFile(join(paths.run(run.runId).sessionsDir, 'idle'), '');
   await artifacts.registerTranscript(run.runId, '0', 'idle');
   const address = await listen(app);
-  const response = await fetch(`${address}/api/runs/${run.runId}/steps/0/transcript`);
+  const response = await fetch(
+    `${address}/api/runs/${run.runId}/steps/0/transcript`,
+  );
   const body = response.text().catch(() => 'closed');
   await app.close();
   await body;

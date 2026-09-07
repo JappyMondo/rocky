@@ -9,9 +9,11 @@ import { KeyedMutex } from '../repos/mutex.js';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const MAX_JSON_BYTES = 20 * 1024 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 100 * 1024 * 1024;
 const MANIFEST = 'artifacts.json';
 const SHOT_ID = /^s_[0-9a-f]{32}$/;
 const DIFF_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const STEP_KEY = /^\d+(?:\/\d+\/\d+)*$/;
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const manifestUpdates = new KeyedMutex();
 
@@ -124,6 +126,45 @@ function assertBoundedNonemptyString(
     value.includes('\0')
   )
     fail('invalid_artifact', `${name} is invalid`);
+}
+
+function assertStepKey(
+  value: unknown,
+  name: string,
+  code = 'invalid_diff',
+): void {
+  if (typeof value !== 'string' || !STEP_KEY.test(value))
+    fail(code, `${name} is invalid`);
+}
+
+function assertResolution(value: unknown, state: unknown): void {
+  if (value === undefined) {
+    if (state !== 'open')
+      fail('invalid_diff', 'Settled Complaint needs a Resolution');
+    return;
+  }
+  if (!plainRecord(value)) fail('invalid_diff', 'Resolution is invalid');
+  assertStepKey(value.stepKey, 'Resolution Step key');
+  assertBoundedNonemptyString(value.label, 'Resolution label');
+  if (value.reason !== undefined)
+    assertBoundedNonemptyString(value.reason, 'Resolution reason', 16_384);
+  if (state === 'disagreed' && typeof value.reason !== 'string')
+    fail('invalid_diff', 'Disagreement needs a Resolution reason');
+}
+
+function assertScreenshots(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > 1_000)
+    fail('invalid_diff', 'Diff screenshots are invalid');
+  for (const screenshot of value) {
+    if (
+      !plainRecord(screenshot) ||
+      typeof screenshot.id !== 'string' ||
+      !SHOT_ID.test(screenshot.id)
+    )
+      fail('invalid_diff', 'Diff screenshot is invalid');
+    assertString(screenshot.caption, 'Diff screenshot caption');
+  }
 }
 
 function own<T>(record: Record<string, T>, key: string): T | undefined {
@@ -281,7 +322,7 @@ function assertDiff(diff: DiffView): void {
     if (
       annotationIds.has(annotation.id) ||
       typeof annotation.stepKey !== 'string' ||
-      annotation.stepKey.length > 1024 ||
+      !STEP_KEY.test(annotation.stepKey) ||
       annotation.revision !== diff.id ||
       !normalRelative(annotation.file) ||
       typeof annotation.text !== 'string' ||
@@ -294,6 +335,8 @@ function assertDiff(diff: DiffView): void {
         (!Number.isSafeInteger(annotation.line) || annotation.line < 1))
     )
       fail('invalid_diff', 'Diff annotation is invalid');
+    assertResolution(annotation.resolution, annotation.state);
+    assertScreenshots(annotation.screenshots);
     annotationIds.add(annotation.id);
   }
   if (Buffer.byteLength(stable(diff)) > MAX_JSON_BYTES)
@@ -421,6 +464,13 @@ export class LocalArtifacts {
     this.assertRunId(runId);
     assertDiff(diff);
     await this.update(runId, async (manifest) => {
+      for (const annotation of diff.annotations)
+        for (const screenshot of annotation.screenshots ?? [])
+          if (!own(manifest.screenshots, screenshot.id))
+            fail(
+              'unknown_screenshot',
+              'Diff annotation references an unregistered screenshot',
+            );
       const previous = own(manifest.diffs, diff.id);
       if (previous) {
         if (
@@ -483,7 +533,7 @@ export class LocalArtifacts {
     stepKey: string,
   ): Promise<{ path: string } | undefined> {
     this.assertRunId(runId);
-    assertString(stepKey, 'step key', 1024);
+    assertStepKey(stepKey, 'Transcript Step key', 'invalid_artifact');
     const entry = own((await this.load(runId)).transcripts, stepKey);
     if (!entry) return undefined;
     try {
@@ -511,7 +561,7 @@ export class LocalArtifacts {
     relativePath: string,
   ): Promise<void> {
     this.assertRunId(runId);
-    assertString(stepKey, 'step key', 1024);
+    assertStepKey(stepKey, 'Transcript Step key', 'invalid_artifact');
     if (!normalRelative(relativePath))
       fail('invalid_path', 'Transcript path must be a normal relative path');
     const path = await this.confinedExisting(
@@ -634,7 +684,7 @@ export class LocalArtifacts {
       )
         fail('invalid_manifest', 'Artifact manifest is invalid');
     for (const [stepKey, transcript] of Object.entries(checked.transcripts))
-      if (!stepKey || stepKey.length > 1024 || !normalRelative(transcript))
+      if (!STEP_KEY.test(stepKey) || !normalRelative(transcript))
         fail('invalid_manifest', 'Artifact manifest is invalid');
     for (const [id, diff] of Object.entries(checked.diffs))
       if (id !== diff?.id)
@@ -764,7 +814,7 @@ export function parseUnifiedDiff(patch: string): DiffFile[] {
       } else if (
         hunk &&
         (baseRemaining > 0 || headRemaining > 0) &&
-        /^[ +\-]/.test(line)
+        /^[ +-]/.test(line)
       ) {
         const marker = line[0];
         const item: DiffFile['hunks'][number]['lines'][number] = {
