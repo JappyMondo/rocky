@@ -20,6 +20,15 @@ export default defineConfig({
       // Without this, v8 only reports files a test happens to import, so a new
       // untested file would land without moving the number the gate watches.
       include: ['src/**/*.ts'],
+      // These run only in isolated Node child processes. Their integration
+      // specs exercise them there, but Vitest's inspector cannot collect that
+      // child-process coverage with the parent suite.
+      exclude: [
+        'src/run/boot-child.ts',
+        'src/run/loading/loader.ts',
+        'src/run/loading/validate-child.ts',
+        'src/run/loading/validate-worker.ts',
+      ],
       // Pinned to the baseline measured *on the CI runner*, which is the
       // platform of record: this suite covers two statements, one branch and
       // two lines more on darwin than on the linux runner (542/571, 271/311

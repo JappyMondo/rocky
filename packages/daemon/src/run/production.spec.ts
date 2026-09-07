@@ -65,6 +65,10 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
         baseBranch: 'main',
       },
     ],
+    harnesses: {
+      'claude-code': { command: 'claude-custom' },
+      opencode: { sessionStorage: 'opencode' },
+    },
   });
   const run = newRunHeader({
     runId,
@@ -123,7 +127,7 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
     config: () => config,
     request,
     adapterFor: (name) =>
-      name === 'opencode'
+      name === 'claude-code' || name === 'opencode'
         ? {
             run: invoke,
             resume: async (input) => invoke(input),
@@ -132,6 +136,10 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
   });
 
   const workflow: Workflow = async (ctx) => {
+    await ctx.agent('worker', {
+      label: 'default-harness',
+      tools: ['read'],
+    });
     await ctx.agent('worker', {
       label: 'worker',
       harness: 'opencode',
@@ -161,6 +169,12 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
           },
         },
       ],
+      sessionStorage: 'opencode',
+    }),
+  );
+  expect(invoke).toHaveBeenCalledWith(
+    expect.objectContaining({
+      command: 'claude-custom',
       sessionStorage: 'rocky',
     }),
   );
@@ -168,3 +182,70 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
     JSON.stringify((await readJournal(runPaths.journal)).entries),
   ).not.toContain('snapshot-only-secret');
 });
+
+it.each([
+  { kind: 'execution', label: 'execution' },
+  { kind: 'linear', label: 'Linear identity' },
+])(
+  'refuses a Run missing immutable $label before importing its Workflow',
+  async ({ kind }) => {
+    const root = await mkdtemp(join(tmpdir(), 'rocky-production-missing-'));
+    roots.push(root);
+    const paths = rockyPaths(root);
+    const run = newRunHeader({
+      runId: `NG-544-${kind}`,
+      issue: {
+        identifier: 'NG-544',
+        title: 'Missing immutable metadata',
+        description: '',
+        url: 'https://linear.app/issue/NG-544',
+        labels: [],
+      },
+      branch: 'ng-544-missing',
+      repo: 'app',
+      trigger: 'linear.onDelegate',
+      now: '2026-09-07T00:00:00.000Z',
+    });
+    if (kind === 'execution') {
+      run.linear = {
+        issueId: 'issue',
+        teamId: 'team',
+        organizationId: 'organization',
+        appUserId: 'app-user',
+        sessionId: 'session',
+      };
+    } else {
+      run.execution = {
+        source: 'repository',
+        sourceCommit: 'immutable-commit',
+        trigger: { kind: 'linear.onDelegate' },
+        members: [
+          {
+            name: 'app',
+            path: 'app',
+            lead: true,
+            url: 'https://example.test/app.git',
+            baseBranch: 'main',
+          },
+        ],
+      };
+    }
+    await writeRunHeader(paths, run);
+    const runtime = createProductionRuntime({
+      paths,
+      config: () => parseInstanceConfig({}),
+      request: async () => undefined,
+    });
+
+    await expect(
+      runtime.boot(run, 'run', new AbortController().signal),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      error: {
+        message: expect.stringContaining('missing immutable execution'),
+      },
+    });
+    expect(loadSnapshotWorkflow).not.toHaveBeenCalled();
+    await runtime.close();
+  },
+);

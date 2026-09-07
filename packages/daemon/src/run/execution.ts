@@ -12,6 +12,7 @@ import {
   type SchedulerBoot,
 } from './scheduler.js';
 import { JournalWriter } from './writer.js';
+import type { RunWorkersOptions } from './worker.js';
 
 export interface ExecutionRequest {
   requestId: string;
@@ -73,6 +74,80 @@ export interface ExecutionOptions {
 export type ExecutionAdmission =
   RunDelegation | { kind: 'refused'; message: string };
 
+type ExecutionRequestHandler = NonNullable<RunWorkersOptions['onRequest']>;
+
+/** Parent-side request handler used by an owned Boot process. */
+export function createExecutionRequestHandler(
+  options: Pick<ExecutionOptions, 'paths' | 'repos' | 'agentSteer'>,
+  getRun: (runId: string) => Promise<RunHeader | undefined>,
+  writer: (path: string) => Promise<JournalWriter>,
+): ExecutionRequestHandler {
+  return async (runId, request, signal) => {
+    signal.throwIfAborted();
+    const run = await getRun(runId);
+    if (!run) throw new Error(`Unknown Run ${runId}`);
+    const journal = await writer(options.paths.run(runId).journal);
+    switch (request.kind) {
+      case 'append':
+        return journal.append(request.entry, request.options);
+      case 'control-get':
+        return journal.get(request.key);
+      case 'control-put':
+        return journal.put(request.key, request.value);
+      case 'agent-steer-open': {
+        if (!options.agentSteer)
+          throw new Error(
+            'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
+          );
+        return options.agentSteer.open(runId, {
+          stepKey: request.stepKey,
+          label: request.label,
+          ...(request.group === undefined ? {} : { group: request.group }),
+        });
+      }
+      case 'agent-steer-take': {
+        if (!options.agentSteer)
+          throw new Error(
+            'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
+          );
+        return options.agentSteer.take(runId, request.stepKey);
+      }
+      case 'agent-steer-delivered': {
+        if (!options.agentSteer)
+          throw new Error(
+            'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
+          );
+        return options.agentSteer.delivered(
+          runId,
+          request.stepKey,
+          request.ids,
+        );
+      }
+      case 'agent-steer-close': {
+        if (!options.agentSteer)
+          throw new Error(
+            'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
+          );
+        return options.agentSteer.close(runId, request.stepKey);
+      }
+      case 'workspace': {
+        if (!run.execution)
+          throw new Error(
+            `${runId}: missing frozen repo membership; re-delegate through production admission`,
+          );
+        const workspace = await createWorkspace(options.repos, {
+          runId,
+          branch: run.branch,
+          lead: run.repo,
+          members: run.execution.members,
+        });
+        signal.throwIfAborted();
+        return workspace;
+      }
+    }
+  };
+}
+
 /** Shared by verified delegation and local manual controls; it owns no Linear client. */
 export async function openExecution(options: ExecutionOptions) {
   const writers = new Map<string, Promise<JournalWriter>>();
@@ -84,6 +159,11 @@ export async function openExecution(options: ExecutionOptions) {
     }
     return current;
   };
+  const onRequest = createExecutionRequestHandler(
+    options,
+    (runId) => scheduler.get(runId),
+    writer,
+  );
   const runtime =
     options.runtime ??
     new (await import('./worker.js')).RunWorkers({
@@ -91,70 +171,7 @@ export async function openExecution(options: ExecutionOptions) {
       config: options.config,
       onEvent: options.onAgentEvent,
       onError: options.onError,
-      onRequest: async (runId, request, signal) => {
-        signal.throwIfAborted();
-        const run = await scheduler.get(runId);
-        if (!run) throw new Error(`Unknown Run ${runId}`);
-        const journal = await writer(options.paths.run(runId).journal);
-        switch (request.kind) {
-          case 'append':
-            return journal.append(request.entry, request.options);
-          case 'control-get':
-            return journal.get(request.key);
-          case 'control-put':
-            return journal.put(request.key, request.value);
-          case 'agent-steer-open': {
-            if (!options.agentSteer)
-              throw new Error(
-                'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
-              );
-            return options.agentSteer.open(runId, {
-              stepKey: request.stepKey,
-              label: request.label,
-              ...(request.group === undefined ? {} : { group: request.group }),
-            });
-          }
-          case 'agent-steer-take': {
-            if (!options.agentSteer)
-              throw new Error(
-                'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
-              );
-            return options.agentSteer.take(runId, request.stepKey);
-          }
-          case 'agent-steer-delivered': {
-            if (!options.agentSteer)
-              throw new Error(
-                'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
-              );
-            return options.agentSteer.delivered(
-              runId,
-              request.stepKey,
-              request.ids,
-            );
-          }
-          case 'agent-steer-close': {
-            if (!options.agentSteer)
-              throw new Error(
-                'Configure ExecutionOptions.agentSteer before running an Agent Step with Steer support',
-              );
-            return options.agentSteer.close(runId, request.stepKey);
-          }
-          case 'workspace': {
-            if (!run.execution)
-              throw new Error(
-                `${runId}: missing frozen repo membership; re-delegate through production admission`,
-              );
-            const workspace = await createWorkspace(options.repos, {
-              runId,
-              branch: run.branch,
-              lead: run.repo,
-              members: run.execution.members,
-            });
-            signal.throwIfAborted();
-            return workspace;
-          }
-        }
-      },
+      onRequest,
     });
   const scheduler = await RunScheduler.open({
     paths: options.paths,

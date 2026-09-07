@@ -65,15 +65,6 @@ export function createProductionRuntime(
       await options.preflight?.(run, steps, signal);
     },
     env: () => env,
-    baseRef: (run) => {
-      const lead = run.execution?.members.find((member) => member.lead);
-      if (!lead) {
-        throw new Error(
-          `${run.runId}: missing frozen lead repository; re-delegate through the production admission service`,
-        );
-      }
-      return `origin/${lead.baseBranch}`;
-    },
     external: (run, steps, signal) => {
       const resolveHarness = (name: 'claude-code' | 'opencode') => {
         const settings = expandHarness(
