@@ -12,6 +12,14 @@
 export { z } from 'zod';
 
 export { linear, manual } from './triggers.js';
+export type {
+  ApprovedCheckpoint,
+  ScmPr,
+  OpenPrOptions,
+  ScmRefusalReason,
+  UpdateBranchResult,
+  MergeResult,
+} from './scm.js';
 
 export type {
   LinearDelegateTrigger,

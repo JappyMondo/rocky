@@ -7,6 +7,16 @@
  * than guessed; the tickets that own them add them.
  */
 import type { z } from 'zod';
+import type { ScmOps } from './scm.js';
+export type {
+  ApprovedCheckpoint,
+  CiResult,
+  FailedJob,
+  Pr,
+  ReviewThread,
+  ScmOps,
+  ScmRefusal,
+} from './scm.js';
 
 // ── Data a Workflow can see ────────────────────────────────────────────────
 
@@ -33,71 +43,12 @@ export interface ParallelOptions {
   label?: string;
 }
 
-export interface Pr {
-  number: number;
-  url: string;
-  headSha: string;
-}
-
-/** One failed CI job, with a lazily-fetched log tail (NG-580). */
-export interface FailedJob {
-  name: string;
-  failedSteps: string[];
-  logTail: string;
-}
-
-export interface CiResult {
-  status: 'passed' | 'failed';
-  failedJobs: FailedJob[];
-}
-
-/** A human review thread on a PR, pre-anchored to a file and line (NG-580). */
-export interface ReviewThread {
-  id: string;
-  path: string;
-  line?: number;
-  body: string;
-}
-
-/**
- * Why a refusable SCM operation refused. Normalised on GitLab's
- * `detailed_merge_status` shape; GitHub's opaque `BLOCKED` maps into it
- * (NG-580).
- */
-export type ScmRefusal = {
-  refused: true;
-  reason: string;
-};
-
 export type CheckpointAnswer =
   | { decision: 'approve' }
   | { decision: 'reject'; reason?: string }
   | { decision: 'steer'; message: string };
 
 export type RunOutcome = 'merged' | 'rejected' | 'exhausted';
-
-// ── The SCM seam (NG-580 — eight ops) ──────────────────────────────────────
-
-export interface ScmOps {
-  /** Find-or-create, keyed on the branch name: a Step is at-least-once. */
-  openPr(opts: { title: string; body: string; draft?: boolean }): Promise<Pr>;
-  /** GitLab has no draft boolean — the adapter shims the title prefix. */
-  markDraft(pr: Pr, draft: boolean): Promise<void>;
-  /** Parks the Run until the head pipeline finishes. */
-  waitForCi(pr: Pr): Promise<CiResult>;
-  /** The ci-fixer's alternative to a code fix when it judges a job flaky. */
-  retryFailedJobs(pr: Pr): Promise<void>;
-  /** GitHub update-branch / GitLab rebase, through the platform. */
-  updateBranch(pr: Pr): Promise<'updated' | 'clean' | 'conflict' | ScmRefusal>;
-  /**
-   * Idempotent "ensure auto-merge is armed for head SHA X". A no-op on GitHub,
-   * and exactly the re-arm GitLab needs after every fix push.
-   */
-  armAutoMerge(pr: Pr): Promise<void | ScmRefusal>;
-  reviewThreads(pr: Pr): Promise<ReviewThread[]>;
-  /** Exactly one reply per thread; resolved where the platform supports it. */
-  replyToThread(threadId: string, body: string): Promise<void>;
-}
 
 // ── The Linear seam (NG-578) ───────────────────────────────────────────────
 
