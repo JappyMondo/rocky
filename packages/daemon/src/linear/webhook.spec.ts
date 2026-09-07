@@ -189,7 +189,8 @@ describe('a valid prompted event', () => {
   it('reaches the Run router with the human`s words intact', async () => {
     const harness = await startReceiver();
 
-    const response = await harness.post(agentSessionEvent());
+    const payload = agentSessionEvent();
+    const response = await harness.post(payload);
     await settle();
 
     expect(response.status).toBe(200);
@@ -202,6 +203,7 @@ describe('a valid prompted event', () => {
     expect(event.appUserId).toBe('app-user-1');
     expect(event.prompt).toEqual({
       activityId: 'act-1',
+      createdAt: payload.agentActivity.createdAt,
       body: 'try the other approach',
       signal: undefined,
     });
