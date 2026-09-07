@@ -184,6 +184,30 @@ it('isolates the complete relative module graph on every load and between snapsh
   ]);
 });
 
+it('keeps lazy imports scoped to their Workflow after later snapshots load', async () => {
+  const source = `import { linear } from '@rocky/sdk';
+    export default [linear.onDelegate(async () => ({ value: (await import('./helper.js')).value }))];`;
+  const first = await fixture(source);
+  const second = await fixture(source);
+  await writeFile(join(first, 'helper.ts'), 'export const value = "first";');
+  await writeFile(join(second, 'helper.ts'), 'export const value = "second";');
+  const { stdout } = await exec(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    `
+    const { loadSnapshotWorkflow } = await import(${JSON.stringify(loader)});
+    const selector = { kind: 'linear.onDelegate' };
+    const first = await loadSnapshotWorkflow(${JSON.stringify(first)}, selector);
+    const second = await loadSnapshotWorkflow(${JSON.stringify(second)}, selector);
+    console.log(JSON.stringify([await first(), await second()]));
+  `,
+  ]);
+  expect(JSON.parse(stdout.trim())).toEqual([
+    { value: 'first' },
+    { value: 'second' },
+  ]);
+});
+
 it('refuses relative and symlink module escapes instead of reading live files', async () => {
   const outside = await fixture('export const value = 42;');
   const escaping = await fixture(
