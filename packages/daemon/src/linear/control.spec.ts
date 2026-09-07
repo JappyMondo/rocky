@@ -84,13 +84,19 @@ const question = {
   },
 };
 
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error('Expected fixture value');
+  return value;
+}
+
 describe('Checkpoint Answer intake', () => {
   it('publishes exact Checkpoint snapshots and returns the durable winning Answer', async () => {
     const f = fixture();
     const control = f.open();
 
     await control.checkpoint('3/0/2', question);
-    const current = (await control.currentCheckpoint())!;
+    const current = must(await control.currentCheckpoint());
     expect(current).toMatchObject({
       stepKey: '3/0/2',
       title: 'Merge?',
@@ -146,13 +152,14 @@ describe('Checkpoint Answer intake', () => {
       control.intake({
         source: 'local',
         id: 'request-1',
-        generation: checkpoint!.generation,
+        stepKey: must(checkpoint).stepKey,
+        generation: must(checkpoint).generation,
         answer: { decision: 'approve' },
       }),
       control.intake({
         source: 'linear',
         id: 'activity-1',
-        body: checkpoint!.rejectValue,
+        body: must(checkpoint).rejectValue,
       }),
     ]);
     expect(answers).toEqual(['accepted', 'already answered']);
@@ -166,6 +173,25 @@ describe('Checkpoint Answer intake', () => {
         (activity) => activity.content.type === 'elicitation',
       ),
     ).toHaveLength(1);
+  });
+
+  it('refuses a local Answer without its full Checkpoint identity', async () => {
+    const f = fixture();
+    const control = f.open();
+    await control.checkpoint('0', question);
+    const checkpoint = must(await control.waiting());
+
+    await expect(
+      control.intake({
+        source: 'local',
+        id: 'missing-step-key',
+        generation: checkpoint.generation,
+        answer: { decision: 'approve' },
+      }),
+    ).rejects.toThrow(/requires both its Step key and generation/);
+    expect(await control.currentCheckpoint()).toMatchObject({
+      stepKey: checkpoint.stepKey,
+    });
   });
 
   it('does not let local Compose resolve a waiting Checkpoint before reporting the conflict', async () => {
@@ -185,15 +211,16 @@ describe('Checkpoint Answer intake', () => {
     expect(await control.pendingSteers()).toEqual([]);
   });
 
-  it('does not let late, duplicated or unknown-generation Answers resolve the next Checkpoint', async () => {
+  it('does not let late, duplicated or unissued Answers resolve the next Checkpoint', async () => {
     const f = fixture();
     const control = f.open();
     await control.checkpoint('0', question);
-    const first = (await control.waiting())!;
+    const first = must(await control.waiting());
     f.advance(1000);
     await control.intake({
       source: 'local',
       id: 'first',
+      stepKey: first.stepKey,
       generation: first.generation,
       answer: { decision: 'approve' },
     });
@@ -206,14 +233,15 @@ describe('Checkpoint Answer intake', () => {
         body: first.rejectValue,
       }),
     ).toBe('already answered');
-    expect(
-      await control.intake({
+    await expect(
+      control.intake({
         source: 'local',
         id: 'unknown',
+        stepKey: first.stepKey,
         generation: 'not-issued',
         answer: { decision: 'reject' },
       }),
-    ).toBe('already answered');
+    ).rejects.toThrow(/does not match generation/);
     expect(
       await control.intake({
         source: 'linear',
@@ -274,7 +302,7 @@ describe('Checkpoint Answer intake', () => {
     const f = fixture();
     const control = f.open();
     await control.checkpoint('0', question);
-    const checkpoint = (await control.waiting())!;
+    const checkpoint = must(await control.waiting());
     const put = f.store.put;
     f.store.put = async () => {
       throw new Error('disk full');
@@ -282,6 +310,7 @@ describe('Checkpoint Answer intake', () => {
     const input = {
       source: 'local' as const,
       id: 'answer',
+      stepKey: checkpoint.stepKey,
       generation: checkpoint.generation,
       answer: { decision: 'approve' as const },
     };
@@ -357,7 +386,7 @@ describe('Checkpoint Answer intake', () => {
     const f = fixture();
     const control = f.open();
     await control.checkpoint('0', question);
-    const checkpoint = (await control.waiting())!;
+    const checkpoint = must(await control.waiting());
     f.advance(3 * 24 * 60 * 60 * 1000);
     f.prompts.push({
       id: 'offline',
@@ -447,7 +476,7 @@ describe('Steer delivery', () => {
       ],
     });
 
-    const first = (await control.takeSteers('3/0/0'))!;
+    const first = must(await control.takeSteers('3/0/0'));
     await control.delivered('3/0/0', first.ids);
     expect(await f.open().steers()).toMatchObject([
       {
@@ -460,7 +489,7 @@ describe('Steer delivery', () => {
       },
     ]);
 
-    const second = (await control.takeSteers('3/1/0'))!;
+    const second = must(await control.takeSteers('3/1/0'));
     await control.delivered('3/1/0', second.ids);
     expect(await f.open().steers()).toMatchObject([
       {
@@ -523,7 +552,7 @@ describe('Steer delivery', () => {
     const restarted = f.open();
     await restarted.openConversation({ stepKey: '2', label: 'implementer' });
     expect(await restarted.pendingSteers()).toHaveLength(3);
-    const batch = (await restarted.takeSteers('2'))!;
+    const batch = must(await restarted.takeSteers('2'));
     expect(batch.message).toBe('  first  \n\nsecond\nline\n\nthird');
     expect(await restarted.takeSteers('2')).toBeUndefined();
     await restarted.delivered('2', batch.ids);
@@ -555,7 +584,7 @@ describe('Steer delivery', () => {
       id: 'one',
       body: 'use the test account',
     });
-    const first = (await control.takeSteers('3/0/0'))!;
+    const first = must(await control.takeSteers('3/0/0'));
     await control.delivered('3/0/0', first.ids);
     const restarted = f.open();
     await restarted.openConversation({
@@ -569,7 +598,7 @@ describe('Steer delivery', () => {
       group: '3',
     });
     expect(await restarted.takeSteers('3/0/0')).toBeUndefined();
-    const second = (await restarted.takeSteers('3/1/0'))!;
+    const second = must(await restarted.takeSteers('3/1/0'));
     expect(second.message).toBe('use the test account');
     await restarted.delivered('3/1/0', second.ids);
     expect(await restarted.pendingSteers()).toEqual([]);
@@ -657,7 +686,7 @@ describe('Steer delivery', () => {
       type: 'action',
       result: 'Heard. Finishing the current turn, then taking your note.',
     });
-    const batch = (await control.takeSteers('0'))!;
+    const batch = must(await control.takeSteers('0'));
     await control.delivered('0', batch.ids);
     expect(f.activities.at(-1)?.content).toMatchObject({
       type: 'action',
@@ -700,10 +729,11 @@ describe('Steer delivery', () => {
     const f = fixture();
     const control = f.open();
     await control.checkpoint('0', question);
-    const first = (await control.waiting())!;
+    const first = must(await control.waiting());
     await control.intake({
       source: 'local',
       id: 'approve',
+      stepKey: first.stepKey,
       generation: first.generation,
       answer: { decision: 'approve' },
     });

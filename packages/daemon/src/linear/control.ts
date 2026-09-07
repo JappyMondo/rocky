@@ -413,6 +413,15 @@ export class LinearRunControl {
         return state.inputs[id] === 'already answered'
           ? 'already answered'
           : 'duplicate';
+      if (
+        input.source === 'local' &&
+        input.answer !== undefined &&
+        (!input.generation || !input.stepKey)
+      ) {
+        throw new Error(
+          'A local Checkpoint Answer requires both its Step key and generation',
+        );
+      }
       if (input.answer && input.generation && input.stepKey) {
         const issued = state.checkpoints.find(
           (item) => item.generation === input.generation,
