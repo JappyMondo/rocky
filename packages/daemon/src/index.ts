@@ -87,6 +87,7 @@ export * from './config/index.js';
 
 export * from './repos/index.js';
 export * from './lifecycle/index.js';
+export * from './run/index.js';
 
 export {
   AUTH_PROBES,
