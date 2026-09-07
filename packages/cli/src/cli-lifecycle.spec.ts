@@ -18,6 +18,7 @@ import {
   writeInstanceConfig,
   writePidFile,
   type DaemonProcess,
+  type HarnessAdapter,
   type RockyPaths,
 } from '@rocky/daemon';
 
@@ -62,10 +63,24 @@ function io() {
 }
 
 /** Never touches the network or a real harness binary. */
+const adapterFor =
+  (
+    checkAuth: (
+      harness: HarnessAdapter['name'],
+    ) => Awaited<ReturnType<HarnessAdapter['checkAuth']>>,
+  ): NonNullable<NonNullable<CliOptions['doctor']>['adapterFor']> =>
+  (name) =>
+    name === 'claude-code' || name === 'opencode'
+      ? { name, checkAuth: () => Promise.resolve(checkAuth(name)) }
+      : undefined;
+
 const HEALTHY_DOCTOR: CliOptions['doctor'] = {
   fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-  checkHarness: (harness) =>
-    Promise.resolve({ harness, ok: true, detail: 'signed in' }),
+  adapterFor: adapterFor((harness) => ({
+    harness,
+    ok: true,
+    detail: 'signed in',
+  })),
 };
 
 async function run(argv: string[], options: CliOptions = {}) {
@@ -120,13 +135,12 @@ describe('`rocky doctor`', () => {
     const lines = await run(['doctor'], {
       doctor: {
         ...HEALTHY_DOCTOR,
-        checkHarness: (harness) =>
-          Promise.resolve({
-            harness,
-            ok: false,
-            detail: 'not signed in',
-            fix: 'claude login',
-          }),
+        adapterFor: adapterFor((harness) => ({
+          harness,
+          ok: false,
+          detail: 'not signed in',
+          fix: 'claude login',
+        })),
       },
     });
 
@@ -140,8 +154,11 @@ describe('`rocky doctor`', () => {
     const lines = await run(['doctor'], {
       doctor: {
         ...HEALTHY_DOCTOR,
-        checkHarness: (harness) =>
-          Promise.resolve({ harness, ok: false, detail: 'not signed in' }),
+        adapterFor: adapterFor((harness) => ({
+          harness,
+          ok: false,
+          detail: 'not signed in',
+        })),
       },
     });
 

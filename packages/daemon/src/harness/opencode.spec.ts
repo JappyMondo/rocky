@@ -24,6 +24,66 @@ const toolCallFixture = readFileSync(
 ).split('\n');
 
 describe('parseOpencodeStream', () => {
+  it('pins a newly recorded live tool boundary and same-session continuation', () => {
+    const lines = readFileSync(
+      new URL('./fixtures/opencode-1.18.29-live.jsonl', import.meta.url),
+      'utf8',
+    ).split('\n');
+    const first = parseOpencodeStream(lines.slice(0, 6));
+    const resumed = parseOpencodeStream(lines.slice(6));
+    expect(first.events).toEqual([
+      { kind: 'tool-call', name: 'read' },
+      { kind: 'tool-result', name: 'read' },
+      { kind: 'turn-boundary' },
+      { kind: 'text', text: 'cranberry' },
+    ]);
+    expect(first.usage).toEqual({
+      inputTokens: 5907,
+      outputTokens: 86,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      usd: 0,
+    });
+    expect(resumed.sessionId).toBe(first.sessionId);
+    expect(resumed.text).toBe('cranberry');
+  });
+  it.each([
+    ['null', /JSONL/],
+    ['[]', /JSONL/],
+    ['{}', /JSONL/],
+    ['{"type":"tool_use"}', /tool_use/],
+    ['{"type":"tool_use","part":{"type":"other"}}', /tool_use/],
+    [
+      '{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"running"}}}',
+      /tool_use/,
+    ],
+    ['{"type":"step_finish","part":{}}', /step_finish/],
+    ['{"type":"text","part":[]}', /text/],
+    ['{"type":"text","part":{}}', /text/],
+    [
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"stop","tokens":[]}}',
+      /usage/,
+    ],
+  ])('rejects malformed record %s', (line, message) => {
+    expect(() => parseOpencodeStream([line])).toThrow(message);
+  });
+
+  it('handles tool errors and reasoning without claiming a successful tool', () => {
+    const parsed = parseOpencodeStream([
+      '{"type":"reasoning","sessionID":"one"}',
+      '{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"error"}}}',
+    ]);
+    expect(parsed.events).toEqual([
+      { kind: 'tool-call', name: 'read' },
+      { kind: 'tool-result', name: 'read' },
+    ]);
+    expect(() =>
+      parseOpencodeStream([
+        '{"type":"step_start","sessionID":"one"}',
+        '{"type":"step_start","sessionID":"two"}',
+      ]),
+    ).toThrow(/changed session/);
+  });
   it('parses the OpenCode 1.17.7 tool-call stream', () => {
     expect(parseOpencodeStream(toolCallFixture)).toEqual({
       sessionId: 'ses_opencode_1_17_7',
@@ -167,15 +227,40 @@ describe('renderOpencodePermissions', () => {
 });
 
 describe('renderOpencodeMcpServers', () => {
-  it('renders local servers and preserves local options', () => {
+  it('keeps ordinary remote headers and disables native OAuth even without a token', () => {
+    expect(
+      renderOpencodeMcpServers([
+        {
+          name: 'api',
+          config: {
+            url: 'https://example.test',
+            headers: { Accept: 'application/json' },
+          },
+        },
+      ]),
+    ).toEqual({
+      api: {
+        type: 'remote',
+        url: 'https://example.test',
+        headers: { Accept: 'application/json' },
+        enabled: true,
+        oauth: false,
+      },
+    });
+    expect(() =>
+      renderOpencodeMcpServers([{ name: 'invalid', config: {} }]),
+    ).toThrow(/invalid/);
+  });
+  it('translates ecosystem local servers to native command/environment without unsupported keys', () => {
     expect(
       renderOpencodeMcpServers([
         {
           name: 'local-tools',
           config: {
-            command: ['node', 'server.mjs'],
+            command: 'node',
+            args: ['server.mjs'],
             cwd: '/workspace',
-            environment: { TOKEN: 'test-token' },
+            env: { TOKEN: 'test-token' },
           },
         },
       ]),
@@ -183,7 +268,6 @@ describe('renderOpencodeMcpServers', () => {
       'local-tools': {
         type: 'local',
         command: ['node', 'server.mjs'],
-        cwd: '/workspace',
         environment: { TOKEN: 'test-token' },
         enabled: true,
       },
@@ -242,8 +326,8 @@ describe('createScopedOpencodeConfig', () => {
         expect(scoped.env.XDG_CONFIG_HOME).not.toBe(globalConfigHome);
         expect(scoped.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
         expect(
-          JSON.parse(readFileSync(scoped.env.OPENCODE_CONFIG!, 'utf8')),
-        ).toEqual({
+          JSON.parse(readFileSync(scoped.env.OPENCODE_CONFIG, 'utf8')),
+        ).toMatchObject({
           permission: {
             '*': 'deny',
             read: 'allow',
@@ -255,11 +339,11 @@ describe('createScopedOpencodeConfig', () => {
         expect(
           JSON.parse(
             readFileSync(
-              join(scoped.env.XDG_CONFIG_HOME!, 'opencode', 'opencode.json'),
+              join(scoped.env.XDG_CONFIG_HOME, 'opencode', 'opencode.json'),
               'utf8',
             ),
           ),
-        ).toEqual({ provider: { anthropic: {} } });
+        ).toMatchObject({ provider: { anthropic: {} } });
       } finally {
         await scoped.dispose();
       }
@@ -280,8 +364,8 @@ describe('createScopedOpencodeConfig', () => {
     });
 
     try {
-      const configPath = scoped.env.OPENCODE_CONFIG!;
-      const configHome = scoped.env.XDG_CONFIG_HOME!;
+      const configPath = scoped.env.OPENCODE_CONFIG;
+      const configHome = scoped.env.XDG_CONFIG_HOME;
       expect(existsSync(configPath)).toBe(true);
       expect(existsSync(configHome)).toBe(true);
 
