@@ -17,6 +17,8 @@ export type AgentSessionAction = 'created' | 'prompted';
 /** A human's message into a live session, from a `prompted` event. */
 export interface AgentPrompt {
   activityId: string;
+  /** Source time, not delivery time: late text must not answer a later gate. */
+  createdAt?: string;
   /** The human's words, verbatim. A Steer is delivered exactly as typed. */
   body?: string;
   /**
