@@ -229,7 +229,7 @@ describe('the harnesses block', () => {
     expect(
       parseInstanceConfig({ ...oneRepo, harnesses: { 'claude-code': {} } })
         .harnesses['claude-code'],
-    ).toEqual({});
+    ).toEqual({ sessionStorage: 'rocky' });
   });
 
   it('defaults session storage to Rocky-managed native sessions', () => {
@@ -250,6 +250,14 @@ describe('the harnesses block', () => {
     expect(() =>
       parseInstanceConfig({
         harnesses: { opencode: { sessionStorage: 'other' } },
+      }),
+    ).toThrow(/sessionStorage/);
+  });
+
+  it('does not offer the OpenCode native store to Claude', () => {
+    expect(() =>
+      parseInstanceConfig({
+        harnesses: { 'claude-code': { sessionStorage: 'opencode' } },
       }),
     ).toThrow(/sessionStorage/);
   });

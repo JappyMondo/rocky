@@ -9,15 +9,14 @@
  * Scope, settled in NG-595's pre-flight:
  * - the recurring boot-and-hourly ping and its `rocky status` banner are
  *   NG-600's; this is the one-shot on-demand ping only;
- * - the harness probe is NG-595's interim seam, absorbed by NG-525 (NG-628).
  */
 import {
-  checkHarnessAuth,
-  isShippedHarness,
+  getHarnessAdapter,
+  type HarnessAdapter,
   type HarnessAuthResult,
-} from '../harness/check-auth.js';
+} from '../harness/adapter.js';
 import type { RockyPaths } from '../config/paths.js';
-import { SHIPPED_HARNESSES, type HarnessConfig } from '../config/schema.js';
+import { SHIPPED_HARNESSES } from '../config/schema.js';
 import { readInstanceConfig } from '../config/store.js';
 import { readPingIdentity } from '../endpoint/ping.js';
 import { inspectPidFile } from '../lifecycle/pidfile.js';
@@ -44,11 +43,10 @@ export type DoctorReport = DoctorCheck[];
 
 export interface DoctorOptions {
   fetch?: typeof fetch;
-  /** Injected by the tests; production runs the harness's own auth command. */
-  checkHarness?(
-    harness: string,
-    config: HarnessConfig,
-  ): Promise<HarnessAuthResult>;
+  /** Auth-only view of the same runnable adapter used by Preflight. */
+  adapterFor?: (
+    name: string,
+  ) => Pick<HarnessAdapter, 'name' | 'checkAuth'> | undefined;
   /** A dead endpoint should not hold the terminal for a minute. */
   timeoutMs?: number;
 }
@@ -161,16 +159,7 @@ export async function runDoctor(
         ),
   );
 
-  const check =
-    options.checkHarness ??
-    ((harness: string, harnessConfig: HarnessConfig) =>
-      isShippedHarness(harness)
-        ? checkHarnessAuth(harness, harnessConfig)
-        : Promise.resolve({
-            harness,
-            ok: false,
-            detail: `Rocky ships no adapter for "${harness}"`,
-          }));
+  const adapterFor = options.adapterFor ?? getHarnessAdapter;
 
   // Every shipped harness is reported, but only the ones this machine
   // configured are failed on — see `advisory` above.
@@ -179,7 +168,15 @@ export async function runDoctor(
 
     let result: HarnessAuthResult;
     try {
-      result = await check(harness, configured ?? {});
+      const adapter = adapterFor(harness);
+      result =
+        adapter === undefined
+          ? {
+              harness,
+              ok: false,
+              detail: `Rocky ships no adapter for "${harness}"`,
+            }
+          : await adapter.checkAuth(configured ?? {});
     } catch (error) {
       result = { harness, ok: false, detail: messageOf(error) };
     }

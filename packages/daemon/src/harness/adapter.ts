@@ -1,24 +1,28 @@
-/**
- * "Is this Harness signed in, as the account Rocky will actually use?" — the
- * `checkAuth` pre-flight NG-579 settled, as much of it as `rocky doctor` needs.
- *
- * ⚠️ **A seam, not the adapter interface.** NG-525 owns the Harness adapter,
- * where `checkAuth` belongs; it was still unwritten when NG-595 needed it, so
- * this exists to be absorbed rather than to stand. NG-628 tracks that. What
- * has to survive the move is NG-579's two commitments:
- *
- * - the probe runs under the harness's *configured* command and env, so a
- *   machine pointed at a second account is checked as that account;
- * - a missing login names the exact fix rather than reporting a bare false.
- *
- * The probes are each harness's own auth command — cheap, offline, and no
- * model call, because a check that costs tokens is one nobody runs.
- */
-import { execFile } from 'node:child_process';
+/** Adapter-owned auth, adopted from NG-628's stable 2026-09-07 snapshot. */
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 
 import { expandHarness } from '../config/expand.js';
-import { ConfigError, type HarnessConfig } from '../config/schema.js';
+import { ConfigError, type HarnessConfigInput } from '../config/schema.js';
 import { SHIPPED_HARNESSES } from '../config/schema.js';
+import { claudeCode } from './claude-code.js';
+import { opencode } from './opencode.js';
+import type { HarnessInvocation, HarnessResult } from './types.js';
+import { runProcess } from './process.js';
+
+export interface HarnessAdapter {
+  readonly name: ShippedHarness;
+  run(input: HarnessInvocation): Promise<HarnessResult>;
+  resume(
+    input: HarnessInvocation & { sessionId: string },
+  ): Promise<HarnessResult>;
+  checkAuth(
+    config: HarnessConfigInput,
+    options?: CheckAuthOptions,
+  ): Promise<HarnessAuthResult>;
+}
 
 export type ShippedHarness = (typeof SHIPPED_HARNESSES)[number];
 
@@ -80,19 +84,21 @@ function readClaudeAnswer(result: ProbeResult): {
       authMethod?: string;
     };
     if (typeof parsed.loggedIn === 'boolean') {
+      const signedIn = parsed.loggedIn && result.code === 0;
       const who = [parsed.email, parsed.authMethod]
         .filter(Boolean)
         .join(' via ');
       return {
-        signedIn: parsed.loggedIn,
-        detail: parsed.loggedIn
+        signedIn,
+        detail: signedIn
           ? `signed in${who ? ` as ${who}` : ''}`
-          : 'not signed in',
+          : parsed.loggedIn
+            ? `authentication probe exited ${result.code}`
+            : 'not signed in',
       };
     }
   } catch {
-    // Fall through: an answer we cannot parse is read from the exit code,
-    // which is the honest degradation rather than a guess at the text.
+    // Unrecognized output must never become a positive auth answer.
   }
 
   return exitCodeAnswer(result);
@@ -110,7 +116,14 @@ function readOpencodeAnswer(result: ProbeResult): {
     return exitCodeAnswer(result);
   }
 
-  const counted = /(\d+)\s+credential/.exec(result.stdout);
+  const stdout = stripVTControlCharacters(result.stdout);
+  const environment = /(\d+)\s+environment variable/.exec(stdout);
+  if (environment && Number(environment[1]) > 0)
+    return {
+      signedIn: true,
+      detail: `${environment[1]} environment variable(s) configured`,
+    };
+  const counted = /(\d+)\s+credential/.exec(stdout);
   if (counted) {
     const count = Number(counted[1]);
     return {
@@ -131,9 +144,11 @@ function exitCodeAnswer(result: ProbeResult): {
 } {
   const said = (result.stderr || result.stdout).trim().split('\n')[0] ?? '';
   return {
-    signedIn: result.code === 0,
+    signedIn: false,
     detail:
-      result.code === 0 ? 'signed in' : said || `exited ${String(result.code)}`,
+      result.code === 0
+        ? 'unrecognized authentication status'
+        : said || `exited ${String(result.code)}`,
   };
 }
 
@@ -157,48 +172,31 @@ export const AUTH_PROBES: Record<ShippedHarness, AuthProbe> = {
  * NG-579's "signed in as the account Rocky will actually use".
  */
 export function harnessAuthEnv(
-  harness: HarnessConfig,
+  harness: HarnessConfigInput,
   env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   return { ...env, ...harness.env };
 }
 
-const runWithExecFile: ProbeRunner = (command, args, options) =>
-  new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      { env: options.env, timeout: options.timeoutMs },
-      (error, stdout, stderr) => {
-        if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
-          reject(error);
-          return;
-        }
-        // A non-zero exit is an answer, not a failure: "not signed in" is
-        // exactly what some of these CLIs use it to say.
-        resolve({
-          code: error?.code === undefined ? 0 : Number(error.code),
-          stdout,
-          stderr,
-        });
-      },
-    );
-  });
+const runWithExecFile: ProbeRunner = async (command, args, options) => {
+  const result = await runProcess({ command, args, ...options });
+  return { ...result, code: result.code ?? -1 };
+};
 
 export function isShippedHarness(name: string): name is ShippedHarness {
   return (SHIPPED_HARNESSES as readonly string[]).includes(name);
 }
 
-export async function checkHarnessAuth(
+async function checkAuth(
   harness: ShippedHarness,
-  config: HarnessConfig,
+  config: HarnessConfigInput,
   options: CheckAuthOptions = {},
 ): Promise<HarnessAuthResult> {
   const probe = AUTH_PROBES[harness];
   const run = options.run ?? runWithExecFile;
   const env = options.env ?? process.env;
 
-  let resolved: HarnessConfig;
+  let resolved: HarnessConfigInput;
   try {
     resolved = expandHarness(harness, config, env);
   } catch (error) {
@@ -236,10 +234,58 @@ export async function checkHarnessAuth(
 
   const { signedIn, detail } = probe.readAnswer(result);
 
+  if (signedIn && harness === 'claude-code') {
+    const temporary = await mkdtemp(join(tmpdir(), 'rocky-claude-auth-'));
+    try {
+      const isolated = await run(command, probe.args, {
+        env: { ...harnessAuthEnv(resolved, env), CLAUDE_CONFIG_DIR: temporary },
+        timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      });
+      if (!probe.readAnswer(isolated).signedIn)
+        return {
+          harness,
+          ok: false,
+          detail:
+            'Claude login is present, but unavailable with Rocky-owned session storage',
+          fix: 'claude login; supply CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) or ANTHROPIC_API_KEY through harnesses.claude-code.env',
+        };
+    } catch {
+      return {
+        harness,
+        ok: false,
+        detail: 'could not verify isolated Claude authentication',
+        fix: probe.fix,
+      };
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
+
   return {
     harness,
     ok: signedIn,
-    detail,
+    detail: signedIn
+      ? `${detail}; model access not verified by this offline probe`
+      : detail,
     ...(signedIn ? {} : { fix: probe.fix }),
   };
+}
+
+export const SHIPPED_ADAPTERS: Record<ShippedHarness, HarnessAdapter> = {
+  'claude-code': {
+    ...claudeCode,
+    name: 'claude-code',
+    checkAuth: (config, options) => checkAuth('claude-code', config, options),
+  },
+  opencode: {
+    ...opencode,
+    name: 'opencode',
+    checkAuth: (config, options) => checkAuth('opencode', config, options),
+  },
+};
+
+export function getHarnessAdapter(name: string): HarnessAdapter | undefined {
+  return Object.hasOwn(SHIPPED_ADAPTERS, name)
+    ? SHIPPED_ADAPTERS[name as ShippedHarness]
+    : undefined;
 }
