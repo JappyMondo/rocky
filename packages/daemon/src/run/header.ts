@@ -45,6 +45,10 @@ export interface RunHeader {
   runId: string;
   /** Which Trigger started this Run. Recorded on it, per CONTEXT.md. */
   trigger?: string;
+  /** Durable transport dedupe, distinct from a later re-delegation. */
+  admissionId?: string;
+  linear?: RunLinearIdentity;
+  execution?: RunExecution;
   /** Snapshotted at Run start and immutable for the Run's life (NG-574 §1). */
   issue: Issue;
   /** Linear's own `gitBranchName`; the Run's worktree is checked out on it. */
@@ -70,6 +74,27 @@ export interface RunHeader {
   error?: RecordedError;
 }
 
+export interface RunLinearIdentity {
+  issueId: string;
+  teamId: string;
+  organizationId: string;
+  appUserId: string;
+  sessionId: string;
+}
+
+export interface RunExecution {
+  source: 'repository' | 'onboarding';
+  sourceCommit: string;
+  trigger: { kind: 'linear.onDelegate' } | { kind: 'manual'; name: string };
+  members: {
+    name: string;
+    path: string;
+    lead: boolean;
+    url: string;
+    baseBranch: string;
+  }[];
+}
+
 const issueSchema = z.object({
   identifier: z.string(),
   title: z.string(),
@@ -90,12 +115,47 @@ const recordedErrorSchema = z.object({
   stack: z.string().optional(),
 });
 
-const outcomeSchema = z.enum(['merged', 'rejected', 'exhausted']);
+const outcomeSchema = z.enum(['merged', 'rejected', 'exhausted', 'completed']);
+
+const executionMemberSchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+  lead: z.boolean(),
+  url: z.string().min(1),
+  baseBranch: z.string().min(1),
+});
+
+const executionSchema = z.object({
+  source: z.enum(['repository', 'onboarding']),
+  sourceCommit: z.string().min(1),
+  trigger: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('linear.onDelegate') }),
+    z.object({ kind: z.literal('manual'), name: z.string().min(1) }),
+  ]),
+  members: z
+    .array(executionMemberSchema)
+    .min(1)
+    .refine(
+      (members) => members.filter((member) => member.lead).length === 1,
+      'members must name exactly one lead repository',
+    ),
+});
 
 const headerSchema = z.object({
   v: z.number().int(),
   runId: z.string().min(1),
   trigger: z.string().optional(),
+  admissionId: z.string().min(1).optional(),
+  linear: z
+    .object({
+      issueId: z.string().min(1),
+      teamId: z.string().min(1),
+      organizationId: z.string().min(1),
+      appUserId: z.string().min(1),
+      sessionId: z.string().min(1),
+    })
+    .optional(),
+  execution: executionSchema.optional(),
   issue: issueSchema,
   branch: z.string().min(1),
   repo: z.string().min(1),

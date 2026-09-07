@@ -1,15 +1,27 @@
 import { createServer } from 'node:net';
+import { join } from 'node:path';
 import type { Workflow } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
 import { createWorkflowContext, type ExternalContext } from './context.js';
 import { readRunHeader, updateRunHeader, type RunHeader } from './header.js';
-import { runBoot, type BootContext, type BootResult } from './replay.js';
+import {
+  runBoot,
+  type BootContext,
+  type BootResult,
+  type RunBootOptions,
+} from './replay.js';
 import { startCommand, type OwnedCommand } from './process.js';
 
 export interface WorkflowRuntimeOptions {
   paths: RockyPaths;
   /** NG-598 supplies the snapshotted Workflow, never a mutable repo import. */
-  loadWorkflow(run: RunHeader): Promise<Workflow>;
+  loadWorkflow(run: RunHeader, signal: AbortSignal): Promise<Workflow>;
+  /** Framework preparation (workspace/Preflight), journaled through these same Steps. */
+  beforeWorkflow?(
+    run: RunHeader,
+    steps: BootContext,
+    signal: AbortSignal,
+  ): Promise<void>;
   workspace?(run: RunHeader): string;
   baseRef?(run: RunHeader): string;
   env?(run: RunHeader): NodeJS.ProcessEnv;
@@ -19,6 +31,8 @@ export interface WorkflowRuntimeOptions {
     signal: AbortSignal,
   ): Partial<ExternalContext>;
   execTimeoutMs?: number;
+  append?: RunBootOptions['append'];
+  read?: RunBootOptions['read'];
 }
 
 /** One per daemon. The scheduler owns admission/cancellation; this owns exec children. */
@@ -39,6 +53,8 @@ export class WorkflowRuntime {
         journalPath: paths.run(run.runId).journal,
         poll: kind === 'poll',
         signal,
+        append: this.options.append,
+        read: this.options.read,
         workflow: async (steps) => {
           run = await readRunHeader(paths, run.runId);
           if (kind === 'run') {
@@ -65,12 +81,17 @@ export class WorkflowRuntime {
             this.ports.set(run.runId, [port]);
             run = await updateRunHeader(paths, run.runId, { ports: [port] });
           }
-          const workflow = await this.options.loadWorkflow(run);
+          const workflow = await this.options.loadWorkflow(run, signal);
+          await this.options.beforeWorkflow?.(run, steps, signal);
           const cwd =
             this.options.workspace?.(run) ?? paths.run(run.runId).workspaceDir;
-          const exec = async (command: string, background: boolean) => {
+          const exec = async (
+            command: string,
+            background: boolean,
+            commandCwd = cwd,
+          ) => {
             const child = startCommand(command, {
-              cwd,
+              cwd: commandCwd,
               background,
               signal,
               timeoutMs: this.options.execTimeoutMs,
@@ -83,11 +104,11 @@ export class WorkflowRuntime {
             void child.closed.then(() => children.delete(child));
             return await child.result;
           };
-          const git = async (args: string[]) => {
+          const git = async (args: string[], gitCwd = cwd) => {
             const command = ['git', ...args]
               .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
               .join(' ');
-            const result = await exec(command, false);
+            const result = await exec(command, false, gitCwd);
             if (!('stdout' in result))
               throw new Error('Expected foreground git result');
             if (result.exitCode !== 0)
@@ -98,32 +119,53 @@ export class WorkflowRuntime {
             createWorkflowContext(steps, run, {
               exec,
               changedFiles: async () => {
-                const baseRef = this.options.baseRef?.(run);
-                if (!baseRef)
-                  throw new Error(
-                    'Configure baseRef on the Run runtime for ctx.changedFiles',
-                  );
-                const base = await git(['merge-base', baseRef, 'HEAD']);
-                const tracked = await git([
-                  'diff',
-                  '--name-only',
-                  '-z',
-                  base.trim(),
-                  '--',
-                ]);
-                const untracked = await git([
-                  'ls-files',
-                  '--others',
-                  '--exclude-standard',
-                  '-z',
-                ]);
-                return [
-                  ...new Set((tracked + untracked).split('\0').filter(Boolean)),
+                const members = run.execution?.members ?? [
+                  { path: '', baseBranch: '' },
                 ];
+                const files: string[] = [];
+                for (const member of members) {
+                  const memberCwd = join(cwd, member.path);
+                  const baseRef = member.baseBranch
+                    ? `origin/${member.baseBranch}`
+                    : this.options.baseRef?.(run);
+                  if (!baseRef)
+                    throw new Error(
+                      'Configure baseRef on the Run runtime for ctx.changedFiles',
+                    );
+                  const base = await git(
+                    ['merge-base', baseRef, 'HEAD'],
+                    memberCwd,
+                  );
+                  const tracked = await git(
+                    ['diff', '--name-only', '-z', base.trim(), '--'],
+                    memberCwd,
+                  );
+                  const untracked = await git(
+                    ['ls-files', '--others', '--exclude-standard', '-z'],
+                    memberCwd,
+                  );
+                  files.push(
+                    ...(tracked + untracked)
+                      .split('\0')
+                      .filter(Boolean)
+                      .map((file) =>
+                        member.path ? `${member.path}/${file}` : file,
+                      ),
+                  );
+                }
+                return [...new Set(files)];
               },
               external: (branch) =>
                 this.options.external?.(run, branch, signal) ?? {},
             }),
+            {
+              members:
+                run.execution?.members.map(({ name, path, lead }) => ({
+                  name,
+                  path,
+                  lead,
+                })) ?? [],
+            },
           );
         },
       });

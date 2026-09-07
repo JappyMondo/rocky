@@ -67,12 +67,19 @@ export type StepOutcome<T> =
   { status: 'done'; result: T; sessionId?: string } | { status: 'waiting' };
 
 export interface EffectHandle {
+  /** A named configuration failure that Workflow code cannot waive. */
+  fail(error: Error): never;
+  /** Stable sequence path, including each enclosing parallel sequence/index. */
+  readonly identity: string;
+  /** Detached current progress; undefined until first updated. */
+  readonly progress: unknown;
+  update(progress: unknown): Promise<void>;
   /**
    * Record an attempt that did not settle the Step. Retries never consume a
    * seq — seq *is* the replay key — so a retry, or the interrupt-append-
    * continue cycle of a Steer, accumulates here instead.
    */
-  record(attempt: Attempt): void;
+  record(attempt: Attempt, progress?: unknown): Promise<void>;
 }
 
 export type Effect<T> = (handle: EffectHandle) => Promise<StepOutcome<T>>;
@@ -130,6 +137,8 @@ type Appender = (
 
 export interface RunBootOptions {
   journalPath: string;
+  /** Boot children use non-repairing reads; their parent owns the writer/recovery. */
+  read?: (path: string) => Promise<Journal>;
   poll?: boolean;
   signal?: AbortSignal;
   workflow: (ctx: BootContext) => Promise<RunOutcome>;
@@ -212,6 +221,7 @@ function journalFor(entries: readonly JournalEntry[]): Journal {
   }
   return {
     entries,
+    getControl: () => undefined,
     truncated: false,
     nextBoot: 1,
     end: undefined,
@@ -238,7 +248,9 @@ class BootRunner implements BootContext {
   /** Latched so workflow code cannot catch its way out of failing the Run. */
   fatal: Error | undefined;
   /** Latched likewise: a journal that cannot be written ends the Boot. */
-  infra: unknown;
+  get infra(): unknown {
+    return this.persistence.error;
+  }
   parked: string | undefined;
   ready = false;
   replayed = 0;
@@ -257,6 +269,8 @@ class BootRunner implements BootContext {
     private readonly fanoutFatal?: { error: Error | undefined },
     private readonly poll = false,
     private readonly signal?: AbortSignal,
+    private readonly identityPrefix = '',
+    private readonly persistence: { error?: unknown } = {},
   ) {
     this.currentStage = initialStage;
   }
@@ -294,6 +308,7 @@ class BootRunner implements BootContext {
   }
 
   private exclusive<T>(work: () => Promise<T>): Promise<T> {
+    if (this.infra !== undefined) return Promise.reject(this.infra);
     if (this.signal?.aborted) return Promise.reject(new CancelSignal());
     if (this.ready) return Promise.reject(new ReadySignal());
     if (this.parked) return Promise.reject(new ParkSignal(this.parked));
@@ -364,6 +379,8 @@ class BootRunner implements BootContext {
       }
 
       if (recorded.status === 'failed') {
+        if (recorded.error?.name === 'FatalStepError')
+          this.fail(rethrowable(recorded.error));
         // A recorded, replayable outcome: re-throw rather than re-execute, or
         // a Workflow that caught the failure diverges the moment a replay
         // succeeds where the original Run failed (NG-574 §6).
@@ -481,7 +498,11 @@ class BootRunner implements BootContext {
       const error = replayableParallelError(
         recorded.error ?? { name: 'Error', message: 'parallel branch failed' },
       );
-      if (error instanceof DivergenceError || error instanceof CrashLoopError) {
+      if (
+        error instanceof DivergenceError ||
+        error instanceof CrashLoopError ||
+        error.name === 'FatalStepError'
+      ) {
         this.fail(error);
       }
       throw error;
@@ -504,7 +525,7 @@ class BootRunner implements BootContext {
 
     const fanoutFatal: { error: Error | undefined } = { error: undefined };
     const branchContexts = branches.map(
-      (branch) =>
+      (branch, index) =>
         new BootRunner(
           this.boot,
           journalFor(branch),
@@ -522,6 +543,8 @@ class BootRunner implements BootContext {
           fanoutFatal,
           this.poll,
           this.signal,
+          `${this.identityPrefix}${seq}/${index}/`,
+          this.persistence,
         ),
     );
     const settled = await Promise.allSettled(
@@ -537,6 +560,7 @@ class BootRunner implements BootContext {
       this.executed += branch.executed;
     }
 
+    if (this.infra !== undefined) throw this.infra;
     if (this.fatal) {
       await settleFailed(this.fatal);
       throw this.fatal;
@@ -646,7 +670,8 @@ class BootRunner implements BootContext {
     const startedAt = new Date(startedMs).toISOString();
     // Attempts accumulate across Boots: a Steer delivered before a crash is
     // still part of this Step's history.
-    const attempts: Attempt[] = [...(recorded?.attempts ?? [])];
+    const attempts: Attempt[] = structuredClone(recorded?.attempts ?? []);
+    let progress = structuredClone(recorded?.progress);
 
     const base = {
       v: JOURNAL_FORMAT_VERSION,
@@ -661,22 +686,68 @@ class BootRunner implements BootContext {
       ...base,
       ms: this.now() - startedMs,
       ...(attempts.length === 0 ? {} : { attempts }),
+      ...(progress === undefined ? {} : { progress }),
     });
 
     // Phase one, before the effect. A Run that dies from here until the line
     // below performs this Step again on the next Boot.
-    await this.write({ ...base, status: 'running' });
+    await this.write({ ...settle(), status: 'running' });
+    if (this.infra !== undefined) throw this.infra;
     if (this.signal?.aborted) throw new CancelSignal();
     if (this.fatal ?? this.fanoutFatal?.error)
       throw this.fatal ?? this.fanoutFatal?.error;
 
     let outcome: StepOutcome<T>;
+    let writes = Promise.resolve();
+    let closed = false;
+    const persist = (change: () => void): Promise<void> => {
+      let pending: Promise<void>;
+      try {
+        if (closed) throw new Error('EffectHandle is closed');
+        if (this.infra !== undefined) throw this.infra;
+        change();
+        // Capture at invocation, not when earlier writes have finished flushing.
+        const snapshot = structuredClone({
+          ...settle(),
+          status: 'running' as const,
+        });
+        writes = writes.then(() => this.write(snapshot));
+        pending = writes;
+      } catch (error) {
+        pending = Promise.reject(error);
+      }
+      void pending.catch(() => undefined);
+      return pending;
+    };
     try {
-      outcome = await effect({ record: (attempt) => attempts.push(attempt) });
+      outcome = await effect({
+        fail: (error) => {
+          if (closed) throw new Error('EffectHandle is closed');
+          error.name = 'FatalStepError';
+          return this.fail(error);
+        },
+        identity: `${this.identityPrefix}${seq}`,
+        get progress() {
+          return structuredClone(progress);
+        },
+        update: (value) =>
+          persist(() => {
+            progress = jsonClone(value);
+          }),
+        record: (attempt, nextProgress) =>
+          persist(() => {
+            attempts.push(jsonClone(attempt));
+            if (nextProgress !== undefined) progress = jsonClone(nextProgress);
+          }),
+      });
+      closed = true;
       if (outcome.status === 'done') {
         outcome = { ...outcome, result: jsonClone(outcome.result) };
       }
+      await writes;
     } catch (thrown) {
+      closed = true;
+      await writes;
       if (this.signal?.aborted) throw new CancelSignal();
       const error = recordError(thrown);
       await this.write({ ...settle(), status: 'failed', error });
@@ -710,11 +781,13 @@ class BootRunner implements BootContext {
     entry: JournalEntry,
     options?: AppendOptions,
   ): Promise<void> {
+    if (this.infra !== undefined) throw this.infra;
     try {
       await this.writeEntry(entry, options);
     } catch (error) {
-      this.infra ??= error;
-      throw error;
+      this.persistence.error ??=
+        error ?? new Error('Journal persistence failed');
+      throw this.infra;
     }
   }
 }
@@ -770,7 +843,7 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
   const append = options.append ?? appendEntry;
   const now = options.now ?? (() => Date.now());
 
-  const journal = await openJournal(journalPath);
+  const journal = await (options.read ?? openJournal)(journalPath);
 
   // A Run that already ended is not booted again; its outcome is recorded.
   const already = endResultFor(journal);
@@ -875,11 +948,14 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
   if (
     settled !== 'merged' &&
     settled !== 'rejected' &&
-    settled !== 'exhausted'
+    settled !== 'exhausted' &&
+    settled !== 'completed'
   ) {
     return failWith(
       recordError(
-        new Error('Workflow must return merged, rejected or exhausted'),
+        new Error(
+          'Workflow must return merged, rejected, exhausted or completed',
+        ),
       ),
     );
   }

@@ -60,6 +60,8 @@ export interface DaemonOptions {
   webhookSecret?: () => Promise<string | undefined>;
   /** The Run router. See `linear/events.ts` for why this is a seam. */
   onAgentSessionEvent?: AgentSessionEventHandler;
+  /** Local-product registration, on this private listener only. */
+  registerLocalApi?(app: FastifyInstance): Promise<void>;
   /** Off in tests that drive the monitor themselves. */
   selfPing?: boolean;
   /** Injected for tests; the self-ping leaves the machine in production. */
@@ -126,6 +128,20 @@ export async function createDaemon(
   app.addHook('onSend', async (_request, reply) => {
     reply.header(VERSION_HEADER, DAEMON_VERSION);
   });
+
+  if (!options.onAgentSessionEvent) {
+    app.addHook('onRequest', async (request, reply) => {
+      if (
+        request.method === 'POST' &&
+        request.url.split('?')[0] === '/api/linear/webhook'
+      ) {
+        return reply.code(503).send({
+          error:
+            'Run admission is unavailable; wire the Linear control handler before accepting delegations.',
+        });
+      }
+    });
+  }
 
   app.get('/api/health', async (): Promise<HealthStatus> => {
     return {
@@ -213,6 +229,8 @@ export async function createDaemon(
       return reply.sendFile('index.html');
     });
   }
+
+  await options.registerLocalApi?.(app);
 
   return { app, instanceId, endpoint, oauth };
 }
