@@ -31,7 +31,11 @@ export function scriptedFetch(
   const calls: {
     path: string;
     method: string;
-    body: Record<string, any>;
+    body: {
+      query?: string;
+      variables?: { input?: unknown };
+      [key: string]: unknown;
+    };
     headers: Headers;
   }[] = [];
   const transport: typeof fetch = async (input, init) => {

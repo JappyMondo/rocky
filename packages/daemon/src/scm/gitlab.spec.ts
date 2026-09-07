@@ -238,6 +238,42 @@ it.each([false, true])(
   },
 );
 
+it('does not hot-loop an already armed head after adapter reconstruction', async () => {
+  let arms = 0;
+  const fetcher = (): typeof fetch => async (url, _init) => {
+    const path = new URL(String(url)).pathname;
+    if (path.endsWith('/version'))
+      return Response.json({ version: '19.1.0-ee' });
+    if (path === root) return Response.json({ merge_trains_enabled: false });
+    if (path.endsWith('/merge')) {
+      arms++;
+      return Response.json({ ...mr, draft: false });
+    }
+    return Response.json({
+      ...mr,
+      draft: false,
+      detailed_merge_status: 'mergeable',
+      merge_when_pipeline_succeeds: true,
+    });
+  };
+  const reconstructedOptions = { ...options, token: 'reconstruction-token' };
+  await createGitLabScm({
+    ...reconstructedOptions,
+    fetch: fetcher(),
+  }).armAutoMerge({
+    ...pr,
+    draft: false,
+  });
+  await createGitLabScm({
+    ...reconstructedOptions,
+    fetch: fetcher(),
+  }).armAutoMerge({
+    ...pr,
+    draft: false,
+  });
+  expect(arms).toBe(1);
+});
+
 it('reports failed GitLab jobs with capped traces, then retries only failed jobs', async () => {
   const pipeline = { id: 9, sha: 'abc', ref: 'ng-524', status: 'failed' };
   const poll = [
@@ -316,6 +352,7 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
     };
     if (init?.method === 'POST') {
       expect(path).toBe(`${root}/merge_requests/7/discussions/D1/notes`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
       writes++;
       reply = JSON.parse(String(init.body)).body;
       return Response.json({ id: 2 });
@@ -331,12 +368,14 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
   const adapter = createGitLabScm({ ...options, fetch: fetcher });
   const [thread] = await adapter.reviewThreads(pr);
   expect(thread).toMatchObject({ id: 'D1', pr, path: 'src/app.ts', line: 3 });
-  await adapter.replyToThread(thread, 'Fixed', 'NG-524-2');
-  await createGitLabScm({ ...options, fetch: fetcher }).replyToThread(
-    thread,
-    'Fixed',
-    'NG-524-2',
-  );
+  await Promise.all([
+    adapter.replyToThread(thread, 'Fixed', 'NG-524-2'),
+    createGitLabScm({ ...options, fetch: fetcher }).replyToThread(
+      thread,
+      'Fixed',
+      'NG-524-2',
+    ),
+  ]);
   expect(writes).toBe(1);
   expect(resolved).toBe(true);
 });

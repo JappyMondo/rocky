@@ -26,3 +26,26 @@ export function replyIntent(
     body: `${body}\n\n${marker}`,
   };
 }
+
+// This is only a live-process coalescer. The platform marker remains the
+// recovery record after a crash or an effect-before-journal interruption.
+const inFlight = new Map<string, Promise<void>>();
+
+export async function coalesceReply(
+  scope: string,
+  intentBody: string,
+  effect: () => Promise<void>,
+): Promise<void> {
+  const key = createHash('sha256')
+    .update(`${scope}\0${intentBody}`)
+    .digest('hex');
+  const active = inFlight.get(key);
+  if (active) return await active;
+  const pending = effect();
+  inFlight.set(key, pending);
+  try {
+    await pending;
+  } finally {
+    if (inFlight.get(key) === pending) inFlight.delete(key);
+  }
+}

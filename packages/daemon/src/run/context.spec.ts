@@ -65,14 +65,13 @@ it('mints approval capabilities only from this Boot checkpoint answer, including
         const ctx = createWorkflowContext(runner, header, {
           exec: async () => ({ pid: 1 }),
           changedFiles: async () => [],
-          external: (steps, approvals) => {
+          external: (_steps, approvals) => {
             verifier = approvals;
             return {
-              checkpoint: () =>
-                steps.step('checkpoint', {}, async () => ({
-                  status: 'done',
-                  result: { decision: 'approve' as const },
-                })),
+              checkpoint: async () => ({
+                status: 'done',
+                result: { decision: 'approve' as const },
+              }),
             };
           },
         });
@@ -89,6 +88,44 @@ it('mints approval capabilities only from this Boot checkpoint answer, including
       },
     });
   }
+});
+
+it('journals an unjournalled raw checkpoint once and remints approval on replay', async () => {
+  const journalPath = join(dir, 'journal.jsonl');
+  let effects = 0;
+  let prior: ApprovedCheckpoint | undefined;
+  for (let boot = 0; boot < 2; boot++) {
+    await runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        let verifier: CheckpointApprovalVerifier | undefined;
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+          external: (_steps, approvals) => {
+            verifier = approvals;
+            return {
+              checkpoint: async () => {
+                effects++;
+                return { status: 'done', result: { decision: 'approve' } };
+              },
+            };
+          },
+        });
+        const answer = await ctx.checkpoint({ title: 'Merge', body: '' });
+        if (answer.decision !== 'approve') throw new Error('expected approval');
+        expect(verifier?.(answer)).toBe(true);
+        if (prior) expect(verifier?.(prior)).toBe(false);
+        prior = answer;
+        return 'merged';
+      },
+    });
+  }
+  expect(effects).toBe(1);
+  const journal = await openJournal(journalPath);
+  expect(
+    journal.entries.filter((entry) => entry.step === 'checkpoint'),
+  ).toHaveLength(2);
 });
 
 it('runs ordinary loops and nested parallel callbacks through the same ctx and replays their Steps', async () => {
