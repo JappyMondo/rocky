@@ -80,6 +80,11 @@ async function giveUp(
   return 'exhausted' as const;
 }
 
+type ReviewState = {
+  complaints: Complaint[];
+  resolutions: Resolution[];
+};
+
 export async function main(
   ctx: WorkflowContext,
 ): Promise<'merged' | 'rejected' | 'exhausted'> {
@@ -125,47 +130,46 @@ export async function main(
   async function review(
     name: 'compliance-reviewer' | 'reviewer',
     revision: number,
+    previous: ReviewState,
     rules?: string,
   ) {
-    let complaints: Complaint[] = [];
-    let resolutions: Resolution[] = [];
-    for (let pass = 1; pass <= reviewCap; pass++) {
-      const namespace = `${name}/${revision}/${pass}`;
-      const disagreements = resolutions
-        .filter(({ status }) => status === 'disagreed')
-        .map(({ id, note }) => ({
-          id,
-          text: complaints.find((c) => c.id === id)!.text,
-          why: note,
-        }));
-      const result = await ctx.agent(name, {
-        ...read,
-        label: `${name} ${pass}/${reviewCap}`,
-        input: {
-          issue: ctx.issue,
-          diff: await diff(),
-          namespace,
-          disagreements,
-          ...(rules === undefined ? {} : { rules }),
-        },
-        schema: ReviewFor(
-          namespace,
-          name === 'compliance-reviewer' ? ticket : undefined,
-        ),
-      });
-      complaints = result.complaints;
-      if (!complaints.length) return [];
-      if (pass === reviewCap) break;
-      const fixed = await ctx.agent('fixer', {
-        ...edit,
-        label: `${name} fixer ${pass}/${reviewCap}`,
-        input: { issue: ctx.issue, complaints, commands },
-        schema: FixReportFor(complaints),
-      });
-      resolutions = fixed.resolutions;
-      changes.push(fixed.summary);
-    }
-    return complaints;
+    const namespace = `${name}/${revision}/1`;
+    const disagreements = previous.resolutions
+      .filter(({ status }) => status === 'disagreed')
+      .map(({ id, note }) => ({
+        id,
+        text: previous.complaints.find((complaint) => complaint.id === id)!
+          .text,
+        why: note,
+      }));
+    const result = await ctx.agent(name, {
+      ...read,
+      label: `${name} ${revision}/${reviewCap}`,
+      input: {
+        issue: ctx.issue,
+        diff: await diff(),
+        namespace,
+        disagreements,
+        ...(rules === undefined ? {} : { rules }),
+      },
+      schema: ReviewFor(
+        namespace,
+        name === 'compliance-reviewer' ? ticket : undefined,
+      ),
+    });
+    const complaints = result.complaints;
+    if (!complaints.length) return { complaints, resolutions: [] };
+    if (revision === reviewCap) return { complaints, resolutions: [] };
+    const fixed = await ctx.agent('fixer', {
+      ...edit,
+      label: `${name} fixer ${revision}/${reviewCap}`,
+      input: { issue: ctx.issue, complaints, commands },
+      schema: FixReportFor(complaints),
+    });
+    changes.push(fixed.summary);
+    if (fixed.resolutions.some(({ status }) => status === 'fixed'))
+      await push();
+    return { complaints, resolutions: fixed.resolutions };
   }
 
   async function checkCi() {
@@ -214,7 +218,7 @@ export async function main(
     };
   }
 
-  async function inspectUi(revision: number) {
+  async function inspectUi(revision: number, previousExplanations: string[]) {
     const rules = await loadRules(ctx);
     if (!checks) {
       checks = (
@@ -225,137 +229,132 @@ export async function main(
         })
       ).checks;
     }
-    let complaints: Complaint[] = [];
-    let previousExplanations: string[] = [];
-    for (let pass = 1; pass <= reviewCap; pass++) {
-      const namespace = `ui/${revision}/${pass}`;
-      if (!ui) {
-        complaints = [
-          {
-            id: `${namespace}/config`,
-            file: '.rocky/workflow.ts',
-            text: 'The change involves a frontend but ui is not configured. Set its start command and URL in the Config block, then start a new Run.',
-          },
-        ];
-      } else {
-        const url = new URL(ui.url);
-        if (!ctx.ports[0])
-          throw new Error('The UI stage needs a reserved ctx.ports[0].');
-        url.port = String(ctx.ports[0]);
-        if (!server)
-          server = await ctx.exec(
-            `export PORT=${ctx.ports[0]}; ${ui.start} > "$ROCKY_RUN_DIR/dev-server.log" 2>&1`,
-            { background: true, label: 'dev server' },
-          );
-        // Probe again on every Boot; only the recorded result chooses the replay path.
-        let ready = false;
-        for (let attempt = 0; attempt < readiness.attempts; attempt++) {
-          try {
-            const response = await fetch(url, {
-              signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
-            });
-            ready = response.ok;
-            await response.body?.cancel();
-          } catch {
-            /* A booting server commonly refuses connections. */
-          }
-          if (ready) break;
-          await new Promise((resolve) =>
-            setTimeout(resolve, readiness.intervalMs),
-          );
-        }
-        const boot = await ctx.step(
-          `UI readiness ${revision}/${pass}`,
-          async () => ({
-            ready,
-            log: ready
-              ? ''
-              : await readFile(
-                  `${process.env.ROCKY_RUN_DIR}/dev-server.log`,
-                  'utf8',
-                ).catch((error: NodeJS.ErrnoException) => {
-                  if (error.code === 'ENOENT')
-                    return 'The dev server did not become ready and produced no log.';
-                  throw error;
-                }),
-          }),
+    const namespace = `ui/${revision}/1`;
+    let complaints: Complaint[];
+    if (!ui) {
+      complaints = [
+        {
+          id: `${namespace}/config`,
+          file: '.rocky/workflow.ts',
+          text: 'The change involves a frontend but ui is not configured. Set its start command and URL in the Config block, then start a new Run.',
+        },
+      ];
+    } else {
+      const url = new URL(ui.url);
+      if (!ctx.ports[0])
+        throw new Error('The UI stage needs a reserved ctx.ports[0].');
+      url.port = String(ctx.ports[0]);
+      if (!server)
+        server = await ctx.exec(
+          `export PORT=${ctx.ports[0]}; ${ui.start} > "$ROCKY_RUN_DIR/dev-server.log" 2>&1`,
+          { background: true, label: 'dev server' },
         );
-        let observations: Observation[];
-        if (!boot.ready) {
-          observations = [
-            {
-              url: url.href,
-              text: `Dev server failed to become ready.\n${boot.log}`,
-              screenshots: [],
-            },
-          ];
-          await ctx.exec(`kill -TERM -${server.pid} 2>/dev/null || true`, {
-            label: 'stop failed dev server',
+      // Probe again on every Boot; only the recorded result chooses the replay path.
+      let ready = false;
+      for (let attempt = 0; attempt < readiness.attempts; attempt++) {
+        try {
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
           });
-          server = undefined;
-        } else {
-          const screenshotDir = process.env.ROCKY_SCREENSHOT_DIR;
-          if (!screenshotDir)
-            throw new Error(
-              'The UI stage requires ROCKY_SCREENSHOT_DIR from the Run runtime.',
-            );
-          const result = await ctx.agent('ui-inspector', {
-            ...agent,
-            tools: ['read'],
-            mcp: ['playwright'],
-            label: `ui-inspector ${pass}/${reviewCap}`,
-            input: { baseUrl: url.href, checks, rules, previousExplanations },
-            schema: CheckResultsFor(checks, screenshotDir),
-          });
-          observations = result.results.flatMap(
-            (result) => result.observations,
-          );
-          uiSummary = `${result.summary}\n${result.results.map((check) => `- ${check.id}: ${check.verdict}. ${check.note}`).join('\n')}`;
+          ready = response.ok;
+          await response.body?.cancel();
+        } catch {
+          /* A booting server commonly refuses connections. */
         }
-        complaints = await ctx.parallel(
-          observations,
-          async (observation, index) =>
-            ctx.agent('ui-complaint-writer', {
-              ...read,
-              label: `ui-complaint-writer ${pass}/${reviewCap} ${index + 1}`,
-              input: {
-                observation,
-                changedFiles: await ctx.changedFiles(),
-                namespace: `${namespace}/${index}`,
-              },
-              schema: ComplaintFor(`${namespace}/${index}`),
-            }),
+        if (ready) break;
+        await new Promise((resolve) =>
+          setTimeout(resolve, readiness.intervalMs),
         );
       }
-      if (!complaints.length) return [];
-      if (pass === reviewCap) break;
-      const fixed = await ctx.agent('fixer', {
-        ...edit,
-        label: `UI fixer ${pass}/${reviewCap}`,
-        input: { issue: ctx.issue, complaints, commands },
-        schema: FixReportFor(complaints),
-      });
-      changes.push(fixed.summary);
-      previousExplanations = fixed.resolutions
-        .filter(({ status }) => status === 'disagreed')
-        .map(({ id, note }) => {
-          const complaint = complaints.find(
-            (complaint) => complaint.id === id,
-          )!;
-          return note
-            .replaceAll(id, 'the previous concern')
-            .replaceAll(complaint.file, 'the implementation');
+      const boot = await ctx.step(`UI readiness ${revision}/1`, async () => ({
+        ready,
+        log: ready
+          ? ''
+          : await readFile(
+              `${process.env.ROCKY_RUN_DIR}/dev-server.log`,
+              'utf8',
+            ).catch((error: NodeJS.ErrnoException) => {
+              if (error.code === 'ENOENT')
+                return 'The dev server did not become ready and produced no log.';
+              throw error;
+            }),
+      }));
+      let observations: Observation[];
+      if (!boot.ready) {
+        observations = [
+          {
+            url: url.href,
+            text: `Dev server failed to become ready.\n${boot.log}`,
+            screenshots: [],
+          },
+        ];
+        await ctx.exec(`kill -TERM -${server.pid} 2>/dev/null || true`, {
+          label: 'stop failed dev server',
         });
+        server = undefined;
+      } else {
+        const screenshotDir = process.env.ROCKY_SCREENSHOT_DIR;
+        if (!screenshotDir)
+          throw new Error(
+            'The UI stage requires ROCKY_SCREENSHOT_DIR from the Run runtime.',
+          );
+        const result = await ctx.agent('ui-inspector', {
+          ...agent,
+          tools: ['read'],
+          mcp: ['playwright'],
+          label: `ui-inspector ${revision}/${reviewCap}`,
+          input: { baseUrl: url.href, checks, rules, previousExplanations },
+          schema: CheckResultsFor(checks, screenshotDir),
+        });
+        observations = result.results.flatMap((result) => result.observations);
+        uiSummary = `${result.summary}\n${result.results.map((check) => `- ${check.id}: ${check.verdict}. ${check.note}`).join('\n')}`;
+      }
+      complaints = await ctx.parallel(
+        observations,
+        async (observation, index) =>
+          ctx.agent('ui-complaint-writer', {
+            ...read,
+            label: `ui-complaint-writer ${revision}/${reviewCap} ${index + 1}`,
+            input: {
+              observation,
+              changedFiles: await ctx.changedFiles(),
+              namespace: `${namespace}/${index}`,
+            },
+            schema: ComplaintFor(`${namespace}/${index}`),
+          }),
+      );
     }
-    return complaints;
+    if (!complaints.length) return { complaints, resolutions: [] };
+    if (revision === reviewCap) return { complaints, resolutions: [] };
+    const fixed = await ctx.agent('fixer', {
+      ...edit,
+      label: `UI fixer ${revision}/${reviewCap}`,
+      input: { issue: ctx.issue, complaints, commands },
+      schema: FixReportFor(complaints),
+    });
+    changes.push(fixed.summary);
+    if (fixed.resolutions.some(({ status }) => status === 'fixed'))
+      await push();
+    return { complaints, resolutions: fixed.resolutions };
   }
 
   // A human Steer starts another validation cycle, never a shortcut to arming.
-  let revision = 0;
-  while (revision++ < reviewCap) {
+  let complianceState: ReviewState = { complaints: [], resolutions: [] };
+  let reviewerState: ReviewState = { complaints: [], resolutions: [] };
+  let uiExplanations: string[] = [];
+  for (let revision = 1; revision <= reviewCap; revision++) {
     ctx.stage('Compliance');
-    const compliance = await review('compliance-reviewer', revision);
-    if (compliance.length) return giveUp(ctx, pr, compliance);
+    const compliance = await review(
+      'compliance-reviewer',
+      revision,
+      complianceState,
+    );
+    if (compliance.complaints.length) {
+      if (revision === reviewCap) return giveUp(ctx, pr, compliance.complaints);
+      complianceState = compliance;
+      continue;
+    }
+    complianceState = { complaints: [], resolutions: [] };
     ctx.stage('UI');
     const triage = await ctx.agent('ui-triage', {
       ...fastAgent,
@@ -364,12 +363,37 @@ export async function main(
       schema: UiTriage,
     });
     if (triage.isFrontend) {
-      const complaints = await inspectUi(revision);
-      if (complaints.length) return giveUp(ctx, pr, complaints);
+      const ui = await inspectUi(revision, uiExplanations);
+      if (ui.complaints.length) {
+        if (revision === reviewCap) return giveUp(ctx, pr, ui.complaints);
+        uiExplanations = ui.resolutions
+          .filter(({ status }) => status === 'disagreed')
+          .map(({ id, note }) => {
+            const complaint = ui.complaints.find(
+              (complaint) => complaint.id === id,
+            )!;
+            return note
+              .replaceAll(id, 'the previous concern')
+              .replaceAll(complaint.file, 'the implementation');
+          });
+        continue;
+      }
+      uiExplanations = [];
     }
     ctx.stage('Review');
-    const complaints = await review('reviewer', revision, await loadRules(ctx));
-    if (complaints.length) return giveUp(ctx, pr, complaints);
+    const reviewResult = await review(
+      'reviewer',
+      revision,
+      reviewerState,
+      await loadRules(ctx),
+    );
+    if (reviewResult.complaints.length) {
+      if (revision === reviewCap)
+        return giveUp(ctx, pr, reviewResult.complaints);
+      reviewerState = reviewResult;
+      continue;
+    }
+    reviewerState = { complaints: [], resolutions: [] };
     await push();
     ctx.stage('CI');
     const ci = await checkCi();
