@@ -35,11 +35,6 @@ export const STUBBED_COMMANDS: readonly StubbedCommand[] = [
     owner: 'NG-581',
   },
   {
-    signature: 'mcp login <server>',
-    description: 'Authenticate an MCP server once for this machine.',
-    owner: 'NG-583',
-  },
-  {
     signature: 'trigger <name> <issue>',
     description: "Fire a manual Trigger from the repo's workflow.ts.",
     owner: 'NG-580',

@@ -9,9 +9,10 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { chmod, readFile, readdir } from 'node:fs/promises';
+import { chmod, readFile, readdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { rockyPaths, type RockyPaths } from './paths.js';
@@ -20,6 +21,7 @@ import {
   ensureInstanceLayout,
   readCredentials,
   readInstanceConfig,
+  updateCredentials,
   writeCredentials,
   writeInstanceConfig,
 } from './store.js';
@@ -110,6 +112,140 @@ describe('a machine with nothing written yet', () => {
 });
 
 describe('round-tripping', () => {
+  it('cancels a held-lock waiter without invoking it later or consuming the next writer lock', async () => {
+    let release!: () => void;
+    let acquired!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const holder = updateCredentials(paths, async (current) => {
+      acquired();
+      await holding;
+      return current;
+    });
+    await ready;
+    const abort = new AbortController();
+    let called = false;
+    const waiting = updateCredentials(
+      paths,
+      () => {
+        called = true;
+        return credentials;
+      },
+      { signal: abort.signal },
+    );
+    const result = waiting.catch((error: unknown) => error);
+    try {
+      await delay(50);
+      abort.abort();
+      expect(
+        await Promise.race([result, delay(500).then(() => 'still waiting')]),
+      ).toMatchObject({ name: 'AbortError' });
+      expect(called).toBe(false);
+    } finally {
+      release();
+      await holder;
+      await result;
+    }
+    await updateCredentials(paths, () => credentials, {
+      signal: AbortSignal.timeout(500),
+    });
+    expect(called).toBe(false);
+    expect(await readCredentials(paths)).toMatchObject(credentials);
+  });
+
+  it('cancels an update callback and never persists its late result', async () => {
+    await writeCredentials(paths, credentials);
+    let entered!: () => void;
+    let finish!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const abort = new AbortController();
+    const result = updateCredentials(
+      paths,
+      async (current) => {
+        entered();
+        await pending;
+        return { ...current, linear: { accessToken: 'late-token' } };
+      },
+      { signal: abort.signal },
+    ).catch((error: unknown) => error);
+    await ready;
+    try {
+      abort.abort();
+      expect(
+        await Promise.race([result, delay(500).then(() => 'still waiting')]),
+      ).toMatchObject({ name: 'AbortError' });
+      await updateCredentials(
+        paths,
+        (current) => ({ ...current, linear: { accessToken: 'newer-token' } }),
+        { signal: AbortSignal.timeout(500) },
+      );
+    } finally {
+      finish();
+      await result;
+    }
+    await delay(30);
+    expect((await readCredentials(paths)).linear?.accessToken).toBe(
+      'newer-token',
+    );
+    expect(
+      (await readdir(paths.root)).filter(
+        (name) => name.endsWith('.tmp') || name.endsWith('.lock'),
+      ),
+    ).toEqual([]);
+  });
+  it('persists a credential update that returns the same object after changing it', async () => {
+    await updateCredentials(paths, (current) => {
+      current.mcp['https://example.com/mcp'] = { accessToken: 'updated' };
+      return current;
+    });
+    expect((await readCredentials(paths)).mcp).toEqual({
+      'https://example.com/mcp': { accessToken: 'updated' },
+    });
+  });
+  it('serializes concurrent credential updates without losing another login', async () => {
+    await writeCredentials(paths, credentials);
+    await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        updateCredentials(paths, async (current) => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return {
+            ...current,
+            mcp: {
+              ...current.mcp,
+              [`https://server-${index}.example/mcp`]: {
+                accessToken: `token-${index}`,
+              },
+            },
+          };
+        }),
+      ),
+    );
+    expect(Object.keys((await readCredentials(paths)).mcp)).toHaveLength(7);
+    expect(await readCredentials(paths)).toMatchObject({
+      linear: credentials.linear,
+      repos: credentials.repos,
+    });
+  });
+
+  it('releases the credential lock when an update fails', async () => {
+    await expect(
+      updateCredentials(paths, () => {
+        throw new Error('failed');
+      }),
+    ).rejects.toThrow('failed');
+    await updateCredentials(paths, () => credentials);
+    expect(await readCredentials(paths)).toMatchObject(credentials);
+  });
+
   it('returns config.json exactly as it went in', async () => {
     await writeInstanceConfig(paths, config);
 
@@ -144,6 +280,16 @@ describe('round-tripping', () => {
 });
 
 describe('the mode on credentials.json', () => {
+  it.skipIf(!POSIX)(
+    'refuses a credential symlink instead of reading or chmodding its target',
+    async () => {
+      const target = join(root, 'target');
+      writeFileSync(target, JSON.stringify(credentials), { mode: 0o644 });
+      await symlink(target, paths.credentialsFile);
+      await expect(readCredentials(paths)).rejects.toThrow(/regular file/);
+      expect(statSync(target).mode & 0o777).toBe(0o644);
+    },
+  );
   it.skipIf(!POSIX)('is 0600 the moment Rocky creates it', async () => {
     await writeCredentials(paths, credentials);
 

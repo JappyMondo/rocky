@@ -43,6 +43,7 @@ import {
   type ServiceEnvironment,
 } from './service.js';
 import { CLI_VERSION } from './version.js';
+import { attachMcpCommand, type McpCliOptions } from './mcp.js';
 
 export interface CliIo {
   out(line: string): void;
@@ -70,6 +71,7 @@ export interface CliOptions extends ControlOptions {
   /** Setup seams stay on the CLI because the wizard owns terminal I/O. */
   runSetup?: typeof runSetup;
   createPrompter?: typeof createConsolePrompter;
+  mcp?: McpCliOptions;
 }
 
 /**
@@ -465,6 +467,8 @@ export function buildCli(
     .command('remove <name>')
     .description('Remove a repo entry from the instance config.')
     .action((name: string) => removeRepo(io, name));
+
+  attachMcpCommand(program, io, paths, cli.mcp);
 
   for (const stub of STUBBED_COMMANDS) {
     attachStub(program, stub, io);

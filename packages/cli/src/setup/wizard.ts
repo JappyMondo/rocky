@@ -25,11 +25,10 @@ import {
   exchangeCode,
   manifestUrl,
   oauthRedirectUri,
-  readCredentials,
   readInstanceConfig,
   rockyPaths,
   startDaemon,
-  writeCredentials,
+  updateCredentials,
   writeInstanceConfig,
   type EndpointHealth,
   type RockyPaths,
@@ -218,8 +217,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
       { fetch: options.fetch },
     );
 
-    const credentials = await readCredentials(paths);
-    await writeCredentials(paths, {
+    await updateCredentials(paths, (credentials) => ({
       ...credentials,
       linear: {
         ...credentials.linear,
@@ -232,7 +230,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
         expiresAt: tokens.expiresAt,
         scope: tokens.scope,
       },
-    });
+    }));
 
     prompter.say('');
     prompter.say('Authorized. Credentials written to credentials.json (0600).');

@@ -7,7 +7,11 @@
  * here is atomic — temp file, then rename, in `../atomic-write.ts` — and
  * `credentials.json` is 0600 from the moment it exists, temp file included.
  */
-import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
+import lockfile from 'proper-lockfile';
+
+import { withAbort } from '../abort.js';
 
 import {
   PUBLIC_MODE as CONFIG_MODE,
@@ -30,6 +34,11 @@ const POSIX = process.platform !== 'win32';
 export interface ReadOptions {
   /** Where a fixed-at-boot warning goes. The daemon log, in production. */
   warn?(message: string): void;
+}
+
+export interface CredentialUpdateOptions {
+  /** Cancels acquisition/callback waits and prevents starting an aborted commit. */
+  signal?: AbortSignal;
 }
 
 /** Creates `~/.rocky` and the directories NG-578's layout names. */
@@ -115,9 +124,70 @@ export async function writeCredentials(
   paths: RockyPaths,
   credentials: unknown,
 ): Promise<Credentials> {
-  const parsed = parseCredentials(credentials);
-  await writeAtomic(paths.credentialsFile, serialize(parsed), SECRET_MODE);
-  return parsed;
+  return updateCredentials(paths, () => credentials);
+}
+
+/** All read-modify-write callers must use this, including rotating OAuth tokens.
+ * The lock spans processes (CLI and Boots), and covers the refresh request too.
+ * Never wait for human input inside the callback.
+ */
+export async function updateCredentials(
+  paths: RockyPaths,
+  update: (current: Credentials) => unknown | Promise<unknown>,
+  { signal }: CredentialUpdateOptions = {},
+): Promise<Credentials> {
+  signal?.throwIfAborted();
+  await mkdir(paths.root, { recursive: true, mode: ROOT_MODE });
+  if (POSIX) await chmod(paths.root, ROOT_MODE);
+  let compromised = false;
+  let release: () => Promise<void>;
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    signal?.throwIfAborted();
+    try {
+      // Own the retry wait: racing the library's retry promise can acquire a
+      // lock after cancellation with nobody left to release it.
+      release = await lockfile.lock(paths.credentialsFile, {
+        realpath: false,
+        stale: 30_000,
+        update: 10_000,
+        retries: 0,
+        onCompromised: () => {
+          compromised = true;
+        },
+      });
+      break;
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code !== 'ELOCKED' ||
+        Date.now() >= deadline
+      )
+        throw error;
+      await delay(100, undefined, { signal });
+    }
+  }
+  try {
+    const current = await withAbort(signal, () => readCredentials(paths));
+    const before = serialize(current);
+    const next = await withAbort(signal, () => update(current));
+    signal?.throwIfAborted();
+    const parsed = parseCredentials(next);
+    if (compromised)
+      throw new ConfigError(
+        'credentials.json',
+        'update lock was lost; retry the command.',
+      );
+    if (next !== current || serialize(parsed) !== before)
+      await writeAtomic(
+        paths.credentialsFile,
+        serialize(parsed),
+        SECRET_MODE,
+        signal,
+      );
+    return parsed;
+  } finally {
+    await release();
+  }
 }
 
 async function enforceSecretMode(
@@ -130,7 +200,13 @@ async function enforceSecretMode(
 
   let mode: number;
   try {
-    mode = (await stat(path)).mode & 0o777;
+    const info = await lstat(path);
+    if (!info.isFile())
+      throw new ConfigError(
+        'credentials.json',
+        'must be a regular file, not a symlink.',
+      );
+    mode = info.mode & 0o777;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return;

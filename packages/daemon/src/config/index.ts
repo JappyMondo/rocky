@@ -39,9 +39,11 @@ export {
   ensureInstanceLayout,
   readCredentials,
   readInstanceConfig,
+  updateCredentials,
   writeCredentials,
   writeInstanceConfig,
   type ReadOptions,
+  type CredentialUpdateOptions,
 } from './store.js';
 
 export {
