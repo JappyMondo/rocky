@@ -72,6 +72,16 @@ it('names the requested model on a stderr-only OpenCode model failure', async ()
   });
 });
 
+it('makes a stderr-only OpenCode account rejection permanent with its login fix', async () => {
+  const input = await invocation();
+  await expect(
+    opencode.run({
+      ...input,
+      env: { ...input.env, FIXTURE_MODE: 'stderr-auth' },
+    }),
+  ).rejects.toMatchObject({ retryable: false, fix: 'opencode auth login' });
+});
+
 it('requires the resumed Claude ID and a final result', async () => {
   const input = await invocation();
   const first = await claudeCode.run(input);

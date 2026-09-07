@@ -15,6 +15,11 @@ import type {
 } from './types.js';
 import { HarnessError } from './types.js';
 import { assertSessionOwner, runProcess } from './process.js';
+import {
+  checkMcpDiagnostic,
+  checkMcpToolError,
+  mcpHeaders,
+} from './mcp-policy.js';
 
 export const opencode = {
   run: (input: HarnessInvocation) => executeOpencode(input),
@@ -39,6 +44,8 @@ async function executeOpencode(
   const scoped = await createScopedOpencodeConfig(input);
   try {
     const args = ['run', '--format', 'json', '--agent', 'rocky'];
+    if (input.mcpServers.length)
+      args.push('--print-logs', '--log-level', 'INFO');
     if (input.sessionId) args.push('--session', input.sessionId);
     if (input.model) args.push('--model', input.model);
     args.push('--', input.prompt);
@@ -129,24 +136,35 @@ async function executeOpencode(
         false,
       );
     }
-    const parser = createOpencodeStream(input.onEvent);
+    const parser = createOpencodeStream(input.onEvent, input.mcpServers);
     const output = await runProcess({
       ...input,
       args,
       env,
       onLine: parser.push,
+      onStderrLine(line) {
+        checkMcpDiagnostic(line, input.mcpServers);
+      },
     });
     let result: HarnessResult;
     try {
       result = parser.result();
       if (!result.text && output.stderr) throw new Error('No final text');
     } catch (error) {
+      if (error instanceof HarnessError) throw error;
       if (!output.stderr) throw error;
+      checkMcpDiagnostic(output.stderr, input.mcpServers);
+      const auth =
+        /\b40[13]\b|oauth_org_not_allowed|authentication(?:_error)?|not logged in|unauthorized|invalid (?:API key|token)/i.test(
+          output.stderr,
+        );
       throw new HarnessError(
         `opencode (${input.model ?? 'default model'}): ${output.stderr.trim()}`,
-        !/(?:unknown|unsupported|invalid) model|model.*(?:not found|unknown|unsupported)|ProviderModelNotFoundError/i.test(
-          output.stderr,
-        ),
+        !auth &&
+          !/(?:unknown|unsupported|invalid) model|model.*(?:not found|unknown|unsupported)|ProviderModelNotFoundError/i.test(
+            output.stderr,
+          ),
+        auth ? 'opencode auth login' : undefined,
       );
     }
     if (input.sessionId && result.sessionId !== input.sessionId)
@@ -229,21 +247,9 @@ export function renderOpencodeMcpServers(
             url: config.url,
             enabled: true,
             oauth: false,
-            ...(config.headers ? { headers: config.headers } : {}),
-            ...(authorization === undefined
-              ? {}
-              : {
-                  headers: {
-                    ...Object.fromEntries(
-                      Object.entries(
-                        (config.headers as JsonObject) ?? {},
-                      ).filter(
-                        ([key]) => key.toLowerCase() !== 'authorization',
-                      ),
-                    ),
-                    Authorization: authorization,
-                  },
-                }),
+            ...(config.headers || authorization !== undefined
+              ? { headers: mcpHeaders({ name, config, authorization }) }
+              : {}),
           },
         ] as const;
       }
@@ -455,14 +461,20 @@ function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
   );
 }
 
-export function parseOpencodeStream(lines: readonly string[]): HarnessResult {
-  const parser = createOpencodeStream();
+export function parseOpencodeStream(
+  lines: readonly string[],
+  servers: readonly ResolvedMcpServer[] = [],
+): HarnessResult {
+  const parser = createOpencodeStream(undefined, servers);
   const end = lines.findLastIndex((line) => line.trim() !== '');
   for (const line of lines.slice(0, end + 1)) parser.push(line);
   return parser.result();
 }
 
-function createOpencodeStream(onEvent?: HarnessInvocation['onEvent']) {
+function createOpencodeStream(
+  onEvent?: HarnessInvocation['onEvent'],
+  servers: readonly ResolvedMcpServer[] = [],
+) {
   const events: HarnessEvent[] = [];
   const text: string[] = [];
   const usage: HarnessUsage = {};
@@ -488,12 +500,31 @@ function createOpencodeStream(onEvent?: HarnessInvocation['onEvent']) {
         case 'reasoning':
           break;
         case 'error': {
-          const message = JSON.stringify(event.error ?? event);
+          const error = objectAt(event, 'error', 'error');
+          const data = (
+            error.data && typeof error.data === 'object' ? error.data : {}
+          ) as JsonObject;
+          const message =
+            typeof data.message === 'string'
+              ? data.message
+              : typeof error.message === 'string'
+                ? error.message
+                : String(error.name ?? 'unknown error');
+          checkMcpDiagnostic(JSON.stringify(error), servers);
+          const auth =
+            data.statusCode === 401 ||
+            data.statusCode === 403 ||
+            /oauth_org_not_allowed|authentication_error|invalid (?:API key|token)/i.test(
+              message,
+            );
           throw new HarnessError(
             `opencode: ${message}`,
-            !/(?:unknown|unsupported|invalid) model|model.*(?:not found|unknown|unsupported)|ProviderModelNotFoundError/i.test(
-              message,
-            ),
+            !auth &&
+              data.isRetryable !== false &&
+              !/(?:unknown|unsupported|invalid) model|model.*(?:not found|unknown|unsupported)|ProviderModelNotFoundError/i.test(
+                `${error.name} ${message}`,
+              ),
+            auth ? 'opencode auth login' : undefined,
           );
         }
         case 'tool_use': {
@@ -507,6 +538,9 @@ function createOpencodeStream(onEvent?: HarnessInvocation['onEvent']) {
           ) {
             throw new Error('Invalid OpenCode tool_use event');
           }
+          const state = objectAt(part, 'state', 'tool_use');
+          if (state.status === 'error')
+            checkMcpToolError(part.tool, state.error, servers, '_');
           emit(
             { kind: 'tool-call', name: part.tool },
             { kind: 'tool-result', name: part.tool },

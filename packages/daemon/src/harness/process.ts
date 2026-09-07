@@ -45,6 +45,7 @@ export async function runProcess(input: {
   timeoutMs?: number;
   transcriptPath?: string;
   onLine?: (line: string) => void;
+  onStderrLine?: (line: string) => void;
 }): Promise<{ code: number | null; stdout: string; stderr: string }> {
   input.signal?.throwIfAborted();
   const timeoutMs = input.timeoutMs ?? 30 * 60_000;
@@ -76,8 +77,12 @@ export async function runProcess(input: {
       let stdout = '';
       let stderr = '';
       let pending = '';
+      let pendingError = '';
       let killTimer: ReturnType<typeof setTimeout> | undefined;
+      let groupTimer: ReturnType<typeof setInterval> | undefined;
+      let closed = false;
       const decoder = new StringDecoder('utf8');
+      const errorDecoder = new StringDecoder('utf8');
       const kill = (signal: NodeJS.Signals) => {
         try {
           if (child.pid && process.platform !== 'win32')
@@ -88,11 +93,38 @@ export async function runProcess(input: {
             failure ??= error;
         }
       };
+      const groupIsAlive = () => {
+        if (!child.pid || process.platform === 'win32') return false;
+        try {
+          process.kill(-child.pid, 0);
+          return true;
+        } catch (error) {
+          return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+        }
+      };
+      const clearGroupTimers = () => {
+        if (killTimer) clearTimeout(killTimer);
+        if (groupTimer) clearInterval(groupTimer);
+        killTimer = undefined;
+        groupTimer = undefined;
+      };
+      const finish = (code: number | null) => {
+        clearTimeout(timer);
+        input.signal?.removeEventListener('abort', abort);
+        clearGroupTimers();
+        if (failure !== undefined) reject(failure);
+        else resolve({ code, stdout, stderr });
+      };
       const stop = (error: unknown) => {
         if (failure !== undefined) return;
         failure = error;
-        kill('SIGTERM');
-        killTimer = setTimeout(() => kill('SIGKILL'), 500);
+        // A boundary stop must let the Harness flush its resumable session.
+        kill('SIGINT');
+        killTimer = setTimeout(() => {
+          killTimer = undefined;
+          kill('SIGKILL');
+          if (closed) finish(null);
+        }, 5_000);
       };
       const abort = () =>
         stop(
@@ -125,28 +157,43 @@ export async function runProcess(input: {
         }
       });
       child.stderr.on('data', (chunk: Buffer) => {
-        stderr = (stderr + chunk.toString('utf8')).slice(-64 * 1024);
+        const text = errorDecoder.write(chunk);
+        stderr = (stderr + text).slice(-64 * 1024);
+        pendingError += text;
+        try {
+          let end: number;
+          while ((end = pendingError.indexOf('\n')) !== -1) {
+            const line = pendingError.slice(0, end).replace(/\r$/, '');
+            pendingError = pendingError.slice(end + 1);
+            if (line) input.onStderrLine?.(line);
+          }
+          if (pendingError.length > 64 * 1024)
+            throw new Error('Harness diagnostic record exceeds 64 KiB');
+        } catch (error) {
+          stop(error);
+        }
       });
       child.on('error', (error) => {
         failure ??= error;
       });
-      child.on('exit', () => kill('SIGKILL'));
       child.on('close', (code) => {
-        clearTimeout(timer);
-        input.signal?.removeEventListener('abort', abort);
-        // The leader can exit before descendants. Reap the owned group first.
-        if (killTimer) {
-          clearTimeout(killTimer);
-          kill('SIGKILL');
-        }
+        closed = true;
         try {
           pending += decoder.end();
           if (pending.trim() && failure === undefined) input.onLine?.(pending);
+          pendingError += errorDecoder.end();
+          if (pendingError.trim() && failure === undefined)
+            input.onStderrLine?.(pendingError);
         } catch (error) {
           failure ??= error;
         }
-        if (failure !== undefined) reject(failure);
-        else resolve({ code, stdout, stderr });
+        if (failure === undefined) return finish(code);
+        // `close` means the group leader and stdio are gone, not necessarily its
+        // descendants. Keep the SIGINT grace period unless the owned group is gone.
+        if (!killTimer || !groupIsAlive()) return finish(code);
+        groupTimer = setInterval(() => {
+          if (!groupIsAlive()) finish(code);
+        }, 25);
       });
     });
   } finally {

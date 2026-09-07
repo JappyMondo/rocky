@@ -1,13 +1,10 @@
 /** Adapter-owned auth, adopted from NG-628's stable 2026-09-07 snapshot. */
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 
 import { expandHarness } from '../config/expand.js';
 import { ConfigError, type HarnessConfigInput } from '../config/schema.js';
 import { SHIPPED_HARNESSES } from '../config/schema.js';
-import { claudeCode } from './claude-code.js';
+import { claudeCode, claudeExecutionEnv } from './claude-code.js';
 import { opencode } from './opencode.js';
 import type { HarnessInvocation, HarnessResult } from './types.js';
 import { runProcess } from './process.js';
@@ -34,7 +31,14 @@ export interface AuthProbe {
   /** What the developer types to fix a missing login. */
   fix: string;
   /** Reads the probe's own answer. */
-  readAnswer(result: ProbeResult): { signedIn: boolean; detail: string };
+  readAnswer(result: ProbeResult): { signedIn: boolean; detail: string; identity?: HarnessAuthIdentity };
+}
+
+export interface HarnessAuthIdentity {
+  accountId?: string;
+  email?: string;
+  organizationId?: string;
+  authMethod?: string;
 }
 
 export interface ProbeResult {
@@ -56,6 +60,8 @@ export interface HarnessAuthResult {
   detail: string;
   /** The command to type. Absent when there is nothing a login would fix. */
   fix?: string;
+  /** Identity reported by the execution probe, never inferred from the host probe. */
+  identity?: HarnessAuthIdentity;
 }
 
 export interface CheckAuthOptions {
@@ -76,22 +82,28 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 function readClaudeAnswer(result: ProbeResult): {
   signedIn: boolean;
   detail: string;
+  identity?: HarnessAuthIdentity;
 } {
   try {
     const parsed = JSON.parse(result.stdout) as {
       loggedIn?: boolean;
       email?: string;
       authMethod?: string;
+      accountId?: string;
+      orgId?: string;
+      organizationId?: string;
     };
     if (typeof parsed.loggedIn === 'boolean') {
       const signedIn = parsed.loggedIn && result.code === 0;
-      const who = [parsed.email, parsed.authMethod]
+      const identity: HarnessAuthIdentity = Object.fromEntries(Object.entries({ email: parsed.email, accountId: parsed.accountId, organizationId: parsed.orgId ?? parsed.organizationId, authMethod: parsed.authMethod }).filter(([, value]) => typeof value === 'string' && value.length > 0));
+      const who = [identity.email ?? identity.accountId, identity.authMethod]
         .filter(Boolean)
         .join(' via ');
       return {
         signedIn,
+        identity,
         detail: signedIn
-          ? `signed in${who ? ` as ${who}` : ''}`
+          ? `signed in${who ? ` as ${who}` : ''}${identity.email || identity.accountId ? '' : ' (account identity not reported)'}`
           : parsed.loggedIn
             ? `authentication probe exited ${result.code}`
             : 'not signed in',
@@ -232,42 +244,44 @@ async function checkAuth(
     return { harness, ok: false, detail: String(error) };
   }
 
-  const { signedIn, detail } = probe.readAnswer(result);
+  let answer = probe.readAnswer(result);
 
-  if (signedIn && harness === 'claude-code') {
-    const temporary = await mkdtemp(join(tmpdir(), 'rocky-claude-auth-'));
+  if (answer.signedIn && harness === 'claude-code') {
     try {
-      const isolated = await run(command, probe.args, {
-        env: { ...harnessAuthEnv(resolved, env), CLAUDE_CONFIG_DIR: temporary },
+      const isolated = await run(command, ['--setting-sources', '', ...probe.args], {
+        env: claudeExecutionEnv(harnessAuthEnv(resolved, env)),
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       });
-      if (!probe.readAnswer(isolated).signedIn)
+      const execution = probe.readAnswer(isolated);
+      if (!execution.signedIn)
         return {
           harness,
           ok: false,
-          detail:
-            'Claude login is present, but unavailable with Rocky-owned session storage',
-          fix: 'claude login; supply CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) or ANTHROPIC_API_KEY through harnesses.claude-code.env',
+          identity: execution.identity,
+          detail: `Claude authentication is unavailable under execution settings: ${execution.detail}`,
+          fix: 'claude login',
         };
+      const mismatch = (['accountId', 'email', 'organizationId'] as const).some((key) => answer.identity?.[key] !== undefined && answer.identity[key] !== execution.identity?.[key]);
+      if (mismatch) return { harness, ok: false, identity: execution.identity, detail: `Execution identity does not match the configured Claude account: ${execution.detail}; check harnesses.claude-code.command/env`, fix: 'claude login' };
+      answer = execution;
     } catch {
       return {
         harness,
         ok: false,
-        detail: 'could not verify isolated Claude authentication',
+        detail: 'could not verify execution Claude authentication',
         fix: probe.fix,
       };
-    } finally {
-      await rm(temporary, { recursive: true, force: true });
     }
   }
 
   return {
     harness,
-    ok: signedIn,
-    detail: signedIn
-      ? `${detail}; model access not verified by this offline probe`
-      : detail,
-    ...(signedIn ? {} : { fix: probe.fix }),
+    ok: answer.signedIn,
+    ...(answer.identity ? { identity: answer.identity } : {}),
+    detail: answer.signedIn
+      ? `${answer.detail}; model access not verified by this offline probe`
+      : answer.detail,
+    ...(answer.signedIn ? {} : { fix: probe.fix }),
   };
 }
 

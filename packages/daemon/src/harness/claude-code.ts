@@ -4,13 +4,20 @@ import type {
   HarnessInvocation,
   HarnessResult,
   HarnessUsage,
+  ResolvedMcpServer,
 } from './types.js';
 import { HarnessError } from './types.js';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { assertSessionOwner, runProcess } from './process.js';
+import { checkMcpToolError, mcpFailure, mcpHeaders } from './mcp-policy.js';
+import { prepareClaudeSession } from './claude-session.js';
+
+export function claudeExecutionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, CLAUDE_CODE_SKIP_PROMPT_HISTORY: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+}
 
 export const claudeCode = {
   run: (input: HarnessInvocation) => executeClaude(input),
@@ -40,7 +47,10 @@ async function executeClaude(
       'session_id',
     );
   const temporary = await mkdtemp(join(tmpdir(), 'rocky-claude-'));
+  const sessionId = input.sessionId ?? randomUUID();
+  let session: Awaited<ReturnType<typeof prepareClaudeSession>> | undefined;
   try {
+    session = await prepareClaudeSession(input, sessionId, input.sessionId !== undefined);
     const mcpPath = join(temporary, 'mcp.json');
     const settingsPath = join(temporary, 'settings.json');
     const servers: Record<string, unknown> = {};
@@ -61,17 +71,7 @@ async function executeClaude(
         servers[name] = {
           type: config.type === 'sse' ? 'sse' : 'http',
           url: config.url,
-          headers: {
-            ...Object.fromEntries(
-              Object.entries(
-                (config.headers as Record<string, string>) ?? {},
-              ).filter(
-                ([key]) =>
-                  !authorization || key.toLowerCase() !== 'authorization',
-              ),
-            ),
-            ...(authorization ? { Authorization: authorization } : {}),
-          },
+          headers: mcpHeaders({ name, config, authorization }),
         };
       else
         throw new HarnessError(
@@ -85,23 +85,20 @@ async function executeClaude(
     await writeFile(
       settingsPath,
       JSON.stringify({
-        disableAllHooks: true,
+        // User/project settings are disabled; only Rocky's session-routing hook runs.
+        hooks: { SessionStart: [{ hooks: [session.hook] }] },
         disableClaudeAiConnectors: true,
         autoMemoryEnabled: false,
       }),
       { mode: 0o600 },
     );
-    const native = join(
-      dirname(input.transcriptPath),
-      `${basename(input.transcriptPath)}.claude`,
-    );
-    await mkdir(native, { recursive: true, mode: 0o700 });
     const tools = claudeCode.allowedTools(input.capabilities).join(',');
     const args = [
       '-p',
       '--verbose',
       '--output-format',
       'stream-json',
+      '--include-partial-messages',
       '--setting-sources',
       '',
       '--settings',
@@ -122,21 +119,22 @@ async function executeClaude(
       '--no-chrome',
     ];
     if (input.sessionId) args.push('--resume', input.sessionId);
-    else args.push('--session-id', randomUUID());
+    else args.push('--session-id', sessionId);
     if (input.model) args.push('--model', input.model);
     args.push('--', input.prompt);
-    const parser = createClaudeStream(input.onEvent);
+    const parser = createClaudeStream(input.onEvent, input.mcpServers);
     await runProcess({
       ...input,
       args,
-      env: {
-        ...input.env,
-        CLAUDE_CONFIG_DIR: native,
-        CLAUDE_CODE_PROJECT_DIR_NAME: 'step',
-        CLAUDE_CODE_SKIP_PROMPT_HISTORY: 'false',
-        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      env: claudeExecutionEnv(input.env),
+      onLine(line) {
+        const record = JSON.parse(line);
+        if (record.type === 'system' && record.subtype === 'init') {
+          try { session?.verify(); }
+          catch { throw new HarnessError('Claude session storage is not Run-owned; enable the Rocky SessionStart hook and check the Run/projects directory permissions', false); }
+        }
+        parser.push(line);
       },
-      onLine: parser.push,
     });
     const result = parser.result();
     if (input.sessionId && result.sessionId !== input.sessionId)
@@ -151,26 +149,35 @@ async function executeClaude(
       );
     throw error;
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    try { await session?.dispose(); }
+    finally { await rm(temporary, { recursive: true, force: true }); }
   }
 }
 
-export function parseClaudeStream(lines: readonly string[]): HarnessResult {
-  const parser = createClaudeStream();
+export function parseClaudeStream(lines: readonly string[], servers: readonly ResolvedMcpServer[] = []): HarnessResult {
+  const parser = createClaudeStream(undefined, servers);
   for (const line of lines) if (line.trim()) parser.push(line);
   return parser.result();
 }
 
-function createClaudeStream(onEvent?: HarnessInvocation['onEvent']) {
+function createClaudeStream(onEvent?: HarnessInvocation['onEvent'], servers: readonly ResolvedMcpServer[] = []) {
   const events: HarnessEvent[] = [];
   const tools = new Map<string, string>();
   let sessionId: string | undefined;
   let text = '';
   let finished = false;
+  let streaming = false;
+  let settledTools = false;
   let usage: HarnessUsage | undefined;
   const emit = (event: HarnessEvent) => {
     events.push(event);
     onEvent?.(event, sessionId ?? '');
+  };
+  const boundary = () => {
+    if (settledTools && !streaming && tools.size === 0) {
+      settledTools = false;
+      emit({ kind: 'turn-boundary' });
+    }
   };
   return {
     push(line: string) {
@@ -186,7 +193,17 @@ function createClaudeStream(onEvent?: HarnessInvocation['onEvent']) {
           );
         sessionId = record.session_id;
       }
-      if (record.type === 'assistant' || record.type === 'user') {
+      if (record.type === 'stream_event') {
+        const event = record.event as { type?: string } | undefined;
+        if (event?.type === 'message_start') streaming = true;
+        if (event?.type === 'message_stop') { streaming = false; boundary(); }
+      } else if (record.type === 'system' && record.subtype === 'init') {
+        const statuses = Array.isArray(record.mcp_servers) ? record.mcp_servers : [];
+        for (const { name } of servers) {
+          const server = statuses.find((item) => item.name === name);
+          if (server?.status !== 'connected') throw mcpFailure(name, server?.status === 'needs-auth');
+        }
+      } else if (record.type === 'assistant' || record.type === 'user') {
         const content = (record.message as { content?: unknown })?.content;
         if (!Array.isArray(content))
           throw new HarnessError('Invalid claude-code message content');
@@ -204,8 +221,11 @@ function createClaudeStream(onEvent?: HarnessInvocation['onEvent']) {
               throw new HarnessError(
                 'claude-code tool result has no matching call',
               );
+            if (block.is_error) checkMcpToolError(name, block.content, servers, '__');
             emit({ kind: 'tool-result', name });
-            emit({ kind: 'turn-boundary' });
+            tools.delete(block.tool_use_id);
+            settledTools = true;
+            boundary();
           } else if (
             record.type === 'assistant' &&
             block.type === 'text' &&
