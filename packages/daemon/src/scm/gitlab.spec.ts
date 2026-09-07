@@ -76,6 +76,21 @@ it('finds or creates a native draft MR and reads ready state back after a title-
   transport.done();
 });
 
+it('refuses a terminal matching MR without creating a second review', async () => {
+  const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
+  const transport = scriptedFetch([
+    { path: lookup, value: [{ ...mr, state: 'closed' }] },
+  ]);
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
+  transport.done();
+});
+
 it.each([true, false])(
   'only offers local base-merge after rebase 403 when ordinary source push is allowed (%s)',
   async (canPush) => {
@@ -331,6 +346,60 @@ it('reports failed GitLab jobs with capped traces, then retries only failed jobs
   transport.done();
 });
 
+it('does not retry a job after a concurrent MR closure', async () => {
+  const pipeline = { id: 9, sha: 'abc', ref: 'ng-524', status: 'failed' };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, head_pipeline: pipeline },
+    },
+    {
+      path: `${root}/merge_requests/7/pipelines?per_page=100&page=1`,
+      value: [pipeline],
+    },
+    {
+      path: `${root}/pipelines/9/jobs?include_retried=false&per_page=100&page=1`,
+      value: [{ id: 12, name: 'test', status: 'failed', allow_failure: false }],
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, state: 'closed', head_pipeline: pipeline },
+    },
+  ]);
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).retryFailedJobs(pr),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
+  transport.done();
+});
+
+it.each(['not_approved', 'requested_changes', 'discussions_not_resolved'])(
+  'refuses GitLab blocking merge status %s before an auto-merge mutation',
+  async (detailed_merge_status) => {
+    const transport = scriptedFetch([
+      {
+        path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+        value: {
+          ...mr,
+          draft: false,
+          detailed_merge_status,
+          merge_when_pipeline_succeeds: false,
+        },
+      },
+    ]);
+    await expect(
+      createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+        ...pr,
+        draft: false,
+      }),
+    ).rejects.toMatchObject({ refusal: { reason: detailed_merge_status } });
+    expect(
+      transport.calls.some((call) => ['POST', 'PUT'].includes(call.method)),
+    ).toBe(false);
+    transport.done();
+  },
+);
+
 it('uses project-scoped discussions and deduplicates reply-before-record recovery', async () => {
   let reply = '';
   let resolved = false;
@@ -378,4 +447,43 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
   ]);
   expect(writes).toBe(1);
   expect(resolved).toBe(true);
+});
+
+it('leaves a GitLab discussion unresolved when a reviewer replies after Rocky posts', async () => {
+  let reply = '';
+  let reviewerReply = '';
+  let resolved = false;
+  const fetcher: typeof fetch = async (url, init) => {
+    const path = new URL(String(url)).pathname;
+    if (path === `${root}/merge_requests/7`) return Response.json(mr);
+    const note = {
+      id: 1,
+      body: 'Fix',
+      system: false,
+      resolvable: true,
+      resolved,
+      position: null,
+    };
+    const discussion = {
+      id: 'D1',
+      notes: [
+        note,
+        ...(reply ? [{ ...note, id: 2, body: reply }] : []),
+        ...(reviewerReply ? [{ ...note, id: 3, body: reviewerReply }] : []),
+      ],
+    };
+    if (init?.method === 'POST') {
+      reply = JSON.parse(String(init.body)).body;
+      reviewerReply = 'Please also cover the edge case.';
+      return Response.json({ id: 2 });
+    }
+    if (init?.method === 'PUT') resolved = true;
+    return Response.json(
+      path.endsWith('/discussions') ? [discussion] : discussion,
+    );
+  };
+  const adapter = createGitLabScm({ ...options, fetch: fetcher });
+  const [thread] = await adapter.reviewThreads(pr);
+  await adapter.replyToThread(thread, 'Fixed', 'NG-524-2');
+  expect(resolved).toBe(false);
 });

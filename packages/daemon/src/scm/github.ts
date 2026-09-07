@@ -199,21 +199,24 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       base: options.repo.baseBranch,
       per_page: '100',
     });
+    let terminal: Pr | undefined;
     for (let page = 1; ; page++) {
       const pulls = await http.request(
         'GET',
         `${root}/pulls?${query}&page=${page}`,
         z.array(pullSchema),
       );
-      const found = pulls.find(
+      const matches = pulls.filter(
         (pull) =>
           pull.head.repo?.full_name === options.repo.project &&
           pull.base.repo?.full_name === options.repo.project &&
           pull.head.ref === options.branch &&
           pull.base.ref === options.repo.baseBranch,
       );
-      if (found) return handle(found);
-      if (pulls.length < 100) return undefined;
+      const open = matches.find((pull) => handle(pull).state === 'open');
+      if (open) return handle(open);
+      terminal ??= matches.length ? handle(matches[0]) : undefined;
+      if (pulls.length < 100) return terminal;
       if (page === 1000)
         throw refuse(
           options.repo.id,
@@ -229,7 +232,17 @@ export function createGitHubScm(options: ScmAdapterOptions) {
     probe: (signal: AbortSignal) => probeGitHub(options, http, root, signal),
     async openPr(input: OpenPrOptions): Promise<Pr> {
       const existing = await findOpenPr();
-      if (existing) return existing;
+      if (existing) {
+        if (existing.state !== 'open')
+          throw refuse(
+            options.repo.id,
+            'not_open',
+            'A matching prior PR is closed or merged.',
+            'Inspect that PR; do not create a second review for this branch.',
+            existing,
+          );
+        return existing;
+      }
       try {
         return handle(
           await http.request('POST', `${root}/pulls`, pullSchema, {
@@ -249,7 +262,17 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         // A concurrent creator may have won after the bounded lookup. Re-read
         // once, then preserve the original refusal rather than retrying POST.
         const recovered = await findOpenPr();
-        if (recovered) return recovered;
+        if (recovered) {
+          if (recovered.state !== 'open')
+            throw refuse(
+              options.repo.id,
+              'not_open',
+              'A matching prior PR is closed or merged.',
+              'Inspect that PR; do not create a second review for this branch.',
+              recovered,
+            );
+          return recovered;
+        }
         throw error;
       }
     },
@@ -612,7 +635,16 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       return { status: 'waiting' };
     },
     async retryFailedJobs(pr: Pr): Promise<void> {
-      checkHead(pr, await read(pr));
+      const initial = await read(pr);
+      if (initial.state !== 'open')
+        throw refuse(
+          options.repo.id,
+          'not_open',
+          'PR is not open.',
+          'Inspect the PR before retrying failed jobs.',
+          initial,
+        );
+      checkHead(pr, initial);
       const runs = await http.list(
         `${root}/actions/runs?head_sha=${encodeURIComponent(pr.headSha)}`,
         runSchema,
@@ -624,7 +656,16 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           run.status === 'completed' &&
           !successful(run.conclusion),
       )) {
-        checkHead(pr, await read(pr));
+        const current = await read(pr);
+        if (current.state !== 'open')
+          throw refuse(
+            options.repo.id,
+            'not_open',
+            'PR is not open.',
+            'Inspect the PR before retrying failed jobs.',
+            current,
+          );
+        checkHead(pr, current);
         await http.request(
           'POST',
           `${root}/actions/runs/${run.id}/rerun-failed-jobs`,
@@ -724,7 +765,14 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             }
           },
         );
-      if (!existing.resolved) {
+      const latest = await notes(actual.id);
+      const safeToResolve =
+        !latest.resolved &&
+        replyIntent(actual, body, runId, latest.bodies).exists &&
+        latest.bodies.every(
+          (note) => existing.bodies.includes(note) || note === intent.body,
+        );
+      if (safeToResolve) {
         try {
           await http.graphql(
             'mutation Resolve($input: ResolveReviewThreadInput!) { resolveReviewThread(input: $input) { thread { isResolved } } }',

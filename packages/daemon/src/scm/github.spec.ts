@@ -304,6 +304,53 @@ it('retries only current-head failed Actions runs', async () => {
   transport.done();
 });
 
+it('refuses a terminal matching PR without creating or rerunning work', async () => {
+  const lookup =
+    '/repos/team/repo/pulls?state=all&head=team%3Ang-524&base=main&per_page=100&page=1';
+  const closed = { ...githubPull, state: 'closed' };
+  const transport = scriptedFetch([{ path: lookup, value: [closed] }]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
+  transport.done();
+});
+
+it('does not rerun failed jobs after a concurrent PR closure', async () => {
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+      value: {
+        workflow_runs: [
+          {
+            id: 20,
+            name: 'CI',
+            head_sha: 'abc',
+            status: 'completed',
+            conclusion: 'failure',
+          },
+        ],
+      },
+    },
+    {
+      path: '/repos/team/repo/pulls/7',
+      value: { ...githubPull, state: 'closed' },
+    },
+  ]);
+  await expect(
+    createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr()),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
+  transport.done();
+});
+
 it('recovers one immutable reply per manual Run/thread and resolves it', async () => {
   let reply = '';
   let resolved = false;
@@ -357,6 +404,53 @@ it('recovers one immutable reply per manual Run/thread and resolves it', async (
   expect(resolved).toBe(true);
   await adapter.replyToThread(thread, 'Fixed in def', 'NG-524-3');
   expect(writes).toBe(2);
+});
+
+it('leaves a GitHub thread unresolved when a reviewer replies after Rocky posts', async () => {
+  let reply = '';
+  let reviewerReply = '';
+  let resolved = false;
+  const pageInfo = { hasNextPage: false, endCursor: null };
+  const fetcher: typeof fetch = async (url, init) => {
+    if (new URL(String(url)).pathname === '/repos/team/repo/pulls/7')
+      return Response.json(githubPull);
+    const { query, variables } = JSON.parse(String(init?.body));
+    const thread = {
+      id: 'T1',
+      path: 'src/app.ts',
+      line: 4,
+      isResolved: resolved,
+      comments: {
+        nodes: [
+          { body: 'Fix this' },
+          ...(reply ? [{ body: reply }] : []),
+          ...(reviewerReply ? [{ body: reviewerReply }] : []),
+        ],
+        pageInfo,
+      },
+    };
+    if (query.includes('query Threads'))
+      return Response.json({
+        data: { node: { reviewThreads: { nodes: [thread], pageInfo } } },
+      });
+    if (query.includes('query Notes'))
+      return Response.json({ data: { node: thread } });
+    if (query.includes('addPullRequestReviewThreadReply')) {
+      reply = variables.input.body;
+      reviewerReply = 'Please also cover the edge case.';
+      return Response.json({
+        data: { addPullRequestReviewThreadReply: { comment: { id: 'C1' } } },
+      });
+    }
+    if (query.includes('resolveReviewThread')) resolved = true;
+    return Response.json({
+      data: { resolveReviewThread: { thread: { isResolved: true } } },
+    });
+  };
+  const adapter = createGitHubScm({ ...githubOptions, fetch: fetcher });
+  const [thread] = await adapter.reviewThreads(githubPr());
+  await adapter.replyToThread(thread, 'Fixed', 'NG-524-2');
+  expect(resolved).toBe(false);
 });
 
 it('re-reads once after a persistent create conflict without retrying POST', async () => {

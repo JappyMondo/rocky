@@ -220,3 +220,49 @@ it('rejects a readable-but-unverified native draft state', async () => {
     error: { message: expect.stringContaining('draft state unknown') },
   });
 });
+
+it('fails closed when a probe is returned for a different frozen member', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-member-'));
+  dirs.push(dir);
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    signal: new AbortController().signal,
+    workflow: async (steps) => {
+      await runPreflight(steps, {
+        signal: new AbortController().signal,
+        members: [
+          {
+            repo: { id: 'one' },
+            probe: async () => ({
+              repo: 'two',
+              platform: 'github' as const,
+              merge: { status: 'allowed' as const, source: 'fixture', fix: '' },
+              rebase: {
+                status: 'allowed' as const,
+                source: 'fixture',
+                fix: '',
+              },
+              sourcePush: {
+                status: 'allowed' as const,
+                source: 'fixture',
+                fix: '',
+              },
+              draft: { status: 'allowed' as const, source: 'fixture', fix: '' },
+            }),
+          },
+        ],
+        refreshMcp: async () => [],
+      });
+      return 'merged';
+    },
+  });
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: { message: expect.stringContaining('probe returned repo two') },
+  });
+  expect(
+    (await openJournal(join(dir, 'journal.jsonl'))).latest(0),
+  ).toMatchObject({
+    result: { repos: [] },
+  });
+});

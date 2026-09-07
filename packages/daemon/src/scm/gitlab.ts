@@ -295,13 +295,22 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         target_branch: options.repo.baseBranch,
       });
       const mrs = await http.list(`${root}/merge_requests?${query}`, mrSchema);
-      const found = mrs.find(
+      const matches = mrs.filter(
         (mr) =>
           mr.source_project_id === mr.target_project_id &&
           mr.source_branch === options.branch &&
           mr.target_branch === options.repo.baseBranch,
       );
-      if (found) return handle(found);
+      const open = matches.find((mr) => mr.state === 'opened');
+      if (open) return handle(open);
+      if (matches.length)
+        throw refuse(
+          options.repo.id,
+          'not_open',
+          'A matching prior MR is closed or merged.',
+          'Inspect that MR; do not create a second review for this branch.',
+          handle(matches[0]),
+        );
       const title = `${input.draft === false ? '' : 'Draft: '}${readyTitle(input.title)}`;
       try {
         return handle(
@@ -322,13 +331,22 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           `${root}/merge_requests?${query}`,
           mrSchema,
         );
-        const existing = recovered.find(
+        const matches = recovered.filter(
           (candidate) =>
             candidate.source_project_id === candidate.target_project_id &&
             candidate.source_branch === options.branch &&
             candidate.target_branch === options.repo.baseBranch,
         );
-        if (existing) return handle(existing);
+        const open = matches.find((candidate) => candidate.state === 'opened');
+        if (open) return handle(open);
+        if (matches.length)
+          throw refuse(
+            options.repo.id,
+            'not_open',
+            'A matching prior MR is closed or merged.',
+            'Inspect that MR; do not create a second review for this branch.',
+            handle(matches[0]),
+          );
         throw error;
       }
     },
@@ -467,14 +485,11 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           'Complete reviews and mark ready before arming.',
           current,
         );
-      if (
-        ['conflict', 'need_rebase', 'ci_must_pass'].includes(
-          mr.detailed_merge_status,
-        )
-      ) {
-        const reason: ScmRefusalReason = mergeReasons.parse(
-          mr.detailed_merge_status,
-        );
+      const status = mergeReasons.safeParse(mr.detailed_merge_status);
+      if (status.success) {
+        const reason: ScmRefusalReason = status.data;
+        if (['checking', 'preparing', 'unchecked'].includes(reason))
+          return { status: 'waiting' };
         throw refuse(
           options.repo.id,
           reason,
@@ -483,12 +498,6 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           current,
         );
       }
-      if (
-        ['checking', 'preparing', 'unchecked'].includes(
-          mr.detailed_merge_status,
-        )
-      )
-        return { status: 'waiting' };
       const support = await features();
       if (support.trains) {
         const entry = await train(pr);
@@ -631,7 +640,16 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         (job) =>
           !job.allow_failure && ['failed', 'canceled'].includes(job.status),
       )) {
-        checkHead(pr, handle(await read(pr)));
+        const current = handle(await read(pr));
+        if (current.state !== 'open')
+          throw refuse(
+            options.repo.id,
+            'not_open',
+            'MR is not open.',
+            'Inspect the MR before retrying failed jobs.',
+            current,
+          );
+        checkHead(pr, current);
         await http.request(
           'POST',
           `${root}/jobs/${job.id}/retry`,
@@ -734,7 +752,17 @@ export function createGitLabScm(options: ScmAdapterOptions) {
             }
           },
         );
-      if (discussion.notes.some((note) => note.resolvable && !note.resolved)) {
+      const latest = await http.request('GET', path, discussionSchema);
+      const latestBodies = latest.notes.map((note) => note.body);
+      const safeToResolve =
+        latest.notes.some((note) => note.resolvable && !note.resolved) &&
+        replyIntent(actual, body, runId, latestBodies).exists &&
+        latestBodies.every(
+          (note) =>
+            discussion.notes.some((existing) => existing.body === note) ||
+            note === intent.body,
+        );
+      if (safeToResolve) {
         try {
           await http.request('PUT', path, discussionSchema, { resolved: true });
         } catch (error) {

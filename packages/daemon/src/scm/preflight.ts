@@ -106,8 +106,15 @@ export async function runPreflight(
           }
         }),
       );
-      for (const probe of reports) {
+      for (const [index, probe] of reports.entries()) {
         if (!probe) continue;
+        const member = options.members[index];
+        if (probe.repo !== member.repo.id) {
+          result.failures.push(
+            `${member.repo.id}: probe returned repo ${probe.repo}; verify adapter routing without a permission mutation.`,
+          );
+          continue;
+        }
         result.repos.push(probe);
         if (probe.merge.status !== 'allowed')
           result.failures.push(
