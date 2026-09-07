@@ -17,6 +17,7 @@ it('flips native draft state through GraphQL and updates the content description
       body: { body: 'Reviewed change' },
       value: githubPull,
     },
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
     {
       path: '/graphql',
       method: 'POST',
@@ -36,10 +37,10 @@ it('flips native draft state through GraphQL and updates the content description
     body: 'Reviewed change',
   });
   expect(result.draft).toBe(false);
-  expect(transport.calls[2].body).toMatchObject({
+  expect(transport.calls[3].body).toMatchObject({
     variables: { input: { pullRequestId: 'PR_one' } },
   });
-  expect(transport.calls[2].body.query).toContain(
+  expect(transport.calls[3].body.query).toContain(
     'markPullRequestReadyForReview',
   );
   transport.done();
@@ -153,6 +154,10 @@ it.each([false, true])(
       ? 'enqueuePullRequest'
       : 'enablePullRequestAutoMerge';
     const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
       { path: '/graphql', method: 'POST', value: { data: { node } } },
       {
         path: '/graphql',
@@ -166,6 +171,10 @@ it.each([false, true])(
         },
       },
       {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
+      {
         path: '/graphql',
         method: 'POST',
         value: {
@@ -177,6 +186,10 @@ it.each([false, true])(
             },
           },
         },
+      },
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
       },
       {
         path: '/graphql',
@@ -200,11 +213,11 @@ it.each([false, true])(
       status: 'done',
       result: { status: 'merged', pr: { state: 'merged' } },
     });
-    expect(transport.calls[1].body.variables.input).toMatchObject({
+    expect(transport.calls[2].body.variables.input).toMatchObject({
       pullRequestId: 'PR_one',
       expectedHeadOid: 'abc',
     });
-    expect(transport.calls[1].body.query).toContain(operation);
+    expect(transport.calls[2].body.query).toContain(operation);
     transport.done();
   },
 );
@@ -278,6 +291,8 @@ it('recovers one immutable reply per manual Run/thread and resolves it', async (
   let writes = 0;
   const pageInfo = { hasNextPage: false, endCursor: null };
   const fetcher: typeof fetch = async (_url, init) => {
+    const path = new URL(String(_url)).pathname;
+    if (path === '/repos/team/repo/pulls/7') return Response.json(githubPull);
     const { query, variables } = JSON.parse(String(init?.body));
     const thread = {
       id: 'T1',

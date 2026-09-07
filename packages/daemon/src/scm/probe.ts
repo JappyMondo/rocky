@@ -34,16 +34,11 @@ const denied = (source: string) =>
     'Obtain the named permission on this repository; do not bypass or weaken branch policy.',
   );
 const draft = (values: { draft?: boolean }[]) =>
-  values.some((value) => typeof value.draft === 'boolean')
-    ? ability(
-        'allowed',
-        'Existing PR/MR native draft boolean observed; transitions require separate authorized fixture evidence.',
-      )
-    : unknown(
-        values.length
-          ? 'Native draft boolean is not observable.'
-          : 'Unexercised: no PR/MR exists for this source/base.',
-      );
+  unknown(
+    values.length
+      ? 'A readable native draft boolean does not prove permission to transition it.'
+      : 'Unexercised: no PR/MR exists for this source/base.',
+  );
 
 export async function probeGitHub(
   options: ScmAdapterOptions,
@@ -153,7 +148,13 @@ export async function probeGitHub(
     merge,
     sourcePush,
     rebase: sourcePush,
-    draft: draft(prs),
+    draft:
+      tokenWrite && repo.permissions?.push === true
+        ? ability(
+            'allowed',
+            'Repository Contents write and token write scope prove PR metadata write authority.',
+          )
+        : draft(prs),
   };
 }
 
@@ -353,7 +354,13 @@ export async function probeGitLab(
     merge,
     sourcePush,
     rebase,
-    draft: draft(prs),
+    draft:
+      scopes.includes('api') && role >= 30
+        ? ability(
+            'allowed',
+            'API write scope and Developer membership prove MR metadata write authority.',
+          )
+        : draft(prs),
     version: version.version,
     mergeTrains: project.merge_trains_enabled ?? 'unknown',
   };

@@ -91,6 +91,10 @@ it.each([true, false])(
         value: {},
       },
       {
+        path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+        value: { ...mr, detailed_merge_status: 'need_rebase' },
+      },
+      {
         path: `${root}/repository/branches/ng-524`,
         value: { name: 'ng-524', can_push: canPush },
       },
@@ -111,6 +115,29 @@ it.each([true, false])(
     transport.done();
   },
 );
+
+it('refuses a stale local base-merge fallback when rebase 403 raced a source push', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, detailed_merge_status: 'need_rebase' },
+    },
+    {
+      path: `${root}/merge_requests/7/rebase`,
+      method: 'PUT',
+      status: 403,
+      value: {},
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, sha: 'def', detailed_merge_status: 'need_rebase' },
+    },
+  ]);
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).updateBranch(pr),
+  ).rejects.toMatchObject({ refusal: { reason: 'head_changed' } });
+  transport.done();
+});
 
 it('treats accepted rebase as pending and observes completion or conflict on later polls', async () => {
   const transport = scriptedFetch([
@@ -274,6 +301,7 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
   let writes = 0;
   const fetcher: typeof fetch = async (url, init) => {
     const path = new URL(String(url)).pathname;
+    if (path === `${root}/merge_requests/7`) return Response.json(mr);
     const note = {
       id: 1,
       body: 'Fix',

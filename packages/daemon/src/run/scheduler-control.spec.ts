@@ -9,7 +9,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { CheckpointAnswer } from '@rocky/sdk';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { newRunHeader, readRunHeader, writeRunHeader } from './header.js';
@@ -102,7 +101,7 @@ it('polls a real waiting Step outside a saturated cap and requeues behind an exi
     },
     external: (_run, steps) => ({
       checkpoint: () =>
-        steps.step<CheckpointAnswer>('checkpoint', {}, async () =>
+        steps.step<{ decision: 'approve' }>('checkpoint', {}, async () =>
           answered
             ? { status: 'done', result: { decision: 'approve' } }
             : { status: 'waiting' },

@@ -104,8 +104,16 @@ const readyTitle = (title: string) =>
     '',
   );
 
+// A successful arm is remembered only as a disposable transport optimization.
+// The journal is the durable dedupe boundary; retaining this across adapter
+// recreation prevents an active MR from being hot-looped within a Boot.
+const armedHeads = new WeakMap<typeof fetch, Set<string>>();
+
 export function createGitLabScm(options: ScmAdapterOptions) {
   const http = new ScmHttp(options, 'https://gitlab.com/api/v4');
+  const transport = options.fetch ?? fetch;
+  const armed = armedHeads.get(transport) ?? new Set<string>();
+  armedHeads.set(transport, armed);
   const root = `/projects/${encodeURIComponent(options.repo.project)}`;
   const handle = (mr: z.infer<typeof mrSchema>): Pr => ({
     repo: options.repo.id,
@@ -297,14 +305,34 @@ export function createGitLabScm(options: ScmAdapterOptions) {
       );
       if (found) return handle(found);
       const title = `${input.draft === false ? '' : 'Draft: '}${readyTitle(input.title)}`;
-      return handle(
-        await http.request('POST', `${root}/merge_requests`, mrSchema, {
-          title,
-          description: input.body,
-          source_branch: options.branch,
-          target_branch: options.repo.baseBranch,
-        }),
-      );
+      try {
+        return handle(
+          await http.request('POST', `${root}/merge_requests`, mrSchema, {
+            title,
+            description: input.body,
+            source_branch: options.branch,
+            target_branch: options.repo.baseBranch,
+          }),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof ScmError) ||
+          ![409, 422].includes(error.status ?? 0)
+        )
+          throw error;
+        const recovered = await http.list(
+          `${root}/merge_requests?${query}`,
+          mrSchema,
+        );
+        const existing = recovered.find(
+          (candidate) =>
+            candidate.source_project_id === candidate.target_project_id &&
+            candidate.source_branch === options.branch &&
+            candidate.target_branch === options.repo.baseBranch,
+        );
+        if (existing) return handle(existing);
+        throw error;
+      }
     },
     async markDraft(
       pr: Pr,
@@ -379,6 +407,10 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         );
       } catch (error) {
         if (!(error instanceof ScmError && error.status === 403)) throw error;
+        // Rebase refusal can race a source push; do not offer a local fallback
+        // for a source head that is no longer current.
+        const reread = handle(await read(pr));
+        checkHead(pr, reread);
         let branch;
         try {
           branch = await http.request(
@@ -409,7 +441,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           );
         return {
           status: 'done',
-          result: { status: 'local_base_merge_required', pr: current },
+          result: { status: 'local_base_merge_required', pr: reread },
         };
       }
       return { status: 'waiting' };
@@ -480,8 +512,6 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           return { status: 'waiting' };
         }
       }
-      if (mr.merge_when_pipeline_succeeds === true)
-        return { status: 'waiting' };
       if (mr.merge_when_pipeline_succeeds === undefined)
         throw refuse(
           options.repo.id,
@@ -490,6 +520,9 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           'Verify the GitLab version and auto-merge readback with a maintainer.',
           current,
         );
+      const armKey = `${options.repo.project}:${pr.id}:${pr.headSha}`;
+      if (mr.merge_when_pipeline_succeeds === true && armed.has(armKey))
+        return { status: 'waiting' };
       // The merge-named endpoint is exclusively an auto_merge request, never immediate merge.
       if (support.trains)
         await http.request(
@@ -505,6 +538,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           mrSchema,
           { sha: pr.headSha, auto_merge: true },
         );
+      armed.add(armKey);
       return { status: 'waiting' };
     },
     async waitForCi(
@@ -601,7 +635,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
       }
     },
     async reviewThreads(pr: Pr): Promise<ReviewThread[]> {
-      validate(pr);
+      const current = handle(await read(pr));
       const discussions = await http.list(
         `${root}/merge_requests/${pr.number}/discussions`,
         discussionSchema,
@@ -614,7 +648,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         const line = position?.new_line ?? position?.old_line;
         return [
           {
-            pr,
+            pr: current,
             id: discussion.id,
             ...(path === undefined ? {} : { path }),
             ...(line == null ? {} : { line }),
@@ -633,8 +667,8 @@ export function createGitLabScm(options: ScmAdapterOptions) {
       body: string,
       runId: string,
     ): Promise<void> {
-      validate(thread.pr);
-      const path = `${root}/merge_requests/${thread.pr.number}/discussions/${encodeURIComponent(thread.id)}`;
+      const current = handle(await read(thread.pr));
+      const path = `${root}/merge_requests/${current.number}/discussions/${encodeURIComponent(thread.id)}`;
       const discussion = await http.request('GET', path, discussionSchema);
       if (discussion.id !== thread.id)
         throw refuse(
@@ -643,8 +677,19 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           'Discussion identity changed.',
           'Inspect the MR discussion.',
         );
+      const actual = (await this.reviewThreads(current)).find(
+        (candidate) => candidate.id === thread.id,
+      );
+      if (!actual)
+        throw refuse(
+          options.repo.id,
+          'not_open',
+          'Discussion does not belong to the current MR.',
+          'Re-read discussions from this MR before replying.',
+          current,
+        );
       const intent = replyIntent(
-        thread,
+        actual,
         body,
         runId,
         discussion.notes.map((note) => note.body),

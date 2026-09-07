@@ -11,7 +11,8 @@ import type {
   UpdateBranchResult,
 } from '@rocky/sdk';
 import type { BootContext, StepOutcome } from '../run/replay.js';
-import { ScmError, type ScmRepository } from './http.js';
+import type { CheckpointApprovalVerifier } from '../run/context.js';
+import { refuse, ScmError, type ScmRepository } from './http.js';
 
 /** A single platform request/poll, not another scheduler. Errors are safe ScmErrors. */
 export interface ScmAdapter {
@@ -39,6 +40,8 @@ export interface ScmContextOptions {
   lead: string;
   members: readonly ScmAdapter[];
   signal: AbortSignal;
+  /** Bound by createWorkflowContext to this branch-local Boot. */
+  approvals: CheckpointApprovalVerifier;
   /** Idempotent upsert/activity in the existing Linear thread, never a new PR comment. */
   onRefusal(
     notice: { key: string; refusal: ScmRefusal },
@@ -147,9 +150,17 @@ export function createScm(
     updateBranch: (pr) =>
       call('updateBranch', pr.repo, pr, (adapter) => adapter.updateBranch(pr)),
     armAutoMerge: (pr, approval: ApprovedCheckpoint) =>
-      call('armAutoMerge', pr.repo, [pr, approval], (adapter) =>
-        adapter.armAutoMerge(pr),
-      ),
+      call('armAutoMerge', pr.repo, [pr, approval], (adapter) => {
+        if (!options.approvals(approval))
+          throw refuse(
+            pr.repo,
+            'permission_denied',
+            'Auto-merge requires an approved Checkpoint from this Boot.',
+            'Wait for ctx.checkpoint to return approve, then arm this PR/MR.',
+            pr,
+          );
+        return adapter.armAutoMerge(pr);
+      }),
     reviewThreads: (pr) =>
       call('reviewThreads', pr.repo, pr, async (adapter) => ({
         status: 'done',

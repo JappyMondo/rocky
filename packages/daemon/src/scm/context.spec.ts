@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
+import type { ApprovedCheckpoint } from '@rocky/sdk';
 import { runBoot } from '../run/replay.js';
 import { openJournal } from '../run/journal.js';
 import { createGitHubScm, createScm } from './index.js';
@@ -21,8 +22,23 @@ it('parks a permission-refused arm with an idempotent named blocker and settles 
   let reads = 0;
   const notices = new Map<string, unknown>();
   const signal = new AbortController().signal;
-  const fetcher: typeof fetch = async () => {
+  const fetcher: typeof fetch = async (url) => {
     reads++;
+    if (new URL(String(url)).pathname.endsWith('/pulls/7'))
+      return Response.json({
+        node_id: 'PR_one',
+        number: 7,
+        html_url: 'https://github.test/pull/7',
+        head: {
+          ref: 'ng-524',
+          sha: 'abc',
+          repo: { full_name: 'team/repo' },
+        },
+        base: { ref: 'main', repo: { full_name: 'team/repo' } },
+        state: merged ? 'closed' : 'open',
+        merged_at: merged ? 'now' : null,
+        draft: false,
+      });
     return Response.json({
       data: {
         node: {
@@ -55,6 +71,7 @@ it('parks a permission-refused arm with an idempotent named blocker and settles 
           runId: 'NG-524-1',
           lead: 'lead',
           signal,
+          approvals: () => true,
           members: [
             createGitHubScm({ ...githubOptions, signal, fetch: fetcher }),
           ],
@@ -74,7 +91,7 @@ it('parks a permission-refused arm with an idempotent named blocker and settles 
             state: 'open',
             draft: false,
           },
-          { decision: 'approve' },
+          { decision: 'approve' } as unknown as ApprovedCheckpoint,
         );
         expect(result).toMatchObject({ status: 'merged' });
         return 'merged';
@@ -91,6 +108,7 @@ it('parks a permission-refused arm with an idempotent named blocker and settles 
   merged = true;
   expect(await boot(true)).toMatchObject({ status: 'ready' });
   expect(await boot()).toMatchObject({ status: 'finished', outcome: 'merged' });
-  expect(reads).toBe(3);
+  // Each guarded GraphQL arm has one REST identity re-read.
+  expect(reads).toBe(6);
   expect((await openJournal(journalPath)).latest(0)?.status).toBe('done');
 });
