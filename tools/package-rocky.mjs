@@ -66,6 +66,7 @@ await writeFile(
   `${JSON.stringify(
     {
       name: cli.name,
+      private: cli.private,
       version: cli.version,
       description: cli.description,
       license: cli.license,

@@ -57,11 +57,16 @@ publication is implied by a successful local pack/install test. The reconciled
 [CLI and Workflow context contract](docs/cli-and-ctx.md) distinguishes current
 implementations from named stubs and pending runtime integration.
 
+**Do not run bare `npx rocky` or install `rocky` from the public registry.** That
+name belongs to the unrelated `h2non/rocky` proxy package. This project's tarballs
+remain local and private until an appropriate scoped name and ownership are
+verified; the distribution guide uses explicit tarball paths only.
+
 An Nx workspace, pnpm, Node 24. Four buildable pieces:
 
 ```
 packages/daemon   @rocky/daemon  the long-running local process: API + web UI on one port
-packages/cli      rocky          the thin client; `npx rocky` is the distribution
+packages/cli      rocky          the CLI and staged local tarball; registry name unresolved
 packages/sdk      @rocky/sdk     types and Trigger builders for a repo's .rocky/ — never behaviour
 apps/web          web            the Vite/React shell the daemon serves
 ```
