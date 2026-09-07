@@ -82,6 +82,19 @@ it('makes a stderr-only OpenCode account rejection permanent with its login fix'
   ).rejects.toMatchObject({ retryable: false, fix: 'opencode auth login' });
 });
 
+it('makes a source-correlated stderr MCP initialization rejection permanent', async () => {
+  const input = await invocation();
+  await expect(
+    opencode.run({
+      ...input,
+      env: { ...input.env, FIXTURE_MODE: 'stderr-mcp-auth' },
+      mcpServers: [
+        { name: 'api', config: { url: 'https://example.test/mcp' } },
+      ],
+    }),
+  ).rejects.toMatchObject({ retryable: false, fix: 'rocky mcp login api' });
+});
+
 it('requires the resumed Claude ID and a final result', async () => {
   const input = await invocation();
   const first = await claudeCode.run(input);

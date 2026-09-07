@@ -59,10 +59,7 @@ export function checkMcpDiagnostic(
   )
     return;
   const server = servers.find(({ name }) =>
-    new RegExp(
-      `(?:key|name|server|mcp)["']?[=:\\s]+["']?${escapeRegExp(name)}(?:["'\\s,}]|$)`,
-      'i',
-    ).test(detail),
+    isNativeMcpDiagnostic(detail, name),
   );
   if (server)
     throw mcpFailure(
@@ -73,4 +70,20 @@ export function checkMcpDiagnostic(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isNativeMcpDiagnostic(detail: string, name: string): boolean {
+  const value = escapeRegExp(name);
+  // A generic `server=…` is not enough: provider/model errors can name a server.
+  // Native MCP diagnostics identify the source or use an MCP-specific key.
+  const source = /\bmcp(?:[_ -]?server)?\b|server unavailable/i.test(detail);
+  const mcpField = new RegExp(
+    `(?:mcp|mcpServer|serverName)["']?\\s*[=:]\\s*["']?${value}(?:["'\\s,}]|$)`,
+    'i',
+  );
+  const named = new RegExp(
+    `(?:key|name|server)["']?\\s*[=:]\\s*["']?${value}(?:["'\\s,}]|$)|\\b${value}\\b`,
+    'i',
+  );
+  return mcpField.test(detail) || (source && named.test(detail));
 }
