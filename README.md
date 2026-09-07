@@ -51,11 +51,22 @@ GitHub and GitLab are both first-class, including the awkward parts: merge queue
 
 ## Working on Rocky itself
 
+For local tarball installation, independent `rocky`/`@rocky/sdk` versioning and
+the manual release gate, see [distribution](docs/distribution.md). No registry
+publication is implied by a successful local pack/install test. The reconciled
+[CLI and Workflow context contract](docs/cli-and-ctx.md) distinguishes current
+implementations from named stubs and pending runtime integration.
+
+**Do not run bare `npx rocky` or install `rocky` from the public registry.** That
+name belongs to the unrelated `h2non/rocky` proxy package. This project's tarballs
+remain local and private until an appropriate scoped name and ownership are
+verified; the distribution guide uses explicit tarball paths only.
+
 An Nx workspace, pnpm, Node 24. Four buildable pieces:
 
 ```
 packages/daemon   @rocky/daemon  the long-running local process: API + web UI on one port
-packages/cli      rocky          the thin client; `npx rocky` is the distribution
+packages/cli      rocky          the CLI and staged local tarball; registry name unresolved
 packages/sdk      @rocky/sdk     types and Trigger builders for a repo's .rocky/ — never behaviour
 apps/web          web            the Vite/React shell the daemon serves
 ```
@@ -74,11 +85,11 @@ A pull request checks only the projects it touched (`nx affected`); a push to `m
 
 Two `image-size` advisories are waived in `pnpm.auditConfig.ignoreGhsas` (`GHSA-w3rx-r6r6-pgpr`, `GHSA-5p2g-fcmc-qvqq`): both are denial-of-service parsers reached only through `less`, an optional peer of Vite that pnpm installs but nothing here invokes — no file in this repo is Less — and neither has a patched release to upgrade to. A waiver is per-GHSA and belongs there rather than in a lowered `--audit-level`, which would silently waive the next real advisory too. Drop them the moment `image-size` ships a fix.
 
-`main` is protected: the `CI` job is the required status check, commits must be signed, a pull request needs one approving review, and history stays linear — merges are squashes ([NG-562](https://linear.app/digimondo/issue/NG-562)).
+`main` is protected: the lowercase `ci` job is the required status check, commits must be signed, a pull request needs one approving review, and history stays linear — merges are squashes ([NG-562](https://linear.app/digimondo/issue/NG-562)).
 
 `rocky setup` is the interactive first-run wizard: it asks for your public URL first — a Linear webhook URL is fixed when the OAuth app is created and cannot be changed afterwards — then prints a manifest URL to hand to a workspace admin, takes the app's credentials, runs the OAuth flow locally, and verifies the endpoint with a self-ping. See [docs/public-endpoint.md](docs/public-endpoint.md) for tunnel recipes.
 
-`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. The public endpoint fronts the webhook only, never the web UI. Most of the rest of the command table is stubbed — each stub names the ticket that owns its semantics.
+`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Never tunnel this listener. The public endpoint must target the separate `rocky-ingress` filter, which admits only the webhook and ping. `init`, `upgrade`, `mcp login` and `trigger` are named failing stubs at this base; lifecycle and repo commands are implemented. See the contract table above for integration owners.
 
 ### The daemon's lifecycle
 
