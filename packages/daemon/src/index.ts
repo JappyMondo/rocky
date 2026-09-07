@@ -90,16 +90,17 @@ export * from './lifecycle/index.js';
 
 export {
   AUTH_PROBES,
-  checkHarnessAuth,
+  getHarnessAdapter,
   harnessAuthEnv,
   isShippedHarness,
   type AuthProbe,
   type CheckAuthOptions,
+  type HarnessAdapter,
   type HarnessAuthResult,
   type ProbeResult,
   type ProbeRunner,
   type ShippedHarness,
-} from './harness/check-auth.js';
+} from './harness/adapter.js';
 
 export {
   anyFailed,

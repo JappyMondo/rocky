@@ -14,7 +14,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { anyFailed, runDoctor, type DoctorOptions } from './doctor.js';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
+import type { HarnessConfig } from '../config/schema.js';
 import { writeInstanceConfig } from '../config/store.js';
+import type { HarnessAdapter } from '../harness/adapter.js';
 
 let root: string;
 let paths: RockyPaths;
@@ -31,9 +33,28 @@ afterEach(() => {
 /** Nothing here should touch the network or a real harness binary. */
 const OFFLINE: DoctorOptions = {
   fetch: () => Promise.reject(new Error('the endpoint was not reached')),
-  checkHarness: (harness) =>
-    Promise.resolve({ harness, ok: true, detail: 'signed in' }),
+  adapterFor: (name) =>
+    name === 'claude-code' || name === 'opencode'
+      ? {
+          name,
+          checkAuth: () =>
+            Promise.resolve({ harness: name, ok: true, detail: 'signed in' }),
+        }
+      : undefined,
 };
+
+const adapterFor = (
+  checkAuth: (
+    harness: string,
+    config: HarnessConfig,
+  ) => Promise<Awaited<ReturnType<HarnessAdapter['checkAuth']>>>,
+): NonNullable<DoctorOptions['adapterFor']> =>
+  (name) => {
+    const adapter = OFFLINE.adapterFor?.(name);
+    return adapter === undefined
+      ? undefined
+      : { ...adapter, checkAuth: (config) => checkAuth(name, config) };
+  };
 
 const check = (report: Awaited<ReturnType<typeof runDoctor>>, name: string) => {
   const found = report.find((entry) => entry.name === name);
@@ -191,21 +212,31 @@ describe('the harness checks', () => {
     expect(check(report, 'harness claude-code').ok).toBe(true);
   });
 
-  it('hands the harness its configured block, not a blank one', async () => {
+  it('uses the injected adapter with its configured block and named fix', async () => {
     await writeInstanceConfig(paths, {
       harnesses: { 'claude-code': { command: '/opt/claude/claude' } },
     });
     const seen: unknown[] = [];
-
-    await runDoctor(paths, {
-      ...OFFLINE,
-      checkHarness: (harness, config) => {
+    const adapter: HarnessAdapter = {
+      name: 'claude-code',
+      checkAuth: (config) => {
         seen.push(config);
-        return Promise.resolve({ harness, ok: true, detail: 'signed in' });
+        return Promise.resolve({
+          harness: 'claude-code',
+          ok: false,
+          detail: 'not signed in',
+          fix: 'claude login',
+        });
       },
+    };
+
+    const report = await runDoctor(paths, {
+      ...OFFLINE,
+      adapterFor: (name) => (name === adapter.name ? adapter : undefined),
     });
 
     expect(seen[0]).toMatchObject({ command: '/opt/claude/claude' });
+    expect(check(report, 'harness claude-code').fix).toBe('claude login');
   });
 
   it('fails the run when a configured harness is not signed in', async () => {
@@ -213,13 +244,14 @@ describe('the harness checks', () => {
 
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: (harness) =>
+      adapterFor: adapterFor((harness) =>
         Promise.resolve({
           harness,
           ok: false,
           detail: 'not signed in',
           fix: 'claude login',
         }),
+      ),
     });
 
     expect(check(report, 'harness claude-code').ok).toBe(false);
@@ -233,13 +265,14 @@ describe('the harness checks', () => {
     // the ones this machine has deliberately configured.
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: (harness) =>
+      adapterFor: adapterFor((harness) =>
         Promise.resolve({
           harness,
           ok: false,
           detail: 'not signed in',
           fix: `${harness} login`,
         }),
+      ),
     });
 
     expect(check(report, 'harness claude-code').ok).toBe(false);
@@ -263,7 +296,9 @@ describe('a check that goes wrong rather than failing', () => {
 
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: () => Promise.reject(new Error('the probe exploded')),
+      adapterFor: adapterFor(() =>
+        Promise.reject(new Error('the probe exploded')),
+      ),
     });
 
     expect(check(report, 'harness claude-code').ok).toBe(false);
