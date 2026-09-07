@@ -17,9 +17,9 @@ export default defineConfig({
       // Without this, v8 only reports files a test happens to import, so a new
       // untested file would land without moving the number the gate watches.
       include: ['src/**/*.ts'],
-      // The `#!/usr/bin/env node` shim: it only runs as a real process, and
-      // everything it calls is covered through `cli.ts`.
-      exclude: ['src/main.ts'],
+      // The `#!/usr/bin/env node` shims only run as real processes; their
+      // reusable behavior is covered through `cli.ts` and `public-ingress.ts`.
+      exclude: ['src/main.ts', 'src/ingress-main.ts'],
       // The rebase adds main's endpoint surface to this project, lowering its
       // branch baseline. Linux covers slightly fewer branches than darwin, so
       // retain the measured cross-platform margin below the local reading.
