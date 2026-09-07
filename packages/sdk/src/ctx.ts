@@ -146,6 +146,7 @@ export interface WorkflowContext {
   readonly ports: number[];
 
   /** Display-only: takes no seq, stamps later entries, and re-executes on replay. */
+  /** Display-only: takes no seq, stamps later entries, and re-executes on replay. */
   stage(label: string): void;
 
   /**

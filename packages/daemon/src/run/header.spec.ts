@@ -108,6 +108,8 @@ describe('a new header', () => {
     });
     expect(created.outcome).toBeUndefined();
     expect(created.endedAt).toBeUndefined();
+    expect(created.ports).toEqual([]);
+    expect(created.processGroups).toEqual([]);
   });
 
   it('does not invent a Trigger when a Run was started without one', () => {
@@ -130,6 +132,37 @@ describe('writing the header', () => {
     const text = await readFile(paths.run('NG-601-1').runJson, 'utf8');
 
     expect(JSON.parse(text)).toEqual(header());
+  });
+
+  it('round-trips the ports reserved for a Run', async () => {
+    await writeRunHeader(paths, header({ ports: [41001, 41002] }));
+
+    await expect(readRunHeader(paths, 'NG-601-1')).resolves.toMatchObject({
+      ports: [41001, 41002],
+    });
+  });
+
+  it('round-trips the background process groups owned by a Run', async () => {
+    await writeRunHeader(paths, header({ processGroups: [101, 102] }));
+
+    await expect(readRunHeader(paths, 'NG-601-1')).resolves.toMatchObject({
+      processGroups: [101, 102],
+    });
+  });
+
+  it('refuses to persist invalid port reservations', async () => {
+    await expect(
+      writeRunHeader(paths, header({ ports: [41001, 41001] })),
+    ).rejects.toThrow(/ports must be unique/);
+  });
+
+  it('refuses to persist duplicate or invalid process groups', async () => {
+    await expect(
+      writeRunHeader(paths, header({ processGroups: [101, 101] })),
+    ).rejects.toThrow(/process groups must be unique/);
+    await expect(
+      writeRunHeader(paths, header({ processGroups: [0] })),
+    ).rejects.toThrow();
   });
 
   it('leaves no temp file behind, and the file world-readable', async () => {
@@ -206,6 +239,26 @@ describe('reading a broken header', () => {
       new RegExp(
         `header version ${RUN_HEADER_VERSION + 1}.*version ${RUN_HEADER_VERSION}`,
       ),
+    );
+  });
+
+  it.each([
+    ['duplicate ports', [41001, 41001]],
+    ['a port below the valid range', [0]],
+    ['a port above the valid range', [65536]],
+    ['a fractional port', [41001.5]],
+  ])('rejects %s', async (_description, ports) => {
+    await writeRunHeader(paths, header());
+    const raw = JSON.parse(
+      await readFile(paths.run('NG-601-1').runJson, 'utf8'),
+    ) as Record<string, unknown>;
+    await writeFile(
+      paths.run('NG-601-1').runJson,
+      JSON.stringify({ ...raw, ports }),
+    );
+
+    await expect(readRunHeader(paths, 'NG-601-1')).rejects.toThrow(
+      /run\.json is not a Run header/,
     );
   });
 });

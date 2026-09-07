@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type {
   BackgroundExecResult,
   ExecResult,
   WorkflowContext,
 } from '@rocky/sdk';
+
 import type { RunHeader } from './header.js';
 import type { BootContext } from './replay.js';
 
@@ -12,14 +14,33 @@ export type ExternalContext = Pick<
   'agent' | 'checkpoint' | 'post' | 'scm' | 'linear'
 >;
 
+export class ConcurrentContextCallError extends Error {
+  constructor() {
+    super('concurrent ctx calls are only supported inside ctx.parallel');
+    this.name = 'ConcurrentContextCallError';
+  }
+}
+
 export interface ContextServices {
   exec(
     command: string,
     background: boolean,
   ): Promise<ExecResult | BackgroundExecResult>;
   changedFiles(): Promise<string[]>;
-  /** Each adapter journals through the supplied branch-local Steps. */
+  trackProcessGroup?(pid: number): void | Promise<void>;
+  /** Adapters are selected per branch so parallel calls never share a runner. */
   external?: (steps: BootContext) => Partial<ExternalContext>;
+}
+
+interface ActiveContext {
+  runner: BootContext;
+  pending: Promise<void> | undefined;
+}
+
+function isBackgroundResult(
+  result: ExecResult | BackgroundExecResult,
+): result is BackgroundExecResult {
+  return 'pid' in result;
 }
 
 export function createWorkflowContext(
@@ -27,87 +48,99 @@ export function createWorkflowContext(
   header: Pick<RunHeader, 'issue' | 'branch' | 'ports'>,
   services: ContextServices,
 ): WorkflowContext {
-  const branch = new AsyncLocalStorage<BootContext>();
-  const current = () => branch.getStore() ?? runner;
-  const issue = structuredClone(header.issue);
-  Object.freeze(issue.labels);
-  Object.freeze(issue);
-  const external = <K extends keyof ExternalContext>(
-    key: K,
-  ): ExternalContext[K] => {
-    const member = services.external?.(current())[key];
-    if (!member)
-      throw new Error(
-        `ctx.${key} requires an adapter; configure it on the Run runtime`,
+  const active = new AsyncLocalStorage<ActiveContext>();
+  const root: ActiveContext = { runner, pending: undefined };
+  const issue = Object.freeze({
+    ...header.issue,
+    labels: Object.freeze([...header.issue.labels]),
+  }) as WorkflowContext['issue'];
+
+  const call = <T>(work: (current: BootContext) => Promise<T>): Promise<T> => {
+    const context = active.getStore() ?? root;
+    const start = (): Promise<T> => {
+      if (context.pending) {
+        return context.pending.then(() => {
+          throw new ConcurrentContextCallError();
+        });
+      }
+      const operation = work(context.runner);
+      const settled = operation.then(
+        () => undefined,
+        () => undefined,
       );
-    return member;
+      context.pending = settled;
+      return operation.finally(() => {
+        if (context.pending === settled) context.pending = undefined;
+      });
+    };
+    return active.getStore() ? start() : active.run(root, start);
   };
+
+  const external = <K extends keyof ExternalContext>(key: K): ExternalContext[K] => {
+    const value = services.external?.(active.getStore()?.runner ?? runner)[key];
+    if (!value)
+      throw new Error(`ctx.${key} requires an adapter; configure it on the Run runtime`);
+    return value;
+  };
+
   function exec(
     command: string,
     opts: { background: true; label?: string },
   ): Promise<BackgroundExecResult>;
-  function exec(
-    command: string,
-    opts?: { label?: string },
-  ): Promise<ExecResult>;
+  function exec(command: string, opts?: { label?: string }): Promise<ExecResult>;
   function exec(
     command: string,
     opts: { background?: boolean; label?: string } = {},
-  ) {
-    return current().step(
-      opts.background ? 'exec:background' : 'exec',
-      {
-        label: opts.label,
-        ...(opts.background ? { replay: 'restart' as const } : {}),
-      },
-      async () => ({
-        status: 'done',
-        result: await services.exec(command, opts.background ?? false),
-      }),
+  ): Promise<ExecResult | BackgroundExecResult> {
+    const background = opts.background === true;
+    return call(async (current) =>
+      current.step(
+        background ? 'exec:background' : 'exec',
+        {
+          ...(opts.label === undefined ? {} : { label: opts.label }),
+          ...(background ? { replay: 'restart' as const } : {}),
+        },
+        async () => {
+          const result = await services.exec(command, background);
+          if (background && isBackgroundResult(result)) {
+            await services.trackProcessGroup?.(result.pid);
+          }
+          return { status: 'done' as const, result };
+        },
+      ),
     );
   }
+
   return Object.freeze({
     issue,
     branch: header.branch,
     ports: [...header.ports],
-    stage: (label: string) => current().stage(label),
+    stage: (label: string) => (active.getStore()?.runner ?? runner).stage(label),
     step: <T>(label: string, fn: () => T | Promise<T>) =>
-      current().step('step', { label }, async () => ({
-        status: 'done',
-        result: await fn(),
-      })),
+      call((current) =>
+        current.step('step', { label }, async () => ({
+          status: 'done',
+          result: await fn(),
+        })),
+      ),
     exec,
     changedFiles: () =>
-      current().step('changedFiles', {}, async () => ({
-        status: 'done',
-        result: await services.changedFiles(),
-      })),
-    async parallel<T, R>(
-      items: readonly T[],
-      fn: (item: T, index: number) => Promise<R>,
-      opts = {},
-    ): Promise<R[]> {
-      return (await current().parallel(
-        'parallel',
-        items,
-        opts,
-        (steps, item, index) => branch.run(steps, () => fn(item, index)),
-      )) as R[];
-    },
-    get agent() {
-      return external('agent');
-    },
-    get checkpoint() {
-      return external('checkpoint');
-    },
-    get post() {
-      return external('post');
-    },
-    get scm() {
-      return external('scm');
-    },
-    get linear() {
-      return external('linear');
-    },
+      call((current) =>
+        current.step('changedFiles', {}, async () => ({
+          status: 'done',
+          result: await services.changedFiles(),
+        })),
+      ),
+    parallel: <T, R>(items: readonly T[], fn: (item: T, index: number) => Promise<R>, opts = {}) =>
+      call((current) =>
+        current.parallel('parallel', items, opts, (branch, item, index) =>
+          active.run({ runner: branch, pending: undefined }, () => fn(item, index)),
+        ),
+      ) as Promise<R[]>,
+    get agent() { return external('agent'); },
+    get checkpoint() { return external('checkpoint'); },
+    get post() { return external('post'); },
+    get scm() { return external('scm'); },
+    get linear() { return external('linear'); },
   });
 }

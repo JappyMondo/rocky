@@ -107,7 +107,7 @@ describe('the first Boot', () => {
         status: 'done',
         result: { exitCode: 0 },
       }));
-      return 'merged';
+      return 'merged' as const;
     });
 
     expect(result).toMatchObject({ status: 'finished', outcome: 'merged' });
@@ -760,6 +760,43 @@ describe('journaled parallel', () => {
       status: 'failed',
       error: { name: 'DivergenceError' },
     });
+  });
+
+  it('detaches nested parallel Step results from live and replay mutations', async () => {
+    const workflow = async (ctx: BootContext) => {
+      await ctx.parallel('outer', ['outer'], {}, async (outer) => {
+        await outer.parallel('inner', ['inner'], {}, async (inner) => {
+          const result = await inner.step('value', {}, async () => ({
+            status: 'done' as const,
+            result: { nested: { answer: 'recorded' } },
+          }));
+          (result as { nested: { answer: string } }).nested.answer = 'mutated';
+        });
+      });
+      await ctx.step('wait', {}, async () => ({ status: 'waiting' }));
+      return 'merged' as const;
+    };
+
+    await boot(workflow);
+    const live = (await openJournal(path)).latest(0)?.parallel;
+    const liveInner = live?.branches[0]
+      ?.filter((entry) => entry.step === '$parallel')
+      .at(-1)?.parallel;
+    expect(
+      liveInner?.branches[0]?.filter((entry) => entry.step === 'value').at(-1)
+        ?.result,
+    ).toEqual({ nested: { answer: 'recorded' } });
+
+    await boot(workflow);
+    const replayed = (await openJournal(path)).latest(0)?.parallel;
+    const replayedInner = replayed?.branches[0]
+      ?.filter((entry) => entry.step === '$parallel')
+      .at(-1)?.parallel;
+    expect(
+      replayedInner?.branches[0]
+        ?.filter((entry) => entry.step === 'value')
+        .at(-1)?.result,
+    ).toEqual({ nested: { answer: 'recorded' } });
   });
 
   it('keeps nested parallel journals separate by every parent index', async () => {

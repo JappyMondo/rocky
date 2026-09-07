@@ -160,18 +160,6 @@ const entrySchema: z.ZodType<JournalEntry> = z
   })
   .strict()
   .superRefine((entry, context) => {
-    if (entry.step === END_STEP) {
-      const end = parseRunEnd(entry.result);
-      if (
-        !end ||
-        entry.status !== (end.status === 'failed' ? 'failed' : 'done')
-      ) {
-        context.addIssue({
-          code: 'custom',
-          message: 'malformed $end terminal record',
-        });
-      }
-    }
     if (entry.v !== JOURNAL_FORMAT_VERSION) {
       context.addIssue({
         code: 'custom',
@@ -194,14 +182,23 @@ const entrySchema: z.ZodType<JournalEntry> = z
         });
       }
       if (
-        entry.parallel?.branches.some((branch) =>
-          branch.some((child) => child.step === END_STEP),
+        entry.parallel?.branches.some(
+          (branch) =>
+            branch.length === 1 &&
+            branch.some(
+            (child) =>
+              child.step === END_STEP &&
+              parseRunEnd(child.result) !== undefined &&
+              child.status ===
+                (parseRunEnd(child.result)?.status === 'failed'
+                  ? 'failed'
+                  : 'done'),
+          ),
         )
       ) {
         context.addIssue({
           code: 'custom',
-          message:
-            '$end is only valid in the root Journal, never a parallel branch',
+          message: '$end is only valid in the root Journal, never a parallel branch',
         });
       }
       if (
@@ -327,6 +324,53 @@ function parseLines(
       `${at(index)} is not a journal entry — ${z.prettifyError(parsed.error)}`,
     );
   }
+
+  const validateTerminals = (
+    journalEntries: readonly JournalEntry[],
+    location: string,
+    nested = false,
+  ): void => {
+    const terminalIndex = journalEntries.findIndex(
+      (entry) => entry.step === END_STEP,
+    );
+    if (terminalIndex !== -1) {
+      const terminal = journalEntries[terminalIndex]!;
+      if (nested) {
+        throw new JournalFormatError(
+          `${location} entry ${terminalIndex + 1} is $end, which is only valid in the root Journal`,
+        );
+      }
+      if (terminalIndex !== journalEntries.length - 1) {
+        throw new JournalFormatError(
+          `${location}: entry after $end; $end must be final`,
+        );
+      }
+      const end = parseRunEnd(terminal.result);
+      if (!end) {
+        throw new JournalFormatError(
+          `${location} entry ${terminalIndex + 1} has an invalid $end result payload`,
+        );
+      }
+      const expectedStatus = end.status === 'failed' ? 'failed' : 'done';
+      if (terminal.status !== expectedStatus) {
+        throw new JournalFormatError(
+          `${location} entry ${terminalIndex + 1} has status "${terminal.status}", but its $end payload requires "${expectedStatus}"`,
+        );
+      }
+    }
+    for (const [index, entry] of journalEntries.entries()) {
+      for (const [branchIndex, branch] of entry.parallel?.branches.entries() ??
+        []) {
+        validateTerminals(
+          branch,
+          `${location} entry ${index + 1} branch ${branchIndex + 1}`,
+          true,
+        );
+      }
+    }
+  };
+
+  validateTerminals(entries, path);
 
   const keptBytes = Buffer.byteLength(
     complete.map((line) => `${line}\n`).join(''),

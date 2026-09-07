@@ -320,3 +320,283 @@ it.each(terminalOutcomes)(
     expect(await readFile(journalPath, 'utf8')).toBe(journalBefore);
   },
 );
+/*
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { WorkflowContext } from '@rocky/sdk';
+
+import { rockyPaths, type RockyPaths } from '../config/paths.js';
+import { newRunHeader, readRunHeader, type RunHeader } from './header.js';
+import {
+  assertBackgroundExecSupported,
+  bootWorkflowRun,
+  createRunLifecycleServices,
+  type RunLifecycleServices,
+} from './lifecycle.js';
+import { runBoot, type BootContext } from './replay.js';
+
+vi.mock('./replay.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./replay.js')>();
+  return { ...actual, runBoot: vi.fn(actual.runBoot) };
+});
+
+let root: string;
+let paths: RockyPaths;
+let runHeader: RunHeader;
+const processGroups: number[] = [];
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'rocky-lifecycle-'));
+  paths = rockyPaths(root);
+  runHeader = newRunHeader({
+    runId: 'NG-597-1',
+    issue: {
+      identifier: 'NG-597',
+      title: 'Lifecycle',
+      description: 'Own processes and port reservations.',
+      url: 'https://linear.app/NG-597',
+      labels: ['daemon'],
+    },
+    branch: 'rocky/ng-597',
+    now: '2026-09-04T10:00:00.000Z',
+  });
+});
+
+afterEach(() => {
+  for (const pid of processGroups.splice(0)) {
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+function services(
+  over: Partial<RunLifecycleServices> = {},
+): RunLifecycleServices {
+  return {
+    changedFiles: vi.fn(async () => []),
+    exec: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' })),
+    external: {} as RunLifecycleServices['external'],
+    reservePorts: vi.fn(async () => [41001]),
+    killProcessGroup: vi.fn(async () => undefined),
+    ...over,
+  };
+}
+
+describe('bootWorkflowRun', () => {
+  it('re-reserves ports on each Boot and persists the current reservation', async () => {
+    const reservePorts = vi
+      .fn<RunLifecycleServices['reservePorts']>()
+      .mockResolvedValueOnce([41001])
+      .mockResolvedValueOnce([41002]);
+    const supplied = services({ reservePorts });
+    const workflow = async (ctx: WorkflowContext) => {
+      await ctx.step('one step', () => undefined);
+      return 'merged' as const;
+    };
+
+    await bootWorkflowRun({
+      paths,
+      header: runHeader,
+      services: supplied,
+      workflow,
+    });
+    await bootWorkflowRun({
+      paths,
+      header: runHeader,
+      services: supplied,
+      workflow,
+    });
+
+    expect(reservePorts).toHaveBeenCalledTimes(2);
+    expect((await readRunHeader(paths, runHeader.runId)).ports).toEqual([
+      41002,
+    ]);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'kills a background process group and its grandchild after terminal completion',
+    async () => {
+      const childPidFile = join(root, 'child.pid');
+      let leaderPid: number | undefined;
+      const supplied = createRunLifecycleServices({
+        workspace: root,
+        changedFiles: async () => [],
+        external: {} as RunLifecycleServices['external'],
+        reservePorts: async () => [],
+      });
+
+      await bootWorkflowRun({
+        paths,
+        header: runHeader,
+        services: supplied,
+        workflow: async (ctx) => {
+          leaderPid = (
+            await ctx.exec(
+              `sh -c 'sleep 30 & child=$!; printf "%s" "$child" > "${childPidFile}"; wait'`,
+              { background: true },
+            )
+          ).pid;
+          await waitForFile(childPidFile);
+          return 'merged';
+        },
+      });
+
+      const childPid = Number(readFileSync(childPidFile, 'utf8'));
+      await expectProcessGone(leaderPid!);
+      await expectProcessGone(childPid);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps a parked background group alive and cleans it after its resumed terminal Boot',
+    async () => {
+      const reservePorts = vi
+        .fn<RunLifecycleServices['reservePorts']>()
+        .mockResolvedValueOnce([41001])
+        .mockResolvedValueOnce([41002]);
+      const supplied = createRunLifecycleServices({
+        workspace: root,
+        changedFiles: async () => [],
+        external: {} as RunLifecycleServices['external'],
+        reservePorts,
+      });
+      const pids: number[] = [];
+      vi.mocked(runBoot)
+        .mockImplementationOnce(async ({ workflow }) => {
+          await workflow(liveRunner());
+          return { status: 'parked', reason: 'checkpoint', ...bootCounts(1) };
+        })
+        .mockImplementationOnce(async ({ workflow }) => {
+          await workflow(liveRunner());
+          return { status: 'finished', outcome: 'merged', ...bootCounts(2) };
+        });
+      const workflow = async (ctx: WorkflowContext) => {
+        const pid = (await ctx.exec('sleep 30', { background: true })).pid;
+        pids.push(pid);
+        processGroups.push(pid);
+        return 'merged' as const;
+      };
+
+      await bootWorkflowRun({
+        paths,
+        header: runHeader,
+        services: supplied,
+        workflow,
+      });
+
+      expect((await readRunHeader(paths, runHeader.runId)).ports).toEqual([
+        41001,
+      ]);
+      expect(
+        (await readRunHeader(paths, runHeader.runId)).processGroups,
+      ).toEqual([pids[0]]);
+      expectProcessAlive(pids[0]!);
+      expect(reservePorts).toHaveBeenCalledTimes(1);
+
+      await bootWorkflowRun({
+        paths,
+        header: await readRunHeader(paths, runHeader.runId),
+        services: supplied,
+        workflow,
+      });
+
+      expect(reservePorts).toHaveBeenCalledTimes(2);
+      expect((await readRunHeader(paths, runHeader.runId)).ports).toEqual([
+        41002,
+      ]);
+      await Promise.all(pids.map(expectProcessGone));
+    },
+  );
+
+  it('retains groups whose terminal cleanup fails after attempting every group', async () => {
+    const killProcessGroup = vi
+      .fn<RunLifecycleServices['killProcessGroup']>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('permission denied'));
+    const supplied = services({
+      exec: vi
+        .fn<RunLifecycleServices['exec']>()
+        .mockResolvedValueOnce({ pid: 101 })
+        .mockResolvedValueOnce({ pid: 102 }),
+      killProcessGroup,
+    });
+    vi.mocked(runBoot).mockImplementationOnce(async ({ workflow }) => {
+      await workflow(liveRunner());
+      return { status: 'finished', outcome: 'merged', ...bootCounts(1) };
+    });
+
+    await expect(
+      bootWorkflowRun({
+        paths,
+        header: runHeader,
+        services: supplied,
+        workflow: async (ctx) => {
+          await ctx.exec('one', { background: true });
+          await ctx.exec('two', { background: true });
+          return 'merged';
+        },
+      }),
+    ).rejects.toThrow('permission denied');
+
+    expect(killProcessGroup).toHaveBeenCalledWith(101);
+    expect(killProcessGroup).toHaveBeenCalledWith(102);
+    expect((await readRunHeader(paths, runHeader.runId)).processGroups).toEqual(
+      [102],
+    );
+  });
+
+  it('rejects background execution on Windows before it can leave a partial tree', () => {
+    expect(() => assertBackgroundExecSupported('win32')).toThrow(/Windows/);
+    expect(() => assertBackgroundExecSupported('linux')).not.toThrow();
+  });
+});
+
+function liveRunner(): BootContext {
+  return {
+    boot: 1,
+    stage: () => undefined,
+    step: async (_key, _options, effect) => {
+      const outcome = await effect({ record: () => undefined });
+      if (outcome.status !== 'done') throw new Error('unexpected parked Step');
+      return outcome.result;
+    },
+    parallel: async () => [],
+  };
+}
+
+function bootCounts(boot: number) {
+  return { boot, replayed: 0, executed: 1 };
+}
+
+async function waitForFile(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (existsSync(path)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+async function expectProcessGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`process ${pid} is still alive`);
+}
+
+function expectProcessAlive(pid: number): void {
+  expect(() => process.kill(pid, 0)).not.toThrow();
+}
+*/

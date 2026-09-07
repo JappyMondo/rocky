@@ -53,6 +53,8 @@ export interface RunHeader {
   repo: string;
   /** Reserved again before a working Boot; poll Boots reuse these values. */
   ports: number[];
+  /** Detached background process-group leaders owned until terminal cleanup. */
+  processGroups: number[];
   pr?: Pr;
   status: RunStatus;
   /** `finished` carries the Workflow's outcome. */
@@ -92,6 +94,18 @@ const recordedErrorSchema = z.object({
 
 const outcomeSchema = z.enum(['merged', 'rejected', 'exhausted']);
 
+const portsSchema = z
+  .array(z.number().int().min(1).max(65_535))
+  .refine((ports) => new Set(ports).size === ports.length, {
+    message: 'ports must be unique',
+  });
+
+const processGroupsSchema = z
+  .array(z.number().int().positive())
+  .refine((pids) => new Set(pids).size === pids.length, {
+    message: 'process groups must be unique',
+  });
+
 const headerSchema = z.object({
   v: z.number().int(),
   runId: z.string().min(1),
@@ -99,12 +113,8 @@ const headerSchema = z.object({
   issue: issueSchema,
   branch: z.string().min(1),
   repo: z.string().min(1),
-  ports: z
-    .array(z.number().int().min(1).max(65535))
-    .refine(
-      (ports) => new Set(ports).size === ports.length,
-      'ports must be unique',
-    ),
+  ports: portsSchema,
+  processGroups: processGroupsSchema.default([]),
   pr: prSchema.optional(),
   status: z.enum([
     'queued',
@@ -152,6 +162,7 @@ export function newRunHeader(opts: {
     branch: opts.branch,
     repo: opts.repo,
     ports: [],
+    processGroups: [],
     // A Run is admitted before it works: `queued` is a real state, so a Run
     // asleep for three days does not jump the cap (NG-574 §8).
     status: 'queued',
@@ -164,6 +175,7 @@ export async function writeRunHeader(
   paths: RockyPaths,
   headerToWrite: RunHeader,
 ): Promise<void> {
+  headerSchema.parse(headerToWrite);
   await writeAtomic(
     paths.run(headerToWrite.runId).runJson,
     serializeJson(headerToWrite),

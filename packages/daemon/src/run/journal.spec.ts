@@ -215,6 +215,109 @@ describe('a format-version mismatch', () => {
   });
 });
 
+describe('the terminal entry', () => {
+  function end(over: Partial<JournalEntry> = {}): JournalEntry {
+    return entry({
+      seq: 2,
+      step: END_STEP,
+      status: 'done',
+      result: { status: 'finished', outcome: 'merged' },
+      ...over,
+    });
+  }
+
+  it('rejects a terminal entry whose status disagrees with its payload', async () => {
+    await appendEntry(path, end({ status: 'failed' }), { runner: true });
+
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
+  });
+
+  it('rejects a terminal entry with an invalid payload', async () => {
+    await appendEntry(
+      path,
+      end({ result: { status: 'finished', outcome: 'invalid' } }),
+      { runner: true },
+    ).catch(() => undefined);
+
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
+  });
+
+  it('rejects history after a terminal entry', async () => {
+    await appendEntry(path, end(), { runner: true });
+    await appendEntry(path, entry({ seq: 3, step: 'post' }));
+
+    await expect(openJournal(path)).rejects.toThrow(/\$end.*final/i);
+  });
+
+  it.each([
+    ['a nested terminal with an invalid status', [end({ status: 'failed' })]],
+    [
+      'a nested terminal with an invalid payload',
+      [end({ result: { status: 'finished', outcome: 'invalid' } })],
+    ],
+    [
+      'a nested entry after a terminal',
+      [end(), entry({ seq: 3, step: 'post' })],
+    ],
+  ])('rejects %s', async (_name, branch) => {
+    await appendEntry(
+      path,
+      entry({
+        step: '$parallel',
+        parallel: { count: 1, branches: [branch] },
+      }),
+      { runner: true },
+    );
+
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
+  });
+
+  it('accepts a nested journal without a terminal entry', async () => {
+    await appendEntry(
+      path,
+      entry({
+        step: '$parallel',
+        parallel: { count: 1, branches: [[entry({ seq: 0 })]] },
+      }),
+      { runner: true },
+    );
+
+    await expect(openJournal(path)).resolves.toBeDefined();
+  });
+
+  it('rejects an invalid terminal two parallel levels deep', async () => {
+    await appendEntry(
+      path,
+      entry({
+        step: '$parallel',
+        parallel: {
+          count: 1,
+          branches: [
+            [
+              entry({
+                seq: 0,
+                step: '$parallel',
+                parallel: {
+                  count: 1,
+                  branches: [
+                    [
+                      end({ status: 'failed' }),
+                      entry({ seq: 3, step: 'post' }),
+                    ],
+                  ],
+                },
+              }),
+            ],
+          ],
+        },
+      }),
+      { runner: true },
+    );
+
+    await expect(openJournal(path)).rejects.toThrow(JournalFormatError);
+  });
+});
+
 describe('recording thrown values', () => {
   it('preserves an Error name, message and stack for replay', () => {
     const error = new TypeError('bad result');
