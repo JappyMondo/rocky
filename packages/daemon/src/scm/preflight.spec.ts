@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
 import { createGitHubScm, createGitLabScm, runPreflight } from './index.js';
+import { refuse } from './http.js';
 import { runBoot } from '../run/replay.js';
 import { openJournal } from '../run/journal.js';
 
@@ -395,3 +396,172 @@ it.each([
     });
   },
 );
+
+it.each([
+  [
+    'an empty member set',
+    [],
+    60_000,
+    'requires every unique frozen Run member',
+  ],
+  [
+    'duplicate members',
+    ['one', 'one'],
+    60_000,
+    'requires every unique frozen Run member',
+  ],
+  ['an oversized budget', ['one'], 60_001, 'budget must be within 1..60000'],
+] as const)(
+  'refuses %s before any preflight effect',
+  async (_name, ids, timeoutMs, message) => {
+    const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-invalid-'));
+    dirs.push(dir);
+    let refreshed = false;
+    const signal = new AbortController().signal;
+    const result = await runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      signal,
+      workflow: async (steps) => {
+        await runPreflight(steps, {
+          signal,
+          timeoutMs,
+          members: ids.map((id) => ({
+            repo: { id },
+            probe: async () => {
+              throw new Error('should not probe');
+            },
+          })),
+          refreshMcp: async () => {
+            refreshed = true;
+            return [];
+          },
+        });
+        return 'merged';
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { message: expect.stringContaining(message) },
+    });
+    expect(refreshed).toBe(false);
+  },
+);
+
+it('preserves a named SCM probe refusal while other members remain observable', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-refusal-'));
+  dirs.push(dir);
+  const signal = new AbortController().signal;
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    signal,
+    workflow: async (steps) => {
+      await runPreflight(steps, {
+        signal,
+        members: [
+          {
+            repo: { id: 'denied' },
+            probe: async () => {
+              throw refuse(
+                'denied',
+                'permission_denied',
+                'Token cannot read this project.',
+                'Grant Reporter access.',
+              );
+            },
+          },
+          {
+            repo: { id: 'healthy' },
+            probe: async () => ({
+              repo: 'healthy',
+              platform: 'github' as const,
+              merge: { status: 'allowed' as const, source: 'fixture', fix: '' },
+              rebase: {
+                status: 'allowed' as const,
+                source: 'fixture',
+                fix: '',
+              },
+              sourcePush: {
+                status: 'allowed' as const,
+                source: 'fixture',
+                fix: '',
+              },
+              draft: { status: 'allowed' as const, source: 'fixture', fix: '' },
+            }),
+          },
+        ],
+        refreshMcp: async () => [],
+      });
+      return 'merged';
+    },
+  });
+
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining('Token cannot read this project.'),
+    },
+  });
+  expect(
+    (await openJournal(join(dir, 'journal.jsonl'))).latest(0),
+  ).toMatchObject({
+    result: { repos: [{ repo: 'healthy' }] },
+  });
+});
+
+it('reports named merge and source-write gaps from a completed probe', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-permissions-'));
+  dirs.push(dir);
+  const signal = new AbortController().signal;
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    signal,
+    workflow: async (steps) => {
+      await runPreflight(steps, {
+        signal,
+        members: [
+          {
+            repo: { id: 'restricted' },
+            probe: async () => ({
+              repo: 'restricted',
+              platform: 'gitlab' as const,
+              merge: {
+                status: 'denied' as const,
+                source: 'role',
+                fix: 'grant merge',
+              },
+              rebase: {
+                status: 'unknown' as const,
+                source: 'policy',
+                fix: 'grant push',
+              },
+              sourcePush: {
+                status: 'denied' as const,
+                source: 'policy',
+                fix: 'grant push',
+              },
+              draft: { status: 'allowed' as const, source: 'scope', fix: '' },
+            }),
+          },
+        ],
+        refreshMcp: async () => [],
+      });
+      return 'merged';
+    },
+  });
+
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: { message: expect.stringContaining('merge permission denied') },
+  });
+  expect(
+    (await openJournal(join(dir, 'journal.jsonl'))).latest(0),
+  ).toMatchObject({
+    result: {
+      failures: [
+        expect.stringContaining('merge permission denied'),
+        expect.stringContaining('neither rebase nor ordinary source push'),
+      ],
+    },
+  });
+});

@@ -47,6 +47,31 @@ it('flips native draft state through GraphQL and updates the content description
   transport.done();
 });
 
+it('converts a ready PR back to a native draft through GraphQL', async () => {
+  const ready = { ...githubPull, draft: false };
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: ready },
+    { path: '/repos/team/repo/pulls/7', value: ready },
+    {
+      path: '/graphql',
+      method: 'POST',
+      value: {
+        data: { convertPullRequestToDraft: { pullRequest: { id: 'PR_one' } } },
+      },
+    },
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+  ]);
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).markDraft(
+      { ...githubPr(), draft: false },
+      true,
+    ),
+  ).resolves.toMatchObject({ draft: true });
+  expect(transport.calls[2]?.body.query).toContain('convertPullRequestToDraft');
+  transport.done();
+});
+
 function githubPr() {
   return {
     repo: 'lead',
@@ -58,6 +83,27 @@ function githubPr() {
     headSha: 'abc',
     state: 'open' as const,
     draft: true,
+  };
+}
+
+function mergeNode(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'PR_one',
+    headRefOid: 'abc',
+    state: 'OPEN',
+    isDraft: false,
+    mergeStateStatus: 'CLEAN',
+    reviewDecision: null,
+    isMergeQueueEnabled: false,
+    isInMergeQueue: false,
+    autoMergeRequest: null,
+    repository: {
+      autoMergeAllowed: true,
+      squashMergeAllowed: true,
+      mergeCommitAllowed: false,
+      rebaseMergeAllowed: false,
+    },
+    ...overrides,
   };
 }
 
@@ -128,6 +174,102 @@ it('reports failed job and step names and only downloads the requested log tail'
       ],
     },
   });
+  transport.done();
+});
+
+it('reports failed checks and legacy statuses without downloading unrelated logs', async () => {
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: {
+        check_runs: [
+          {
+            id: 1,
+            name: 'build',
+            head_sha: 'abc',
+            status: 'completed',
+            conclusion: 'failure',
+            details_url: null,
+            output: { summary: 'build failed', text: 'one\ntwo\nthree' },
+          },
+        ],
+      },
+    },
+    {
+      path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+      value: [{ id: 2, context: 'legacy', state: 'failure' }],
+    },
+    {
+      path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+      value: { workflow_runs: [] },
+    },
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+  ]);
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).waitForCi(
+      githubPr(),
+      { logTailLines: 2 },
+    ),
+  ).resolves.toMatchObject({
+    status: 'done',
+    result: {
+      status: 'failed',
+      failedJobs: [
+        { id: '1', name: 'build', logTail: 'two\nthree' },
+        { id: '2', name: 'legacy', logTail: '' },
+      ],
+    },
+  });
+  transport.done();
+});
+
+it('keeps polling while any current-head CI report is incomplete', async () => {
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: {
+        check_runs: [
+          {
+            id: 1,
+            name: 'build',
+            head_sha: 'abc',
+            status: 'in_progress',
+            conclusion: null,
+            details_url: null,
+          },
+        ],
+      },
+    },
+    {
+      path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+      value: [{ id: 2, context: 'legacy', state: 'pending' }],
+    },
+    {
+      path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+      value: {
+        workflow_runs: [
+          {
+            id: 3,
+            name: 'CI',
+            head_sha: 'abc',
+            status: 'queued',
+            conclusion: null,
+          },
+        ],
+      },
+    },
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+  ]);
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).waitForCi(
+      githubPr(),
+      { logTailLines: 0 },
+    ),
+  ).resolves.toEqual({ status: 'waiting' });
   transport.done();
 });
 
@@ -223,6 +365,101 @@ it.each([false, true])(
   },
 );
 
+it.each([
+  ['DIRTY', 'conflict'],
+  ['BEHIND', 'need_rebase'],
+  ['UNSTABLE', 'ci_must_pass'],
+] as const)(
+  'normalizes GitHub %s mergeability to %s before arming',
+  async (mergeStateStatus, reason) => {
+    const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
+      {
+        path: '/graphql',
+        method: 'POST',
+        value: {
+          data: {
+            node: {
+              id: 'PR_one',
+              headRefOid: 'abc',
+              state: 'OPEN',
+              isDraft: false,
+              mergeStateStatus,
+              reviewDecision: null,
+              isMergeQueueEnabled: false,
+              isInMergeQueue: false,
+              autoMergeRequest: null,
+              repository: {
+                autoMergeAllowed: true,
+                squashMergeAllowed: true,
+                mergeCommitAllowed: false,
+                rebaseMergeAllowed: false,
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    await expect(
+      createGitHubScm({
+        ...githubOptions,
+        fetch: transport.fetch,
+      }).armAutoMerge({
+        ...githubPr(),
+        draft: false,
+      }),
+    ).rejects.toMatchObject({ refusal: { reason } });
+    expect(transport.calls).toHaveLength(2);
+    transport.done();
+  },
+);
+
+it('waits for an unknown GitHub mergeability state without arming', async () => {
+  const transport = scriptedFetch([
+    {
+      path: '/repos/team/repo/pulls/7',
+      value: { ...githubPull, draft: false },
+    },
+    {
+      path: '/graphql',
+      method: 'POST',
+      value: {
+        data: {
+          node: {
+            id: 'PR_one',
+            headRefOid: 'abc',
+            state: 'OPEN',
+            isDraft: false,
+            mergeStateStatus: 'UNKNOWN',
+            reviewDecision: null,
+            isMergeQueueEnabled: false,
+            isInMergeQueue: false,
+            autoMergeRequest: null,
+            repository: {
+              autoMergeAllowed: true,
+              squashMergeAllowed: true,
+              mergeCommitAllowed: false,
+              rebaseMergeAllowed: false,
+            },
+          },
+        },
+      },
+    },
+  ]);
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).armAutoMerge({
+      ...githubPr(),
+      draft: false,
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  transport.done();
+});
+
 it.each([false, true])(
   'refuses an unbound auto-merge response instead of reporting waiting (queue=%s)',
   async (queue) => {
@@ -304,6 +541,33 @@ it('requests a guarded branch update and waits for the new head instead of treat
   });
   transport.done();
 });
+
+it.each([
+  ['dirty', 'done', 'conflict'],
+  ['unknown', 'waiting', undefined],
+  ['clean', 'done', 'clean'],
+] as const)(
+  'handles a GitHub %s branch state without a direct merge',
+  async (mergeable_state, status, result) => {
+    const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, mergeable_state },
+      },
+    ]);
+    const update = await createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).updateBranch(githubPr());
+    expect(update).toMatchObject(
+      status === 'waiting'
+        ? { status }
+        : { status, result: { status: result } },
+    );
+    expect(transport.calls.some((call) => call.method !== 'GET')).toBe(false);
+    transport.done();
+  },
+);
 
 it('does not update a retargeted PR handle', async () => {
   const transport = scriptedFetch([
@@ -611,6 +875,27 @@ it('re-reads once after a persistent create conflict without retrying POST', asy
   transport.done();
 });
 
+it('adopts the branch PR when a concurrent GitHub creator wins', async () => {
+  const lookup =
+    '/repos/team/repo/pulls?state=all&head=team%3Ang-524&base=main&per_page=100&page=1';
+  const transport = scriptedFetch([
+    { path: lookup, value: [] },
+    { path: '/repos/team/repo/pulls', method: 'POST', status: 422, value: {} },
+    { path: lookup, value: [githubPull] },
+  ]);
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).resolves.toEqual(githubPr());
+  expect(transport.calls.filter((call) => call.method === 'POST')).toHaveLength(
+    1,
+  );
+  transport.done();
+});
+
 it('recovers a draft PR created before its Step was recorded, scoped to source and base', async () => {
   const writes: unknown[] = [];
   const pull = {
@@ -674,4 +959,298 @@ it('recovers a draft PR created before its Step was recorded, scoped to source a
       draft: true,
     },
   ]);
+});
+
+it.each([
+  ['draft', mergeNode({ isDraft: true }), 'draft_status'],
+  ['closed', mergeNode({ state: 'CLOSED' }), 'not_open'],
+  [
+    'disabled auto-merge',
+    mergeNode({
+      repository: { ...mergeNode().repository, autoMergeAllowed: false },
+    }),
+    'unsupported',
+  ],
+  [
+    'no merge method',
+    mergeNode({
+      repository: {
+        ...mergeNode().repository,
+        squashMergeAllowed: false,
+      },
+    }),
+    'unsupported',
+  ],
+] as const)(
+  'refuses GitHub %s authority before a merge mutation',
+  async (_name, node, reason) => {
+    const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
+      { path: '/graphql', method: 'POST', value: { data: { node } } },
+    ]);
+
+    await expect(
+      createGitHubScm({
+        ...githubOptions,
+        fetch: transport.fetch,
+      }).armAutoMerge({
+        ...githubPr(),
+        draft: false,
+      }),
+    ).rejects.toMatchObject({ refusal: { reason } });
+    expect(transport.calls).toHaveLength(2);
+    transport.done();
+  },
+);
+
+it.each([
+  [
+    'merge commit',
+    { squashMergeAllowed: false, mergeCommitAllowed: true },
+    'MERGE',
+  ],
+  [
+    'rebase',
+    {
+      squashMergeAllowed: false,
+      mergeCommitAllowed: false,
+      rebaseMergeAllowed: true,
+    },
+    'REBASE',
+  ],
+] as const)(
+  'uses GitHub %s auto-merge policy without directly merging',
+  async (_name, policy, mergeMethod) => {
+    const node = mergeNode({
+      repository: { ...mergeNode().repository, ...policy },
+    });
+    const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
+      { path: '/graphql', method: 'POST', value: { data: { node } } },
+      {
+        path: '/graphql',
+        method: 'POST',
+        value: {
+          data: {
+            enablePullRequestAutoMerge: { pullRequest: { id: 'PR_one' } },
+          },
+        },
+      },
+    ]);
+
+    await expect(
+      createGitHubScm({
+        ...githubOptions,
+        fetch: transport.fetch,
+      }).armAutoMerge({
+        ...githubPr(),
+        draft: false,
+      }),
+    ).resolves.toEqual({ status: 'waiting' });
+    expect(transport.calls[2]?.body.variables?.input).toMatchObject({
+      mergeMethod,
+    });
+    transport.done();
+  },
+);
+
+it('normalizes guarded GitHub update conflicts without a direct merge fallback', async () => {
+  const transport = scriptedFetch([
+    {
+      path: '/repos/team/repo/pulls/7',
+      value: { ...githubPull, mergeable_state: 'behind' },
+    },
+    {
+      path: '/repos/team/repo/pulls/7/update-branch',
+      method: 'PUT',
+      status: 409,
+      value: {},
+    },
+  ]);
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).updateBranch(
+      githubPr(),
+    ),
+  ).rejects.toMatchObject({ refusal: { reason: 'conflict' } });
+  transport.done();
+});
+
+it('recovers a GitHub reply when the platform recorded it before returning a conflict', async () => {
+  let reply = '';
+  let writes = 0;
+  const pageInfo = { hasNextPage: false, endCursor: null };
+  const fetcher: typeof fetch = async (url, init) => {
+    if (new URL(String(url)).pathname === '/repos/team/repo/pulls/7')
+      return Response.json(githubPull);
+    const { query, variables } = JSON.parse(String(init?.body));
+    const thread = {
+      id: 'T1',
+      path: 'src/app.ts',
+      line: 4,
+      isResolved: false,
+      comments: {
+        nodes: [{ body: 'Fix this' }, ...(reply ? [{ body: reply }] : [])],
+        pageInfo,
+      },
+    };
+    if (query.includes('query Threads'))
+      return Response.json({
+        data: { node: { reviewThreads: { nodes: [thread], pageInfo } } },
+      });
+    if (query.includes('query Notes'))
+      return Response.json({ data: { node: thread } });
+    if (query.includes('addPullRequestReviewThreadReply')) {
+      writes++;
+      reply = variables.input.body;
+      return Response.json({}, { status: 422 });
+    }
+    throw new Error(`Unexpected query ${query}`);
+  };
+
+  const adapter = createGitHubScm({ ...githubOptions, fetch: fetcher });
+  const [thread] = await adapter.reviewThreads(githubPr());
+  await expect(
+    adapter.replyToThread(thread, 'Fixed', 'NG-524-2'),
+  ).resolves.toBeUndefined();
+  expect(writes).toBe(1);
+});
+
+it('reads all GitHub thread notes before exposing an unanchored review thread', async () => {
+  const pageInfo = { hasNextPage: false, endCursor: null };
+  const fetcher: typeof fetch = async (url, init) => {
+    if (new URL(String(url)).pathname === '/repos/team/repo/pulls/7')
+      return Response.json(githubPull);
+    const { query } = JSON.parse(String(init?.body));
+    if (query.includes('query Threads'))
+      return Response.json({
+        data: {
+          node: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: 'T1',
+                  path: 'src/app.ts',
+                  line: null,
+                  isResolved: false,
+                  comments: {
+                    nodes: [{ body: 'First note' }],
+                    pageInfo: { hasNextPage: true, endCursor: 'cursor-one' },
+                  },
+                },
+              ],
+              pageInfo,
+            },
+          },
+        },
+      });
+    if (query.includes('query Notes'))
+      return Response.json({
+        data: {
+          node: {
+            isResolved: false,
+            comments: {
+              nodes: [{ body: 'First note' }, { body: 'Second note' }],
+              pageInfo,
+            },
+          },
+        },
+      });
+    throw new Error(`Unexpected query ${query}`);
+  };
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: fetcher }).reviewThreads(
+      githubPr(),
+    ),
+  ).resolves.toEqual([
+    {
+      pr: githubPr(),
+      id: 'T1',
+      path: 'src/app.ts',
+      body: 'First note\n\nSecond note',
+      resolved: false,
+    },
+  ]);
+});
+
+it('refuses GitHub review and note pagination without a forward cursor', async () => {
+  const fetcher: typeof fetch = async (url, init) => {
+    if (new URL(String(url)).pathname === '/repos/team/repo/pulls/7')
+      return Response.json(githubPull);
+    const { query } = JSON.parse(String(init?.body));
+    if (query.includes('query Threads'))
+      return Response.json({
+        data: {
+          node: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: 'T1',
+                  path: 'src/app.ts',
+                  line: 4,
+                  isResolved: false,
+                  comments: {
+                    nodes: [{ body: 'First note' }],
+                    pageInfo: { hasNextPage: true, endCursor: 'notes-cursor' },
+                  },
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      });
+    if (query.includes('query Notes'))
+      return Response.json({
+        data: {
+          node: {
+            isResolved: false,
+            comments: {
+              nodes: [{ body: 'First note' }],
+              pageInfo: { hasNextPage: true, endCursor: null },
+            },
+          },
+        },
+      });
+    throw new Error(`Unexpected query ${query}`);
+  };
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: fetcher }).reviewThreads(
+      githubPr(),
+    ),
+  ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
+});
+
+it('refuses GitHub review pagination without a forward cursor', async () => {
+  const fetcher: typeof fetch = async (url, init) => {
+    if (new URL(String(url)).pathname === '/repos/team/repo/pulls/7')
+      return Response.json(githubPull);
+    const { query } = JSON.parse(String(init?.body));
+    if (query.includes('query Threads'))
+      return Response.json({
+        data: {
+          node: {
+            reviewThreads: {
+              nodes: [],
+              pageInfo: { hasNextPage: true, endCursor: null },
+            },
+          },
+        },
+      });
+    throw new Error(`Unexpected query ${query}`);
+  };
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: fetcher }).reviewThreads(
+      githubPr(),
+    ),
+  ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
 });
