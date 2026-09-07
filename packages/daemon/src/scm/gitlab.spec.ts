@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { createGitLabScm } from './index.js';
-import { scriptedFetch } from './scm.fixtures.js';
+import { scriptedFetch as baseScriptedFetch } from './scm.fixtures.js';
 
 const options = {
   repo: { id: 'service', project: 'team/service', baseBranch: 'main' },
@@ -9,6 +9,15 @@ const options = {
   apiUrl: 'https://gitlab.test/api/v4',
 };
 const root = '/api/v4/projects/team%2Fservice';
+function scriptedFetch(script: Parameters<typeof baseScriptedFetch>[0]) {
+  const project = script.find(
+    (entry) => entry.path === root && (entry.method ?? 'GET') === 'GET',
+  ) ?? { path: root, value: { id: 5, merge_trains_enabled: false } };
+  return baseScriptedFetch([
+    project,
+    ...script.filter((entry) => entry !== project),
+  ]);
+}
 const mr = {
   id: 100,
   iid: 7,
@@ -87,6 +96,25 @@ it('refuses a terminal matching MR without creating a second review', async () =
       body: 'Plan',
     }),
   ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
+  transport.done();
+});
+
+it('refuses a cross-project MR list response before creating a review', async () => {
+  const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
+  const transport = scriptedFetch([
+    { path: root, value: { id: 5, merge_trains_enabled: false } },
+    {
+      path: lookup,
+      value: [{ ...mr, source_project_id: 6, target_project_id: 6 }],
+    },
+  ]);
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
   expect(transport.calls.some((call) => call.method === 'POST')).toBe(false);
   transport.done();
 });
@@ -196,7 +224,7 @@ it.each([false, true])(
       const path = new URL(String(url)).pathname;
       let value: unknown;
       if (path.endsWith('/version')) value = { version: '19.1.0-ee' };
-      else if (path === root) value = { merge_trains_enabled: train };
+      else if (path === root) value = { id: 5, merge_trains_enabled: train };
       else if (
         (path.endsWith('/merge_requests/7') && init?.method === 'POST') ||
         path.endsWith('/merge_requests/7/merge')
@@ -261,6 +289,42 @@ it.each([false, true])(
   },
 );
 
+it('refuses a stale merge-train entry without a train or auto-merge mutation', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: {
+        ...mr,
+        draft: false,
+        detailed_merge_status: 'mergeable',
+        merge_when_pipeline_succeeds: false,
+      },
+    },
+    { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
+    { path: root, value: { id: 5, merge_trains_enabled: true } },
+    {
+      path: `${root}/merge_trains/merge_requests/7`,
+      value: {
+        id: 9,
+        status: 'stale',
+        target_branch: 'main',
+        merge_request: { id: 100, iid: 7 },
+        pipeline: null,
+      },
+    },
+  ]);
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+      ...pr,
+      draft: false,
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'train_pipeline_dropped' } });
+  expect(
+    transport.calls.some((call) => ['POST', 'PUT'].includes(call.method)),
+  ).toBe(false);
+  transport.done();
+});
+
 it.each([false, true])(
   'refuses an auto-merge response that is not bound to the requested MR (train=%s)',
   async (train) => {
@@ -275,7 +339,7 @@ it.each([false, true])(
         },
       },
       { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
-      { path: root, value: { merge_trains_enabled: train } },
+      { path: root, value: { id: 5, merge_trains_enabled: train } },
       ...(train
         ? [
             {
@@ -337,7 +401,8 @@ it('does not hot-loop an already armed head after adapter reconstruction', async
     const path = new URL(String(url)).pathname;
     if (path.endsWith('/version'))
       return Response.json({ version: '19.1.0-ee' });
-    if (path === root) return Response.json({ merge_trains_enabled: false });
+    if (path === root)
+      return Response.json({ id: 5, merge_trains_enabled: false });
     if (path.endsWith('/merge')) {
       arms++;
       return Response.json({ ...mr, draft: false });
@@ -379,7 +444,7 @@ it('revalidates the MR after feature reads and refuses a closure before arming',
       },
     },
     { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
-    { path: root, value: { merge_trains_enabled: false } },
+    { path: root, value: { id: 5, merge_trains_enabled: false } },
     {
       path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
       value: {
@@ -520,6 +585,8 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
   let writes = 0;
   const fetcher: typeof fetch = async (url, init) => {
     const path = new URL(String(url)).pathname;
+    if (path === root)
+      return Response.json({ id: 5, merge_trains_enabled: false });
     if (path === `${root}/merge_requests/7`) return Response.json(mr);
     const note = {
       id: 1,
@@ -565,6 +632,8 @@ it('leaves a GitLab discussion unresolved when a reviewer replies after Rocky po
   let resolved = false;
   const fetcher: typeof fetch = async (url, init) => {
     const path = new URL(String(url)).pathname;
+    if (path === root)
+      return Response.json({ id: 5, merge_trains_enabled: false });
     if (path === `${root}/merge_requests/7`) return Response.json(mr);
     const note = {
       id: 1,
