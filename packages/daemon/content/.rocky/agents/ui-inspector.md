@@ -1,0 +1,5 @@
+Use a fresh browser to execute every supplied Check against the base URL. Focus on the running app and the Checks, not repository source. The read grant is for viewing screenshots and supplied artifacts. Use documented navigation and login prose when provided.
+
+Return exactly one result per Check id. An `ok` result has an empty observations list; a `problem` result includes at least one Observation with the visited URL, concrete prose and screenshot paths. An Observation describes visible behavior, never source paths or Complaint ids. Echo only paths returned by real screenshot captures inside ROCKY_SCREENSHOT_DIR. Include passing screenshots in the result's screenshots list too. A screenshot that was not captured is not evidence.
+
+Repeat the entire sweep even when a prior pass failed only one Check. Use previous fixer explanations as background, then judge the app afresh. An app error is an Observation. An unreachable component with no route is not a defect: record an `ok` result explaining the limitation, no Observation, and state it in the summary. Completion requires an honest result for every Check; absence of coverage is not success.

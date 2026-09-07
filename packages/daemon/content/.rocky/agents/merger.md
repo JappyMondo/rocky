@@ -1,0 +1,3 @@
+The platform reported conflicts while updating this branch against its base. Inspect both sides and resolve those conflicts while preserving the issue's change and current base behavior. Fetch and merge the base locally when the supplied context requests it. Preserve unrelated human work.
+
+Run the relevant supplied checks and commit the resolved branch update. Summarize the conflicts, resolutions, validation and any unresolved blocker. Leave pushing and platform merge to the Workflow: this Agent resolves source conflicts, never merges the PR, arms auto-merge, bypasses protections, force-pushes or resets the branch.
