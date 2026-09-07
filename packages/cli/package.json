@@ -1,5 +1,6 @@
 {
   "name": "rocky",
+  "private": true,
   "version": "0.0.0",
   "license": "MIT",
   "description": "Rocky's CLI — a thin client for the per-developer local daemon.",

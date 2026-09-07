@@ -71,6 +71,40 @@ be caught, not silently corrupt the Journal. NG-597 owns the exact callback type
 branch-local context, result ordering and mixed Parked/failing-branch behavior.
 Do not infer those from a prototype or add a second implementation here.
 
+### Pending runtime integration
+
+The runtime lane has since submitted [PR #13](https://github.com/JappyMondo/rocky/pull/13),
+head `d6588aaaea87be644e9aa337a47f6af5b984856c`, with green CI and review still
+required. Its SDK and documentation were read without importing or modifying
+the branch. It adds these declaration shapes (named result/options types expanded):
+
+```ts
+readonly ports: number[];
+stage(label: string): void;
+exec(cmd: string, opts: { background: true; label?: string }): Promise<{ pid: number }>;
+parallel<T, R>(
+  items: readonly T[],
+  fn: (item: T, index: number) => Promise<R>,
+  opts?: { label?: string },
+): Promise<R[]>;
+```
+
+The callback captures the same `ctx`; it does not receive a second context
+parameter. Async-local routing supplies branch-local Journals. `ports` is a
+readonly property holding a mutable array, not a deeply readonly array. That
+PR also corrects CONTEXT's Step definition to exclude `stage()` and replaces
+ADR 0005's stale member count with the named surface. Its poll Boots retry waits
+without starting new Steps or background commands; working Boots renew those
+resources. None of these additions is installed by this packaging branch yet.
+
+After that reviewed head lands, a valid example is:
+
+```ts
+const results = await ctx.parallel(['lint', 'test'], async (command, index) => {
+  return ctx.exec(command, { label: `check ${index + 1}` });
+}, { label: 'checks' });
+```
+
 `ports` and `stage` are not Steps. Ports are Run data reserved at Boot; `stage`
 is a display-only marker, consuming no sequence number. Background `exec` is an
 explicit exception to replaying an old result: it must respawn rather than
@@ -83,10 +117,10 @@ on Boot; wrap effects in `step` when their outcome must be journaled.
 
 ## Remaining reconciliation
 
-NG-618 remains open until the runtime branch lands and this document matches
-the final SDK signatures and tested parking/failure semantics. Use the existing
-NG-597/631 tickets for the missing SDK members, not competing edits. Then update
-the current-implementation table, replace abstract fan-out guidance with the
-accepted callback example, and re-run the SDK-only consumer typecheck. CLI
+NG-618 remains open until PR #13 lands and this document matches the integrated
+SDK and tested parking/failure semantics. Use the existing NG-597/631 tickets,
+not competing edits. Then update the current-implementation table, verify the
+pending callback example against the merged signature, and re-run the SDK-only
+consumer typecheck including the new members. CLI
 Trigger admission and NG-608/599 functionality must likewise stop being called
 implemented merely because their command names exist.

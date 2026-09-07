@@ -34,6 +34,7 @@ test(
       npm_config_registry: 'https://registry.npmjs.org',
       npm_config_userconfig: join(root, 'empty.npmrc'),
       npm_config_globalconfig: join(root, 'empty-global.npmrc'),
+      AGENT_BROWSER_SOCKET_DIR: join(root, 'ab'),
     };
     await writeFile(env.npm_config_userconfig, '');
     await writeFile(env.npm_config_globalconfig, '');
@@ -45,8 +46,8 @@ test(
         timeout: 120_000,
         ...extra,
       });
-    const cli = (...args) =>
-      run('npx', ['--no-install', '--', 'rocky', ...args]);
+    const binary = join(consumer, 'node_modules/.bin/rocky');
+    const cli = (...args) => run(binary, args);
     const local = (path) =>
       fetch(`http://127.0.0.1:7625${path}`, {
         headers: { connection: 'close' },
@@ -103,6 +104,11 @@ test(
     const manifestPath = join(installed, 'package.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.name, 'rocky');
+    assert.equal(
+      manifest.private,
+      true,
+      'publication is blocked until namespace ownership is established',
+    );
     assert.ok(
       Object.keys(manifest.dependencies).every(
         (name) => !name.startsWith('@rocky/'),
@@ -112,7 +118,7 @@ test(
     assert.ok(!manifest.scripts, 'consumers do not need build/install scripts');
     assert.equal(cli('--version').trim(), manifest.version);
     assert.match(
-      run('npx', ['--no-install', '--', 'rocky-ingress', '--help']),
+      run(join(consumer, 'node_modules/.bin/rocky-ingress'), ['--help']),
       /webhook\/ping-only/i,
     );
     for (const file of await readdir(join(installed, 'dist'))) {
@@ -140,17 +146,45 @@ test(
     assert.equal(assetResponse.status, 200);
     assert.ok((await assetResponse.text()).length > 0);
 
+    // Optional local acceptance with an independently installed agent-browser.
+    // CI's deterministic smoke remains usable without downloading a browser.
+    if (process.env.ROCKY_DISTRIBUTION_BROWSER === '1') {
+      const session = `rp${process.pid}`;
+      await mkdir(env.AGENT_BROWSER_SOCKET_DIR);
+      const browser = (...args) =>
+        run('agent-browser', ['--session', session, ...args]);
+      try {
+        browser('open', 'http://127.0.0.1:7625');
+        browser('wait', '--text', `Daemon v${manifest.version} is ok.`);
+        assert.match(browser('snapshot'), /heading "Rocky"/);
+        browser('set', 'viewport', '390', '844');
+        assert.ok(
+          browser('get', 'text', 'body').includes(
+            `Daemon v${manifest.version} is ok.`,
+          ),
+        );
+        const errors = JSON.parse(browser('errors', '--json'));
+        assert.deepEqual(errors.data.errors, []);
+        console.log(
+          'Installed web shell mounted in Chromium at desktop and mobile widths; no page errors.',
+        );
+      } finally {
+        browser('close');
+      }
+    }
+
     // An installed replacement CLI must warn, not silently restart a live Run.
     const nextVersion = `${manifest.version}-smoke-next`;
     await writeFile(
       manifestPath,
       JSON.stringify({ ...manifest, version: nextVersion }),
     );
-    const mismatch = spawnSync(
-      'npx',
-      ['--no-install', '--', 'rocky', 'status'],
-      { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 },
-    );
+    const mismatch = spawnSync(binary, ['status'], {
+      cwd: consumer,
+      env,
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
     assert.equal(mismatch.status, 0, mismatch.stderr);
     assert.match(mismatch.stderr, /rocky restart/);
     assert.ok(
@@ -230,6 +264,23 @@ export default [linear.onDelegate(workflow), manual('review', workflow)];
       ],
       sdkConsumer,
     );
+    run(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        `
+import assert from 'node:assert/strict';
+import { z } from '@rocky/sdk';
+import table from './.rocky/workflow.ts';
+assert.equal(z.string().parse('ok'), 'ok');
+assert.deepEqual(table.map((trigger) => trigger.kind), ['linear.onDelegate', 'manual']);
+assert.equal(table[1].name, 'review');
+assert.ok(table.every(Object.isFrozen));
+`,
+      ],
+      sdkConsumer,
+    );
     await assert.rejects(
       readFile(join(sdkConsumer, 'node_modules/@rocky/daemon/package.json')),
       { code: 'ENOENT' },
@@ -239,7 +290,7 @@ export default [linear.onDelegate(workflow), manual('review', workflow)];
       { code: 'ENOENT' },
     );
     console.log(
-      `SDK-only consumer passed: ${sdkArchive}; Workflow typechecks without rocky or @rocky/daemon.`,
+      `SDK-only consumer passed: ${sdkArchive}; Workflow typechecks and its Trigger table imports/runs without rocky or @rocky/daemon.`,
     );
   },
 );
