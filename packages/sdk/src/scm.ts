@@ -91,9 +91,15 @@ export interface OpenPrOptions {
   draft?: boolean;
 }
 
-/** The approved value returned by ctx.checkpoint; required to arm a merge. */
+/**
+ * An approval minted by this Boot's `ctx.checkpoint`.  The symbol is declared
+ * only in the type system: SDK consumers receive no runtime constructor or
+ * brand to forge.
+ */
+declare const approvedCheckpointBrand: unique symbol;
 export interface ApprovedCheckpoint {
   decision: 'approve';
+  readonly [approvedCheckpointBrand]: true;
 }
 
 export type UpdateBranchResult =

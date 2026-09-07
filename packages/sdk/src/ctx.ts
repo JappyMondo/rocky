@@ -7,7 +7,7 @@
  * than guessed; the tickets that own them add them.
  */
 import type { z } from 'zod';
-import type { ScmOps } from './scm.js';
+import type { ApprovedCheckpoint, ScmOps } from './scm.js';
 export type {
   ApprovedCheckpoint,
   CiResult,
@@ -44,7 +44,7 @@ export interface ParallelOptions {
 }
 
 export type CheckpointAnswer =
-  | { decision: 'approve' }
+  | ApprovedCheckpoint
   | { decision: 'reject'; reason?: string }
   | { decision: 'steer'; message: string };
 

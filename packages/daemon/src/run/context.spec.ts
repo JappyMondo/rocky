@@ -2,7 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { createWorkflowContext } from './context.js';
+import {
+  createWorkflowContext,
+  type CheckpointApprovalVerifier,
+} from './context.js';
+import type { ApprovedCheckpoint } from '@rocky/sdk';
 import { newRunHeader } from './header.js';
 import { openJournal, type JournalEntry } from './journal.js';
 import { runBoot } from './replay.js';
@@ -48,6 +52,43 @@ it('names missing external adapters without inventing behavior', async () => {
       return 'merged';
     },
   });
+});
+
+it('mints approval capabilities only from this Boot checkpoint answer, including replay', async () => {
+  const journalPath = join(dir, 'journal.jsonl');
+  let verifier: CheckpointApprovalVerifier | undefined;
+  let previous: ApprovedCheckpoint | undefined;
+  for (let boot = 0; boot < 2; boot++) {
+    await runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+          external: (steps, approvals) => {
+            verifier = approvals;
+            return {
+              checkpoint: () =>
+                steps.step('checkpoint', {}, async () => ({
+                  status: 'done',
+                  result: { decision: 'approve' as const },
+                })),
+            };
+          },
+        });
+        const answer = await ctx.checkpoint({ title: 'Merge', body: '' });
+        expect(answer.decision).toBe('approve');
+        if (answer.decision !== 'approve') throw new Error('expected approval');
+        expect(verifier?.(answer)).toBe(true);
+        expect(verifier?.({ decision: 'approve' } as ApprovedCheckpoint)).toBe(
+          false,
+        );
+        if (previous) expect(verifier?.(previous)).toBe(false);
+        previous = answer;
+        return 'merged';
+      },
+    });
+  }
 });
 
 it('runs ordinary loops and nested parallel callbacks through the same ctx and replays their Steps', async () => {

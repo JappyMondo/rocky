@@ -226,15 +226,25 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             'Narrow the branch identity.',
           );
       }
-      return handle(
-        await http.request('POST', `${root}/pulls`, pullSchema, {
-          title: input.title,
-          body: input.body,
-          head: options.branch,
-          base: options.repo.baseBranch,
-          draft: input.draft ?? true,
-        }),
-      );
+      try {
+        return handle(
+          await http.request('POST', `${root}/pulls`, pullSchema, {
+            title: input.title,
+            body: input.body,
+            head: options.branch,
+            base: options.repo.baseBranch,
+            draft: input.draft ?? true,
+          }),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof ScmError) ||
+          ![409, 422].includes(error.status ?? 0)
+        )
+          throw error;
+        // A concurrent creator may have won after the bounded lookup.
+        return await this.openPr(input);
+      }
     },
     async markDraft(
       pr: Pr,
@@ -261,9 +271,10 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         const inputType = draft
           ? 'ConvertPullRequestToDraftInput'
           : 'MarkPullRequestReadyForReviewInput';
+        const verified = await read(pr);
         await http.graphql(
           `mutation Draft($input: ${inputType}!) { ${operation}(input: $input) { pullRequest { id } } }`,
-          { input: { pullRequestId: current.id } },
+          { input: { pullRequestId: verified.id } },
           z.object({
             [operation]: z.object({
               pullRequest: z.object({ id: z.string() }),
@@ -405,17 +416,19 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       };
     },
     async armAutoMerge(pr: Pr): Promise<StepOutcome<MergeResult>> {
-      validate(pr);
+      // A GraphQL node ID is not authority. Bind it to a fresh repository
+      // REST read before any queue/auto-merge mutation.
+      const verified = await read(pr);
       const { node } = await http.graphql(
         `query Merge($id: ID!) { node(id: $id) { ... on PullRequest {
         id headRefOid state isDraft mergeStateStatus reviewDecision isMergeQueueEnabled isInMergeQueue
         autoMergeRequest { enabledAt } repository { autoMergeAllowed squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed }
       } } }`,
-        { id: pr.id },
+        { id: verified.id },
         mergeSchema,
       );
       const current: Pr = {
-        ...pr,
+        ...verified,
         headSha: node.headRefOid,
         draft: node.isDraft,
         state:
@@ -425,7 +438,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
               ? 'closed'
               : 'open',
       };
-      if (node.id !== pr.id)
+      if (node.id !== verified.id)
         throw refuse(
           options.repo.id,
           'not_open',
@@ -492,7 +505,12 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       if (node.isMergeQueueEnabled) {
         await http.graphql(
           'mutation Arm($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id } } }',
-          { input: { pullRequestId: pr.id, expectedHeadOid: pr.headSha } },
+          {
+            input: {
+              pullRequestId: verified.id,
+              expectedHeadOid: pr.headSha,
+            },
+          },
           z.object({
             enqueuePullRequest: z.object({
               mergeQueueEntry: z.object({ id: z.string() }).nullable(),
@@ -519,7 +537,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           'mutation Arm($input: EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input: $input) { pullRequest { id } } }',
           {
             input: {
-              pullRequestId: pr.id,
+              pullRequestId: verified.id,
               expectedHeadOid: pr.headSha,
               mergeMethod,
             },
@@ -603,7 +621,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       }
     },
     async reviewThreads(pr: Pr): Promise<ReviewThread[]> {
-      validate(pr);
+      const verified = await read(pr);
       const result: ReviewThread[] = [];
       let cursor: string | null = null;
       for (let page = 0; page < 1000; page++) {
@@ -612,7 +630,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             `query Threads($id: ID!, $cursor: String) { node(id: $id) { ... on PullRequest {
           reviewThreads(first: 100, after: $cursor) { nodes { id path line isResolved comments(first: 100) { nodes { body } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
         } } }`,
-            { id: pr.id, cursor },
+            { id: verified.id, cursor },
             threadsResultSchema,
           );
         for (const thread of node.reviewThreads.nodes) {
@@ -620,7 +638,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             ? (await notes(thread.id)).bodies
             : thread.comments.nodes.map((note) => note.body);
           result.push({
-            pr,
+            pr: verified,
             id: thread.id,
             path: thread.path,
             ...(thread.line === null ? {} : { line: thread.line }),
@@ -648,14 +666,25 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       body: string,
       runId: string,
     ): Promise<void> {
-      validate(thread.pr);
-      const existing = await notes(thread.id);
-      const intent = replyIntent(thread, body, runId, existing.bodies);
+      const current = await read(thread.pr);
+      const actual = (await this.reviewThreads(current)).find(
+        (candidate) => candidate.id === thread.id,
+      );
+      if (!actual)
+        throw refuse(
+          options.repo.id,
+          'not_open',
+          'Review thread does not belong to the current PR.',
+          'Re-read review threads from this PR before replying.',
+          current,
+        );
+      const existing = await notes(actual.id);
+      const intent = replyIntent(actual, body, runId, existing.bodies);
       if (!intent.exists)
         await http.graphql(
           'mutation Reply($input: AddPullRequestReviewThreadReplyInput!) { addPullRequestReviewThreadReply(input: $input) { comment { id } } }',
           {
-            input: { pullRequestReviewThreadId: thread.id, body: intent.body },
+            input: { pullRequestReviewThreadId: actual.id, body: intent.body },
           },
           z.object({
             addPullRequestReviewThreadReply: z.object({
@@ -667,7 +696,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         try {
           await http.graphql(
             'mutation Resolve($input: ResolveReviewThreadInput!) { resolveReviewThread(input: $input) { thread { isResolved } } }',
-            { input: { threadId: thread.id } },
+            { input: { threadId: actual.id } },
             z.object({
               resolveReviewThread: z.object({
                 thread: z.object({ isResolved: z.boolean() }),

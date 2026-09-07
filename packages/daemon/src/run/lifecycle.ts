@@ -1,7 +1,11 @@
 import { createServer } from 'node:net';
 import type { Workflow } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
-import { createWorkflowContext, type ExternalContext } from './context.js';
+import {
+  createWorkflowContext,
+  type CheckpointApprovalVerifier,
+  type ExternalServices,
+} from './context.js';
 import { readRunHeader, updateRunHeader, type RunHeader } from './header.js';
 import { runBoot, type BootContext, type BootResult } from './replay.js';
 import { startCommand, type OwnedCommand } from './process.js';
@@ -27,7 +31,8 @@ export interface WorkflowRuntimeOptions {
     run: RunHeader,
     steps: BootContext,
     signal: AbortSignal,
-  ): Partial<ExternalContext>;
+    approvals: CheckpointApprovalVerifier,
+  ): ExternalServices;
   execTimeoutMs?: number;
 }
 
@@ -132,8 +137,8 @@ export class WorkflowRuntime {
                   ...new Set((tracked + untracked).split('\0').filter(Boolean)),
                 ];
               },
-              external: (branch) =>
-                this.options.external?.(run, branch, signal) ?? {},
+              external: (branch, approvals) =>
+                this.options.external?.(run, branch, signal, approvals) ?? {},
             }),
           );
         },

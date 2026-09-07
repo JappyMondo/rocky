@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { CheckpointAnswer, Workflow } from '@rocky/sdk';
+import type { Workflow } from '@rocky/sdk';
 import { git } from '../repos/git.js';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import {
@@ -126,7 +126,7 @@ it('keeps background work while Parked, respawns on Boot, and kills the group an
     workspace: () => dir,
     external: (_run, steps) => ({
       checkpoint: () =>
-        steps.step<CheckpointAnswer>('checkpoint', {}, async () =>
+        steps.step<{ decision: 'approve' }>('checkpoint', {}, async () =>
           ready
             ? { status: 'done', result: { decision: 'approve' } }
             : { status: 'waiting' },

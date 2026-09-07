@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 it.each(['github', 'gitlab'])(
-  'probes %s read-only and leaves no-PR draft explicitly unexercised',
+  'probes %s read-only and derives draft authority from write evidence',
   async (platform) => {
     const calls: string[] = [];
     const fetcher: typeof fetch = async (url, init) => {
@@ -74,7 +74,7 @@ it.each(['github', 'gitlab'])(
       platform,
       merge: { status: 'allowed' },
       sourcePush: { status: 'allowed' },
-      draft: { status: 'unknown', source: expect.stringContaining('no PR') },
+      draft: { status: 'allowed' },
     });
     expect(calls.length).toBeGreaterThan(3);
   },
