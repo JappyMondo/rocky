@@ -24,6 +24,12 @@
   "engines": {
     "node": ">=24"
   },
+  "scripts": {
+    "prepack": "node ../../tools/package-rocky.mjs"
+  },
+  "publishConfig": {
+    "directory": "dist/package"
+  },
   "dependencies": {
     "@rocky/daemon": "workspace:*",
     "commander": "^14.0.2"
