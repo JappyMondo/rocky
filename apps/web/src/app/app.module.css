@@ -252,6 +252,7 @@ em {
 .diffs,
 .compose,
 .settings,
+.steers,
 .checkpointCompose {
   max-width: 900px;
   background: #fff;
@@ -320,6 +321,25 @@ button:disabled {
   font-size: 15px;
   margin: 0 8px 0 0;
 }
+.steers h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.steerActivity {
+  border-top: 1px solid #e6ebf0;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.steerActivity p {
+  margin: 0;
+  font-size: 12px;
+}
+.steerActivity blockquote {
+  margin: 6px 0;
+  border-left: 2px solid #91b9e5;
+  padding-left: 9px;
+  white-space: pre-wrap;
+}
 .diffs button {
   border: 1px solid #c8d4e0;
   border-radius: 4px;
@@ -371,7 +391,7 @@ button:disabled {
   padding: 12px;
   border-top: 1px solid #e5e9ee;
 }
-@media (max-width: 390px) {
+@media (max-width: 760px) {
   .app {
     display: block;
   }

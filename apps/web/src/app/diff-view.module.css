@@ -3,7 +3,13 @@
   --panel: #fff;
   --line: #d9dee7;
   --muted: #657185;
-  min-height: 100%;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
   color: #202838;
   background: var(--bg);
   font:
@@ -17,6 +23,7 @@
   outline-offset: -2px;
 }
 .topbar {
+  flex: 0 0 auto;
   min-height: 50px;
   box-sizing: border-box;
   display: flex;
@@ -88,11 +95,13 @@
     monospace;
 }
 .body {
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: 238px minmax(0, 1fr);
-  min-height: calc(100vh - 82px);
+  min-height: 0;
 }
 .tree {
+  min-height: 0;
   overflow: auto;
   border-right: 1px solid var(--line);
   background: var(--panel);
@@ -156,6 +165,7 @@
   white-space: nowrap;
 }
 .diffPane {
+  min-height: 0;
   min-width: 0;
   overflow: auto;
 }
@@ -287,6 +297,7 @@
   display: none;
 }
 .shortcuts {
+  flex: 0 0 auto;
   margin: 0;
   padding: 7px 16px;
   border-top: 1px solid var(--line);
@@ -315,21 +326,40 @@
   outline-offset: 2px;
 }
 @media (max-width: 760px) {
+  .topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 7px;
+    padding: 8px 12px;
+  }
+  .close {
+    margin-left: auto;
+  }
+  .complaintControls {
+    order: 3;
+    width: 100%;
+  }
   .body {
-    display: block;
-    min-height: calc(100vh - 107px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
   }
   .tree {
     display: none;
   }
   .fileSelectLabel {
     display: flex;
+    grid-row: 1;
     gap: 8px;
     align-items: center;
     padding: 8px 12px;
     border-bottom: 1px solid var(--line);
     color: #657185;
     font-size: 11px;
+  }
+  .diffPane {
+    grid-row: 2;
   }
   .fileSelectLabel select {
     min-width: 0;

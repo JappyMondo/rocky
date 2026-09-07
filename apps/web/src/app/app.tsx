@@ -1,5 +1,6 @@
 import {
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
   useRef,
@@ -30,18 +31,18 @@ type Health = {
 };
 
 const route = (): Route => {
-  const run = /^\/runs\/([^/]+)$/.exec(location.pathname);
-  const issue = /^\/issues\/([^/]+)$/.exec(location.pathname);
+  const run = /^\/runs\/([^/]+)$/.exec(window.location.pathname);
+  const issue = /^\/issues\/([^/]+)$/.exec(window.location.pathname);
   if (run) return { page: 'inbox', runId: decodeURIComponent(run[1]) };
   if (issue)
     return { page: 'inbox', issueIdentifier: decodeURIComponent(issue[1]) };
-  return location.pathname === '/settings'
+  return window.location.pathname === '/settings'
     ? { page: 'settings' }
     : { page: 'inbox' };
 };
 const go = (path: string) => {
-  history.pushState({}, '', path);
-  dispatchEvent(new PopStateEvent('popstate'));
+  window.history.pushState({}, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 };
 const typing = (target: EventTarget | null) =>
   target instanceof HTMLInputElement ||
@@ -126,6 +127,8 @@ export function App() {
             )?.runId
           : runs?.runs[0]?.runId));
   const selectedDetail = detail?.run.runId === selectedId ? detail : null;
+  const selectedRunId = selectedDetail?.run.runId;
+  const selectedRevision = selectedDetail?.revision;
   const mutationsAllowed = !mismatch;
   const refreshDetail = useCallback(
     async (id = selectedId) => {
@@ -138,11 +141,75 @@ export function App() {
     },
     [selectedId],
   );
+  const submitAnswer = useCallback(
+    async (answer: Answer) => {
+      if (
+        !selectedDetail?.checkpoint ||
+        selectedDetail.checkpoint.answer ||
+        !mutationsAllowed ||
+        !selectedDetail.controls.answer
+      )
+        return;
+      setError(null);
+      try {
+        await api(
+          `/api/runs/${encodeURIComponent(selectedDetail.run.runId)}/answer`,
+          setMismatch,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              stepKey: selectedDetail.checkpoint.stepKey,
+              generation: selectedDetail.checkpoint.generation,
+              answer,
+            }),
+          },
+        );
+        setCompose('');
+        requestId.current = null;
+        await refreshDetail(selectedDetail.run.runId);
+      } catch (caught) {
+        const response = (caught as { response?: Response }).response;
+        if (response?.status === 409) {
+          const conflict = (await response.json()) as ApiError;
+          setError(
+            `This Checkpoint was already answered${conflict.answer ? `: ${conflict.answer.decision}.` : '.'}`,
+          );
+          if (conflict.answer)
+            setDetail((current) =>
+              current?.run.runId === selectedDetail.run.runId &&
+              current.checkpoint
+                ? {
+                    ...current,
+                    checkpoint: {
+                      ...current.checkpoint,
+                      answer: conflict.answer,
+                    },
+                  }
+                : current,
+            );
+        } else setError(await apiError(caught, 'Answer was not saved.'));
+      }
+    },
+    [mutationsAllowed, refreshDetail, selectedDetail],
+  );
+  const revealStep = useCallback(() => {
+    const key = new URLSearchParams(window.location.hash.slice(1)).get('step');
+    if (
+      selectedDetail &&
+      key &&
+      selectedDetail.steps.some((step) => step.key === key)
+    )
+      setExpanded((current) => {
+        const id = stepId(selectedDetail.run.runId, key);
+        return current[id] ? current : { ...current, [id]: true };
+      });
+  }, [selectedDetail]);
 
   useEffect(() => {
     const listener = () => setRoute(route());
-    addEventListener('popstate', listener);
-    return () => removeEventListener('popstate', listener);
+    window.addEventListener('popstate', listener);
+    return () => window.removeEventListener('popstate', listener);
   }, []);
   useEffect(() => {
     let stopped = false;
@@ -224,10 +291,10 @@ export function App() {
     };
   }, [selectedId]);
   useEffect(() => {
-    if (!selectedDetail || !diffId) return;
+    if (!selectedRunId || !diffId) return;
     let cancelled = false;
     api<DiffView>(
-      `/api/runs/${encodeURIComponent(selectedDetail.run.runId)}/diffs/${encodeURIComponent(diffId)}`,
+      `/api/runs/${encodeURIComponent(selectedRunId)}/diffs/${encodeURIComponent(diffId)}`,
       setMismatch,
     )
       .then((next) => {
@@ -237,7 +304,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedDetail?.revision, diffId]);
+  }, [diffId, selectedRevision, selectedRunId]);
   useEffect(() => {
     if (currentRoute.page !== 'settings') return;
     let cancelled = false;
@@ -249,22 +316,10 @@ export function App() {
     };
   }, [currentRoute.page]);
   useEffect(() => {
-    const reveal = () => {
-      const key = new URLSearchParams(location.hash.slice(1)).get('step');
-      if (
-        selectedDetail &&
-        key &&
-        selectedDetail.steps.some((step) => step.key === key)
-      )
-        setExpanded((current) => ({
-          ...current,
-          [stepId(selectedDetail.run.runId, key)]: true,
-        }));
-    };
-    reveal();
-    addEventListener('hashchange', reveal);
-    return () => removeEventListener('hashchange', reveal);
-  }, [selectedDetail?.revision]);
+    revealStep();
+    window.addEventListener('hashchange', revealStep);
+    return () => window.removeEventListener('hashchange', revealStep);
+  }, [revealStep]);
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
       if (
@@ -287,7 +342,14 @@ export function App() {
       } else if (event.key === 'u') {
         event.preventDefault();
         go('/');
-      } else if (event.key === 's') {
+      } else if (
+        event.key === 's' &&
+        ((selectedDetail?.checkpoint &&
+          !selectedDetail.checkpoint.answer &&
+          selectedDetail.controls.answer) ||
+          selectedDetail?.controls.steer) &&
+        mutationsAllowed
+      ) {
         event.preventDefault();
         composeRef.current?.focus();
       } else if (event.key === 'o') {
@@ -304,6 +366,7 @@ export function App() {
       } else if (
         event.key === 'e' &&
         selectedDetail?.checkpoint &&
+        !selectedDetail.checkpoint.answer &&
         selectedDetail.controls.answer &&
         mutationsAllowed
       ) {
@@ -312,6 +375,7 @@ export function App() {
       } else if (
         event.key === 'r' &&
         selectedDetail?.checkpoint &&
+        !selectedDetail.checkpoint.answer &&
         selectedDetail.controls.answer &&
         mutationsAllowed
       ) {
@@ -319,8 +383,8 @@ export function App() {
         void submitAnswer({ decision: 'reject' });
       }
     };
-    addEventListener('keydown', keys);
-    return () => removeEventListener('keydown', keys);
+    window.addEventListener('keydown', keys);
+    return () => window.removeEventListener('keydown', keys);
   }, [
     currentRoute.page,
     diff,
@@ -329,43 +393,8 @@ export function App() {
     runs,
     selectedDetail,
     selectedId,
+    submitAnswer,
   ]);
-
-  const submitAnswer = async (answer: Answer) => {
-    if (
-      !selectedDetail?.checkpoint ||
-      !mutationsAllowed ||
-      !selectedDetail.controls.answer
-    )
-      return;
-    setError(null);
-    try {
-      await api(
-        `/api/runs/${encodeURIComponent(selectedDetail.run.runId)}/answer`,
-        setMismatch,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            stepKey: selectedDetail.checkpoint.stepKey,
-            generation: selectedDetail.checkpoint.generation,
-            answer,
-          }),
-        },
-      );
-      setCompose('');
-      requestId.current = null;
-      await refreshDetail(selectedDetail.run.runId);
-    } catch (caught) {
-      const response = (caught as { response?: Response }).response;
-      if (response?.status === 409) {
-        const conflict = (await response.json()) as ApiError;
-        setError(
-          `This Checkpoint was already answered${conflict.answer ? `: ${conflict.answer.decision}.` : '.'}`,
-        );
-      } else setError(await apiError(caught, 'Answer was not saved.'));
-    }
-  };
   const changeCompose = (value: string) => {
     if (requestId.current && value !== compose) requestId.current = null;
     setCompose(value);
@@ -717,6 +746,19 @@ function RunView(p: {
   const checkpointOpen = !!d.checkpoint && !d.checkpoint.answer;
   const canAnswer = checkpointOpen && d.controls.answer && p.allowed;
   const canSteer = d.controls.steer && p.allowed && !terminal(d.run.status);
+  const submitOnModifierEnter = (
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+    submit: () => void,
+  ) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault();
+      submit();
+    }
+  };
+  const submitCheckpointSteer = () => {
+    if (p.compose.trim())
+      void p.answer({ decision: 'steer', message: p.compose });
+  };
   let previousBoot: number | undefined;
   return (
     <>
@@ -758,7 +800,7 @@ function RunView(p: {
                 className={styles.checkpointCompose}
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void p.answer({ decision: 'steer', message: p.compose });
+                  submitCheckpointSteer();
                 }}
               >
                 <label htmlFor="checkpoint-steer">Steer this checkpoint</label>
@@ -767,12 +809,16 @@ function RunView(p: {
                   ref={p.composeRef}
                   value={p.compose}
                   onChange={(event) => p.setCompose(event.target.value)}
+                  onKeyDown={(event) =>
+                    submitOnModifierEnter(event, submitCheckpointSteer)
+                  }
                   disabled={!canAnswer}
                   placeholder="Give the Agent direction…"
                 />
                 <button disabled={!canAnswer || !p.compose.trim()}>
                   Send steer
                 </button>
+                <small>Press Command+Enter or Control+Enter to send.</small>
                 {!d.controls.answer && (
                   <small>
                     Checkpoint answers are unavailable for this Run.
@@ -819,7 +865,11 @@ function RunView(p: {
                   <strong>{stepName(step)}</strong>
                   <small>
                     {step.status}
-                    {step.ms ? ` · ${Math.round(step.ms / 1000)}s` : ''}
+                    {step.stage ? ` · Stage: ${step.stage}` : ''} ·{' '}
+                    <time dateTime={step.startedAt}>{step.startedAt}</time>
+                    {step.ms !== undefined
+                      ? ` · ${Math.round(step.ms / 1000)}s`
+                      : ''}
                   </small>
                 </button>
                 <a
@@ -864,6 +914,25 @@ function RunView(p: {
           );
         })}
       </section>
+      {d.steers.length > 0 && (
+        <section className={styles.steers} aria-label="Steer activity">
+          <h2>Steer activity</h2>
+          {d.steers.map((steer) => (
+            <article key={steer.requestId} className={styles.steerActivity}>
+              <p>
+                <strong>Steer intake</strong> · received {steer.receivedAt}
+              </p>
+              <blockquote>{steer.message}</blockquote>
+              <p>
+                <strong>Delivery</strong> ·{' '}
+                {steer.state === 'delivered'
+                  ? `delivered${steer.targets?.length ? ` to ${steer.targets.join(', ')}` : ''}.`
+                  : 'held for the next Agent conversation.'}
+              </p>
+            </article>
+          ))}
+        </section>
+      )}
       {d.diffs.length > 0 && (
         <section className={styles.diffs}>
           <h2>Diffs</h2>
@@ -887,6 +956,11 @@ function RunView(p: {
               ref={p.composeRef}
               value={p.compose}
               onChange={(event) => p.setCompose(event.target.value)}
+              onKeyDown={(event) =>
+                submitOnModifierEnter(event, () =>
+                  p.composeRef.current?.form?.requestSubmit(),
+                )
+              }
               placeholder={
                 d.controls.steer
                   ? 'Tell the next Agent conversation what to change…'

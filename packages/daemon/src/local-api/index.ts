@@ -26,12 +26,17 @@ import {
   DAEMON_VERSION,
   VERSION_HEADER,
 } from '../version.js';
-import { ArtifactError, LocalArtifacts } from './artifacts.js';
+import {
+  ArtifactError,
+  LocalArtifacts,
+  MAX_TRANSCRIPT_BYTES,
+} from './artifacts.js';
 import { LocalApiError, LocalSettings } from './settings.js';
 
 export {
   LocalArtifacts,
   ArtifactError,
+  MAX_TRANSCRIPT_BYTES,
   parseUnifiedDiff,
 } from './artifacts.js';
 export { LocalSettings, LocalApiError } from './settings.js';
@@ -76,6 +81,9 @@ export interface LocalApiOptions {
 
 const segment = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,199}$/);
 const stepKey = z.string().regex(/^\d+(?:\/\d+\/\d+)*$/);
+const TRANSCRIPT_CHUNK_BYTES = 16 * 1024;
+const SSE_HEARTBEAT_MS = 10_000;
+const SSE_STALLED_SOCKET_MS = 15_000;
 const answerSchema = z.discriminatedUnion('decision', [
   z.object({ decision: z.literal('approve') }).strict(),
   z
@@ -239,13 +247,11 @@ export async function registerLocalApi(
         (request.headers.origin !== undefined &&
           request.headers.origin !== url.origin)
       ) {
-        return reply
-          .code(403)
-          .send({
-            code: 'local-only',
-            error:
-              'This API is machine-local; cross-origin and proxied requests are refused.',
-          });
+        return reply.code(403).send({
+          code: 'local-only',
+          error:
+            'This API is machine-local; cross-origin and proxied requests are refused.',
+        });
       }
       const clientVersion = request.headers[CLIENT_VERSION_HEADER];
       if (
@@ -254,12 +260,10 @@ export async function registerLocalApi(
         clientVersion !== undefined &&
         clientVersion !== DAEMON_VERSION
       ) {
-        return reply
-          .code(409)
-          .send({
-            code: 'version-mismatch',
-            error: 'Reload Rocky before changing this Run.',
-          });
+        return reply.code(409).send({
+          code: 'version-mismatch',
+          error: 'Reload Rocky before changing this Run.',
+        });
       }
       return undefined;
     });
@@ -277,15 +281,13 @@ export async function registerLocalApi(
           ? error.statusCode
           : 500;
       if (status >= 500) local.log.error(error, 'Local service failed');
-      return reply
-        .code(status)
-        .send({
-          code: status < 500 ? 'invalid-request' : 'local-service-error',
-          error:
-            status < 500
-              ? 'Invalid request.'
-              : 'Local service failed. See the daemon log.',
-        });
+      return reply.code(status).send({
+        code: status < 500 ? 'invalid-request' : 'local-service-error',
+        error:
+          status < 500
+            ? 'Invalid request.'
+            : 'Local service failed. See the daemon log.',
+      });
     });
 
     const getRun = async (id: unknown) => {
@@ -454,13 +456,11 @@ export async function registerLocalApi(
           );
         const result = await options.answer(run.runId, input);
         if (result.kind === 'already-answered')
-          return reply
-            .code(409)
-            .send({
-              code: 'already-answered',
-              error: 'Checkpoint already answered.',
-              answer: result.answer,
-            });
+          return reply.code(409).send({
+            code: 'already-answered',
+            error: 'Checkpoint already answered.',
+            answer: result.answer,
+          });
         return result;
       },
     );
@@ -508,13 +508,11 @@ export async function registerLocalApi(
         );
       const result = await options.manual(input);
       if (result.kind === 'refused')
-        return reply
-          .code(409)
-          .send({
-            code: 'trigger-refused',
-            error: result.reason,
-            runId: result.runId,
-          });
+        return reply.code(409).send({
+          code: 'trigger-refused',
+          error: result.reason,
+          runId: result.runId,
+        });
       return reply.code(201).send(result);
     });
 
@@ -552,13 +550,29 @@ export async function registerLocalApi(
         registered.path,
         constants.O_RDONLY | constants.O_NOFOLLOW,
       );
-      if (offset > (await file.stat()).size) {
+      try {
+        const initial = await file.stat();
+        if (!initial.isFile() || initial.nlink !== 1)
+          throw new ArtifactError(
+            400,
+            'unsafe_artifact_path',
+            'Transcript must be a regular unlinked artifact file',
+          );
+        if (initial.size > MAX_TRANSCRIPT_BYTES)
+          throw new ArtifactError(
+            413,
+            'transcript_too_large',
+            'Transcript exceeds 100 MiB',
+          );
+        if (offset > initial.size)
+          throw new LocalApiError(
+            409,
+            'transcript-changed',
+            'Transcript offset is beyond the retained stream.',
+          );
+      } catch (error) {
         await file.close();
-        throw new LocalApiError(
-          409,
-          'transcript-changed',
-          'Transcript offset is beyond the retained stream.',
-        );
+        throw error;
       }
       const controller = new AbortController();
       streams.add(controller);
@@ -568,8 +582,18 @@ export async function registerLocalApi(
         (async function* () {
           try {
             yield ': connected\n\n';
-            const bytes = Buffer.alloc(16 * 1024);
+            const bytes = Buffer.alloc(TRANSCRIPT_CHUNK_BYTES);
+            let lastSentAt = Date.now();
             while (!controller.signal.aborted) {
+              const fileInfo = await file.stat();
+              if (fileInfo.size > MAX_TRANSCRIPT_BYTES) {
+                yield 'event: unavailable\ndata: {}\n\n';
+                return;
+              }
+              if (fileInfo.size < offset) {
+                yield 'event: unavailable\ndata: {}\n\n';
+                return;
+              }
               const { bytesRead } = await file.read(
                 bytes,
                 0,
@@ -590,6 +614,7 @@ export async function registerLocalApi(
                   const text = bytes.subarray(0, end).toString('utf8');
                   offset += end;
                   yield `id: ${offset}\nevent: transcript\ndata: ${JSON.stringify({ text, offset })}\n\n`;
+                  lastSentAt = Date.now();
                   continue;
                 }
               }
@@ -599,9 +624,18 @@ export async function registerLocalApi(
                 current?.status !== 'running' ||
                 header?.status !== 'running'
               ) {
-                if ((await file.stat()).size > offset && !bytesRead) continue;
+                if (fileInfo.size > offset && !bytesRead) {
+                  await delay(20, undefined, { signal: controller.signal });
+                  continue;
+                }
                 yield 'event: settled\ndata: {}\n\n';
                 return;
+              }
+              if (Date.now() - lastSentAt >= SSE_HEARTBEAT_MS) {
+                // Keep an otherwise quiet live turn open without presenting a
+                // heartbeat as Transcript content.
+                yield ': keepalive\n\n';
+                lastSentAt = Date.now();
               }
               await delay(200, undefined, { signal: controller.signal });
             }
@@ -618,14 +652,18 @@ export async function registerLocalApi(
         })(),
         { objectMode: false, highWaterMark: 1 },
       );
-      controller.signal.addEventListener('abort', () => {
-        stream.destroy();
-        reply.raw.destroy();
-      }, { once: true });
+      controller.signal.addEventListener(
+        'abort',
+        () => {
+          stream.destroy();
+          reply.raw.destroy();
+        },
+        { once: true },
+      );
       if (reply.raw.destroyed) controller.abort();
-      // Backpressure leaves at most one chunk buffered, and idle clients cannot
-      // hold an open file indefinitely when their socket stops draining.
-      reply.raw.setTimeout(15000, () => {
+      // Backpressure leaves at most one chunk buffered. Heartbeats keep a quiet
+      // Agent turn alive, while a client that stops draining still times out.
+      reply.raw.setTimeout(SSE_STALLED_SOCKET_MS, () => {
         controller.abort();
         stream.destroy();
         reply.raw.destroy();

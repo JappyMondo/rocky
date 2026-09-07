@@ -265,7 +265,21 @@ export function DiffViewer({ diff, onClose }: DiffViewerProps) {
           ))}
         </nav>
 
-        <main className={styles.diffPane} aria-live="polite">
+        <label className={styles.fileSelectLabel}>
+          File
+          <select
+            value={selected?.path ?? ''}
+            onChange={(event) => setSelectedPath(event.target.value)}
+            aria-label="Choose changed file"
+          >
+            {files.map((file) => (
+              <option key={file.path} value={file.path}>
+                {labelFor(file)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <section className={styles.diffPane} aria-live="polite">
           {selected && (
             <FileDiff
               file={selected}
@@ -282,22 +296,7 @@ export function DiffViewer({ diff, onClose }: DiffViewerProps) {
               revision.
             </p>
           )}
-        </main>
-
-        <label className={styles.fileSelectLabel}>
-          File
-          <select
-            value={selected?.path ?? ''}
-            onChange={(event) => setSelectedPath(event.target.value)}
-            aria-label="Choose changed file"
-          >
-            {files.map((file) => (
-              <option key={file.path} value={file.path}>
-                {labelFor(file)}
-              </option>
-            ))}
-          </select>
-        </label>
+        </section>
       </div>
       <p className={styles.shortcuts}>
         j/k files · n/p Complaints · u or Escape closes
@@ -509,7 +508,11 @@ function Annotation({
       {context && <p className={styles.annotationContext}>{context}</p>}
       {annotation.resolution && (
         <p>
-          <b>Resolution · {annotation.resolution.label}</b>
+          <b>
+            {annotation.state === 'fixed'
+              ? `✓ resolved by ${annotation.resolution.label}`
+              : `Resolution · ${annotation.resolution.label}`}
+          </b>
           {hasReason && annotation.resolution.reason
             ? ` — ${annotation.resolution.reason}`
             : ''}
