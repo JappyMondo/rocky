@@ -673,6 +673,7 @@ it('addresses unresolved PR conversations once each without prior Run hand-over 
         line: 10,
       });
       return Object.assign(
+        {},
         opts.schema.parse({
           resolutions: opts.input.complaints.map(({ id }, index) => ({
             id,
