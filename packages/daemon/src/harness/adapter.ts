@@ -31,7 +31,11 @@ export interface AuthProbe {
   /** What the developer types to fix a missing login. */
   fix: string;
   /** Reads the probe's own answer. */
-  readAnswer(result: ProbeResult): { signedIn: boolean; detail: string; identity?: HarnessAuthIdentity };
+  readAnswer(result: ProbeResult): {
+    signedIn: boolean;
+    detail: string;
+    identity?: HarnessAuthIdentity;
+  };
 }
 
 export interface HarnessAuthIdentity {
@@ -95,7 +99,14 @@ function readClaudeAnswer(result: ProbeResult): {
     };
     if (typeof parsed.loggedIn === 'boolean') {
       const signedIn = parsed.loggedIn && result.code === 0;
-      const identity: HarnessAuthIdentity = Object.fromEntries(Object.entries({ email: parsed.email, accountId: parsed.accountId, organizationId: parsed.orgId ?? parsed.organizationId, authMethod: parsed.authMethod }).filter(([, value]) => typeof value === 'string' && value.length > 0));
+      const identity: HarnessAuthIdentity = Object.fromEntries(
+        Object.entries({
+          email: parsed.email,
+          accountId: parsed.accountId,
+          organizationId: parsed.orgId ?? parsed.organizationId,
+          authMethod: parsed.authMethod,
+        }).filter(([, value]) => typeof value === 'string' && value.length > 0),
+      );
       const who = [identity.email ?? identity.accountId, identity.authMethod]
         .filter(Boolean)
         .join(' via ');
@@ -248,10 +259,14 @@ async function checkAuth(
 
   if (answer.signedIn && harness === 'claude-code') {
     try {
-      const isolated = await run(command, ['--setting-sources', '', ...probe.args], {
-        env: claudeExecutionEnv(harnessAuthEnv(resolved, env)),
-        timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      });
+      const isolated = await run(
+        command,
+        ['--setting-sources', '', ...probe.args],
+        {
+          env: claudeExecutionEnv(harnessAuthEnv(resolved, env)),
+          timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        },
+      );
       const execution = probe.readAnswer(isolated);
       if (!execution.signedIn)
         return {
@@ -261,8 +276,19 @@ async function checkAuth(
           detail: `Claude authentication is unavailable under execution settings: ${execution.detail}`,
           fix: 'claude login',
         };
-      const mismatch = (['accountId', 'email', 'organizationId'] as const).some((key) => answer.identity?.[key] !== undefined && answer.identity[key] !== execution.identity?.[key]);
-      if (mismatch) return { harness, ok: false, identity: execution.identity, detail: `Execution identity does not match the configured Claude account: ${execution.detail}; check harnesses.claude-code.command/env`, fix: 'claude login' };
+      const mismatch = (['accountId', 'email', 'organizationId'] as const).some(
+        (key) =>
+          answer.identity?.[key] !== undefined &&
+          answer.identity[key] !== execution.identity?.[key],
+      );
+      if (mismatch)
+        return {
+          harness,
+          ok: false,
+          identity: execution.identity,
+          detail: `Execution identity does not match the configured Claude account: ${execution.detail}; check harnesses.claude-code.command/env`,
+          fix: 'claude login',
+        };
       answer = execution;
     } catch {
       return {

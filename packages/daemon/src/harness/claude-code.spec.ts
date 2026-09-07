@@ -19,35 +19,115 @@ describe('claudeCode.allowedTools', () => {
 describe('Claude stream contract (synthetic, live capture still required)', () => {
   it('does not cut a still-streaming assistant turn after an early fast result', () => {
     const records = [
-      { type: 'stream_event', session_id: 'streaming', event: { type: 'message_start' } },
-      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'fast', name: 'Read' }] } },
-      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'fast' }] } },
-      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'slow', name: 'Read' }] } },
+      {
+        type: 'stream_event',
+        session_id: 'streaming',
+        event: { type: 'message_start' },
+      },
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'fast', name: 'Read' }] },
+      },
+      {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'fast' }] },
+      },
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'slow', name: 'Read' }] },
+      },
       { type: 'stream_event', event: { type: 'message_stop' } },
-      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'slow' }] } },
+      {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'slow' }] },
+      },
       { type: 'result', subtype: 'success', result: 'ok' },
     ];
-    expect(parseClaudeStream(records.map((record) => JSON.stringify(record))).events.map((event) => event.kind)).toEqual(['tool-call', 'tool-result', 'tool-call', 'tool-result', 'turn-boundary']);
+    expect(
+      parseClaudeStream(
+        records.map((record) => JSON.stringify(record)),
+      ).events.map((event) => event.kind),
+    ).toEqual([
+      'tool-call',
+      'tool-result',
+      'tool-call',
+      'tool-result',
+      'turn-boundary',
+    ]);
   });
 
   it('fails a native MCP re-authorization tool result with the server login, not Harness login', () => {
     const records = [
-      { type: 'assistant', session_id: 'unauthorized', message: { content: [{ type: 'tool_use', id: 'call', name: 'mcp__api__fast' }] } },
-      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'call', is_error: true, content: 'MCP server "api" requires re-authorization (token expired)' }] } },
+      {
+        type: 'assistant',
+        session_id: 'unauthorized',
+        message: {
+          content: [{ type: 'tool_use', id: 'call', name: 'mcp__api__fast' }],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'call',
+              is_error: true,
+              content:
+                'MCP server "api" requires re-authorization (token expired)',
+            },
+          ],
+        },
+      },
     ];
-    expect(() => parseClaudeStream(records.map((record) => JSON.stringify(record)), [{ name: 'api', config: {} }])).toThrow(/rocky mcp login api/);
+    expect(() =>
+      parseClaudeStream(
+        records.map((record) => JSON.stringify(record)),
+        [{ name: 'api', config: {} }],
+      ),
+    ).toThrow(/rocky mcp login api/);
   });
   it('waits for every outstanding parallel tool before advertising a safe boundary', () => {
     const records = [
-      { type: 'assistant', session_id: 'parallel', message: { content: [
-        { type: 'tool_use', id: 'fast', name: 'mcp__api__fast' },
-        { type: 'tool_use', id: 'slow', name: 'mcp__api__slow' },
-      ] } },
-      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'fast', content: 'fast result' }] } },
-      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'slow', content: 'slow result' }] } },
+      {
+        type: 'assistant',
+        session_id: 'parallel',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'fast', name: 'mcp__api__fast' },
+            { type: 'tool_use', id: 'slow', name: 'mcp__api__slow' },
+          ],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'fast',
+              content: 'fast result',
+            },
+          ],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'slow',
+              content: 'slow result',
+            },
+          ],
+        },
+      },
       { type: 'result', subtype: 'success', result: 'ok' },
     ];
-    expect(parseClaudeStream(records.map((record) => JSON.stringify(record))).events).toEqual([
+    expect(
+      parseClaudeStream(records.map((record) => JSON.stringify(record))).events,
+    ).toEqual([
       { kind: 'tool-call', name: 'mcp__api__fast' },
       { kind: 'tool-call', name: 'mcp__api__slow' },
       { kind: 'tool-result', name: 'mcp__api__fast' },
