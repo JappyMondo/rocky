@@ -17,7 +17,8 @@ const requests = new Map<
 >();
 
 function send(message: unknown) {
-  if (process.connected) process.send!(message);
+  const parent = process.send;
+  if (process.connected && parent) parent(message);
 }
 
 function request(request: BootRequest): Promise<unknown> {

@@ -56,6 +56,10 @@ it('connects signed delegation to admission and runBoot through the daemon lifec
       return {
         execution,
         onAgentSessionEvent: async (event) => {
+          if (!event.issueId)
+            throw new Error(
+              'A delegated Agent session must name its Linear issue',
+            );
           await execution.delegate({
             requestId: event.sessionId,
             issue: {
@@ -67,7 +71,7 @@ it('connects signed delegation to admission and runBoot through the daemon lifec
             },
             branch: 'ng-598',
             linear: {
-              issueId: event.issueId!,
+              issueId: event.issueId,
               teamId: 'team',
               organizationId: event.organizationId,
               appUserId: event.appUserId,
