@@ -118,8 +118,15 @@ export function createGitLabScm(options: ScmAdapterOptions) {
   const http = new ScmHttp(options, 'https://gitlab.com/api/v4');
   const root = `/projects/${encodeURIComponent(options.repo.project)}`;
   let projectPromise: Promise<z.infer<typeof projectSchema>> | undefined;
-  const project = () =>
-    (projectPromise ??= http.request('GET', root, projectSchema));
+  const project = () => {
+    if (projectPromise) return projectPromise;
+    projectPromise = http.request('GET', root, projectSchema).catch((error) => {
+      // A failed first lookup must not poison later SCM operations.
+      projectPromise = undefined;
+      throw error;
+    });
+    return projectPromise;
+  };
   const handle = (mr: z.infer<typeof mrSchema>): Pr => ({
     repo: options.repo.id,
     id: String(mr.id),

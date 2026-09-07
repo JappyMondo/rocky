@@ -45,6 +45,26 @@ const pr = {
   draft: true,
 };
 
+it('retries a project lookup after a transient failure', async () => {
+  const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
+  const transport = scriptedFetch([
+    { path: root, status: 500, value: { message: 'temporary failure' } },
+    { path: root, value: { id: 5, merge_trains_enabled: false } },
+    { path: lookup, value: [mr] },
+  ]);
+  const adapter = createGitLabScm({ ...options, fetch: transport.fetch });
+
+  await expect(
+    adapter.openPr({ title: 'Change', body: 'Plan' }),
+  ).rejects.toMatchObject({
+    status: 500,
+  });
+  await expect(
+    adapter.openPr({ title: 'Change', body: 'Plan' }),
+  ).resolves.toEqual(pr);
+  transport.done();
+});
+
 it('finds or creates a native draft MR and reads ready state back after a title-prefix write', async () => {
   const lookup = `${root}/merge_requests?state=all&source_branch=ng-524&target_branch=main&per_page=100&page=1`;
   const transport = scriptedFetch([
