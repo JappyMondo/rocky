@@ -150,17 +150,24 @@ export function createScm(
     updateBranch: (pr) =>
       call('updateBranch', pr.repo, pr, (adapter) => adapter.updateBranch(pr)),
     armAutoMerge: (pr, approval: ApprovedCheckpoint) =>
-      call('armAutoMerge', pr.repo, [pr, approval], (adapter) => {
-        if (!options.approvals(approval))
-          throw refuse(
-            pr.repo,
-            'permission_denied',
-            'Auto-merge requires an approved Checkpoint from this Boot.',
-            'Wait for ctx.checkpoint to return approve, then arm this PR/MR.',
-            pr,
-          );
-        return adapter.armAutoMerge(pr);
-      }),
+      // The capability itself is deliberately neither persisted nor hashed.
+      // Its validity separates a rejected/stale call from a prior valid arm.
+      call(
+        'armAutoMerge',
+        pr.repo,
+        [pr, { approved: options.approvals(approval) }],
+        (adapter) => {
+          if (!options.approvals(approval))
+            throw refuse(
+              pr.repo,
+              'not_approved',
+              'Auto-merge requires an approved Checkpoint from this Boot.',
+              'Wait for ctx.checkpoint to return approve, then arm this PR/MR.',
+              pr,
+            );
+          return adapter.armAutoMerge(pr);
+        },
+      ),
     reviewThreads: (pr) =>
       call('reviewThreads', pr.repo, pr, async (adapter) => ({
         status: 'done',

@@ -174,6 +174,22 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         current,
       );
   };
+  const checkMutationMr = (value: z.infer<typeof mrSchema>, expected: Pr) => {
+    const returned = handle(value);
+    if (
+      returned.id !== expected.id ||
+      returned.sourceBranch !== expected.sourceBranch ||
+      returned.baseBranch !== expected.baseBranch ||
+      returned.headSha !== expected.headSha
+    )
+      throw refuse(
+        options.repo.id,
+        'invalid_response',
+        'Merge mutation returned a different MR identity or source head.',
+        'Inspect the MR identity and source head before retrying.',
+        returned,
+      );
+  };
   const features = async () => {
     const server = await http.request(
       'GET',
@@ -364,8 +380,8 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           'Do not reopen a completed MR.',
           handle(mr),
         );
-      if (mr.draft !== draft || input?.body !== undefined)
-        await http.request(
+      if (mr.draft !== draft || input?.body !== undefined) {
+        const response = await http.request(
           'PUT',
           `${root}/merge_requests/${pr.number}`,
           mrSchema,
@@ -374,6 +390,8 @@ export function createGitLabScm(options: ScmAdapterOptions) {
             ...(input?.body === undefined ? {} : { description: input.body }),
           },
         );
+        checkMutationMr(response, handle(mr));
+      }
       const updated = handle(await read(pr));
       if (updated.draft !== draft)
         throw refuse(
@@ -572,20 +590,34 @@ export function createGitLabScm(options: ScmAdapterOptions) {
       if (armMr.merge_when_pipeline_succeeds === true && armedHeads.has(armKey))
         return { status: 'waiting' };
       // The merge-named endpoint is exclusively an auto_merge request, never immediate merge.
-      if (support.trains)
-        await http.request(
+      if (support.trains) {
+        const response = await http.request(
           'POST',
           `${root}/merge_trains/merge_requests/${pr.number}`,
-          z.unknown(),
+          trainSchema,
           { sha: pr.headSha, auto_merge: true },
         );
-      else
-        await http.request(
+        if (
+          response.merge_request.id !== Number(armCurrent.id) ||
+          response.merge_request.iid !== armCurrent.number ||
+          response.target_branch !== armCurrent.baseBranch
+        )
+          throw refuse(
+            options.repo.id,
+            'invalid_response',
+            'Merge-train enrollment returned a different MR.',
+            'Inspect the merge-train and MR identities before retrying.',
+            armCurrent,
+          );
+      } else {
+        const response = await http.request(
           'PUT',
           `${root}/merge_requests/${pr.number}/merge`,
           mrSchema,
           { sha: pr.headSha, auto_merge: true },
         );
+        checkMutationMr(response, armCurrent);
+      }
       const oldestArm = armedHeads.values().next().value;
       if (armedHeads.size >= 1024 && oldestArm !== undefined)
         armedHeads.delete(oldestArm);

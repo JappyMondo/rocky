@@ -209,7 +209,15 @@ it.each([false, true])(
         expect(init?.method).toBe(train ? 'POST' : 'PUT');
         arms.push(JSON.parse(String(init?.body)));
         armed = true;
-        value = train ? { id: 9 } : { ...mr, sha: head, draft: false };
+        value = train
+          ? {
+              id: 9,
+              status: 'fresh',
+              target_branch: 'main',
+              merge_request: { id: 100, iid: 7 },
+              pipeline: null,
+            }
+          : { ...mr, sha: head, draft: false };
       } else if (path.includes('/merge_trains/')) {
         if (!armed) return Response.json({}, { status: 404 });
         value = {
@@ -250,6 +258,76 @@ it.each([false, true])(
     expect(
       await adapter.armAutoMerge({ ...pr, headSha: head, draft: false }),
     ).toMatchObject({ status: 'done', result: { status: 'merged' } });
+  },
+);
+
+it.each([false, true])(
+  'refuses an auto-merge response that is not bound to the requested MR (train=%s)',
+  async (train) => {
+    const transport = scriptedFetch([
+      {
+        path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+        value: {
+          ...mr,
+          draft: false,
+          detailed_merge_status: 'mergeable',
+          merge_when_pipeline_succeeds: false,
+        },
+      },
+      { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
+      { path: root, value: { merge_trains_enabled: train } },
+      ...(train
+        ? [
+            {
+              path: `${root}/merge_trains/merge_requests/7`,
+              status: 404,
+              value: {},
+            },
+            {
+              path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+              value: {
+                ...mr,
+                draft: false,
+                detailed_merge_status: 'mergeable',
+                merge_when_pipeline_succeeds: false,
+              },
+            },
+            {
+              path: `${root}/merge_trains/merge_requests/7`,
+              method: 'POST',
+              value: {
+                id: 9,
+                status: 'fresh',
+                target_branch: 'other',
+                merge_request: { id: 999, iid: 8 },
+                pipeline: null,
+              },
+            },
+          ]
+        : [
+            {
+              path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+              value: {
+                ...mr,
+                draft: false,
+                detailed_merge_status: 'mergeable',
+                merge_when_pipeline_succeeds: false,
+              },
+            },
+            {
+              path: `${root}/merge_requests/7/merge`,
+              method: 'PUT',
+              value: { ...mr, id: 999, draft: false },
+            },
+          ]),
+    ]);
+    await expect(
+      createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+        ...pr,
+        draft: false,
+      }),
+    ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
+    transport.done();
   },
 );
 

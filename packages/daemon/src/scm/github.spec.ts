@@ -166,7 +166,7 @@ it.each([false, true])(
         value: {
           data: {
             [operation]: queue
-              ? { mergeQueueEntry: { id: 'Q1' } }
+              ? { mergeQueueEntry: { id: 'Q1', pullRequest: { id: 'PR_one' } } }
               : { pullRequest: { id: 'PR_one' } },
           },
         },
@@ -219,6 +219,57 @@ it.each([false, true])(
       expectedHeadOid: 'abc',
     });
     expect(transport.calls[2].body.query).toContain(operation);
+    transport.done();
+  },
+);
+
+it.each([false, true])(
+  'refuses an unbound auto-merge response instead of reporting waiting (queue=%s)',
+  async (queue) => {
+    const node = {
+      id: 'PR_one',
+      headRefOid: 'abc',
+      state: 'OPEN',
+      isDraft: false,
+      mergeStateStatus: 'CLEAN',
+      reviewDecision: null,
+      isMergeQueueEnabled: queue,
+      isInMergeQueue: false,
+      autoMergeRequest: null,
+      repository: {
+        autoMergeAllowed: true,
+        squashMergeAllowed: true,
+        mergeCommitAllowed: false,
+        rebaseMergeAllowed: false,
+      },
+    };
+    const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
+      { path: '/graphql', method: 'POST', value: { data: { node } } },
+      {
+        path: '/graphql',
+        method: 'POST',
+        value: {
+          data: queue
+            ? { enqueuePullRequest: { mergeQueueEntry: null } }
+            : {
+                enablePullRequestAutoMerge: { pullRequest: { id: 'PR_other' } },
+              },
+        },
+      },
+    ]);
+    await expect(
+      createGitHubScm({
+        ...githubOptions,
+        fetch: transport.fetch,
+      }).armAutoMerge({
+        ...githubPr(),
+        draft: false,
+      }),
+    ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
     transport.done();
   },
 );

@@ -112,3 +112,62 @@ it('parks a permission-refused arm with an idempotent named blocker and settles 
   expect(reads).toBe(6);
   expect((await openJournal(journalPath)).latest(0)?.status).toBe('done');
 });
+
+it('settles forged checkpoint capabilities as not_approved without replaying a valid arm', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-scm-approval-'));
+  dirs.push(dir);
+  const signal = new AbortController().signal;
+  const pr = {
+    repo: 'lead',
+    id: 'PR_one',
+    number: 7,
+    url: 'https://github.test/pull/7',
+    sourceBranch: 'ng-524',
+    baseBranch: 'main',
+    headSha: 'abc',
+    state: 'open' as const,
+    draft: false,
+  };
+  const approved = { decision: 'approve' } as ApprovedCheckpoint;
+  let arms = 0;
+  let notices = 0;
+  const adapter = {
+    repo: { id: 'lead', project: 'team/repo', baseBranch: 'main' },
+    signal,
+    armAutoMerge: async () => {
+      arms++;
+      return {
+        status: 'done' as const,
+        result: { status: 'merged' as const, pr },
+      };
+    },
+  };
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    signal,
+    workflow: async (steps) => {
+      const scm = createScm(steps, {
+        runId: 'NG-524-approval',
+        lead: 'lead',
+        signal,
+        approvals: (approval) => approval === approved,
+        members: [adapter as never],
+        onRefusal: async () => {
+          notices++;
+        },
+      });
+      expect(await scm.armAutoMerge(pr, approved)).toMatchObject({
+        status: 'merged',
+      });
+      expect(
+        await scm.armAutoMerge(pr, {
+          decision: 'approve',
+        } as unknown as ApprovedCheckpoint),
+      ).toMatchObject({ refused: true, reason: 'not_approved' });
+      return 'merged';
+    },
+  });
+  expect(result).toMatchObject({ status: 'finished' });
+  expect(arms).toBe(1);
+  expect(notices).toBe(0);
+});
