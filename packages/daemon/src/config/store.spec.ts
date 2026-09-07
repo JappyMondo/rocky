@@ -12,6 +12,7 @@ import {
 import { chmod, readFile, readdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { rockyPaths, type RockyPaths } from './paths.js';
@@ -111,6 +112,96 @@ describe('a machine with nothing written yet', () => {
 });
 
 describe('round-tripping', () => {
+  it('cancels a held-lock waiter without invoking it later or consuming the next writer lock', async () => {
+    let release!: () => void;
+    let acquired!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const holder = updateCredentials(paths, async (current) => {
+      acquired();
+      await holding;
+      return current;
+    });
+    await ready;
+    const abort = new AbortController();
+    let called = false;
+    const waiting = updateCredentials(
+      paths,
+      () => {
+        called = true;
+        return credentials;
+      },
+      { signal: abort.signal },
+    );
+    const result = waiting.catch((error: unknown) => error);
+    try {
+      await delay(50);
+      abort.abort();
+      expect(
+        await Promise.race([result, delay(500).then(() => 'still waiting')]),
+      ).toMatchObject({ name: 'AbortError' });
+      expect(called).toBe(false);
+    } finally {
+      release();
+      await holder;
+      await result;
+    }
+    await updateCredentials(paths, () => credentials, {
+      signal: AbortSignal.timeout(500),
+    });
+    expect(called).toBe(false);
+    expect(await readCredentials(paths)).toMatchObject(credentials);
+  });
+
+  it('cancels an update callback and never persists its late result', async () => {
+    await writeCredentials(paths, credentials);
+    let entered!: () => void;
+    let finish!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const abort = new AbortController();
+    const result = updateCredentials(
+      paths,
+      async (current) => {
+        entered();
+        await pending;
+        return { ...current, linear: { accessToken: 'late-token' } };
+      },
+      { signal: abort.signal },
+    ).catch((error: unknown) => error);
+    await ready;
+    try {
+      abort.abort();
+      expect(
+        await Promise.race([result, delay(500).then(() => 'still waiting')]),
+      ).toMatchObject({ name: 'AbortError' });
+      await updateCredentials(
+        paths,
+        (current) => ({ ...current, linear: { accessToken: 'newer-token' } }),
+        { signal: AbortSignal.timeout(500) },
+      );
+    } finally {
+      finish();
+      await result;
+    }
+    await delay(30);
+    expect((await readCredentials(paths)).linear?.accessToken).toBe(
+      'newer-token',
+    );
+    expect(
+      (await readdir(paths.root)).filter(
+        (name) => name.endsWith('.tmp') || name.endsWith('.lock'),
+      ),
+    ).toEqual([]);
+  });
   it('persists a credential update that returns the same object after changing it', async () => {
     await updateCredentials(paths, (current) => {
       current.mcp['https://example.com/mcp'] = { accessToken: 'updated' };

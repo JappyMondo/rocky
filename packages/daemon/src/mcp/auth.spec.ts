@@ -1,9 +1,13 @@
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
+import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -54,6 +58,10 @@ async function authorizationServer() {
     token?: Record<string, unknown>;
     tokenStatus: number;
     dcrStatus: number;
+    discovery: 'oauth' | 'oidc';
+    encoding: 'plain' | 'gzip' | 'chunked';
+    resourceExtra: Record<string, unknown>;
+    registrationExtra: Record<string, unknown>;
   } = {
     revoke: false,
     omitRefresh: false,
@@ -61,43 +69,70 @@ async function authorizationServer() {
     metadata: {},
     tokenStatus: 200,
     dcrStatus: 200,
+    discovery: 'oauth',
+    encoding: 'plain',
+    resourceExtra: {},
+    registrationExtra: {},
   };
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', origin);
     requestPaths.push(url.pathname);
     res.setHeader('content-type', 'application/json');
+    const json = (value: unknown) => {
+      const text = JSON.stringify(value);
+      if (behavior.encoding === 'gzip') {
+        const compressed = gzipSync(text);
+        res.setHeader('content-encoding', 'gzip');
+        res.setHeader('content-length', compressed.byteLength);
+        res.end(compressed);
+      } else if (behavior.encoding === 'chunked') {
+        res.write(text.slice(0, 100));
+        res.end(text.slice(100));
+      } else {
+        res.end(text);
+      }
+    };
     if (url.pathname === '/mcp') {
       res.writeHead(401, {
         'www-authenticate': `Bearer resource_metadata="${origin}/resource"`,
       });
       res.end();
     } else if (url.pathname === '/resource') {
-      res.end(
-        JSON.stringify({
-          resource: behavior.resource ?? `${origin}/mcp`,
-          authorization_servers: [origin],
-          scopes_supported: ['tools', 'offline_access'],
+      json({
+        resource: behavior.resource ?? `${origin}/mcp`,
+        authorization_servers: [origin],
+        scopes_supported: ['tools', 'offline_access'],
+        ...behavior.resourceExtra,
+      });
+    } else if (
+      url.pathname ===
+      `/.well-known/${behavior.discovery === 'oauth' ? 'oauth-authorization-server' : 'openid-configuration'}`
+    ) {
+      json({
+        issuer: origin,
+        authorization_endpoint: `${origin}/authorize`,
+        token_endpoint: `${origin}/token`,
+        ...(behavior.dcr && { registration_endpoint: `${origin}/register` }),
+        response_types_supported: ['code'],
+        code_challenge_methods_supported: ['S256'],
+        token_endpoint_auth_methods_supported: ['none'],
+        ...(behavior.discovery === 'oidc' && {
+          jwks_uri: `${origin}/keys`,
+          subject_types_supported: ['public'],
+          id_token_signing_alg_values_supported: ['RS256'],
         }),
-      );
-    } else if (url.pathname === '/.well-known/oauth-authorization-server') {
-      res.end(
-        JSON.stringify({
-          issuer: origin,
-          authorization_endpoint: `${origin}/authorize`,
-          token_endpoint: `${origin}/token`,
-          ...(behavior.dcr && { registration_endpoint: `${origin}/register` }),
-          response_types_supported: ['code'],
-          code_challenge_methods_supported: ['S256'],
-          token_endpoint_auth_methods_supported: ['none'],
-          ...behavior.metadata,
-        }),
-      );
+        ...behavior.metadata,
+      });
     } else if (url.pathname === '/register') {
       let body = '';
       for await (const chunk of req) body += chunk;
       registration = JSON.parse(body);
       res.statusCode = behavior.dcrStatus;
-      res.end(JSON.stringify({ ...registration, client_id: 'fixture-client' }));
+      json({
+        ...registration,
+        client_id: 'fixture-client',
+        ...behavior.registrationExtra,
+      });
     } else if (url.pathname === '/authorize') {
       authorizeResources.push(url.searchParams.get('resource'));
       const code =
@@ -144,17 +179,15 @@ async function authorizationServer() {
       }
       issuance++;
       res.statusCode = behavior.tokenStatus;
-      res.end(
-        JSON.stringify(
-          behavior.token ?? {
-            access_token: `access-${issuance}`,
-            ...(!behavior.omitRefresh && {
-              refresh_token: `refresh-${issuance}`,
-            }),
-            token_type: 'Bearer',
-            expires_in: 3600,
-          },
-        ),
+      json(
+        behavior.token ?? {
+          access_token: `access-${issuance}`,
+          ...(!behavior.omitRefresh && {
+            refresh_token: `refresh-${issuance}`,
+          }),
+          token_type: 'Bearer',
+          expires_in: 3600,
+        },
       );
     } else if (url.pathname === '/redirect-token') {
       res.writeHead(307, { location: `${origin}/stolen-token` });
@@ -187,6 +220,439 @@ async function authorizationServer() {
 }
 
 describe('Rocky-owned MCP OAuth', () => {
+  it.each(['cancel', 'deadline', 'request-timeout'] as const)(
+    'honors %s during code exchange even when fetch ignores cancellation, without a late write',
+    async (reason) => {
+      const as = await authorizationServer();
+      const config = parseMcpConfig({ mcpServers: { api: { url: as.url } } });
+      await loginMcpServer(config, 'api', {
+        paths,
+        openBrowser: async (url) => {
+          await fetch(url);
+        },
+      });
+      const before = await readFile(paths.credentialsFile, 'utf8');
+      let exchanging!: () => void;
+      let finish!: () => void;
+      const started = new Promise<void>((resolve) => {
+        exchanging = resolve;
+      });
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const abort = new AbortController();
+      let callback = '';
+      let lateBodyCancelled = false;
+      const result = loginMcpServer(config, 'api', {
+        paths,
+        signal: abort.signal,
+        timeoutMs: reason === 'deadline' ? 500 : 5000,
+        requestTimeoutMs: reason === 'request-timeout' ? 100 : 5000,
+        openBrowser: async (url) => {
+          callback = (await fetch(url)).url;
+        },
+        fetch: async (input, init) => {
+          const response = await fetch(input, init);
+          if (String(input) === `${as.origin}/token`) {
+            const text = await response.text();
+            exchanging();
+            await pending;
+            if (reason === 'cancel')
+              return new Response(
+                new ReadableStream({
+                  start(controller) {
+                    controller.enqueue(new TextEncoder().encode(text));
+                  },
+                  cancel() {
+                    lateBodyCancelled = true;
+                    throw new Error('PRIVATE late cancel failed');
+                  },
+                }),
+              );
+            return new Response(text);
+          }
+          return response;
+        },
+      }).catch((error: unknown) => error);
+      try {
+        await started;
+        if (reason === 'cancel') abort.abort();
+        expect(
+          await Promise.race([result, delay(1200).then(() => 'still waiting')]),
+        ).toMatchObject({ name: 'McpAuthError', fix: 'rocky mcp login api' });
+        await expect(fetch(callback)).rejects.toThrow();
+        await updateCredentials(paths, (current) => current, {
+          signal: AbortSignal.timeout(500),
+        });
+      } finally {
+        abort.abort();
+        finish();
+        await result;
+      }
+      await delay(30);
+      if (reason === 'cancel') expect(lateBodyCancelled).toBe(true);
+      expect(await readFile(paths.credentialsFile, 'utf8')).toBe(before);
+    },
+  );
+
+  it('applies decoded response ceilings during refresh without overwriting the existing credentials', async () => {
+    const as = await authorizationServer();
+    const config = parseMcpConfig({ mcpServers: { api: { url: as.url } } });
+    await loginMcpServer(config, 'api', {
+      paths,
+      openBrowser: async (url) => {
+        await fetch(url);
+      },
+    });
+    const before = await readFile(paths.credentialsFile, 'utf8');
+    as.behavior.encoding = 'gzip';
+    as.behavior.token = {
+      access_token: 'new',
+      token_type: 'Bearer',
+      scope: 'x'.repeat(8 * 1024 * 1024),
+    };
+    await expect(preflightMcp(config, { paths })).rejects.toThrow(
+      /decoded.*262144/,
+    );
+    expect(await readFile(paths.credentialsFile, 'utf8')).toBe(before);
+  });
+
+  it.each(['client_id', 'client_secret'])(
+    'rejects oversized DCR %s before opening the browser',
+    async (field) => {
+      const as = await authorizationServer();
+      as.behavior.registrationExtra[field] = 'a'.repeat(16385);
+      let opened = false;
+      await expect(
+        loginMcpServer(
+          parseMcpConfig({ mcpServers: { api: { url: as.url } } }),
+          'api',
+          {
+            paths,
+            timeoutMs: 250,
+            openBrowser: async (url) => {
+              opened = true;
+              await fetch(url);
+            },
+          },
+        ),
+      ).rejects.toThrow(/rocky mcp login api/);
+      expect(opened).toBe(false);
+      expect(as.tokenRequests).toEqual([]);
+    },
+  );
+  it.each([
+    ['metadata', 'plain'],
+    ['metadata', 'gzip'],
+    ['metadata', 'chunked'],
+    ['resource', 'gzip'],
+    ['registration', 'chunked'],
+    ['token', 'plain'],
+    ['token', 'gzip'],
+    ['token-error', 'chunked'],
+  ] as const)(
+    'bounds decoded %s responses with %s transfer to 256 KiB without storing or echoing them',
+    async (target, encoding) => {
+      const as = await authorizationServer();
+      as.behavior.encoding = encoding;
+      const huge = 'PRIVATE-' + 'x'.repeat(8 * 1024 * 1024);
+      if (target === 'metadata') as.behavior.metadata.extra = huge;
+      else if (target === 'resource') as.behavior.resourceExtra.extra = huge;
+      else if (target === 'registration')
+        as.behavior.registrationExtra.extra = huge;
+      else if (target === 'token')
+        as.behavior.token = {
+          access_token: 'token',
+          token_type: 'Bearer',
+          scope: huge,
+        };
+      else {
+        as.behavior.tokenStatus = 400;
+        as.behavior.token = { error: 'invalid_grant', error_description: huge };
+      }
+      const result = await loginMcpServer(
+        parseMcpConfig({ mcpServers: { api: { url: as.url } } }),
+        'api',
+        {
+          paths,
+          openBrowser: async (url) => {
+            await fetch(url);
+          },
+        },
+      ).catch((error: unknown) => error);
+      expect(result).toBeInstanceOf(McpAuthError);
+      expect(String(result)).toMatch(/decoded.*262144/);
+      expect(String(result)).not.toContain('PRIVATE');
+      expect((await readCredentials(paths)).mcp).toEqual({});
+    },
+  );
+
+  it('accepts decoded responses at the 256 KiB ceiling and rejects the next byte', async () => {
+    const as = await authorizationServer();
+    const config = parseMcpConfig({ mcpServers: { api: { url: as.url } } });
+    const payload = { access_token: 'token', token_type: 'Bearer', extra: '' };
+    payload.extra = 'x'.repeat(
+      262144 - Buffer.byteLength(JSON.stringify(payload)),
+    );
+    as.behavior.token = payload;
+    await loginMcpServer(config, 'api', {
+      paths,
+      openBrowser: async (url) => {
+        await fetch(url);
+      },
+    });
+    const before = await readFile(paths.credentialsFile, 'utf8');
+    payload.extra += 'x';
+    await expect(
+      loginMcpServer(config, 'api', {
+        paths,
+        openBrowser: async (url) => {
+          await fetch(url);
+        },
+      }),
+    ).rejects.toThrow(/decoded.*262144/);
+    expect(await readFile(paths.credentialsFile, 'utf8')).toBe(before);
+  });
+
+  it.each(['access_token', 'refresh_token', 'scope'])(
+    'bounds %s to 16 KiB of UTF-8 without truncating it',
+    async (field) => {
+      const as = await authorizationServer();
+      const config = parseMcpConfig({ mcpServers: { api: { url: as.url } } });
+      as.behavior.token = {
+        access_token: 'token',
+        token_type: 'Bearer',
+        [field]: 'a'.repeat(16384),
+      };
+      await loginMcpServer(config, 'api', {
+        paths,
+        openBrowser: async (url) => {
+          await fetch(url);
+        },
+      });
+      const before = await readFile(paths.credentialsFile, 'utf8');
+      as.behavior.token[field] =
+        field === 'scope' ? '\u00e9'.repeat(8193) : 'a'.repeat(16385);
+      await expect(
+        loginMcpServer(config, 'api', {
+          paths,
+          openBrowser: async (url) => {
+            await fetch(url);
+          },
+        }),
+      ).rejects.toThrow(/rocky mcp login api/);
+      expect(await readFile(paths.credentialsFile, 'utf8')).toBe(before);
+    },
+  );
+
+  it('bounds stored entries to 64 KiB even when metadata and individual strings fit', async () => {
+    const as = await authorizationServer();
+    as.behavior.metadata.token_endpoint_auth_methods_supported = [
+      'none',
+      ...Array.from({ length: 8 }, () => 'x'.repeat(8192)),
+    ];
+    await expect(
+      loginMcpServer(
+        parseMcpConfig({ mcpServers: { api: { url: as.url } } }),
+        'api',
+        {
+          paths,
+          openBrowser: async (url) => {
+            await fetch(url);
+          },
+        },
+      ),
+    ).rejects.toThrow(/credential.*65536/);
+    expect((await readCredentials(paths)).mcp).toEqual({});
+  });
+
+  it('bounds the MCP credential section to 1 MiB while preserving other logins and unrelated secrets', async () => {
+    const as = await authorizationServer();
+    const mcp = Object.fromEntries(
+      Array.from({ length: 32 }, (_, i) => [
+        `https://old-${i}.example/mcp`,
+        { opaque: 'x'.repeat(32700) },
+      ]),
+    );
+    expect(Buffer.byteLength(JSON.stringify(mcp, null, 2))).toBeLessThan(
+      1048576,
+    );
+    await updateCredentials(paths, () => ({
+      mcp,
+      repos: { repo: { KEY: 'kept' } },
+      linear: { accessToken: 'kept' },
+    }));
+    const before = await readFile(paths.credentialsFile, 'utf8');
+    as.behavior.token = {
+      access_token: 'x'.repeat(16384),
+      token_type: 'Bearer',
+    };
+    await expect(
+      loginMcpServer(
+        parseMcpConfig({ mcpServers: { api: { url: as.url } } }),
+        'api',
+        {
+          paths,
+          openBrowser: async (url) => {
+            await fetch(url);
+          },
+        },
+      ),
+    ).rejects.toThrow(/MCP credential.*1048576/);
+    expect(await readFile(paths.credentialsFile, 'utf8')).toBe(before);
+  });
+  it.each(['cancel', 'deadline'] as const)(
+    'honors %s after callback while the browser opener remains unresolved',
+    async (reason) => {
+      const as = await authorizationServer();
+      let received!: () => void;
+      let finishOpener!: () => void;
+      const callbackReady = new Promise<void>((resolve) => {
+        received = resolve;
+      });
+      const opener = new Promise<void>((resolve) => {
+        finishOpener = resolve;
+      });
+      const abort = new AbortController();
+      let callback = '';
+      const result = loginMcpServer(
+        parseMcpConfig({ mcpServers: { api: { url: as.url } } }),
+        'api',
+        {
+          paths,
+          signal: abort.signal,
+          timeoutMs: reason === 'deadline' ? 500 : 5000,
+          openBrowser: async (url) => {
+            const response = await fetch(url);
+            callback = response.url;
+            received();
+            await opener;
+          },
+        },
+      ).catch((error: unknown) => error);
+      try {
+        await callbackReady;
+        if (reason === 'cancel') {
+          await delay(50);
+          abort.abort();
+        }
+        expect(
+          await Promise.race([result, delay(1200).then(() => 'still waiting')]),
+        ).toMatchObject({ name: 'McpAuthError', fix: 'rocky mcp login api' });
+        await expect(fetch(callback)).rejects.toThrow();
+        expect(as.tokenRequests).toEqual([]);
+      } finally {
+        abort.abort();
+        finishOpener();
+        await result;
+      }
+      expect((await readCredentials(paths)).mcp).toEqual({});
+    },
+  );
+
+  it.each(['cancel', 'deadline'] as const)(
+    'honors %s after callback while another OS process holds the credential lock',
+    async (reason) => {
+      const as = await authorizationServer();
+      const child = spawn(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `
+      import { createJiti } from 'jiti';
+      const jiti = createJiti(${JSON.stringify(import.meta.url)});
+      const { updateCredentials, rockyPaths } = await jiti.import('../config/index.ts');
+      await updateCredentials(rockyPaths(${JSON.stringify(paths.root)}), async (current) => {
+        process.stdout.write('locked\\n');
+        await new Promise(resolve => process.stdin.once('data', resolve));
+        return current;
+      });
+    `,
+        ],
+        { stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      const exited = once(child, 'exit');
+      let received!: () => void;
+      const callbackReady = new Promise<void>((resolve) => {
+        received = resolve;
+      });
+      const abort = new AbortController();
+      let callback = '';
+      let result: Promise<unknown> | undefined;
+      try {
+        const [ready] = await once(child.stdout, 'data');
+        expect(String(ready)).toBe('locked\n');
+        result = loginMcpServer(
+          parseMcpConfig({ mcpServers: { api: { url: as.url } } }),
+          'api',
+          {
+            paths,
+            signal: abort.signal,
+            timeoutMs: reason === 'deadline' ? 500 : 5000,
+            openBrowser: async (url) => {
+              const response = await fetch(url);
+              callback = response.url;
+              received();
+            },
+          },
+        ).catch((error: unknown) => error);
+        await callbackReady;
+        if (reason === 'cancel') {
+          await delay(50);
+          abort.abort();
+        }
+        expect(
+          await Promise.race([result, delay(1200).then(() => 'still waiting')]),
+        ).toMatchObject({ name: 'McpAuthError', fix: 'rocky mcp login api' });
+        await expect(fetch(callback)).rejects.toThrow();
+        expect(as.tokenRequests).toEqual([]);
+      } finally {
+        abort.abort();
+        child.stdin.end('release');
+        await exited;
+        await result;
+      }
+      await updateCredentials(paths, (current) => current, {
+        signal: AbortSignal.timeout(500),
+      });
+      expect((await readCredentials(paths)).mcp).toEqual({});
+      expect(as.tokenRequests).toEqual([]);
+    },
+  );
+  it.each(['oauth', 'oidc'] as const)(
+    'requires advertised S256 through %s discovery before registration or opening the browser',
+    async (discovery) => {
+      const as = await authorizationServer();
+      as.behavior.discovery = discovery;
+      const config = parseMcpConfig({ mcpServers: { api: { url: as.url } } });
+      let opened = 0;
+      for (const methods of [undefined, [], ['plain']]) {
+        as.behavior.metadata.code_challenge_methods_supported = methods;
+        await expect(
+          loginMcpServer(config, 'api', {
+            paths,
+            openBrowser: async (url) => {
+              opened++;
+              await fetch(url);
+            },
+          }),
+        ).rejects.toThrow(/advertise.*S256/);
+        expect(opened).toBe(0);
+        expect(as.requestPaths).not.toContain('/register');
+        expect(as.tokenRequests).toEqual([]);
+        expect((await readCredentials(paths)).mcp).toEqual({});
+      }
+      as.behavior.metadata.code_challenge_methods_supported = ['S256'];
+      await loginMcpServer(config, 'api', {
+        paths,
+        openBrowser: async (url) => {
+          await fetch(url);
+        },
+      });
+      expect(as.tokenRequests).toHaveLength(1);
+    },
+  );
   it('logs in via discovery, DCR and PKCE to a private URL-keyed store without rewriting the repo', async () => {
     const as = await authorizationServer();
     const file = join(paths.root, 'mcp.json');
@@ -828,4 +1294,3 @@ describe('Rocky-owned MCP OAuth', () => {
     expect((await readCredentials(paths)).mcp).toEqual({});
   });
 });
-import { execFile } from 'node:child_process';

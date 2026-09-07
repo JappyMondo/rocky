@@ -38,9 +38,16 @@ afterEach(async () => {
 });
 
 describe('rocky mcp login', () => {
-  it.each(process.platform === 'win32' ? [false] : [false, true])(
+  it.each(
+    process.platform === 'win32'
+      ? ['injected']
+      : ['injected', 'native', 'cancelled'],
+  )(
     'logs in without a daemon using the native browser opener: %s',
-    async (native) => {
+    async (mode) => {
+      const native = mode !== 'injected';
+      const abort = new AbortController();
+      const pidFile = join(root, 'opener-pid');
       if (native) {
         const bin = join(root, 'bin');
         await mkdir(bin);
@@ -48,12 +55,17 @@ describe('rocky mcp login', () => {
         await writeFile(
           join(bin, process.platform === 'darwin' ? 'open' : 'xdg-open'),
           `#!${process.execPath}
+import { writeFileSync } from 'node:fs';
 const auth = new URL(process.argv.at(-1));
 const callback = new URL(auth.searchParams.get('redirect_uri'));
 callback.searchParams.set('state', auth.searchParams.get('state'));
 callback.searchParams.set('code', 'callback-code');
 const response = await fetch(callback);
 if (response.status !== 200) process.exitCode = 1;
+if (${mode === 'cancelled'}) {
+  writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+  setInterval(() => {}, 1000);
+}
 `,
           { mode: 0o700 },
         );
@@ -65,6 +77,7 @@ if (response.status !== 200) process.exitCode = 1;
         paths,
         mcp: {
           cwd: root,
+          signal: abort.signal,
           fetch: async (input, init) => {
             const url = String(input);
             requests.push(url);
@@ -123,7 +136,7 @@ if (response.status !== 200) process.exitCode = 1;
               },
         },
       });
-      await cli.parseAsync(
+      const parsing = cli.parseAsync(
         [
           'mcp',
           'login',
@@ -137,6 +150,42 @@ if (response.status !== 200) process.exitCode = 1;
         ],
         { from: 'user' },
       );
+      if (mode === 'cancelled') {
+        let pid: number | undefined;
+        try {
+          await expect
+            .poll(() => readFile(pidFile, 'utf8'), { timeout: 2000 })
+            .toMatch(/^\d+$/);
+          pid = Number(await readFile(pidFile, 'utf8'));
+          abort.abort();
+          await parsing;
+          expect(process.exitCode).toBe(1);
+          expect(errors.join('\n')).toMatch(/timed out|cancelled/);
+          expect((await readCredentials(paths)).mcp).toEqual({});
+          await expect
+            .poll(() => {
+              try {
+                process.kill(pid ?? 0, 0);
+                return true;
+              } catch {
+                return false;
+              }
+            })
+            .toBe(false);
+        } finally {
+          abort.abort();
+          if (pid !== undefined) {
+            try {
+              process.kill(pid, 'SIGTERM');
+            } catch {
+              /* Already reaped. */
+            }
+          }
+          await parsing;
+        }
+        return;
+      }
+      await parsing;
       expect(errors).toEqual([]);
       expect(output.join('\n')).toContain('Authenticated MCP server api');
       expect(output.join('\n')).not.toMatch(/PRIVATE|callback-code/);

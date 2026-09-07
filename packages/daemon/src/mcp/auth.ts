@@ -20,6 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { z } from 'zod';
 
+import { withAbort } from '../abort.js';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import { updateCredentials } from '../config/store.js';
 import { ConfigError } from '../config/schema.js';
@@ -60,7 +61,7 @@ export interface McpAuthOptions {
 }
 
 export interface McpLoginOptions extends McpAuthOptions {
-  openBrowser(url: URL): Promise<void>;
+  openBrowser(url: URL, signal: AbortSignal): Promise<void>;
   env?: NodeJS.ProcessEnv;
   clientId?: string;
   clientSecret?: string;
@@ -69,33 +70,81 @@ export interface McpLoginOptions extends McpAuthOptions {
   timeoutMs?: number;
 }
 
+/** Rocky v1 resource ceilings, not OAuth protocol maxima. Counts are bytes. */
+export const MCP_OAUTH_LIMITS = Object.freeze({
+  responseBytes: 256 * 1024,
+  credentialStringBytes: 16 * 1024,
+  credentialBytes: 64 * 1024,
+  storeBytes: 1024 * 1024,
+});
+
+const credentialString = z
+  .string()
+  .refine(
+    (value) =>
+      value.length <= MCP_OAUTH_LIMITS.credentialStringBytes &&
+      Buffer.byteLength(value, 'utf8') <=
+        MCP_OAUTH_LIMITS.credentialStringBytes,
+    'OAuth credential string exceeds the byte limit',
+  );
+
 const tokensSchema = z.object({
-  access_token: z.string().regex(/^[A-Za-z0-9._~+/-]+=*$/),
+  access_token: credentialString.regex(/^[A-Za-z0-9._~+/-]+=*$/),
   token_type: z.string().refine((value) => value.toLowerCase() === 'bearer'),
-  refresh_token: z.string().min(1).optional(),
+  refresh_token: credentialString.min(1).optional(),
   expires_in: z.number().finite().nonnegative().optional(),
-  scope: z.string().optional(),
+  scope: credentialString.optional(),
 });
 
 const clientSchema = z.object({
-  client_id: z.string().min(1),
-  client_secret: z.string().min(1).optional(),
+  client_id: credentialString.min(1),
+  client_secret: credentialString.min(1).optional(),
   token_endpoint_auth_method: z
     .enum(['none', 'client_secret_basic', 'client_secret_post'])
     .optional(),
 });
 
 const storedSchema = z.object({
-  issuer: z.string(),
-  authorizationEndpoint: z.string(),
-  tokenEndpoint: z.string(),
-  resource: z.string(),
+  issuer: credentialString,
+  authorizationEndpoint: credentialString,
+  tokenEndpoint: credentialString,
+  resource: credentialString,
   client: clientSchema,
-  authMethods: z.array(z.string()).optional(),
+  authMethods: z.array(credentialString).optional(),
   tokens: tokensSchema,
   expiresAt: z.number().finite().nonnegative().optional(),
 });
 type StoredMcpAuth = z.infer<typeof storedSchema>;
+
+function checkedCredential(name: string, value: unknown): StoredMcpAuth {
+  if (
+    Buffer.byteLength(JSON.stringify(value, null, 2), 'utf8') >
+    MCP_OAUTH_LIMITS.credentialBytes
+  )
+    throw new McpAuthError(
+      name,
+      `stored OAuth credential exceeds ${MCP_OAUTH_LIMITS.credentialBytes} bytes`,
+    );
+  return storedSchema.parse(value);
+}
+
+function updatedMcpCredentials(
+  name: string,
+  current: Record<string, unknown>,
+  url: string,
+  credential: StoredMcpAuth,
+): Record<string, unknown> {
+  const mcp = { ...current, [url]: checkedCredential(name, credential) };
+  if (
+    Buffer.byteLength(JSON.stringify(mcp, null, 2), 'utf8') >
+    MCP_OAUTH_LIMITS.storeBytes
+  )
+    throw new McpAuthError(
+      name,
+      `MCP credential section exceeds ${MCP_OAUTH_LIMITS.storeBytes} bytes; remove unused MCP entries from credentials.json`,
+    );
+  return mcp;
+}
 
 function oauthUrl(value: string | URL, name: string): URL {
   let url: URL;
@@ -125,11 +174,41 @@ function oauthFetch(name: string, options: McpAuthOptions): typeof fetch {
     const signals = [AbortSignal.timeout(options.requestTimeoutMs ?? 10_000)];
     if (options.signal) signals.push(options.signal);
     if (init?.signal) signals.push(init.signal);
-    // Never forward an authorization code, refresh token or client secret on a redirect.
-    return (options.fetch ?? fetch)(input, {
-      ...init,
-      redirect: 'error',
-      signal: AbortSignal.any(signals),
+    const signal = AbortSignal.any(signals);
+    return withAbort(signal, async () => {
+      // Never forward an authorization code, refresh token or client secret on a redirect.
+      const response = await (options.fetch ?? fetch)(input, {
+        ...init,
+        redirect: 'error',
+        signal,
+      });
+      if (signal.aborted) {
+        void response.body?.cancel().catch(() => undefined);
+        signal.throwIfAborted();
+      }
+      if (!response.body) return response;
+      let bytes = 0;
+      // Fetch has already decompressed the stream. Content-Length may describe
+      // compressed bytes (or lie), so only consumed, decoded bytes count.
+      const body = response.body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            bytes += chunk.byteLength;
+            if (bytes > MCP_OAUTH_LIMITS.responseBytes)
+              throw new McpAuthError(
+                name,
+                `decoded OAuth response exceeds ${MCP_OAUTH_LIMITS.responseBytes} bytes`,
+              );
+            controller.enqueue(chunk);
+          },
+        }),
+        { signal },
+      );
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     });
   };
 }
@@ -222,7 +301,7 @@ export async function loginMcpServer(
     signal.throwIfAborted();
     const response = await doFetch(url, { headers: remote.headers });
     const challenge = extractWWWAuthenticateParams(response);
-    await response.body?.cancel();
+    await withAbort(signal, () => response.body?.cancel());
     const resource = await discoverOAuthProtectedResourceMetadata(
       url,
       { resourceMetadataUrl: challenge.resourceMetadataUrl },
@@ -252,6 +331,11 @@ export async function loginMcpServer(
       throw new McpAuthError(
         name,
         'OAuth metadata is missing or its issuer does not match',
+      );
+    if (!metadata.code_challenge_methods_supported?.includes('S256'))
+      throw new McpAuthError(
+        name,
+        'authorization server must advertise S256 PKCE support',
       );
     oauthUrl(metadata.authorization_endpoint, name);
     oauthUrl(metadata.token_endpoint, name);
@@ -317,14 +401,24 @@ export async function loginMcpServer(
         res.writeHead(400).end('Missing authorization code.');
       }
     });
-    const abort = () =>
+    const abort = () => {
       rejectCode(new McpAuthError(name, 'login timed out or was cancelled'));
+      callbackServer.close();
+      callbackServer.closeAllConnections();
+    };
     signal.addEventListener('abort', abort, { once: true });
     try {
-      await new Promise<void>((resolve, reject) => {
-        callbackServer.once('error', reject);
-        callbackServer.listen(options.callbackPort ?? 0, '127.0.0.1', resolve);
-      });
+      await withAbort(
+        signal,
+        () =>
+          new Promise<void>((resolve, reject) => {
+            callbackServer.once('error', reject);
+            callbackServer.listen(
+              { port: options.callbackPort ?? 0, host: '127.0.0.1', signal },
+              resolve,
+            );
+          }),
+      );
       const address = callbackServer.address();
       if (!address || typeof address === 'string')
         throw new Error('missing callback address');
@@ -332,23 +426,25 @@ export async function loginMcpServer(
       const scope = challenge.scope ?? resource.scopes_supported?.join(' ');
       let client: OAuthClientInformationMixed;
       if (options.clientId) {
-        client = {
+        client = clientSchema.parse({
           client_id: options.clientId,
           ...(options.clientSecret && { client_secret: options.clientSecret }),
-        };
-      } else {
-        client = await registerClient(issuer, {
-          metadata,
-          scope,
-          clientMetadata: {
-            client_name: 'Rocky',
-            redirect_uris: [callback.href],
-            grant_types: ['authorization_code', 'refresh_token'],
-            response_types: ['code'],
-            token_endpoint_auth_method: 'none',
-          },
-          fetchFn: doFetch,
         });
+      } else {
+        client = clientSchema.parse(
+          await registerClient(issuer, {
+            metadata,
+            scope,
+            clientMetadata: {
+              client_name: 'Rocky',
+              redirect_uris: [callback.href],
+              grant_types: ['authorization_code', 'refresh_token'],
+              response_types: ['code'],
+              token_endpoint_auth_method: 'none',
+            },
+            fetchFn: doFetch,
+          }),
+        );
       }
       const { authorizationUrl, codeVerifier } = await startAuthorization(
         issuer,
@@ -362,10 +458,9 @@ export async function loginMcpServer(
       );
       authorizationUrl.searchParams.set('resource', resource.resource);
       signal.throwIfAborted();
-      const [, authorizationCode] = await Promise.all([
-        options.openBrowser(authorizationUrl),
-        code,
-      ]);
+      const [, authorizationCode] = await withAbort(signal, () =>
+        Promise.all([options.openBrowser(authorizationUrl, signal), code]),
+      );
       await updateCredentials(
         options.paths ?? rockyPaths(),
         async (current) => {
@@ -396,19 +491,23 @@ export async function loginMcpServer(
           );
           return {
             ...current,
-            mcp: { ...current.mcp, [url]: stored },
+            mcp: updatedMcpCredentials(name, current.mcp, url, stored),
           };
         },
+        { signal },
       );
+      signal.throwIfAborted();
       return { server: name, url };
     } finally {
       signal.removeEventListener('abort', abort);
-      callbackServer.closeAllConnections();
-      await new Promise<void>((resolve) =>
-        callbackServer.close(() => resolve()),
-      );
+      await new Promise<void>((resolve) => {
+        callbackServer.close(() => resolve());
+        callbackServer.closeAllConnections();
+      });
     }
   } catch (error) {
+    if (signal.aborted)
+      throw new McpAuthError(name, 'login timed out or was cancelled');
     throw authFailure(name, error);
   }
 }
@@ -421,55 +520,66 @@ async function accessToken(
 ): Promise<string | undefined> {
   let token: string | undefined;
   try {
-    await updateCredentials(options.paths ?? rockyPaths(), async (current) => {
-      options.signal?.throwIfAborted();
-      const key = new URL(url).href;
-      if (!Object.hasOwn(current.mcp, key)) return current;
-      const stored = storedSchema.parse(current.mcp[key]);
-      oauthUrl(key, name);
-      oauthUrl(stored.issuer, name);
-      oauthUrl(stored.tokenEndpoint, name);
-      if (
-        !checkResourceAllowed({
-          requestedResource: key,
-          configuredResource: stored.resource,
-        })
-      )
-        throw new McpAuthError(
-          name,
-          'stored OAuth resource does not match this MCP server',
+    await updateCredentials(
+      options.paths ?? rockyPaths(),
+      async (current) => {
+        options.signal?.throwIfAborted();
+        const key = new URL(url).href;
+        if (!Object.hasOwn(current.mcp, key)) return current;
+        const stored = checkedCredential(name, current.mcp[key]);
+        oauthUrl(key, name);
+        oauthUrl(stored.issuer, name);
+        oauthUrl(stored.tokenEndpoint, name);
+        if (
+          !checkResourceAllowed({
+            requestedResource: key,
+            configuredResource: stored.resource,
+          })
+        )
+          throw new McpAuthError(
+            name,
+            'stored OAuth resource does not match this MCP server',
+          );
+        const now = (options.now ?? Date.now)();
+        if (
+          !forceRefresh &&
+          (stored.expiresAt === undefined || now < stored.expiresAt - 60_000)
+        ) {
+          token = stored.tokens.access_token;
+          return current;
+        }
+        if (!stored.tokens.refresh_token)
+          throw new McpAuthError(name, 'stored token cannot refresh');
+        const tokens = await refreshAuthorization(stored.issuer, {
+          metadata: {
+            issuer: stored.issuer,
+            authorization_endpoint: stored.authorizationEndpoint,
+            token_endpoint: stored.tokenEndpoint,
+            response_types_supported: ['code'],
+            token_endpoint_auth_methods_supported: stored.authMethods,
+          },
+          clientInformation: stored.client,
+          refreshToken: stored.tokens.refresh_token,
+          addClientAuthentication: tokenAuthentication(
+            name,
+            stored.client,
+            stored.resource,
+          ),
+          fetchFn: oauthFetch(name, options),
+        });
+        const refreshed = withTokens(
+          stored,
+          tokens,
+          (options.now ?? Date.now)(),
         );
-      const now = (options.now ?? Date.now)();
-      if (
-        !forceRefresh &&
-        (stored.expiresAt === undefined || now < stored.expiresAt - 60_000)
-      ) {
-        token = stored.tokens.access_token;
-        return current;
-      }
-      if (!stored.tokens.refresh_token)
-        throw new McpAuthError(name, 'stored token cannot refresh');
-      const tokens = await refreshAuthorization(stored.issuer, {
-        metadata: {
-          issuer: stored.issuer,
-          authorization_endpoint: stored.authorizationEndpoint,
-          token_endpoint: stored.tokenEndpoint,
-          response_types_supported: ['code'],
-          token_endpoint_auth_methods_supported: stored.authMethods,
-        },
-        clientInformation: stored.client,
-        refreshToken: stored.tokens.refresh_token,
-        addClientAuthentication: tokenAuthentication(
-          name,
-          stored.client,
-          stored.resource,
-        ),
-        fetchFn: oauthFetch(name, options),
-      });
-      const refreshed = withTokens(stored, tokens, (options.now ?? Date.now)());
-      token = refreshed.tokens.access_token;
-      return { ...current, mcp: { ...current.mcp, [key]: refreshed } };
-    });
+        token = refreshed.tokens.access_token;
+        return {
+          ...current,
+          mcp: updatedMcpCredentials(name, current.mcp, key, refreshed),
+        };
+      },
+      { signal: options.signal },
+    );
     return token;
   } catch (error) {
     throw authFailure(name, error);

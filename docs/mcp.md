@@ -57,15 +57,40 @@ daemon. It opens the system browser, discovers RFC 9728 protected-resource and
 RFC 8414/OIDC authorization-server metadata, registers a public client when DCR
 is available, and exchanges an authorization code with S256 PKCE and random
 state. State, code and verifier stay in memory, never in the credential file.
+Both OAuth and OIDC discovery must explicitly advertise `S256` in
+`code_challenge_methods_supported`. Absent, empty or incompatible methods fail
+before registration or browser launch, as required by the
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-code-protection).
 
 The temporary callback is `http://127.0.0.1:<port>/callback`, with an ephemeral
 port by default. Pre-registered clients can use `--callback-port` to match their
 registered URI. It is loopback-only, is not a daemon/public-ingress route, and
 closes on success, denial, failure, timeout or SIGINT. Login has a two-minute
-deadline and each HTTP request a ten-second deadline. HTTPS is required for
-OAuth and Bearer injection except on loopback. Token requests never follow
+deadline across the entire operation, including opener completion, code
+exchange and credential-lock acquisition, even after the code arrives. Each
+HTTP request has a ten-second deadline, including body consumption. Abort
+closes the callback immediately; the operation also awaits lock/file cleanup.
+HTTPS is required for OAuth and Bearer injection except on loopback. Token requests never follow
 redirects. Issuer and resource binding are checked; error responses are not
 quoted into errors or logs.
+
+`MCP_OAUTH_LIMITS` exports the fixed Rocky v1 resource ceilings (these are not
+maxima prescribed by OAuth):
+
+| Data | Ceiling |
+| --- | --- |
+| One decoded OAuth HTTP response, including resource/AS metadata, DCR, tokens and errors | 256 KiB |
+| Each credential string, including access/refresh tokens, scope and client credentials | 16 KiB UTF-8 |
+| One stored URL-keyed OAuth credential | 64 KiB serialized JSON |
+| The complete MCP credential section written by OAuth | 1 MiB serialized JSON |
+
+HTTP bytes are counted while consuming the **decompressed** stream, not from
+`Content-Length`; chunked and gzip bodies cannot bypass the ceiling. Storage
+counts UTF-8 bytes of JSON with two-space indentation. Oversized values fail
+with a named error rather than being truncated or written. A failed login or
+refresh preserves the previous file and unrelated Linear/repo secrets. Old
+oversized MCP entries can be replaced by logging into the same URL again;
+remove unused entries if the entire MCP section would still exceed its ceiling.
 
 No DCR means a named error explaining both alternatives: pre-register a client
 and use `--client-id` / `--client-secret`, or supply an environment-expanded
@@ -110,8 +135,8 @@ const mcpServers = await resolveMcpServers(config, agentOptions.mcp ?? [], {
   with a 60-second expiry skew. No background timer or mid-attempt rotation.
 - `preflightMcp(expandedConfig, options?) -> Promise<string[]>` forces refresh
   even for unexpired stored credentials, once per URL, and returns safe names
-  only. It has a 30-second network budget. Stdio and never-logged-in servers
-  cause no OAuth requests. It checks **every** stored snapshot-named remote
+  only. It has a 30-second operation deadline, including lock waits. Stdio and
+  never-logged-in servers cause no OAuth requests. It checks **every** stored snapshot-named remote
   credential, including one now overridden by a manual header; remove obsolete
   stored entries when abandoning Rocky-managed auth.
 - `mcpUnauthorized(name) -> McpAuthError` is the adapter/Agent seam for an actual
@@ -119,8 +144,11 @@ const mcpServers = await resolveMcpServers(config, agentOptions.mcp ?? [], {
   command. Fail the affected Step/Run, do not retry it as a generic tool failure
   or invent a Checkpoint. Non-auth tool failures remain the attempt ladder.
 - `loginMcpServer(declarations, name, options) -> Promise<{ server, url }>` is
-  the CLI login seam. `options.openBrowser(URL)` is required; `paths`, `env`,
+  the CLI login seam. `options.openBrowser(URL, signal)` is required; `paths`, `env`,
   client flags, callback port, deadlines and cancellation are optional.
+  Existing one-argument openers remain assignable, but openers should observe
+  the signal to stop their own I/O. The CLI forwards it to its launcher process.
+  Login rejects and cleans up even when a supplied opener ignores cancellation.
 
 `McpAuthOptions` contains `paths?`, `fetch?`, `now?`, `signal?`,
 `requestTimeoutMs?`. Production defaults use `rockyPaths()`, `fetch` and
@@ -174,9 +202,22 @@ secrets. External token issuance followed by a process/power failure before
 persistence remains an unavoidable re-login case, not exactly-once OAuth.
 
 All credential read-modify-write consumers must use
-`updateCredentials(paths, current => next)` rather than reading then calling
-`writeCredentials` with an old snapshot. The existing setup writer now does so.
-Do not nest credential updates or wait for a human inside their callback.
+`updateCredentials(paths, current => next, options?)` rather than reading then
+calling `writeCredentials` with an old snapshot. The existing setup writer now
+does so. `options` accepts `{ signal?: AbortSignal }`.
+The optional third argument is `CredentialUpdateOptions`; existing two-argument
+callers, including `writeCredentials`, keep their contract. Acquisition retries
+are abortable; a cancelled waiter cannot acquire a lock later. The callback is
+also an abortable wait: its late result is never persisted, and the lock is
+released before rejection. Capture the same signal in callback I/O so external
+effects can stop too. Do not nest credential updates or wait for a human inside
+their callback.
+
+Cancellation is checked again before writing and before the atomic rename.
+An already-started rename cannot be undone; cleanup and lock release finish
+before returning. Cancellation cannot revoke a token already issued by an
+external authorization server, so cancelling an exchange/refresh can still
+require re-login, just as a crash between issuance and persistence can.
 
 ## Remaining Acceptance
 

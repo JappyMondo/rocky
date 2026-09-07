@@ -43,6 +43,7 @@ export {
   writeCredentials,
   writeInstanceConfig,
   type ReadOptions,
+  type CredentialUpdateOptions,
 } from './store.js';
 
 export {

@@ -26,7 +26,9 @@ export async function writeAtomic(
   path: string,
   contents: string,
   mode: number,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   await mkdir(dirname(path), { recursive: true, mode: ROOT_MODE });
 
   const temp = join(
@@ -36,7 +38,8 @@ export async function writeAtomic(
   try {
     // The mode goes on at creation: a rename keeps the temp file's mode, so a
     // 0644 temp file would leak the secrets for as long as it existed.
-    await writeFile(temp, contents, { mode, flag: 'wx' });
+    await writeFile(temp, contents, { mode, flag: 'wx', signal });
+    signal?.throwIfAborted();
     await rename(temp, path);
   } catch (error) {
     await unlink(temp).catch(() => undefined);

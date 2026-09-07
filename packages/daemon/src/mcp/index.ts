@@ -16,6 +16,7 @@ export {
   preflightMcp,
   resolveMcpServers,
   McpAuthError,
+  MCP_OAUTH_LIMITS,
   type McpAuthOptions,
   type McpLoginOptions,
 } from './auth.js';

@@ -83,7 +83,7 @@ export function attachMcpCommand(
             ]),
             openBrowser:
               options.openBrowser ??
-              (async (url) => {
+              (async (url, signal) => {
                 io.out(
                   `Opening the browser to authenticate MCP server ${name}...`,
                 );
@@ -97,7 +97,10 @@ export function attachMcpCommand(
                   process.platform === 'win32'
                     ? ['url.dll,FileProtocolHandler', url.href]
                     : [url.href];
-                await promisify(execFile)(command, args, { timeout: 10_000 });
+                await promisify(execFile)(command, args, {
+                  timeout: 10_000,
+                  signal,
+                });
               }),
           });
           io.out(
