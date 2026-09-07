@@ -96,6 +96,23 @@ it('aborts an active validation import without waiting for its timeout', async (
   ).rejects.toThrow('admission cancelled');
 });
 
+it('rejects an invalid validation timeout before forking a child', async () => {
+  const dir = await fixture('export default []');
+  await expect(
+    validateSnapshotTriggers(dir, { validationTimeoutMs: 0 }),
+  ).rejects.toThrow('validationTimeoutMs must be positive and finite');
+});
+
+it('collects validation child stderr without changing a valid Trigger table', async () => {
+  const dir = await fixture(`
+    console.error('snapshot diagnostics stay in the validation child');
+    export default [{ kind: 'linear.onDelegate', workflow() {} }];
+  `);
+  await expect(validateSnapshotTriggers(dir)).resolves.toEqual([
+    { kind: 'linear.onDelegate' },
+  ]);
+});
+
 it.each([
   ['export default []', 'nonempty'],
   ['export default {}', 'nonempty'],

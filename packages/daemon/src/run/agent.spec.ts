@@ -577,3 +577,227 @@ it('a missing snapshot prompt is Run-fatal even when Workflow code catches it', 
     },
   });
 });
+
+it('names the Harness successor when no adapter has been integrated', async () => {
+  const f = fixture();
+  delete f.options.adapterFor;
+  const outcome = await runBoot({
+    journalPath: join(dir, 'harness-missing.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: { message: expect.stringContaining('Integrate Harness #20') },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('refuses unknown Harnesses and invalid timeouts before invoking', async () => {
+  const f = fixture();
+  f.options.adapterFor = () => undefined;
+  const unknownHarness = await runBoot({
+    journalPath: join(dir, 'unknown-harness.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker', harness: 'missing' },
+      );
+      return 'completed';
+    },
+  });
+  expect(unknownHarness).toMatchObject({
+    status: 'failed',
+    error: { message: expect.stringContaining('Unknown Harness missing') },
+  });
+
+  f.options.adapterFor = () => ({ run: f.run, resume: f.resume });
+  const invalidTimeout = await runBoot({
+    journalPath: join(dir, 'invalid-timeout.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker', timeout: 0 },
+      );
+      return 'completed';
+    },
+  });
+  expect(invalidTimeout).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'Agent timeout must be a positive number of milliseconds',
+      ),
+    },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('uses the direct MCP resolver only when its required Run context exists', async () => {
+  const empty = fixture();
+  delete empty.options.resolveServers;
+  await expect(
+    runBoot({
+      journalPath: join(dir, 'empty-mcp.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, empty.options)(
+          { prompt: 'Work.' },
+          { label: 'worker' },
+        );
+        return 'completed';
+      },
+    }),
+  ).resolves.toMatchObject({ status: 'finished' });
+  expect(empty.run.mock.calls[0]?.[0]?.mcpServers).toEqual([]);
+
+  const missing = fixture();
+  delete missing.options.resolveServers;
+  const outcome = await runBoot({
+    journalPath: join(dir, 'missing-mcp-context.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, missing.options)(
+        { prompt: 'Work.' },
+        { label: 'worker', mcp: ['browser'] },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining('Configure a per-Boot MCP resolver'),
+    },
+  });
+  expect(missing.run).not.toHaveBeenCalled();
+});
+
+it('does not let display callback failures affect a completed Agent', async () => {
+  const f = fixture();
+  f.options.onEvent = () => {
+    throw new Error('display disconnected');
+  };
+  f.run.mockImplementationOnce(async (input) => {
+    input.onEvent?.({ kind: 'text', text: 'Working.' }, 'session-1');
+    return {
+      text: '<result>{"summary":"finished"}</result>',
+      sessionId: 'session-1',
+      events: [],
+    };
+  });
+  await expect(
+    runBoot({
+      journalPath: join(dir, 'display-failure.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, f.options)(
+          { prompt: 'Work.' },
+          { label: 'worker' },
+        );
+        return 'completed';
+      },
+    }),
+  ).resolves.toMatchObject({ status: 'finished' });
+});
+
+it('coalesces queued Steers and acknowledges an already durable continuation', async () => {
+  const f = fixture();
+  let live!: AgentContinuation;
+  let release!: (value: AgentHarnessResult) => void;
+  const first = { id: 'first', note: 'Keep the existing plan.' };
+  const second = { id: 'second', note: 'Also check the error path.' };
+  const take = vi
+    .fn<NonNullable<NonNullable<AgentOptions['steer']>['take']>>()
+    .mockResolvedValueOnce([first])
+    .mockResolvedValueOnce([first])
+    .mockResolvedValue([]);
+  const delivered = vi.fn<
+    NonNullable<NonNullable<AgentOptions['steer']>['delivered']>
+  >(async () => undefined);
+  f.options.steer = {
+    register(handle) {
+      live = handle;
+      return () => undefined;
+    },
+    take,
+    delivered,
+  };
+  f.resume.mockImplementationOnce(
+    async () =>
+      new Promise<AgentHarnessResult>((resolve) => {
+        release = resolve;
+      }),
+  );
+
+  const boot = runBoot({
+    journalPath: join(dir, 'coalesced-steers.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  await vi.waitFor(() => expect(f.resume).toHaveBeenCalledOnce());
+  await expect(live.steer(first)).resolves.toBeUndefined();
+  const queued = live.steer(second);
+  expect(live.steer(second)).toBe(queued);
+  release({
+    text: '<result>{"summary":"continued"}</result>',
+    sessionId: 'session-1',
+    events: [],
+  });
+
+  await expect(boot).resolves.toMatchObject({ status: 'finished' });
+  await expect(queued).resolves.toBeUndefined();
+  expect(delivered).toHaveBeenCalledWith(
+    expect.objectContaining({ identity: '0' }),
+    [first],
+  );
+});
+
+it('requires a nonempty label for a named Agent prompt', async () => {
+  const f = fixture();
+  const outcome = await runBoot({
+    journalPath: join(dir, 'inline-label.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)('');
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: { message: 'Agent Step requires a nonempty label' },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('cancels retry backoff through the active Run signal', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  const stopped = new Error('Run stopped during Agent retry backoff');
+  f.options.signal = controller.signal;
+  f.run.mockRejectedValueOnce(new Error('temporary Harness disconnect'));
+  const outcome = await runBoot({
+    journalPath: join(dir, 'backoff-cancelled.jsonl'),
+    signal: controller.signal,
+    append: async (path, entry, options) => {
+      await appendEntry(path, entry, options);
+      if (entry.attempts?.some((attempt) => attempt.kind === 'failed'))
+        controller.abort(stopped);
+    },
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({ status: 'cancelled' });
+  expect(f.run).toHaveBeenCalledOnce();
+});

@@ -403,10 +403,7 @@ export function createAgent(
       ): Promise<boolean> => {
         const newlyDurable: AgentTurn[] = [];
         for (const [id, pending] of queued) {
-          if (
-            !progress.delivered.includes(id) &&
-            !progress.turns.some((turn) => turn.id === id)
-          ) {
+          if (!progress.delivered.includes(id)) {
             progress.turns.push(pending.turn);
             newlyDurable.push(pending.turn);
           }
