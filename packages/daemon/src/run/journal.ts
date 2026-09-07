@@ -76,10 +76,16 @@ export type RecordedError = z.infer<typeof recordedErrorSchema>;
  * is deliberately no `interrupted` kind — ADR 0005 retired that word, and the
  * Step-level `interrupted` state below is an unrelated concept.
  */
+const attemptMetadata = {
+  usage: z.record(z.string(), z.number()).optional(),
+  nudges: z.array(z.object({ error: z.string() }).strict()).optional(),
+  attempt: z.number().int().min(1).optional(),
+};
 const attemptSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('failed'),
+      ...attemptMetadata,
       startedAt: z.string(),
       ms: z.number(),
       error: recordedErrorSchema,
@@ -89,6 +95,7 @@ const attemptSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('steer'),
+      ...attemptMetadata,
       startedAt: z.string(),
       ms: z.number(),
       /** The human's words, verbatim — the runner attaches no meaning. */
@@ -120,6 +127,7 @@ export interface JournalEntry {
   ms?: number;
   sessionId?: string;
   attempts?: Attempt[];
+  progress?: unknown;
   error?: RecordedError;
   /** The nested journals reserved by one runner-owned `$parallel` entry. */
   parallel?: ParallelJournal;
@@ -146,6 +154,7 @@ const entrySchema: z.ZodType<JournalEntry> = z
     /** A pointer to the Transcript, never something resume depends on. */
     sessionId: z.string().optional(),
     attempts: z.array(attemptSchema).optional(),
+    progress: z.unknown().optional(),
     error: recordedErrorSchema.optional(),
     parallel: z
       .object({
@@ -226,7 +235,7 @@ const runEndSchema = z.discriminatedUnion('status', [
   z
     .object({
       status: z.literal('finished'),
-      outcome: z.enum(['merged', 'rejected', 'exhausted']),
+      outcome: z.enum(['merged', 'rejected', 'exhausted', 'completed']),
     })
     .strict(),
   z
@@ -256,8 +265,10 @@ function isSettled(status: StepStatus): boolean {
 }
 
 export interface Journal {
-  /** Every line, in file order, after any torn tail was dropped. */
+  /** Positional lines only, in file order, after any torn tail was dropped. */
   readonly entries: readonly JournalEntry[];
+  /** Detached latest runner-owned control value; never part of replay. */
+  getControl(key: string): unknown;
   /** True when a torn final line was dropped and the file repaired. */
   readonly truncated: boolean;
   /** The boot this Run's next Boot should stamp its entries with. */
@@ -276,11 +287,23 @@ export interface Journal {
   interruptedBoots(seq: number): number;
 }
 
+/** Runner-owned non-positional records share the file, never replay keys. */
+export const controlRecordSchema = z
+  .object({
+    v: z.literal(JOURNAL_FORMAT_VERSION),
+    kind: z.literal('control'),
+    key: z.string().min(1),
+    value: z.json(),
+    recordedAt: z.iso.datetime(),
+  })
+  .strict();
+
 function parseLines(
   path: string,
   text: string,
 ): {
   entries: JournalEntry[];
+  controls: Map<string, unknown>;
   truncated: boolean;
   keptBytes: number;
 } {
@@ -317,10 +340,20 @@ function parseLines(
   }
 
   const entries: JournalEntry[] = [];
+  const controls = new Map<string, unknown>();
+  let terminal = false;
   for (const [index, value] of raw.entries()) {
+    if (terminal)
+      throw new JournalFormatError(`${at(index)}: entry after $end`);
+    const control = controlRecordSchema.safeParse(value);
+    if (control.success) {
+      controls.set(control.data.key, control.data.value);
+      continue;
+    }
     const parsed = entrySchema.safeParse(value);
     if (parsed.success) {
       entries.push(parsed.data);
+      terminal = parsed.data.step === END_STEP;
       continue;
     }
     throw new JournalFormatError(
@@ -333,7 +366,7 @@ function parseLines(
     'utf8',
   );
 
-  return { entries, truncated, keptBytes };
+  return { entries, controls, truncated, keptBytes };
 }
 
 /**
@@ -343,6 +376,18 @@ function parseLines(
  * no window in which the log is half-written.
  */
 export async function openJournal(path: string): Promise<Journal> {
+  return readJournalFile(path, true);
+}
+
+/** A live reader must never truncate bytes an active writer has not finished. */
+export async function readJournal(path: string): Promise<Journal> {
+  return readJournalFile(path, false);
+}
+
+async function readJournalFile(
+  path: string,
+  repair: boolean,
+): Promise<Journal> {
   let text = '';
   try {
     text = await readFile(path, 'utf8');
@@ -357,7 +402,7 @@ export async function openJournal(path: string): Promise<Journal> {
     }
   }
 
-  const { entries, truncated, keptBytes } = parseLines(path, text);
+  const { entries, controls, truncated, keptBytes } = parseLines(path, text);
   let terminal = false;
   let highestSeq = -1;
   for (const entry of entries) {
@@ -371,7 +416,7 @@ export async function openJournal(path: string): Promise<Journal> {
     }
     highestSeq = Math.max(highestSeq, entry.seq);
   }
-  if (truncated) {
+  if (truncated && repair) {
     await truncate(path, keptBytes);
   }
 
@@ -396,6 +441,7 @@ export async function openJournal(path: string): Promise<Journal> {
 
   return {
     entries,
+    getControl: (key) => structuredClone(controls.get(key)),
     truncated,
     nextBoot: highestBoot + 1,
     end,
@@ -423,7 +469,8 @@ export interface AppendOptions {
 /**
  * Appends one line. A single `appendFile` of a newline-terminated string is
  * the whole write: if it tears, the tear is at the end of the file, which is
- * exactly what `openJournal` repairs.
+ * exactly what `openJournal` repairs. Flush before resolving: a caller may
+ * perform its next external effect as soon as this boundary returns.
  */
 export async function appendEntry(
   path: string,
@@ -448,8 +495,9 @@ export async function appendEntry(
     );
   }
 
+  const line = `${JSON.stringify(parsed.data)}\n`;
   await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(parsed.data)}\n`);
+  await appendFile(path, line, { flush: true });
 }
 
 /** Flattens a thrown value into something a JSONL line can hold. */

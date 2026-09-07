@@ -33,6 +33,8 @@ import {
   type RunningDaemon,
 } from '../server.js';
 import { DAEMON_VERSION } from '../version.js';
+import type { ExecutionIntegration } from '../run/execution.js';
+import type { AgentSessionEventHandler } from '../linear/events.js';
 
 /** The signals a service manager and a terminal use to ask for a clean end. */
 const STOP_SIGNALS = ['SIGTERM', 'SIGINT'] as const;
@@ -51,6 +53,13 @@ export interface RunDaemonOptions
   keepLogs?: number;
   /** Off in tests that must not touch the process's own signal handlers. */
   handleSignals?: boolean;
+  /** The production assembly supplies Linear intake and private routes, not another listener. */
+  compose?(context: { paths: RockyPaths; config: ConfigStore }): Promise<{
+    execution: ExecutionIntegration;
+    onAgentSessionEvent: AgentSessionEventHandler;
+    registerLocalApi?: DaemonOptions['registerLocalApi'];
+    close?(): Promise<void>;
+  }>;
 }
 
 export interface DaemonProcess {
@@ -148,7 +157,13 @@ export async function runDaemon(
   );
 
   let server: RunningDaemon;
+  let composition:
+    Awaited<ReturnType<NonNullable<RunDaemonOptions['compose']>>> | undefined;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let polling = Promise.resolve();
+  let ticking = false;
   try {
+    composition = await options.compose?.({ paths, config });
     server = await startDaemon({
       host: options.host ?? config.current.server.host,
       port: options.port ?? config.current.server.port,
@@ -162,8 +177,12 @@ export async function runDaemon(
       onShutdown: () => {
         void stop();
       },
+      onAgentSessionEvent: composition?.onAgentSessionEvent,
+      registerLocalApi: composition?.registerLocalApi,
     });
   } catch (error) {
+    await composition?.execution.close();
+    await composition?.close?.();
     await config.close();
     await new Promise<void>((resolve) => log.end(() => resolve()));
     throw error;
@@ -209,6 +228,10 @@ export async function runDaemon(
       }
 
       await server.close();
+      if (pollTimer) clearInterval(pollTimer);
+      await composition?.execution.close();
+      await polling;
+      await composition?.close?.();
       await config.close();
       // Only ours: a slow stop must not delete the pidfile a restart has
       // already written for the daemon that replaced this one.
@@ -226,6 +249,23 @@ export async function runDaemon(
     for (const signal of STOP_SIGNALS) {
       process.on(signal, onSignal);
     }
+  }
+
+  if (composition) {
+    const execution = composition.execution;
+    const tick = () => {
+      if (ticking) return;
+      ticking = true;
+      polling = execution
+        .tick()
+        .catch((error) => server.log.error(error))
+        .finally(() => {
+          ticking = false;
+        });
+    };
+    await execution.scheduler.drain();
+    pollTimer = setInterval(tick, 1000);
+    pollTimer.unref();
   }
 
   return {

@@ -1,9 +1,18 @@
-import { readFile, rm, stat } from 'node:fs/promises';
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import type { RockyPaths } from '../config/paths.js';
 import { concurrencySchema, retentionSchema } from '../config/schema.js';
+import { KeyedMutex } from '../repos/mutex.js';
 import {
   newRunHeader,
   readRunHeader,
@@ -32,10 +41,23 @@ export interface DelegateInput {
   issue: RunHeader['issue'];
   branch: string;
   trigger?: string;
+  /** Prepared immutable bytes; copied with the header in one directory publication. */
+  snapshotDir?: string;
+  linear?: RunHeader['linear'];
+  execution?: RunHeader['execution'];
+}
+
+export interface RunAdmission {
+  issueIdentifier: string;
+  requestId?: string;
+  manual?: boolean;
+  /** Called only when no live Run exists, outside the scheduler's mutation lock. */
+  prepare(runId: string, signal: AbortSignal): Promise<DelegateInput>;
 }
 
 export type RunDelegation =
-  { kind: 'started'; run: RunHeader } | { kind: 'nudged'; run: RunHeader };
+  | { kind: 'started' | 'existing'; run: RunHeader }
+  | { kind: 'nudged'; run: RunHeader };
 
 export interface RunSchedulerOptions {
   paths: RockyPaths;
@@ -45,6 +67,8 @@ export interface RunSchedulerOptions {
   now?: () => Date;
   writeHeader?: typeof writeRunHeader;
   onError?: (error: unknown) => void;
+  /** Production shares this writer with Boot children and control intake. */
+  append?: typeof appendEntry;
 }
 
 export interface Cancellation {
@@ -107,6 +131,9 @@ export class RunScheduler {
   private queueOrder = 0;
   private closed = false;
   private serial = Promise.resolve();
+  private readonly admissions = new KeyedMutex();
+  private readonly preparing = new Set<Promise<RunDelegation>>();
+  private readonly admissionAbort = new AbortController();
 
   private constructor(
     private readonly options: RunSchedulerOptions &
@@ -181,55 +208,130 @@ export class RunScheduler {
     return run === undefined ? undefined : structuredClone(run);
   }
 
+  async list(): Promise<RunHeader[]> {
+    return structuredClone([...this.runs.values()]);
+  }
+
+  async setMaxRuns(maxRuns: number): Promise<void> {
+    this.options.maxRuns = concurrencySchema.parse({ maxRuns }).maxRuns;
+    await this.drain();
+  }
+
   async delegate(input: DelegateInput): Promise<RunDelegation> {
-    return this.admit(input, false);
+    return this.admit({
+      issueIdentifier: input.issue.identifier,
+      prepare: async () => input,
+    });
   }
 
   async manual(
     input: DelegateInput & { trigger: string },
   ): Promise<RunDelegation> {
-    return this.admit(input, true);
+    return this.admit({
+      issueIdentifier: input.issue.identifier,
+      manual: true,
+      prepare: async () => input,
+    });
   }
 
-  private async admit(
-    input: DelegateInput,
-    manual: boolean,
-  ): Promise<RunDelegation> {
-    return await this.mutate(async () => {
-      if (this.closed) throw new Error('The Run scheduler is closed');
-      const runs = [...this.runs.values()].filter(
-        (run) => run.issue.identifier === input.issue.identifier,
-      );
-      const live = runs.find((run) => !isTerminal(run));
-
-      if (live) {
-        if (manual)
-          throw new Error(
-            `Manual Trigger refused: ${live.runId} is still live`,
+  admit(request: RunAdmission): Promise<RunDelegation> {
+    const task = this.admissions.run(
+      request.issueIdentifier,
+      async (): Promise<RunDelegation> => {
+        const reservation = await this.mutate(async () => {
+          if (this.closed) throw new Error('The Run scheduler is closed');
+          const runs = [...this.runs.values()].filter(
+            (run) => run.issue.identifier === request.issueIdentifier,
           );
-        return { kind: 'nudged', run: structuredClone(live) };
-      }
+          const admitted =
+            request.requestId &&
+            runs.find((run) => run.admissionId === request.requestId);
+          if (admitted)
+            return {
+              kind: 'existing' as const,
+              run: structuredClone(admitted),
+            };
+          const live = runs.find((run) => !isTerminal(run));
 
-      const suffix = Math.max(
-        this.counters[input.issue.identifier] ?? 0,
-        ...runs.map((run) => runNumber(input.issue.identifier, run.runId)),
-      );
-      const run = newRunHeader({
-        runId: `${input.issue.identifier}-${suffix + 1}`,
-        issue: input.issue,
-        branch: input.branch,
-        repo: input.repo,
-        ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
-        now: this.options.now().toISOString(),
-      });
-      run.issue = structuredClone(input.issue);
-      run.queueOrder = ++this.queueOrder;
-      this.counters[input.issue.identifier] = suffix + 1;
-      await this.saveCounters();
-      await this.options.writeHeader(this.options.paths, run);
-      this.runs.set(run.runId, run);
-      return { kind: 'started', run: structuredClone(run) };
-    });
+          if (live) {
+            if (request.manual)
+              throw new Error(
+                `Manual Trigger refused: ${live.runId} is still live`,
+              );
+            return { kind: 'nudged' as const, run: structuredClone(live) };
+          }
+
+          const suffix = Math.max(
+            this.counters[request.issueIdentifier] ?? 0,
+            ...runs.map((run) => runNumber(request.issueIdentifier, run.runId)),
+          );
+          const runId = `${request.issueIdentifier}-${suffix + 1}`;
+          this.options.paths.run(runId);
+          this.counters[request.issueIdentifier] = suffix + 1;
+          await this.saveCounters();
+          return { kind: 'reserved' as const, runId };
+        });
+        if (reservation.kind !== 'reserved') return reservation;
+        const input = await request.prepare(
+          reservation.runId,
+          this.admissionAbort.signal,
+        );
+        if (input.issue.identifier !== request.issueIdentifier)
+          throw new Error('Admission preparation returned a different issue');
+        if (request.manual && !input.trigger)
+          throw new Error('Manual admission must name its Trigger');
+        return this.mutate(async () => {
+          if (this.closed) throw new Error('The Run scheduler is closed');
+          const run = newRunHeader({
+            runId: reservation.runId,
+            issue: input.issue,
+            branch: input.branch,
+            repo: input.repo,
+            ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
+            now: this.options.now().toISOString(),
+          });
+          run.issue = structuredClone(input.issue);
+          if (request.requestId) run.admissionId = request.requestId;
+          if (input.linear) run.linear = structuredClone(input.linear);
+          if (input.execution) run.execution = structuredClone(input.execution);
+          run.queueOrder = ++this.queueOrder;
+          if (input.snapshotDir) {
+            // Staging is outside runs/: recovery must never discover a partial Run.
+            const staging = join(this.options.paths.root, 'admissions');
+            await mkdir(staging, { recursive: true });
+            const temporary = await mkdtemp(join(staging, `${run.runId}-`));
+            try {
+              await cp(input.snapshotDir, join(temporary, 'snapshot'), {
+                recursive: true,
+                errorOnExist: true,
+                force: false,
+              });
+              const paths = this.options.paths;
+              await this.options.writeHeader(
+                {
+                  ...paths,
+                  run: (id) => ({
+                    ...paths.run(id),
+                    runJson: join(temporary, 'run.json'),
+                  }),
+                },
+                run,
+              );
+              await rename(temporary, paths.run(run.runId).dir);
+            } finally {
+              await rm(temporary, { recursive: true, force: true });
+            }
+          } else {
+            await this.options.writeHeader(this.options.paths, run);
+          }
+          this.runs.set(run.runId, run);
+          return { kind: 'started', run: structuredClone(run) };
+        });
+      },
+    );
+    this.preparing.add(task);
+    void task.finally(() => this.preparing.delete(task)).catch(() => undefined);
+    return task;
   }
 
   async drain(): Promise<void> {
@@ -448,6 +550,7 @@ export class RunScheduler {
   async close(): Promise<void> {
     const active = await this.mutate(async () => {
       this.closed = true;
+      this.admissionAbort.abort();
       const active = [...this.executions];
       for (const [, execution] of active) execution.controller.abort();
       return active;
@@ -459,6 +562,7 @@ export class RunScheduler {
         await execution.done;
       }),
     );
+    await Promise.allSettled([...this.preparing]);
   }
 
   stop(runId: string): Promise<void> {
@@ -506,7 +610,7 @@ export class RunScheduler {
     let journal = await openJournal(this.options.paths.run(runId).journal);
     if (!journal.end) {
       await cancellation!.cleanup(state.run);
-      await appendEntry(
+      await (this.options.append ?? appendEntry)(
         this.options.paths.run(runId).journal,
         {
           v: JOURNAL_FORMAT_VERSION,
