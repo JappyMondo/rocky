@@ -7,7 +7,8 @@
  * here is atomic — temp file, then rename, in `../atomic-write.ts` — and
  * `credentials.json` is 0600 from the moment it exists, temp file included.
  */
-import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile } from 'node:fs/promises';
+import lockfile from 'proper-lockfile';
 
 import {
   PUBLIC_MODE as CONFIG_MODE,
@@ -115,9 +116,45 @@ export async function writeCredentials(
   paths: RockyPaths,
   credentials: unknown,
 ): Promise<Credentials> {
-  const parsed = parseCredentials(credentials);
-  await writeAtomic(paths.credentialsFile, serialize(parsed), SECRET_MODE);
-  return parsed;
+  return updateCredentials(paths, () => credentials);
+}
+
+/** All read-modify-write callers must use this, including rotating OAuth tokens.
+ * The lock spans processes (CLI and Boots), and covers the refresh request too.
+ * Never wait for human input inside the callback.
+ */
+export async function updateCredentials(
+  paths: RockyPaths,
+  update: (current: Credentials) => unknown | Promise<unknown>,
+): Promise<Credentials> {
+  await mkdir(paths.root, { recursive: true, mode: ROOT_MODE });
+  if (POSIX) await chmod(paths.root, ROOT_MODE);
+  let compromised = false;
+  const release = await lockfile.lock(paths.credentialsFile, {
+    realpath: false,
+    stale: 30_000,
+    update: 10_000,
+    retries: { retries: 200, minTimeout: 25, maxTimeout: 100, factor: 1.2 },
+    onCompromised: () => {
+      compromised = true;
+    },
+  });
+  try {
+    const current = await readCredentials(paths);
+    const before = serialize(current);
+    const next = await update(current);
+    const parsed = parseCredentials(next);
+    if (compromised)
+      throw new ConfigError(
+        'credentials.json',
+        'update lock was lost; retry the command.',
+      );
+    if (next !== current || serialize(parsed) !== before)
+      await writeAtomic(paths.credentialsFile, serialize(parsed), SECRET_MODE);
+    return parsed;
+  } finally {
+    await release();
+  }
 }
 
 async function enforceSecretMode(
@@ -130,7 +167,13 @@ async function enforceSecretMode(
 
   let mode: number;
   try {
-    mode = (await stat(path)).mode & 0o777;
+    const info = await lstat(path);
+    if (!info.isFile())
+      throw new ConfigError(
+        'credentials.json',
+        'must be a regular file, not a symlink.',
+      );
+    mode = info.mode & 0o777;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return;

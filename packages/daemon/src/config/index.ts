@@ -39,6 +39,7 @@ export {
   ensureInstanceLayout,
   readCredentials,
   readInstanceConfig,
+  updateCredentials,
   writeCredentials,
   writeInstanceConfig,
   type ReadOptions,

@@ -84,6 +84,7 @@ export {
 export { resolveWebRoot } from './web-root.js';
 
 export * from './config/index.js';
+export * from './mcp/index.js';
 
 export * from './repos/index.js';
 export * from './lifecycle/index.js';

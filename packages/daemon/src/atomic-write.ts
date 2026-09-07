@@ -9,6 +9,7 @@
  * Extracted from `config/store.ts` when `run.json` became the second caller
  * (NG-596) — this is one correctness-critical primitive, not two.
  */
+import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
@@ -28,11 +29,14 @@ export async function writeAtomic(
 ): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: ROOT_MODE });
 
-  const temp = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
+  const temp = join(
+    dirname(path),
+    `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`,
+  );
   try {
     // The mode goes on at creation: a rename keeps the temp file's mode, so a
     // 0644 temp file would leak the secrets for as long as it existed.
-    await writeFile(temp, contents, { mode });
+    await writeFile(temp, contents, { mode, flag: 'wx' });
     await rename(temp, path);
   } catch (error) {
     await unlink(temp).catch(() => undefined);
