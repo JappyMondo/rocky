@@ -1,5 +1,12 @@
 import { createJiti } from 'jiti';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -35,6 +42,36 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   await rm(dir, { recursive: true, force: true });
+});
+
+it('ships the complete editable default tree without default Rules', async () => {
+  const shipped = new URL('../../content/.rocky/', import.meta.url);
+  const agents = await readdir(new URL('./agents/', shipped));
+  expect(agents.sort()).toEqual([
+    'ci-fixer.md',
+    'compliance-reviewer.md',
+    'fixer.md',
+    'implementer.md',
+    'merger.md',
+    'planner.md',
+    'reviewer.md',
+    'ui-complaint-writer.md',
+    'ui-inspector.md',
+    'ui-planner.md',
+    'ui-triage.md',
+  ]);
+  for (const agent of agents) {
+    expect(
+      await readFile(new URL(`./agents/${agent}`, shipped), 'utf8'),
+    ).not.toMatch(/^---(?:\r?\n)/);
+  }
+  await expect(readdir(new URL('./rules/', shipped))).rejects.toThrow();
+  const workflow = await readFile(new URL('./workflow.ts', shipped), 'utf8');
+  expect(workflow.match(/^\/\/ BEGIN ROCKY CONFIG$/gm)).toHaveLength(1);
+  expect(workflow.match(/^\/\/ END ROCKY CONFIG$/gm)).toHaveLength(1);
+  expect(await readFile(new URL('./mcp.json', shipped), 'utf8')).toBe(
+    '{\n  "mcpServers": {}\n}\n',
+  );
 });
 
 function fixture(
@@ -279,7 +316,7 @@ it('bounds a disagreement loop, keeps compliance rule-free, and exposes unresolv
     operation: 'markDraft',
     args: [expect.anything(), true],
   });
-  expect(f.trace.at(-1)).toContain('compliance-reviewer/1/5/c1');
+  expect(f.trace.at(-1)).toContain('compliance-reviewer/5/1/c1');
 });
 
 it('revalidates every gate after a Checkpoint Steer and drafts on rejection', async () => {
@@ -555,6 +592,40 @@ it('fails a refused ready-flip instead of presenting a ready Checkpoint', async 
     error: { message: expect.stringContaining('Grant PR write access.') },
   });
   expect(f.trace).not.toContain('checkpoint');
+});
+
+it('rechecks earlier gates when the final review fixes code and preserves fixes on the PR', async () => {
+  const f = fixture({
+    agent: (name, input, count) => {
+      if (name === 'reviewer' && count === 1)
+        return {
+          complaints: [
+            {
+              id: `${input.namespace}/c1`,
+              file: 'src/a.ts',
+              text: 'Regression.',
+            },
+          ],
+        };
+      if (name === 'fixer')
+        return {
+          resolutions: (input.complaints as { id: string }[]).map(({ id }) => ({
+            id,
+            status: 'fixed',
+            note: 'Fixed the regression.',
+          })),
+        };
+      return undefined;
+    },
+  });
+  expect((await f.boot()).status).toBe('parked');
+  expect(
+    f.calls.filter(({ name }) => name === 'compliance-reviewer'),
+  ).toHaveLength(2);
+  expect(f.calls.filter(({ name }) => name === 'ui-triage')).toHaveLength(2);
+  expect(f.trace.indexOf('push', f.trace.indexOf('fixer'))).toBeLessThan(
+    f.trace.lastIndexOf('reviewer'),
+  );
 });
 
 it('addresses unresolved PR conversations once each without prior Run hand-over state', async () => {
