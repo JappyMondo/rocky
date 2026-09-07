@@ -459,11 +459,14 @@ it('kills a wedged invocation at the override and retries timeout as a fresh att
   f.run.mockImplementationOnce(
     async (input) =>
       new Promise((_resolve, reject) => {
-        input.signal!.addEventListener(
+        const signal = input.signal;
+        if (!signal)
+          throw new Error('Agent invocation must receive an AbortSignal');
+        signal.addEventListener(
           'abort',
           () => {
             aborted = true;
-            reject(input.signal!.reason);
+            reject(signal.reason);
           },
           { once: true },
         );

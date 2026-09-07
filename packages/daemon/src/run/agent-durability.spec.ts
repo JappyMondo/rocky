@@ -336,7 +336,7 @@ it('keeps the original attempt deadline across Steer and aborts an active resume
   const start = new Date('2026-09-07T12:00:00Z');
   vi.setSystemTime(start);
   const f = fixture();
-  let delivery!: Promise<void>;
+  let delivery: Promise<void> | undefined;
   f.options.steer = {
     register(handle) {
       delivery = handle.steer({
@@ -351,11 +351,13 @@ it('keeps the original attempt deadline across Steer and aborts an active resume
     return result();
   });
   f.resume.mockImplementationOnce(async (input) => {
+    const signal = input.signal;
+    if (!signal) throw new Error('Agent resume must receive an AbortSignal');
     await new Promise<void>((resolve) => {
-      input.signal!.addEventListener('abort', () => resolve(), { once: true });
-      if (input.signal!.aborted) resolve();
+      signal.addEventListener('abort', () => resolve(), { once: true });
+      if (signal.aborted) resolve();
     });
-    throw input.signal!.reason;
+    throw signal.reason;
   });
   const stopAfterTimeout = new Error(
     'stop after observing the first failed attempt',
@@ -383,6 +385,7 @@ it('keeps the original attempt deadline across Steer and aborts an active resume
       },
     }),
   ).rejects.toBe(stopAfterTimeout);
+  if (!delivery) throw new Error('Expected the test Steer to be delivered');
   await delivery;
   expect(f.run.mock.calls[0]?.[0].timeoutMs).toBe(1000);
   expect(f.resume.mock.calls[0]?.[0].timeoutMs).toBe(200);
@@ -416,8 +419,10 @@ it('publishes progressive Harness events before the active invocation returns', 
   });
   try {
     await vi.waitFor(() => expect(f.run).toHaveBeenCalledOnce());
-    const input = f.run.mock.calls[0]![0];
-    input.onEvent!(
+    const input = f.run.mock.calls[0]?.[0];
+    if (!input?.onEvent)
+      throw new Error('Agent invocation must expose Harness events');
+    input.onEvent(
       { kind: 'text', text: 'Inspecting the checkout' },
       'stream-session',
     );
@@ -428,7 +433,7 @@ it('publishes progressive Harness events before the active invocation returns', 
         'stream-session',
       ],
     ]);
-    input.onEvent!({ kind: 'tool-call', name: 'read' }, 'stream-session');
+    input.onEvent({ kind: 'tool-call', name: 'read' }, 'stream-session');
     expect(onEvent).toHaveBeenNthCalledWith(
       2,
       '0',
