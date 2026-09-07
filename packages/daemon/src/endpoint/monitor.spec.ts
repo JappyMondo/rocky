@@ -77,9 +77,9 @@ describe('a dead endpoint', () => {
 
     expect(monitor.health.configured).toBe(true);
     expect(monitor.health.ok).toBe(false);
-    expect(monitor.health.detail).toContain('ECONNREFUSED');
+    expect(monitor.health.detail).toContain('could not be reached');
     expect(logWarn).toHaveBeenCalledWith(
-      expect.stringContaining('https://rocky.example.com'),
+      expect.stringContaining('public endpoint'),
     );
   });
 
