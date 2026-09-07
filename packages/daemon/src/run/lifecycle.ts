@@ -35,66 +35,66 @@ export class WorkflowRuntime {
     const paths = this.options.paths;
     let result: BootResult | undefined;
     try {
-      run = await readRunHeader(paths, run.runId);
-      if (kind === 'run') {
-        await this.kill(run);
-        const reserved = new Set([...this.ports.values()].flat());
-        let port: number;
-        do {
-          const server = createServer();
-          port = await new Promise<number>((resolve, reject) => {
-            server.once('error', reject);
-            server.listen(0, '127.0.0.1', () => {
-              const address = server.address();
-              if (!address || typeof address === 'string') {
-                reject(new Error('Could not reserve a Run port'));
-                return;
-              }
-              const chosen = address.port;
-              server.close((error) =>
-                error ? reject(error) : resolve(chosen),
-              );
-            });
-          });
-        } while (reserved.has(port));
-        this.ports.set(run.runId, [port]);
-        run = await updateRunHeader(paths, run.runId, { ports: [port] });
-      }
-      const workflow = await this.options.loadWorkflow(run);
-      const cwd =
-        this.options.workspace?.(run) ?? paths.run(run.runId).workspaceDir;
-      const exec = async (command: string, background: boolean) => {
-        const child = startCommand(command, {
-          cwd,
-          background,
-          signal,
-          timeoutMs: this.options.execTimeoutMs,
-          env: this.options.env?.(run),
-        });
-        const children =
-          this.commands.get(run.runId) ?? new Set<OwnedCommand>();
-        children.add(child);
-        this.commands.set(run.runId, children);
-        void child.closed.then(() => children.delete(child));
-        return await child.result;
-      };
-      const git = async (args: string[]) => {
-        const command = ['git', ...args]
-          .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
-          .join(' ');
-        const result = await exec(command, false);
-        if (!('stdout' in result))
-          throw new Error('Expected foreground git result');
-        if (result.exitCode !== 0)
-          throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
-        return result.stdout;
-      };
       result = await runBoot({
         journalPath: paths.run(run.runId).journal,
         poll: kind === 'poll',
         signal,
-        workflow: (steps) =>
-          workflow(
+        workflow: async (steps) => {
+          run = await readRunHeader(paths, run.runId);
+          if (kind === 'run') {
+            await this.kill(run);
+            const reserved = new Set([...this.ports.values()].flat());
+            let port: number;
+            do {
+              const server = createServer();
+              port = await new Promise<number>((resolve, reject) => {
+                server.once('error', reject);
+                server.listen(0, '127.0.0.1', () => {
+                  const address = server.address();
+                  if (!address || typeof address === 'string') {
+                    reject(new Error('Could not reserve a Run port'));
+                    return;
+                  }
+                  const chosen = address.port;
+                  server.close((error) =>
+                    error ? reject(error) : resolve(chosen),
+                  );
+                });
+              });
+            } while (reserved.has(port));
+            this.ports.set(run.runId, [port]);
+            run = await updateRunHeader(paths, run.runId, { ports: [port] });
+          }
+          const workflow = await this.options.loadWorkflow(run);
+          const cwd =
+            this.options.workspace?.(run) ?? paths.run(run.runId).workspaceDir;
+          const exec = async (command: string, background: boolean) => {
+            const child = startCommand(command, {
+              cwd,
+              background,
+              signal,
+              timeoutMs: this.options.execTimeoutMs,
+              env: this.options.env?.(run),
+            });
+            const children =
+              this.commands.get(run.runId) ?? new Set<OwnedCommand>();
+            children.add(child);
+            this.commands.set(run.runId, children);
+            void child.closed.then(() => children.delete(child));
+            return await child.result;
+          };
+          const git = async (args: string[]) => {
+            const command = ['git', ...args]
+              .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
+              .join(' ');
+            const result = await exec(command, false);
+            if (!('stdout' in result))
+              throw new Error('Expected foreground git result');
+            if (result.exitCode !== 0)
+              throw new Error(`git ${args[0]} failed: ${result.stderr.trim()}`);
+            return result.stdout;
+          };
+          return await workflow(
             createWorkflowContext(steps, run, {
               exec,
               changedFiles: async () => {
@@ -124,7 +124,8 @@ export class WorkflowRuntime {
               external: (branch) =>
                 this.options.external?.(run, branch, signal) ?? {},
             }),
-          ),
+          );
+        },
       });
       return result;
     } finally {

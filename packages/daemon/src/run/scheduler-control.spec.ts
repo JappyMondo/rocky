@@ -15,6 +15,7 @@ import { parseInstanceConfig } from '../config/schema.js';
 import { newRunHeader, readRunHeader, writeRunHeader } from './header.js';
 import { openJournal } from './journal.js';
 import { WorkflowRuntime } from './lifecycle.js';
+import { runBoot } from './replay.js';
 import { RunScheduler, nextPoll } from './scheduler.js';
 
 let dir: string;
@@ -404,3 +405,297 @@ it('refuses admission when a Run header names a different directory', async () =
     }),
   ).rejects.toThrow(/directory/);
 });
+
+it.each([false, true])(
+  'recovers a loader failure from the terminal Journal with prior Steps=%s',
+  async (priorSteps) => {
+    const run = stored('NG-1');
+    await writeRunHeader(paths, run);
+    const journalPath = paths.run(run.runId).journal;
+    if (priorSteps)
+      await runBoot({
+        journalPath,
+        workflow: async (ctx) => {
+          await ctx.step('read', {}, async () => ({
+            status: 'done',
+            result: { kept: true },
+          }));
+          await ctx.step('scm:waitForCi', {}, async () => ({
+            status: 'waiting',
+          }));
+          return 'merged';
+        },
+      });
+    const before = await openJournal(journalPath);
+    const loadWorkflow = vi.fn(async (): Promise<never> => {
+      throw new Error('snapshot module cannot load');
+    });
+    runtime = new WorkflowRuntime({ paths, loadWorkflow });
+    const scheduler = await RunScheduler.open({ paths, boot: runtime.boot });
+    await scheduler.drain();
+    await vi.waitFor(async () =>
+      expect((await scheduler.get(run.runId))?.status).toBe('failed'),
+    );
+    await scheduler.close();
+    const journal = await openJournal(journalPath);
+    expect(journal.entries.slice(0, before.entries.length)).toEqual(
+      before.entries,
+    );
+    expect(journal.end).toMatchObject({
+      step: '$end',
+      status: 'failed',
+      boot: before.nextBoot,
+      result: {
+        status: 'failed',
+        error: { message: 'snapshot module cannot load' },
+      },
+    });
+    expect(journal.entries).toHaveLength(before.entries.length + 1);
+    // A stale header and a fresh scheduler must recover the failure without loading again.
+    await writeRunHeader(paths, run);
+    const recovered = await RunScheduler.open({ paths, boot: runtime.boot });
+    expect(await recovered.get(run.runId)).toMatchObject({
+      status: 'failed',
+      error: { message: 'snapshot module cannot load' },
+    });
+    await recovered.drain();
+    await recovered.close();
+    expect(loadWorkflow).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('keeps the header-only failure exception when the Journal is unreadable', async () => {
+  const loadWorkflow = vi.fn(async (): Promise<never> => {
+    throw new Error('must not load');
+  });
+  runtime = new WorkflowRuntime({ paths, loadWorkflow });
+  const scheduler = await RunScheduler.open({ paths, boot: runtime.boot });
+  const { run } = await scheduler.delegate(input('NG-1'));
+  const corrupt = 'invalid Journal\n';
+  await writeFile(paths.run(run.runId).journal, corrupt);
+  await scheduler.drain();
+  await vi.waitFor(async () =>
+    expect((await scheduler.get(run.runId))?.status).toBe('failed'),
+  );
+  await scheduler.close();
+  expect((await readRunHeader(paths, run.runId)).error?.name).toBe(
+    'JournalFormatError',
+  );
+  expect(await readFile(paths.run(run.runId).journal, 'utf8')).toBe(corrupt);
+  expect(loadWorkflow).not.toHaveBeenCalled();
+});
+
+it('services other cancellation retries, due polls and queued Runs despite a persistent preservation failure', async () => {
+  const intent = '2026-09-07T10:00:00Z';
+  for (const id of ['NG-1', 'NG-2']) {
+    await writeRunHeader(paths, { ...stored(id), cancelRequestedAt: intent });
+  }
+  const parked = {
+    ...stored('NG-3'),
+    status: 'parked' as const,
+    reason: 'scm:waitForCi',
+  };
+  await writeRunHeader(paths, parked);
+  await runBoot({
+    journalPath: paths.run(parked.runId).journal,
+    workflow: async (ctx) => {
+      await ctx.step('scm:waitForCi', {}, async () => ({ status: 'waiting' }));
+      return 'merged';
+    },
+  });
+  await writeRunHeader(paths, stored('NG-4'));
+  let now = 0;
+  let unavailable = true;
+  const polls: string[] = [];
+  const admitted: string[] = [];
+  const errors: unknown[] = [];
+  const scheduler = await RunScheduler.open({
+    paths,
+    maxRuns: 1,
+    now: () => new Date(now),
+    onError: (error) => errors.push(error),
+    boot: (run, kind, signal) =>
+      runBoot({
+        journalPath: paths.run(run.runId).journal,
+        poll: kind === 'poll',
+        signal,
+        workflow: async (ctx) => {
+          if (run.runId === parked.runId) {
+            await ctx.step('scm:waitForCi', {}, async () => {
+              polls.push(run.runId);
+              return { status: 'waiting' };
+            });
+          } else {
+            await ctx.step('work', {}, async () => {
+              admitted.push(run.runId);
+              return { status: 'done', result: null };
+            });
+          }
+          return 'merged';
+        },
+      }),
+    cancellation: {
+      kill: async () => undefined,
+      cleanup: async (run) => {
+        if (run.runId === 'NG-1-1' && unavailable)
+          throw new Error('NG-1 cannot push');
+      },
+    },
+  });
+  try {
+    for (const due of [10_000, 30_000, 70_000]) {
+      now = due;
+      await expect(scheduler.tick()).resolves.toBeUndefined();
+      expect((await readRunHeader(paths, 'NG-1-1')).cancelRequestedAt).toBe(
+        intent,
+      );
+      expect(
+        (await openJournal(paths.run('NG-1-1').journal)).end,
+      ).toBeUndefined();
+    }
+    await vi.waitFor(async () =>
+      expect((await scheduler.get('NG-4-1'))?.status).toBe('finished'),
+    );
+    expect(admitted).toEqual(['NG-4-1']);
+    expect(polls).toEqual(['NG-3-1', 'NG-3-1', 'NG-3-1']);
+    expect(errors).toHaveLength(3);
+    for (const error of errors)
+      expect(error).toMatchObject({ message: 'NG-1 cannot push' });
+    expect(
+      (await openJournal(paths.run('NG-2-1').journal)).end?.result,
+    ).toEqual({ status: 'cancelled' });
+    unavailable = false;
+    await scheduler.tick();
+    expect(
+      (await openJournal(paths.run('NG-1-1').journal)).end?.result,
+    ).toEqual({ status: 'cancelled' });
+  } finally {
+    await scheduler.close();
+  }
+});
+
+it.each(['parked', 'failed'] as const)(
+  'never retries an obsolete %s header over durable cancellation intent',
+  async (status) => {
+    const barrier = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    };
+    const writing = barrier();
+    const failWrite = barrier();
+    const killing = barrier();
+    const releaseKill = barrier();
+    let delayed = false;
+    let bootCalls = 0;
+    let preserve = false;
+    const writeError = new Error('result header write failed');
+    const reported: unknown[] = [];
+    const boot = async (
+      run: ReturnType<typeof stored>,
+      kind: 'run' | 'poll',
+      signal: AbortSignal,
+    ) => {
+      bootCalls++;
+      if (status === 'failed') throw new Error('Boot transport unavailable');
+      return runBoot({
+        journalPath: paths.run(run.runId).journal,
+        poll: kind === 'poll',
+        signal,
+        workflow: async (ctx) => {
+          await ctx.step('scm:waitForCi', {}, async () => ({
+            status: 'waiting',
+          }));
+          return 'merged';
+        },
+      });
+    };
+    const cleanup = async () => {
+      if (!preserve) throw new Error('push offline');
+    };
+    const scheduler = await RunScheduler.open({
+      paths,
+      boot,
+      onError: (error) => reported.push(error),
+      writeHeader: async (target, header) => {
+        if (header.status === status && !header.cancelRequestedAt && !delayed) {
+          delayed = true;
+          writing.resolve();
+          await failWrite.promise;
+          throw writeError;
+        }
+        await writeRunHeader(target, header);
+      },
+      cancellation: {
+        kill: async () => {
+          killing.resolve();
+          await releaseKill.promise;
+        },
+        cleanup,
+      },
+    });
+    const { run } = await scheduler.delegate(input('NG-1'));
+    await scheduler.drain();
+    await writing.promise;
+    // Queue stop behind the held write before letting the write reject.
+    const stopping = scheduler.stop(run.runId);
+    void stopping.catch(() => undefined);
+    failWrite.resolve();
+    try {
+      await killing.promise;
+      await scheduler.drain();
+      const disk = await readRunHeader(paths, run.runId);
+      expect(disk.cancelRequestedAt).toBeDefined();
+      expect(await scheduler.get(run.runId)).toMatchObject({
+        cancelRequestedAt: disk.cancelRequestedAt,
+      });
+      expect(reported).toContain(writeError);
+      releaseKill.resolve();
+      await expect(stopping).rejects.toThrow('push offline');
+      await scheduler.drain();
+      await scheduler.poll(run.runId);
+      expect(bootCalls).toBe(1);
+      expect(
+        (await openJournal(paths.run(run.runId).journal)).end,
+      ).toBeUndefined();
+      await scheduler.close();
+      // Recovery must retain the stop and retry preservation, never the old Boot.
+      const recovered = await RunScheduler.open({
+        paths,
+        boot,
+        onError: (error) => reported.push(error),
+        cancellation: { kill: async () => undefined, cleanup },
+      });
+      try {
+        await recovered.drain();
+        await recovered.poll(run.runId);
+        await recovered.tick();
+        expect((await readRunHeader(paths, run.runId)).cancelRequestedAt).toBe(
+          disk.cancelRequestedAt,
+        );
+        expect((await recovered.get(run.runId))?.cancelRequestedAt).toBe(
+          disk.cancelRequestedAt,
+        );
+        expect(bootCalls).toBe(1);
+        preserve = true;
+        await recovered.tick();
+        const journal = await openJournal(paths.run(run.runId).journal);
+        expect(journal.end?.result).toEqual({ status: 'cancelled' });
+        expect(
+          journal.entries.filter((entry) => entry.step === '$end'),
+        ).toHaveLength(1);
+        expect((await readRunHeader(paths, run.runId)).status).toBe(
+          'cancelled',
+        );
+      } finally {
+        await recovered.close();
+      }
+    } finally {
+      releaseKill.resolve();
+      await stopping.catch(() => undefined);
+      await scheduler.close();
+    }
+  },
+);

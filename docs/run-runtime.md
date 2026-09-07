@@ -67,6 +67,8 @@ sequence. Missing external members name the adapter to wire.
 Async-local routing isolates nested branches. Raw concurrent calls on the same
 branch fail as divergence. Await every ctx call. Structural failures cannot be
 caught away; ordinary failures remain catchable and rethrow identically on replay.
+Returned values belong to Workflow code: mutating them cannot change retained
+Step outcomes or nested parallel snapshots, on live execution or replay.
 
 `ctx.step` accepts plain JSON data (or void), not classes, handles, functions or
 lossy nested values. It must be safe to run twice: a crash between effect and
@@ -81,6 +83,11 @@ Boots. Prior groups stop before renewal. An IPC supervisor kills the group if
 the daemon dies, without trusting persisted PIDs the OS could have reused.
 Terminal results stop every owned group, including grandchildren. `close()`
 also releases parked children.
+
+This is the approved NG-577 section 2 background-command exception: Parked
+means no execution slot or live conversation is required, not that an existing
+background process must be killed. Working Boots restart those commands;
+poll Boots do not. Resume depends on the Journal, never on a surviving process.
 
 Available loopback ports stay distinct across Runs in this runtime and are
 recorded before each working Boot. The reservation socket is released for the
@@ -106,6 +113,9 @@ contract with fakes, not real platform pushes.
 
 A cleanup failure leaves durable cancellation intent on a non-terminal Run.
 `stop` retries it; recovery's `tick` retries without resuming the Workflow.
+Each retry failure is reported without blocking other Runs' polls or admission.
+Result-header retry insertion and writes share cancellation's serialization,
+so an older result cannot erase durable cancellation intent.
 Concurrent stops share one attempt. If a normal `$end` already won, its outcome
 wins. `runBoot` returning `cancelled` means it stopped, not that preservation
 completed. Daemon `close` aborts Boots without SCM cleanup or a terminal record;
@@ -123,6 +133,10 @@ Readers reject malformed `$end`, terminal records in parallel branches,
 complete records after `$end`, unknown fields and incompatible nested versions.
 Only an unterminated tail is torn. Recovery refuses corruption without
 truncating earlier work. The header caches the Journal's terminal outcome.
+The runtime checks the Journal before loading the Workflow or renewing ports.
+An existing terminal record wins; a loader failure is journaled when storage
+is usable. An unreadable or unwritable Journal still propagates to the scheduler's
+documented header-only failure fallback, without inventing another Run state.
 
 ## Prior Art
 

@@ -2,7 +2,8 @@
  * Deterministic replay — one Boot over a Run (NG-572 §1, NG-574 §5–§6, §8).
  *
  * A Boot re-runs the workflow function **from the top**. Completed `ctx.*`
- * calls hand back their recorded result without touching the world; plain
+ * calls normally hand back their recorded result without touching the world;
+ * background commands restart on working Boots, but never on poll Boots. Plain
  * TypeScript between Steps re-executes, which is safe precisely because the
  * Steps around it do not. Waking a Parked Run is an ordinary Boot, so this
  * path runs six times a minute rather than only after a crash — which is why
@@ -359,7 +360,7 @@ class BootRunner implements BootContext {
         (options.replay !== 'restart' || this.poll)
       ) {
         this.replayed += 1;
-        return recorded.result as T;
+        return structuredClone(recorded.result) as T;
       }
 
       if (recorded.status === 'failed') {
@@ -508,7 +509,8 @@ class BootRunner implements BootContext {
           this.boot,
           journalFor(branch),
           async (entry) => {
-            branch.push(entry);
+            // Later parent snapshots must not retain values owned by Workflow code.
+            branch.push(structuredClone(entry));
             await persist();
           },
           this.now,
@@ -628,7 +630,7 @@ class BootRunner implements BootContext {
       ms: this.now() - new Date(base.startedAt).getTime(),
     };
     await persist();
-    return results.map((result) => result.value);
+    return results.map((result) => structuredClone(result.value));
   }
 
   private async execute<T>(
@@ -701,7 +703,7 @@ class BootRunner implements BootContext {
       this.ready = true;
       throw new ReadySignal();
     }
-    return result;
+    return structuredClone(result);
   }
 
   private async write(

@@ -343,9 +343,9 @@ export class RunScheduler {
                 endedAt: this.options.now().toISOString(),
                 boots: result.boot,
               };
-    try {
-      await this.mutate(async () => {
-        if (this.executions.get(run.runId)?.controller.signal.aborted) return;
+    await this.mutate(async () => {
+      if (this.executions.get(run.runId)?.controller.signal.aborted) return;
+      try {
         await this.options.writeHeader(this.options.paths, settled);
         this.runs.set(settled.runId, settled);
         this.pendingHeaders.delete(settled.runId);
@@ -355,15 +355,15 @@ export class RunScheduler {
             (this.polls.get(run.runId)?.attempts ?? -1) + 1,
           );
         else this.polls.delete(run.runId);
-      });
-    } catch (error) {
-      await this.mutate(async () => {
+      } catch (error) {
+        // Enqueue the retry before releasing the same lock that stop uses to clear it.
         this.pendingHeaders.set(settled.runId, settled);
-      });
-      this.report(error);
-    }
+        this.report(error);
+      }
+    });
   }
 
+  /** Called under mutate, so a retry cannot overtake durable cancellation intent. */
   private async retryPendingHeaders(): Promise<void> {
     for (const header of this.pendingHeaders.values()) {
       try {
@@ -389,19 +389,17 @@ export class RunScheduler {
       error: recordError(error),
       endedAt: this.options.now().toISOString(),
     };
-    try {
-      await this.mutate(async () => {
-        if (this.executions.get(run.runId)?.controller.signal.aborted) return;
+    await this.mutate(async () => {
+      if (this.executions.get(run.runId)?.controller.signal.aborted) return;
+      try {
         await this.options.writeHeader(this.options.paths, failed);
         this.runs.set(failed.runId, failed);
         this.pendingHeaders.delete(failed.runId);
-      });
-    } catch (writeError) {
-      await this.mutate(async () => {
+      } catch (writeError) {
         this.pendingHeaders.set(failed.runId, failed);
-      });
-      this.report(writeError);
-    }
+        this.report(writeError);
+      }
+    });
   }
 
   /** One active Boot per Run, even when webhook and timer race. */
@@ -434,7 +432,9 @@ export class RunScheduler {
   async tick(): Promise<void> {
     if (this.closed) return;
     for (const run of this.runs.values()) {
-      if (run.cancelRequestedAt && !isTerminal(run)) await this.stop(run.runId);
+      if (run.cancelRequestedAt && !isTerminal(run)) {
+        await this.stop(run.runId).catch((error) => this.report(error));
+      }
     }
     await Promise.all(
       [...this.polls]

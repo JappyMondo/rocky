@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createWorkflowContext } from './context.js';
 import { newRunHeader } from './header.js';
-import { openJournal } from './journal.js';
+import { openJournal, type JournalEntry } from './journal.js';
 import { runBoot } from './replay.js';
 
 let dir: string;
@@ -130,3 +130,78 @@ it.each([new Map(), new Date(), { dropped: undefined }, { n: NaN }, () => 1])(
     });
   },
 );
+
+it('keeps every nested Journal snapshot unchanged when Workflow code mutates returned values across Boots', async () => {
+  const journalPath = join(dir, 'journal.jsonl');
+  const stepValues: string[][] = [];
+  const parallelValues: string[][] = [];
+  let effects = 0;
+  const boot = () =>
+    runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+        });
+        const outer = await ctx.parallel(
+          [1],
+          async () => {
+            const inner = await ctx.parallel(
+              [1],
+              async () => {
+                const value = await ctx.step('original', () => {
+                  effects++;
+                  return { nested: { items: [] as string[] } };
+                });
+                stepValues.push([...value.nested.items]);
+                value.nested.items.push('step mutation');
+                await ctx.step('flush Step snapshot', () => null);
+                return { nested: { items: [] as string[] } };
+              },
+              { label: 'inner' },
+            );
+            const value = inner[0];
+            if (!value) throw new Error('missing inner result');
+            parallelValues.push([...value.nested.items]);
+            value.nested.items.push('parallel mutation');
+            await ctx.step('flush parallel snapshot', () => null);
+            return value;
+          },
+          { label: 'outer' },
+        );
+        outer[0]?.nested.items.push('Workflow mutation');
+        await runner.step('checkpoint', {}, async () => ({
+          status: 'waiting',
+        }));
+        return 'merged';
+      },
+    });
+  const inspect = (entries: readonly JournalEntry[]): void => {
+    for (const entry of entries) {
+      if (entry.status === 'done' && entry.label === 'original') {
+        expect(entry.result).toEqual({ nested: { items: [] } });
+      }
+      if (entry.status === 'done' && entry.label === 'inner') {
+        expect(entry.parallel?.results).toEqual([
+          { value: { nested: { items: [] } } },
+        ]);
+      }
+      if (entry.status === 'done' && entry.label === 'outer') {
+        expect(entry.parallel?.results).toEqual([
+          { value: { nested: { items: ['parallel mutation'] } } },
+        ]);
+      }
+      for (const branch of entry.parallel?.branches ?? []) inspect(branch);
+    }
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    expect((await boot()).status).toBe('parked');
+    const journal = await openJournal(journalPath);
+    expect(journal.latest(0)?.parallel?.count).toBe(1);
+    inspect(journal.entries);
+  }
+  expect(effects).toBe(1);
+  expect(stepValues).toEqual([[], [], []]);
+  expect(parallelValues).toEqual([[], [], []]);
+});

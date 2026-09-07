@@ -133,7 +133,8 @@ export interface AgentCallOpts<S extends z.ZodType = z.ZodType> {
 /**
  * Every method except stage is a journaled Step. Code *between* Steps is unrestricted
  * and simply re-executes on every Boot — which is safe because a completed
- * Step hands back its recorded result without touching the world.
+ * Step normally hands back its recorded result without touching the world.
+ * Background exec is the exception: it restarts on working Boots, not polls.
  *
  * Arbitrary code that must not re-execute goes through `ctx.step`.
  */

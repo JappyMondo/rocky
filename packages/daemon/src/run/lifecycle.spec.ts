@@ -12,6 +12,7 @@ import {
   type RunHeader,
 } from './header.js';
 import { WorkflowRuntime } from './lifecycle.js';
+import { appendEntry, type RunEnd } from './journal.js';
 
 let dir: string;
 let paths: RockyPaths;
@@ -280,3 +281,42 @@ it('merges per-Run environment over the inherited environment', async () => {
     (await runtime.boot(header, 'run', new AbortController().signal)).status,
   ).toBe('finished');
 });
+
+const terminalOutcomes: RunEnd[] = [
+  { status: 'finished', outcome: 'merged' },
+  { status: 'failed', error: { name: 'Error', message: 'recorded failure' } },
+  { status: 'cancelled' },
+];
+it.each(terminalOutcomes)(
+  'honors an existing terminal record before loading or reserving ports: $status',
+  async (end) => {
+    const journalPath = paths.run(header.runId).journal;
+    await appendEntry(
+      journalPath,
+      {
+        v: 1,
+        seq: 0,
+        step: '$end',
+        boot: 1,
+        status: end.status === 'failed' ? 'failed' : 'done',
+        startedAt: '2026-09-07T10:00:00Z',
+        result: end,
+      },
+      { runner: true },
+    );
+    const before = await readFile(paths.run(header.runId).runJson, 'utf8');
+    const journalBefore = await readFile(journalPath, 'utf8');
+    const loadWorkflow = vi.fn(async (): Promise<never> => {
+      throw new Error('snapshot unavailable');
+    });
+    runtime = new WorkflowRuntime({ paths, loadWorkflow });
+    expect(
+      await runtime.boot(header, 'run', new AbortController().signal),
+    ).toMatchObject(end);
+    expect(loadWorkflow).not.toHaveBeenCalled();
+    expect(await readFile(paths.run(header.runId).runJson, 'utf8')).toBe(
+      before,
+    );
+    expect(await readFile(journalPath, 'utf8')).toBe(journalBefore);
+  },
+);
