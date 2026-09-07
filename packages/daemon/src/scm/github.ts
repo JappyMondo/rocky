@@ -10,7 +10,7 @@ import type {
 } from '@rocky/sdk';
 import type { StepOutcome } from '../run/replay.js';
 import { ScmError, ScmHttp, refuse, type ScmAdapterOptions } from './http.js';
-import { coalesceReply, replyIntent } from './reply.js';
+import { coalesceReply, replyIntent, replyScope } from './reply.js';
 import { probeGitHub } from './probe.js';
 
 const ref = z.object({
@@ -122,6 +122,18 @@ export function createGitHubScm(options: ScmAdapterOptions) {
     state: pull.merged_at ? 'merged' : pull.state,
     draft: pull.draft,
   });
+  const validateOwnership = (pull: z.infer<typeof pullSchema>) => {
+    if (
+      pull.head.repo?.full_name !== options.repo.project ||
+      pull.base.repo?.full_name !== options.repo.project
+    )
+      throw refuse(
+        options.repo.id,
+        'not_open',
+        'PR source or base repository does not belong to this Run member.',
+        'Use a same-repository PR for this Run member.',
+      );
+  };
   const validate = (pr: Pr) => {
     if (
       pr.repo !== options.repo.id ||
@@ -137,9 +149,13 @@ export function createGitHubScm(options: ScmAdapterOptions) {
   };
   const read = async (pr: Pr) => {
     validate(pr);
-    const current = handle(
-      await http.request('GET', `${root}/pulls/${pr.number}`, pullSchema),
+    const pull = await http.request(
+      'GET',
+      `${root}/pulls/${pr.number}`,
+      pullSchema,
     );
+    validateOwnership(pull);
+    const current = handle(pull);
     if (
       current.id !== pr.id ||
       current.sourceBranch !== pr.sourceBranch ||
@@ -588,6 +604,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         `${root}/pulls/${pr.number}`,
         pullSchema.extend({ mergeable_state: z.string() }),
       );
+      validateOwnership(pull);
       const current = handle(pull);
       if (
         current.id !== pr.id ||
@@ -732,10 +749,16 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           current,
         );
       const existing = await notes(actual.id);
-      const intent = replyIntent(actual, body, runId, existing.bodies);
+      const intent = replyIntent(
+        actual,
+        body,
+        runId,
+        existing.bodies,
+        options.token,
+      );
       if (!intent.exists)
         await coalesceReply(
-          `${http.root}:${options.repo.project}:${options.token}:${actual.id}`,
+          replyScope(http.root, options.repo.project, actual.id, options.token),
           intent.body,
           async () => {
             try {
@@ -760,37 +783,21 @@ export function createGitHubScm(options: ScmAdapterOptions) {
               ))
                 throw error;
               const recovered = await notes(actual.id);
-              if (!replyIntent(actual, body, runId, recovered.bodies).exists)
+              if (
+                !replyIntent(
+                  actual,
+                  body,
+                  runId,
+                  recovered.bodies,
+                  options.token,
+                ).exists
+              )
                 throw error;
             }
           },
         );
-      const latest = await notes(actual.id);
-      const safeToResolve =
-        !latest.resolved &&
-        replyIntent(actual, body, runId, latest.bodies).exists &&
-        latest.bodies.every(
-          (note) => existing.bodies.includes(note) || note === intent.body,
-        );
-      if (safeToResolve) {
-        try {
-          await http.graphql(
-            'mutation Resolve($input: ResolveReviewThreadInput!) { resolveReviewThread(input: $input) { thread { isResolved } } }',
-            { input: { threadId: actual.id } },
-            z.object({
-              resolveReviewThread: z.object({
-                thread: z.object({ isResolved: z.boolean() }),
-              }),
-            }),
-          );
-        } catch (error) {
-          if (!(
-            error instanceof ScmError &&
-            error.refusal.reason === 'permission_denied'
-          ))
-            throw error;
-        }
-      }
+      // GitHub offers no CAS resolution bound to this exact discussion
+      // revision. A human or platform automation must resolve it safely.
     },
   };
 }

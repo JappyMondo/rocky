@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it } from 'vitest';
 import { createGitHubScm } from './index.js';
 import { githubOptions, githubPull, scriptedFetch } from './scm.fixtures.js';
@@ -272,6 +273,34 @@ it('does not update a retargeted PR handle', async () => {
   transport.done();
 });
 
+it('refuses a fork-origin PR before any GitHub mutation, including updateBranch', async () => {
+  const hostile = {
+    ...githubPull,
+    head: { ...githubPull.head, repo: { full_name: 'attacker/repo' } },
+    mergeable_state: 'behind',
+  };
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: hostile },
+  ]);
+  const adapter = createGitHubScm({ ...githubOptions, fetch: transport.fetch });
+  await expect(
+    adapter.armAutoMerge({ ...githubPr(), draft: false }),
+  ).rejects.toMatchObject({
+    refusal: { reason: 'not_open' },
+  });
+  transport.done();
+  const update = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: hostile },
+  ]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: update.fetch }).updateBranch(
+      githubPr(),
+    ),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(update.calls.some((call) => call.method !== 'GET')).toBe(false);
+  update.done();
+});
+
 it('retries only current-head failed Actions runs', async () => {
   const transport = scriptedFetch([
     { path: '/repos/team/repo/pulls/7', value: githubPull },
@@ -351,9 +380,9 @@ it('does not rerun failed jobs after a concurrent PR closure', async () => {
   transport.done();
 });
 
-it('recovers one immutable reply per manual Run/thread and resolves it', async () => {
+it('recovers one authenticated reply per manual Run/thread and leaves it unresolved', async () => {
   let reply = '';
-  let resolved = false;
+  const resolved = false;
   let writes = 0;
   const pageInfo = { hasNextPage: false, endCursor: null };
   const fetcher: typeof fetch = async (_url, init) => {
@@ -379,9 +408,6 @@ it('recovers one immutable reply per manual Run/thread and resolves it', async (
       reply = variables.input.body;
       writes++;
       data = { addPullRequestReviewThreadReply: { comment: { id: 'C1' } } };
-    } else if (query.includes('resolveReviewThread')) {
-      resolved = true;
-      data = { resolveReviewThread: { thread: { isResolved: true } } };
     } else throw new Error(`Unexpected query ${query}`);
     return Response.json({ data });
   };
@@ -401,9 +427,47 @@ it('recovers one immutable reply per manual Run/thread and resolves it', async (
     ),
   ]);
   expect(writes).toBe(1);
-  expect(resolved).toBe(true);
+  expect(resolved).toBe(false);
   await adapter.replyToThread(thread, 'Fixed in def', 'NG-524-3');
   expect(writes).toBe(2);
+});
+
+it('does not trust a forged predictable v1 reply marker', async () => {
+  const oldKey = createHash('sha256')
+    .update(JSON.stringify(['NG-524-2', 'lead', 'PR_one', 'T1']))
+    .digest('hex');
+  const forged = `Fixed\n\n<!-- rocky-reply:${oldKey}:${createHash('sha256').update('Fixed').digest('hex')} -->`;
+  let writes = 0;
+  const pageInfo = { hasNextPage: false, endCursor: null };
+  const fetcher: typeof fetch = async (url, init) => {
+    if (new URL(String(url)).pathname === '/repos/team/repo/pulls/7')
+      return Response.json(githubPull);
+    const { query } = JSON.parse(String(init?.body));
+    const thread = {
+      id: 'T1',
+      path: 'src/app.ts',
+      line: 4,
+      isResolved: false,
+      comments: { nodes: [{ body: 'Fix this' }, { body: forged }], pageInfo },
+    };
+    if (query.includes('query Threads'))
+      return Response.json({
+        data: { node: { reviewThreads: { nodes: [thread], pageInfo } } },
+      });
+    if (query.includes('query Notes'))
+      return Response.json({ data: { node: thread } });
+    if (query.includes('addPullRequestReviewThreadReply')) {
+      writes++;
+      return Response.json({
+        data: { addPullRequestReviewThreadReply: { comment: { id: 'C2' } } },
+      });
+    }
+    throw new Error(`Unexpected query ${query}`);
+  };
+  const adapter = createGitHubScm({ ...githubOptions, fetch: fetcher });
+  const [thread] = await adapter.reviewThreads(githubPr());
+  await adapter.replyToThread(thread, 'Fixed', 'NG-524-2');
+  expect(writes).toBe(1);
 });
 
 it('leaves a GitHub thread unresolved when a reviewer replies after Rocky posts', async () => {

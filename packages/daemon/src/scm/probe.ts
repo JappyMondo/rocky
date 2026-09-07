@@ -129,8 +129,39 @@ export async function probeGitHub(
       );
     }
   };
-  const merge = await branchAbility(options.repo.baseBranch);
+  const branchMerge = await branchAbility(options.repo.baseBranch);
   const sourcePush = await branchAbility(options.branch);
+  let completion: ScmAbility;
+  try {
+    const { repository } = await http.graphql(
+      `query Completion($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) { autoMergeAllowed }
+      }`,
+      {
+        owner: options.repo.project.split('/')[0],
+        name: options.repo.project.split('/')[1],
+      },
+      z.object({ repository: z.object({ autoMergeAllowed: z.boolean() }) }),
+    );
+    completion = repository.autoMergeAllowed
+      ? ability(
+          'allowed',
+          'Repository auto-merge capability is visible through the read-only GraphQL API.',
+        )
+      : unknown(
+          'Repository auto-merge/merge-queue capability is disabled or not observable.',
+        );
+  } catch (error) {
+    signal.throwIfAborted();
+    if (!(error instanceof ScmError)) throw error;
+    completion = unknown(
+      'Repository auto-merge/merge-queue capability is not observable through GraphQL.',
+    );
+  }
+  const merge =
+    branchMerge.status === 'allowed' && completion.status !== 'allowed'
+      ? completion
+      : branchMerge;
   const query = new URLSearchParams({
     state: 'all',
     head: `${options.repo.project.split('/')[0]}:${options.branch}`,
@@ -308,6 +339,24 @@ export async function probeGitLab(
         );
     }
   }
+  const qualifiedAutoMerge = /^([0-9]+)\.([0-9]+)\./.exec(version.version);
+  const completion =
+    !qualifiedAutoMerge ||
+    Number(qualifiedAutoMerge[1]) < 17 ||
+    (Number(qualifiedAutoMerge[1]) === 17 && Number(qualifiedAutoMerge[2]) < 11)
+      ? unknown(
+          `GitLab ${version.version} has unqualified auto-merge semantics (requires 17.11 or later).`,
+        )
+      : project.merge_trains_enabled === undefined
+        ? unknown(
+            'GitLab merge-train configuration is not visible, so auto-merge routing is unobservable.',
+          )
+        : ability(
+            'allowed',
+            `GitLab ${version.version} and visible merge-train configuration prove supported auto-merge routing.`,
+          );
+  if (merge.status === 'allowed' && completion.status !== 'allowed')
+    merge = completion;
   const source = branches.get(options.branch);
   const sourcePush =
     !scopes.includes('api') || source?.can_push === undefined

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { ReviewThread } from '@rocky/sdk';
 import { refuse } from './http.js';
 
@@ -7,12 +7,25 @@ export function replyIntent(
   body: string,
   runId: string,
   notes: string[],
+  authorSecret: string,
 ) {
-  const key = createHash('sha256')
-    .update(JSON.stringify([runId, thread.pr.repo, thread.pr.id, thread.id]))
+  // The marker is a platform-author-bound MAC, not a claim that any commenter
+  // can forge from predictable Run metadata. Never put authorSecret on-wire.
+  const key = createHmac('sha256', authorSecret)
+    .update(
+      JSON.stringify([
+        'rocky-reply-v2',
+        runId,
+        thread.pr.repo,
+        thread.pr.id,
+        thread.id,
+      ]),
+    )
     .digest('hex');
-  const prefix = `<!-- rocky-reply:${key}:`;
-  const marker = `${prefix}${createHash('sha256').update(body).digest('hex')} -->`;
+  const prefix = `<!-- rocky-reply:v2:${key}:`;
+  const marker = `${prefix}${createHmac('sha256', authorSecret)
+    .update(JSON.stringify([key, body]))
+    .digest('hex')} -->`;
   if (notes.some((note) => note.includes(prefix) && !note.includes(marker)))
     throw refuse(
       thread.pr.repo,
@@ -25,6 +38,19 @@ export function replyIntent(
     exists: notes.some((note) => note.includes(marker)),
     body: `${body}\n\n${marker}`,
   };
+}
+
+export function replyScope(
+  platformRoot: string,
+  project: string,
+  threadId: string,
+  authorSecret: string,
+): string {
+  return createHmac('sha256', authorSecret)
+    .update(
+      JSON.stringify(['rocky-reply-scope-v2', platformRoot, project, threadId]),
+    )
+    .digest('hex');
 }
 
 // This is only a live-process coalescer. The platform marker remains the

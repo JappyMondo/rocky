@@ -12,7 +12,7 @@ import type {
 } from '@rocky/sdk';
 import type { StepOutcome } from '../run/replay.js';
 import { ScmError, ScmHttp, refuse, type ScmAdapterOptions } from './http.js';
-import { coalesceReply, replyIntent } from './reply.js';
+import { coalesceReply, replyIntent, replyScope } from './reply.js';
 import { probeGitLab } from './probe.js';
 
 const pipelineSchema = z.object({
@@ -519,20 +519,57 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           return { status: 'waiting' };
         }
       }
-      if (mr.merge_when_pipeline_succeeds === undefined)
+      // Feature/train reads can race closure, retargeting, draft conversion,
+      // head changes, or a new detailed blocker. GitLab exposes no mutation
+      // precondition, so revalidate the full mutation authority immediately.
+      const armMr = await read(pr);
+      const armCurrent = handle(armMr);
+      if (armMr.state === 'merged')
+        return { status: 'done', result: { status: 'merged', pr: armCurrent } };
+      checkHead(pr, armCurrent);
+      if (armMr.state === 'locked') return { status: 'waiting' };
+      if (armMr.state !== 'opened')
+        throw refuse(
+          options.repo.id,
+          'not_open',
+          'MR was closed without merging.',
+          'Inspect the MR; do not report it as merged.',
+          armCurrent,
+        );
+      if (armMr.draft)
+        throw refuse(
+          options.repo.id,
+          'draft_status',
+          'MR is still a draft.',
+          'Complete reviews and mark ready before arming.',
+          armCurrent,
+        );
+      const armStatus = mergeReasons.safeParse(armMr.detailed_merge_status);
+      if (armStatus.success) {
+        if (['checking', 'preparing', 'unchecked'].includes(armStatus.data))
+          return { status: 'waiting' };
+        throw refuse(
+          options.repo.id,
+          armStatus.data,
+          `GitLab reports ${armStatus.data}.`,
+          'Repair the branch/CI in the bounded merge loop.',
+          armCurrent,
+        );
+      }
+      if (armMr.merge_when_pipeline_succeeds === undefined)
         throw refuse(
           options.repo.id,
           'permission_unknown',
           'Auto-merge state is not observable.',
           'Verify the GitLab version and auto-merge readback with a maintainer.',
-          current,
+          armCurrent,
         );
       const armKey = createHash('sha256')
         .update(
           `${http.root}\0${options.repo.project}\0${options.token}\0${pr.id}\0${pr.headSha}`,
         )
         .digest('hex');
-      if (mr.merge_when_pipeline_succeeds === true && armedHeads.has(armKey))
+      if (armMr.merge_when_pipeline_succeeds === true && armedHeads.has(armKey))
         return { status: 'waiting' };
       // The merge-named endpoint is exclusively an auto_merge request, never immediate merge.
       if (support.trains)
@@ -716,10 +753,11 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         body,
         runId,
         discussion.notes.map((note) => note.body),
+        options.token,
       );
       if (!intent.exists)
         await coalesceReply(
-          `${http.root}:${options.repo.project}:${options.token}:${actual.id}`,
+          replyScope(http.root, options.repo.project, actual.id, options.token),
           intent.body,
           async () => {
             try {
@@ -746,29 +784,15 @@ export function createGitLabScm(options: ScmAdapterOptions) {
                   body,
                   runId,
                   recovered.notes.map((note) => note.body),
+                  options.token,
                 ).exists
               )
                 throw error;
             }
           },
         );
-      const latest = await http.request('GET', path, discussionSchema);
-      const latestBodies = latest.notes.map((note) => note.body);
-      const safeToResolve =
-        latest.notes.some((note) => note.resolvable && !note.resolved) &&
-        replyIntent(actual, body, runId, latestBodies).exists &&
-        latestBodies.every(
-          (note) =>
-            discussion.notes.some((existing) => existing.body === note) ||
-            note === intent.body,
-        );
-      if (safeToResolve) {
-        try {
-          await http.request('PUT', path, discussionSchema, { resolved: true });
-        } catch (error) {
-          if (!(error instanceof ScmError && error.status === 403)) throw error;
-        }
-      }
+      // GitLab offers no CAS resolution bound to this exact discussion
+      // revision. A human or platform automation must resolve it safely.
     },
   };
 }
