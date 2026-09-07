@@ -46,7 +46,46 @@ export {
   type StoredLinearAuth,
   type WorkflowStateSummary,
   type WriteResult,
+  type RockyLinearClientOptions,
+  type LinearSessionActivity,
+  type LinearSessionSummary,
+  type LinearCommentSummary,
 } from './linear/client.js';
+
+export {
+  LinearRunMirror,
+  LinearMirroringGateError,
+  type LinearEffectStore,
+  type LinearMirrorClient,
+  type LinearRunMirrorOptions,
+  type LinearTerminalActivity,
+  type RunPresentation,
+  type RunOutcome,
+  type StepPresentation,
+} from './linear/mirror.js';
+export {
+  LinearRunControl,
+  LIVE_STEER_POLL_MS,
+  type LinearControlStore,
+  type LinearRunControlOptions,
+  type CheckpointRequest,
+  type CheckpointDigest,
+  type CheckpointIdentity,
+  type CheckpointSnapshot,
+  type CheckpointAnswerInput,
+  type CheckpointAnswerResult,
+  type WaitingCheckpoint,
+  type ControlInput,
+  type IntakeResult,
+  type LiveConversation,
+  type SteerBatch,
+  type SteerSnapshot,
+  type SteerTargetSnapshot,
+} from './linear/control.js';
+export {
+  createLinearControlHandler,
+  type LinearControlHandlerOptions,
+} from './linear/intake.js';
 
 export {
   OAuthCallbackError,
