@@ -89,7 +89,10 @@ it('makes a source-correlated stderr MCP initialization rejection permanent', as
       ...input,
       env: { ...input.env, FIXTURE_MODE: 'stderr-mcp-auth' },
       mcpServers: [
-        { name: 'api', config: { url: 'https://example.test/mcp' } },
+        {
+          name: 'api',
+          config: { type: 'http', url: 'https://example.test/mcp' },
+        },
       ],
     }),
   ).rejects.toMatchObject({ retryable: false, fix: 'rocky mcp login api' });
@@ -123,6 +126,7 @@ it('renders Claude stdio and SSE MCP declarations without widening built-in tool
       {
         name: 'local',
         config: {
+          type: 'stdio',
           command: 'node',
           args: ['server.mjs'],
           env: { ONLY: 'this' },
@@ -133,11 +137,13 @@ it('renders Claude stdio and SSE MCP declarations without widening built-in tool
         config: {
           url: 'https://example.test',
           type: 'sse',
-          headers: { authorization: 'old', Other: 'kept' },
+          headers: { Authorization: 'Bearer new', Other: 'kept' },
         },
-        authorization: 'Bearer new',
       },
-      { name: 'public', config: { url: 'https://public.test' } },
+      {
+        name: 'public',
+        config: { type: 'http', url: 'https://public.test' },
+      },
     ],
   });
   const value = JSON.parse(result.text);
@@ -151,18 +157,22 @@ it('renders Claude stdio and SSE MCP declarations without widening built-in tool
     type: 'sse',
     headers: { Authorization: 'Bearer new', Other: 'kept' },
   });
-  expect(value.config.mcpServers.sse.headers.authorization).toBeUndefined();
 });
 
 for (const adapter of [opencode, claudeCode]) {
-  it('rejects invalid MCP declarations before spawning', async () => {
+  it('rejects invalid MCP names before spawning', async () => {
     const input = await invocation();
     await expect(
-      adapter.run({ ...input, mcpServers: [{ name: 'invalid!', config: {} }] }),
+      adapter.run({
+        ...input,
+        mcpServers: [
+          {
+            name: 'invalid!',
+            config: { type: 'http', url: 'https://api.test' },
+          },
+        ],
+      }),
     ).rejects.toThrow(/Invalid MCP name/);
-    await expect(
-      adapter.run({ ...input, mcpServers: [{ name: 'invalid', config: {} }] }),
-    ).rejects.toThrow(/MCP server/);
   });
 }
 
@@ -174,9 +184,11 @@ it('spawns Claude with a closed built-in tool set and strict ephemeral MCP confi
       config: {
         type: 'http',
         url: 'https://example.test/mcp',
-        headers: { Other: 'preserved' },
+        headers: {
+          Authorization: 'Bearer fixture-token',
+          Other: 'preserved',
+        },
       },
-      authorization: 'Bearer fixture-token',
     },
   ];
   const result = await claudeCode.run(input);

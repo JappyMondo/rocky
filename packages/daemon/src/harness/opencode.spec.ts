@@ -66,12 +66,17 @@ describe('parseOpencodeStream', () => {
             },
           }),
         ],
-        [{ name: 'api', config: {} }],
+        [{ name: 'api', config: { type: 'http', url: 'https://api.test' } }],
       ),
     ).toThrow(/rocky mcp login api/);
   });
   it('correlates a string-status native MCP error without mistaking a provider error', () => {
-    const api = [{ name: 'api', config: {} }];
+    const api = [
+      {
+        name: 'api',
+        config: { type: 'http' as const, url: 'https://api.test' },
+      },
+    ];
     expect(() =>
       parseOpencodeStream(
         [
@@ -345,6 +350,7 @@ describe('renderOpencodeMcpServers', () => {
         {
           name: 'api',
           config: {
+            type: 'http',
             url: 'https://example.test',
             headers: { Accept: 'application/json' },
           },
@@ -359,9 +365,6 @@ describe('renderOpencodeMcpServers', () => {
         oauth: false,
       },
     });
-    expect(() =>
-      renderOpencodeMcpServers([{ name: 'invalid', config: {} }]),
-    ).toThrow(/invalid/);
   });
   it('translates ecosystem local servers to native command/environment without unsupported keys', () => {
     expect(
@@ -369,9 +372,9 @@ describe('renderOpencodeMcpServers', () => {
         {
           name: 'local-tools',
           config: {
+            type: 'stdio',
             command: 'node',
             args: ['server.mjs'],
-            cwd: '/workspace',
             env: { TOKEN: 'test-token' },
           },
         },
@@ -386,13 +389,16 @@ describe('renderOpencodeMcpServers', () => {
     });
   });
 
-  it('renders remote servers with supplied authorization without OAuth', () => {
+  it('renders the resolved Authorization header without native OAuth', () => {
     expect(
       renderOpencodeMcpServers([
         {
           name: 'remote-tools',
-          config: { url: 'https://mcp.example.test' },
-          authorization: 'Bearer static-token',
+          config: {
+            type: 'http',
+            url: 'https://mcp.example.test',
+            headers: { Authorization: 'Bearer static-token' },
+          },
         },
       ]),
     ).toEqual({

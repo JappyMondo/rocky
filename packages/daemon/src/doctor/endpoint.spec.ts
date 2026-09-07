@@ -5,7 +5,7 @@ import { afterEach, expect, it } from 'vitest';
 import { rockyPaths } from '../config/paths.js';
 import { writeInstanceConfig } from '../config/store.js';
 import { writePidFile } from '../lifecycle/pidfile.js';
-import { runDoctor } from './doctor.js';
+import { runDoctor, type DoctorOptions } from './doctor.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -24,11 +24,20 @@ async function fixture() {
   return paths;
 }
 
+const fixtureAdapterFor: NonNullable<DoctorOptions['adapterFor']> = (name) => {
+  if (name !== 'claude-code' && name !== 'opencode') return undefined;
+  return {
+    name,
+    checkAuth: () =>
+      Promise.resolve({ harness: name, ok: true, detail: 'fixture' }),
+  };
+};
+
 it('requires matching local and public identities, never public health', async () => {
   const paths = await fixture();
   const asked: string[] = [];
   const report = await runDoctor(paths, {
-    checkHarness: async (harness) => ({ harness, ok: true, detail: 'fixture' }),
+    adapterFor: fixtureAdapterFor,
     fetch: async (url, options) => {
       asked.push(String(url));
       expect(options?.redirect).toBe('error');
@@ -78,11 +87,7 @@ it.each([
   async (_name, response) => {
     const paths = await fixture();
     const report = await runDoctor(paths, {
-      checkHarness: async (harness) => ({
-        harness,
-        ok: true,
-        detail: 'fixture',
-      }),
+      adapterFor: fixtureAdapterFor,
       fetch: async (url) =>
         String(url).startsWith('http://127.0.0.1:')
           ? Response.json({ instanceId: 'local-instance' })
@@ -101,11 +106,7 @@ it.each([null, {}, { instanceId: '' }])(
     const paths = await fixture();
     const asked: string[] = [];
     const report = await runDoctor(paths, {
-      checkHarness: async (harness) => ({
-        harness,
-        ok: true,
-        detail: 'fixture',
-      }),
+      adapterFor: fixtureAdapterFor,
       fetch: async (url) => {
         asked.push(String(url));
         return Response.json(local);
@@ -131,7 +132,7 @@ it('uses the live pidfile port after a CLI override, without trusting its URL', 
   });
   const asked: string[] = [];
   await runDoctor(paths, {
-    checkHarness: async (harness) => ({ harness, ok: true, detail: 'fixture' }),
+    adapterFor: fixtureAdapterFor,
     fetch: async (url) => {
       asked.push(String(url));
       return Response.json({ instanceId: 'same' });
@@ -144,7 +145,7 @@ it('bounds even a response body that never finishes', async () => {
   const paths = await fixture();
   const report = await runDoctor(paths, {
     timeoutMs: 20,
-    checkHarness: async (harness) => ({ harness, ok: true, detail: 'fixture' }),
+    adapterFor: fixtureAdapterFor,
     fetch: async (url, options) => {
       if (String(url).startsWith('http://'))
         return Response.json({ instanceId: 'same' });
@@ -170,7 +171,7 @@ it('rejects URL credentials without sending or printing them', async () => {
   });
   const asked: string[] = [];
   const report = await runDoctor(paths, {
-    checkHarness: async (harness) => ({ harness, ok: true, detail: 'fixture' }),
+    adapterFor: fixtureAdapterFor,
     fetch: async (url) => {
       asked.push(String(url));
       return Response.json({ instanceId: 'same' });

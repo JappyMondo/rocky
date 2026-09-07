@@ -33,10 +33,10 @@ it('merges compatible explicit/global config and anchors native file substitutio
       {
         name: 'api',
         config: {
+          type: 'http',
           url: 'https://example.test',
-          headers: { authorization: 'old', Other: 'kept' },
+          headers: { Authorization: 'Bearer new', Other: 'kept' },
         },
-        authorization: 'Bearer new',
       },
     ],
     env: {

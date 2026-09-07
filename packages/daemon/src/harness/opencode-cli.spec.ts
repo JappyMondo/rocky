@@ -133,8 +133,11 @@ it.runIf(process.env.ROCKY_OPENCODE_POLICY_TESTS === '1')(
         mcpServers: [
           {
             name: 'api',
-            config: { url: `http://127.0.0.1:${address.port}/mcp` },
-            authorization: 'Bearer fixture-token',
+            config: {
+              type: 'http',
+              url: `http://127.0.0.1:${address.port}/mcp`,
+              headers: { Authorization: 'Bearer fixture-token' },
+            },
           },
         ],
         sessionStorage: 'rocky',

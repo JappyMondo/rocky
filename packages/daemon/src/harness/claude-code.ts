@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { assertSessionOwner, runProcess } from './process.js';
-import { checkMcpToolError, mcpFailure, mcpHeaders } from './mcp-policy.js';
+import { checkMcpToolError, mcpFailure } from './mcp-policy.js';
 import { prepareClaudeSession } from './claude-session.js';
 
 export function claudeExecutionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -62,30 +62,25 @@ async function executeClaude(
     const mcpPath = join(temporary, 'mcp.json');
     const settingsPath = join(temporary, 'settings.json');
     const servers: Record<string, unknown> = {};
-    for (const { name, config, authorization } of input.mcpServers) {
+    for (const { name, config } of input.mcpServers) {
       if (!/^[A-Za-z0-9_-]+$/.test(name))
         throw new HarnessError(
           `Invalid MCP name: ${name}; use letters, numbers, underscores or hyphens`,
           false,
         );
-      if (typeof config.command === 'string')
+      if (config.type === 'stdio')
         servers[name] = {
           type: 'stdio',
           command: config.command,
           args: config.args ?? [],
           ...(config.env ? { env: config.env } : {}),
         };
-      else if (typeof config.url === 'string')
-        servers[name] = {
-          type: config.type === 'sse' ? 'sse' : 'http',
-          url: config.url,
-          headers: mcpHeaders({ name, config, authorization }),
-        };
       else
-        throw new HarnessError(
-          `Invalid claude-code MCP server: ${name}`,
-          false,
-        );
+        servers[name] = {
+          type: config.type,
+          url: config.url,
+          ...(config.headers ? { headers: { ...config.headers } } : {}),
+        };
     }
     await writeFile(mcpPath, JSON.stringify({ mcpServers: servers }), {
       mode: 0o600,

@@ -83,7 +83,7 @@ describe('Claude stream contract (synthetic, live capture still required)', () =
     expect(() =>
       parseClaudeStream(
         records.map((record) => JSON.stringify(record)),
-        [{ name: 'api', config: {} }],
+        [{ name: 'api', config: { type: 'http', url: 'https://api.test' } }],
       ),
     ).toThrow(/rocky mcp login api/);
   });

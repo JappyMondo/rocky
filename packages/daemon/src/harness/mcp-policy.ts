@@ -1,21 +1,5 @@
 import { HarnessError, type ResolvedMcpServer } from './types.js';
 
-export function mcpHeaders({
-  config,
-  authorization,
-}: ResolvedMcpServer): Record<string, unknown> {
-  const headers = (config.headers ?? {}) as Record<string, unknown>;
-  if (authorization === undefined) return { ...headers };
-  return {
-    ...Object.fromEntries(
-      Object.entries(headers).filter(
-        ([key]) => key.toLowerCase() !== 'authorization',
-      ),
-    ),
-    Authorization: authorization,
-  };
-}
-
 export function mcpFailure(name: string, unauthorized = false): HarnessError {
   return new HarnessError(
     unauthorized

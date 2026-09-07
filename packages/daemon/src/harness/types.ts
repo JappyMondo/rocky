@@ -1,10 +1,9 @@
+import type { McpServer } from '../mcp/config.js';
+
 export type Capability = 'read' | 'edit' | 'bash';
 
-export interface ResolvedMcpServer {
-  name: string;
-  config: Record<string, unknown>;
-  authorization?: string;
-}
+/** The MCP lane expands and authenticates this immediately before an attempt. */
+export type ResolvedMcpServer = McpServer;
 
 export interface HarnessInvocation {
   cwd: string;

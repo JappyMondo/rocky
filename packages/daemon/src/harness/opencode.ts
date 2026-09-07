@@ -15,11 +15,7 @@ import type {
 } from './types.js';
 import { HarnessError } from './types.js';
 import { assertSessionOwner, runProcess } from './process.js';
-import {
-  checkMcpDiagnostic,
-  checkMcpToolError,
-  mcpHeaders,
-} from './mcp-policy.js';
+import { checkMcpDiagnostic, checkMcpToolError } from './mcp-policy.js';
 
 export const opencode = {
   run: (input: HarnessInvocation) => executeOpencode(input),
@@ -231,45 +227,29 @@ export function renderOpencodeMcpServers(
   servers: readonly ResolvedMcpServer[],
 ): Record<string, JsonObject> {
   return Object.fromEntries(
-    servers.map(({ name, config, authorization }) => {
-      const command =
-        typeof config.command === 'string' &&
-        (config.args === undefined || Array.isArray(config.args))
-          ? [config.command, ...(Array.isArray(config.args) ? config.args : [])]
-          : undefined;
-      if (
-        Array.isArray(command) &&
-        command.every((part) => typeof part === 'string')
-      ) {
+    servers.map(({ name, config }) => {
+      if (config.type === 'stdio') {
         return [
           name,
           {
             type: 'local',
-            command,
-            ...(config.env || config.environment
-              ? { environment: config.env ?? config.environment }
-              : {}),
+            command: [config.command, ...(config.args ?? [])],
+            ...(config.env ? { environment: config.env } : {}),
             enabled: true,
           },
         ] as const;
       }
 
-      if (typeof config.url === 'string') {
-        return [
-          name,
-          {
-            type: 'remote',
-            url: config.url,
-            enabled: true,
-            oauth: false,
-            ...(config.headers || authorization !== undefined
-              ? { headers: mcpHeaders({ name, config, authorization }) }
-              : {}),
-          },
-        ] as const;
-      }
-
-      throw new Error(`Invalid OpenCode MCP server configuration: ${name}`);
+      return [
+        name,
+        {
+          type: 'remote',
+          url: config.url,
+          enabled: true,
+          oauth: false,
+          ...(config.headers ? { headers: { ...config.headers } } : {}),
+        },
+      ] as const;
     }),
   );
 }

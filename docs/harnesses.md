@@ -79,11 +79,12 @@ Transcript under `runs/<runId>/sessions/`. `run` always starts a new conversatio
 only `resume` supplies a session ID, verified against that Step's Transcript.
 Native session state and the same Transcript must both survive to resume.
 
-MCP input is `{ name, config, authorization? }`, where `config` is the resolved
-ecosystem declaration: `command: string`, `args`, `env`, or `url`, `type`, `headers`.
-The MCP lane expands environment references and obtains fresh authorization before
-each call. The adapters only render it into native private config and remove that
-config after child settlement. They never read or rewrite `.rocky/mcp.json`.
+MCP input is `{ name, config }`, where `config` is the resolved ecosystem
+declaration: `type: 'stdio'`, `command`, `args`, `env`, or `type: 'http' | 'sse'`,
+`url`, `headers`. The MCP lane expands environment references and obtains fresh
+authorization before each call in `config.headers.Authorization`. The adapters pass
+that resolved header through unchanged, render only private native config, and remove
+it after child settlement. They never read or rewrite `.rocky/mcp.json`.
 
 Raw stdout is appended to a mode-0600 Transcript before event delivery. Timeouts and
 cancellation terminate only the owned process group, including descendants.
