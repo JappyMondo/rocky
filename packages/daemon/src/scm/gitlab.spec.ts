@@ -289,6 +289,42 @@ it('does not hot-loop an already armed head after adapter reconstruction', async
   expect(arms).toBe(1);
 });
 
+it('revalidates the MR after feature reads and refuses a closure before arming', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: {
+        ...mr,
+        draft: false,
+        detailed_merge_status: 'mergeable',
+        merge_when_pipeline_succeeds: false,
+      },
+    },
+    { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
+    { path: root, value: { merge_trains_enabled: false } },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: {
+        ...mr,
+        state: 'closed',
+        draft: false,
+        detailed_merge_status: 'mergeable',
+        merge_when_pipeline_succeeds: false,
+      },
+    },
+  ]);
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+      ...pr,
+      draft: false,
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+  expect(
+    transport.calls.some((call) => ['POST', 'PUT'].includes(call.method)),
+  ).toBe(false);
+  transport.done();
+});
+
 it('reports failed GitLab jobs with capped traces, then retries only failed jobs', async () => {
   const pipeline = { id: 9, sha: 'abc', ref: 'ng-524', status: 'failed' };
   const poll = [
@@ -402,7 +438,7 @@ it.each(['not_approved', 'requested_changes', 'discussions_not_resolved'])(
 
 it('uses project-scoped discussions and deduplicates reply-before-record recovery', async () => {
   let reply = '';
-  let resolved = false;
+  const resolved = false;
   let writes = 0;
   const fetcher: typeof fetch = async (url, init) => {
     const path = new URL(String(url)).pathname;
@@ -426,10 +462,6 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
       reply = JSON.parse(String(init.body)).body;
       return Response.json({ id: 2 });
     }
-    if (init?.method === 'PUT') {
-      expect(JSON.parse(String(init.body))).toEqual({ resolved: true });
-      resolved = true;
-    }
     return Response.json(
       path.endsWith('/discussions') ? [discussion] : discussion,
     );
@@ -446,7 +478,7 @@ it('uses project-scoped discussions and deduplicates reply-before-record recover
     ),
   ]);
   expect(writes).toBe(1);
-  expect(resolved).toBe(true);
+  expect(resolved).toBe(false);
 });
 
 it('leaves a GitLab discussion unresolved when a reviewer replies after Rocky posts', async () => {

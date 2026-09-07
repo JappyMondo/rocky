@@ -17,10 +17,17 @@ it.each(['github', 'gitlab'])(
   async (platform) => {
     const calls: string[] = [];
     const fetcher: typeof fetch = async (url, init) => {
-      expect(init?.method).toBe('GET');
       const path = new URL(String(url)).pathname;
       calls.push(path);
       let value: unknown;
+      if (path === '/graphql') {
+        expect(platform).toBe('github');
+        expect(init?.method).toBe('POST');
+        return Response.json({
+          data: { repository: { autoMergeAllowed: true } },
+        });
+      }
+      expect(init?.method).toBe('GET');
       if (path.endsWith('/user'))
         value = { id: 1, login: 'dev', username: 'dev' };
       else if (path.includes('/personal_access_tokens/'))
@@ -80,6 +87,66 @@ it.each(['github', 'gitlab'])(
   },
 );
 
+it('fails closed when GitHub completion routing is unavailable to read-only evidence', async () => {
+  const fetcher: typeof fetch = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === '/graphql')
+      return Response.json({
+        data: { repository: { autoMergeAllowed: false } },
+      });
+    if (path.endsWith('/user')) return Response.json({ login: 'dev' });
+    if (path.includes('/rules/')) return Response.json([]);
+    if (path.includes('/branches/')) return Response.json({ protected: false });
+    if (path.endsWith('/pulls')) return Response.json([]);
+    return Response.json({ permissions: { push: true } });
+  };
+  const probe = await createGitHubScm({
+    repo: { id: 'member', project: 'team/repo', baseBranch: 'main' },
+    branch: 'ng-524',
+    token: 'fixture',
+    fetch: fetcher,
+  }).probe(new AbortController().signal);
+  expect(probe.merge).toMatchObject({
+    status: 'unknown',
+    fix: expect.stringContaining('read-only'),
+  });
+});
+
+it('fails closed when GitLab auto-merge version or train configuration is unobservable', async () => {
+  for (const [version, trains] of [
+    ['17.10.0', false],
+    ['19.1.0-ee', undefined],
+  ] as const) {
+    const fetcher: typeof fetch = async (url) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith('/user'))
+        return Response.json({ id: 1, username: 'dev' });
+      if (path.endsWith('/version')) return Response.json({ version });
+      if (path.includes('/personal_access_tokens/'))
+        return Response.json({ scopes: ['api'] });
+      if (path.includes('/protected_branches')) return Response.json([]);
+      if (path.includes('/branches/'))
+        return Response.json({ protected: false, can_push: true });
+      if (path.endsWith('/merge_requests')) return Response.json([]);
+      return Response.json({
+        id: 5,
+        merge_trains_enabled: trains,
+        permissions: {
+          project_access: { access_level: 30 },
+          group_access: null,
+        },
+      });
+    };
+    const probe = await createGitLabScm({
+      repo: { id: 'member', project: 'team/repo', baseBranch: 'main' },
+      branch: 'ng-524',
+      token: 'fixture',
+      fetch: fetcher,
+    }).probe(new AbortController().signal);
+    expect(probe.merge.status).toBe('unknown');
+  }
+});
+
 it('journals all members and the MCP refresh callback once, with no re-probe on poll Boots', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-'));
   dirs.push(dir);
@@ -90,15 +157,18 @@ it('journals all members and the MCP refresh callback once, with no re-probe on 
   const fetcher: typeof fetch = async (url) => {
     requests++;
     const path = new URL(String(url)).pathname;
-    const value = path.endsWith('/user')
-      ? { login: 'dev' }
-      : path.endsWith('/pulls')
-        ? [{ draft: true }]
-        : path.includes('/rules/')
-          ? []
-          : path.includes('/branches/')
-            ? { protected: false }
-            : { permissions: { push: true } };
+    const value =
+      path === '/graphql'
+        ? { data: { repository: { autoMergeAllowed: true } } }
+        : path.endsWith('/user')
+          ? { login: 'dev' }
+          : path.endsWith('/pulls')
+            ? [{ draft: true }]
+            : path.includes('/rules/')
+              ? []
+              : path.includes('/branches/')
+                ? { protected: false }
+                : { permissions: { push: true } };
     return Response.json(value, { headers: { 'x-oauth-scopes': 'repo' } });
   };
   const boot = (poll = false) =>
