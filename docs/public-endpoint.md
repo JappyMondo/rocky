@@ -62,11 +62,13 @@ terminal or your own service manager; Rocky manages neither it nor the tunnel.
 The filter compares the raw HTTP method and target before decoding. Everything
 else gets 404 without opening an upstream request, including future APIs. Host,
 loopback origin, forwarded headers and method/path override headers grant no
-trust. Only the body bytes, content type and Linear signature reach the daemon;
-the daemon still validates the raw-body HMAC and replay window. Public responses
-do not copy daemon version or other private headers. Ping exposes only an opaque
-instance ID, not credentials. This is routing identity evidence, not user
-authentication or proof against a malicious endpoint deliberately relaying ping.
+trust. Only POST webhook body bytes, content type and Linear signature reach the
+daemon; the daemon still validates the raw-body HMAC and replay window. A ping
+always forwards an empty body, draining any framed GET bytes at the filter so
+they cannot become another daemon request. Public responses do not copy daemon
+version or other private headers. Ping exposes only an opaque instance ID, not
+credentials. This is routing identity evidence, not user authentication or
+proof against a malicious endpoint deliberately relaying ping.
 
 Local health, UI/assets, shutdown, OAuth callback, Run/settings and artifact APIs
 stay on the daemon port. The filter does not add authentication to that port:

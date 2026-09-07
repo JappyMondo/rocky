@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer, request, type Server } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -72,6 +73,87 @@ function send(
     req.end(body);
   });
 }
+
+function sendRaw(port: number, message: string) {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const socket = connect({ host: '127.0.0.1', port });
+    const chunks: Buffer[] = [];
+    socket.on('data', (chunk: Buffer) => chunks.push(chunk));
+    socket.on('error', reject);
+    socket.on('end', () => {
+      const [headers, body = ''] = Buffer.concat(chunks)
+        .toString('utf8')
+        .split('\r\n\r\n');
+      const status = /^HTTP\/1\.1 (\d+)/.exec(headers)?.[1];
+      if (status === undefined) {
+        reject(new Error(`invalid HTTP response: ${headers}`));
+        return;
+      }
+      resolve({ status: Number(status), body });
+    });
+    socket.write(message);
+  });
+}
+
+it.each([
+  [
+    'Content-Length',
+    (body: string) =>
+      [
+        'GET /api/ping HTTP/1.1',
+        'host: localhost',
+        'connection: close',
+        `content-length: ${String(Buffer.byteLength(body))}`,
+        '',
+        body,
+      ].join('\r\n'),
+  ],
+  [
+    'chunked framing',
+    (body: string) =>
+      [
+        'GET /api/ping HTTP/1.1',
+        'host: localhost',
+        'connection: close',
+        'transfer-encoding: chunked',
+        '',
+        `${body.length.toString(16)}\r\n${body}\r\n0\r\n\r\n`,
+      ].join('\r\n'),
+  ],
+])(
+  'does not forward a body-bearing ping with %s',
+  async (_framing, message) => {
+    let shutdowns = 0;
+    const upstreamRequests: string[] = [];
+    const { app } = await createDaemon({
+      selfPing: false,
+      onShutdown: () => {
+        shutdowns++;
+      },
+    });
+    app.addHook('onRequest', async (req) => {
+      upstreamRequests.push(`${req.method} ${req.url}`);
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    cleanup.push(() => app.close());
+    const address = app.server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('no daemon port');
+    const port = await listen(createPublicIngress(address.port));
+    const shutdownRequest = [
+      'POST /api/shutdown HTTP/1.1',
+      'host: localhost',
+      'content-type: application/json',
+      'content-length: 2',
+      '',
+      '{}',
+    ].join('\r\n');
+
+    expect((await sendRaw(port, message(shutdownRequest))).status).toBe(200);
+    expect(upstreamRequests).toEqual(['GET /api/ping']);
+    expect(shutdowns).toBe(0);
+  },
+);
 
 it('only forwards the two exact public method/target pairs, never local controls', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rocky-ingress-'));

@@ -16,10 +16,13 @@ export function createPublicIngress(daemonPort: number) {
       }
 
       const headers: OutgoingHttpHeaders = {};
-      for (const name of ['content-type', 'linear-signature']) {
-        if (req.headers[name] !== undefined) headers[name] = req.headers[name];
+      if (req.method === 'POST') {
+        for (const name of ['content-type', 'linear-signature']) {
+          if (req.headers[name] !== undefined)
+            headers[name] = req.headers[name];
+        }
       }
-      // Only the signed bytes and their two protocol headers cross the boundary.
+      // Only POST's signed bytes and their two protocol headers cross the boundary.
       // Node supplies fresh HTTP framing; no hop-by-hop/override headers survive.
       const upstream = request(
         {
@@ -44,7 +47,13 @@ export function createPublicIngress(daemonPort: number) {
         else res.writeHead(502).end();
       });
       res.on('close', () => upstream.destroy());
-      req.pipe(upstream);
+      if (req.method === 'GET') {
+        // A framed GET body must never become an unframed second daemon request.
+        req.resume();
+        upstream.end();
+      } else {
+        req.pipe(upstream);
+      }
     },
   );
 }
