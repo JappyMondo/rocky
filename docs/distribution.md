@@ -32,6 +32,8 @@ npm install --ignore-scripts /absolute/path/to/rocky-<version>.tgz
 The filter binary is `./node_modules/.bin/rocky-ingress` from that same install.
 Registry installation instructions must be written only after a maintainer
 proves ownership of the chosen scoped package and authorizes its release.
+The implemented MCP login flow is documented in [`mcp.md`](mcp.md) in the
+source repository and `docs/mcp.md` in the tarball.
 The local API and web
 shell use `http://127.0.0.1:7625` by default. They have no authentication and must
 never be exposed publicly. Follow [the public endpoint guide](public-endpoint.md)
@@ -105,6 +107,6 @@ browser acceptance when changing the packaged UI or its asset layout.
   tarball. Only then may they publish that reviewed artifact and record its
   integrity/version. These instructions do not authorize publication.
 - Foundation tarballs at `0.0.0` are local test artifacts. Final MVP acceptance
-  repeats packaging tests after runtime, Harness, MCP, content and UI integration
+  repeats packaging tests after the remaining Harness, content and UI integration
   has landed. New runtime data files, dynamic loaders and subprocess entries
   must be added to packaging and its smoke test when introduced.

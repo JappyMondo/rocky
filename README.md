@@ -55,7 +55,8 @@ For local tarball installation, independent `rocky`/`@rocky/sdk` versioning and
 the manual release gate, see [distribution](docs/distribution.md). No registry
 publication is implied by a successful local pack/install test. The reconciled
 [CLI and Workflow context contract](docs/cli-and-ctx.md) distinguishes current
-implementations from named stubs and pending runtime integration.
+implementations from named stubs; [MCP OAuth](docs/mcp.md) documents the
+implemented `rocky mcp login` flow.
 
 **Do not run bare `npx rocky` or install `rocky` from the public registry.** That
 name belongs to the unrelated `h2non/rocky` proxy package. This project's tarballs
@@ -89,7 +90,7 @@ Two `image-size` advisories are waived in `pnpm.auditConfig.ignoreGhsas` (`GHSA-
 
 `rocky setup` is the interactive first-run wizard: it asks for your public URL first — a Linear webhook URL is fixed when the OAuth app is created and cannot be changed afterwards — then prints a manifest URL to hand to a workspace admin, takes the app's credentials, runs the OAuth flow locally, and verifies the endpoint with a self-ping. See [docs/public-endpoint.md](docs/public-endpoint.md) for tunnel recipes.
 
-`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Never tunnel this listener. The public endpoint must target the separate `rocky-ingress` filter, which admits only the webhook and ping. `init`, `upgrade`, `mcp login` and `trigger` are named failing stubs at this base; lifecycle and repo commands are implemented. See the contract table above for integration owners.
+`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Never tunnel this listener. The public endpoint must target the separate `rocky-ingress` filter, which admits only the webhook and ping. `init`, `upgrade` and `trigger` are named failing stubs at this base; lifecycle, repo and `mcp login` commands are implemented. See the contract table above and [MCP OAuth](docs/mcp.md) for integration details.
 
 ### The daemon's lifecycle
 

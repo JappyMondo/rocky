@@ -61,6 +61,7 @@ await cp(
   join(output, 'docs/public-endpoint.md'),
   { recursive: true },
 );
+await cp(join(root, 'docs/mcp.md'), join(output, 'docs/mcp.md'));
 await writeFile(
   join(output, 'package.json'),
   `${JSON.stringify(

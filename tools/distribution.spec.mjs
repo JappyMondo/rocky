@@ -121,6 +121,10 @@ test(
       run(join(consumer, 'node_modules/.bin/rocky-ingress'), ['--help']),
       /webhook\/ping-only/i,
     );
+    assert.match(
+      await readFile(join(installed, 'docs', 'mcp.md'), 'utf8'),
+      /rocky mcp login/,
+    );
     for (const file of await readdir(join(installed, 'dist'))) {
       if (file.endsWith('.js'))
         assert.doesNotMatch(
@@ -240,9 +244,15 @@ test(
       join(sdkConsumer, '.rocky/workflow.ts'),
       `import { linear, manual, z, type Workflow } from '@rocky/sdk';
 const workflow: Workflow = async (ctx) => {
+  ctx.stage('checking');
   const plan = await ctx.agent('planner', { schema: z.object({ steps: z.array(z.string()) }) });
-  await ctx.step('count', () => plan.steps.length);
-  await ctx.exec('git status --short');
+  const checks = await ctx.parallel(
+    ['git status --short'],
+    (command, index) => ctx.exec(command, { label: \`check \${index + 1}\` }),
+    { label: 'checks' },
+  );
+  await ctx.exec('node --version', { background: true, label: 'version' });
+  await ctx.step('count', () => plan.steps.length + checks.length + ctx.ports.length);
   return 'merged';
 };
 export default [linear.onDelegate(workflow), manual('review', workflow)];
@@ -290,7 +300,7 @@ assert.ok(table.every(Object.isFrozen));
       { code: 'ENOENT' },
     );
     console.log(
-      `SDK-only consumer passed: ${sdkArchive}; Workflow typechecks and its Trigger table imports/runs without rocky or @rocky/daemon.`,
+      `SDK-only consumer passed: ${sdkArchive}; Workflow typechecks its current ctx surface and its Trigger table imports/runs without rocky or @rocky/daemon.`,
     );
   },
 );
