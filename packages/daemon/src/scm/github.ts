@@ -134,6 +134,23 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         'Use a same-repository PR for this Run member.',
       );
   };
+  const validateCreatedPull = (pull: z.infer<typeof pullSchema>) => {
+    validateOwnership(pull);
+    const returned = handle(pull);
+    if (
+      returned.sourceBranch !== options.branch ||
+      returned.baseBranch !== options.repo.baseBranch ||
+      returned.state !== 'open'
+    )
+      throw refuse(
+        options.repo.id,
+        'invalid_response',
+        'PR creation returned a different branch identity or a non-open PR.',
+        'Inspect the created PR before retrying.',
+        returned,
+      );
+    return returned;
+  };
   const validate = (pr: Pr) => {
     if (
       pr.repo !== options.repo.id ||
@@ -260,7 +277,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         return existing;
       }
       try {
-        return handle(
+        return validateCreatedPull(
           await http.request('POST', `${root}/pulls`, pullSchema, {
             title: input.title,
             body: input.body,

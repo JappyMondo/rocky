@@ -53,6 +53,10 @@ const trainSchema = z.object({
   merge_request: z.object({ id: z.number(), iid: z.number() }),
   pipeline: pipelineSchema.nullable(),
 });
+const projectSchema = z.object({
+  id: z.number().int(),
+  merge_trains_enabled: z.boolean().optional(),
+});
 const discussionSchema = z.object({
   id: z.string(),
   notes: z.array(
@@ -113,6 +117,9 @@ const armedHeads = new Set<string>();
 export function createGitLabScm(options: ScmAdapterOptions) {
   const http = new ScmHttp(options, 'https://gitlab.com/api/v4');
   const root = `/projects/${encodeURIComponent(options.repo.project)}`;
+  let projectPromise: Promise<z.infer<typeof projectSchema>> | undefined;
+  const project = () =>
+    (projectPromise ??= http.request('GET', root, projectSchema));
   const handle = (mr: z.infer<typeof mrSchema>): Pr => ({
     repo: options.repo.id,
     id: String(mr.id),
@@ -142,13 +149,35 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         'Use the handle returned by openPr.',
       );
   };
+  const validateProjectMr = (
+    mr: z.infer<typeof mrSchema>,
+    configuredProjectId: number,
+  ) => {
+    if (
+      mr.project_id !== configuredProjectId ||
+      mr.source_project_id !== configuredProjectId ||
+      mr.target_project_id !== configuredProjectId
+    )
+      throw refuse(
+        options.repo.id,
+        'invalid_response',
+        'MR response does not belong to the configured project.',
+        'Inspect the MR source and target project identities before retrying.',
+        handle(mr),
+      );
+    return mr;
+  };
   const read = async (pr: Pr) => {
     validate(pr);
-    const mr = await http.request(
-      'GET',
-      `${root}/merge_requests/${pr.number}?include_rebase_in_progress=true`,
-      mrSchema,
-    );
+    const [configuredProject, mr] = await Promise.all([
+      project(),
+      http.request(
+        'GET',
+        `${root}/merge_requests/${pr.number}?include_rebase_in_progress=true`,
+        mrSchema,
+      ),
+    ]);
+    validateProjectMr(mr, configuredProject.id);
     if (
       String(mr.id) !== pr.id ||
       mr.source_branch !== pr.sourceBranch ||
@@ -174,7 +203,11 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         current,
       );
   };
-  const checkMutationMr = (value: z.infer<typeof mrSchema>, expected: Pr) => {
+  const checkMutationMr = async (
+    value: z.infer<typeof mrSchema>,
+    expected: Pr,
+  ) => {
+    validateProjectMr(value, (await project()).id);
     const returned = handle(value);
     if (
       returned.id !== expected.id ||
@@ -208,19 +241,18 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         `GitLab ${server.version} has unqualified auto_merge semantics (requires 17.11 or later).`,
         'Ask a maintainer to verify a supported server; no merge mutation will be used as a probe.',
       );
-    const project = await http.request(
-      'GET',
-      root,
-      z.object({ merge_trains_enabled: z.boolean().optional() }),
-    );
-    if (project.merge_trains_enabled === undefined)
+    const configuredProject = await project();
+    if (configuredProject.merge_trains_enabled === undefined)
       throw refuse(
         options.repo.id,
         'permission_unknown',
         'GitLab merge-train configuration is not visible.',
         'Ask a maintainer to verify the project feature/tier and API visibility; do not assume ordinary merge routing.',
       );
-    return { version: server.version, trains: project.merge_trains_enabled };
+    return {
+      version: server.version,
+      trains: configuredProject.merge_trains_enabled,
+    };
   };
   const train = async (pr: Pr) => {
     try {
@@ -310,7 +342,9 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         source_branch: options.branch,
         target_branch: options.repo.baseBranch,
       });
+      const configuredProject = await project();
       const mrs = await http.list(`${root}/merge_requests?${query}`, mrSchema);
+      mrs.forEach((mr) => validateProjectMr(mr, configuredProject.id));
       const matches = mrs.filter(
         (mr) =>
           mr.source_project_id === mr.target_project_id &&
@@ -329,14 +363,31 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         );
       const title = `${input.draft === false ? '' : 'Draft: '}${readyTitle(input.title)}`;
       try {
-        return handle(
-          await http.request('POST', `${root}/merge_requests`, mrSchema, {
+        const created = await http.request(
+          'POST',
+          `${root}/merge_requests`,
+          mrSchema,
+          {
             title,
             description: input.body,
             source_branch: options.branch,
             target_branch: options.repo.baseBranch,
-          }),
+          },
         );
+        validateProjectMr(created, configuredProject.id);
+        if (
+          created.source_branch !== options.branch ||
+          created.target_branch !== options.repo.baseBranch ||
+          created.state !== 'opened'
+        )
+          throw refuse(
+            options.repo.id,
+            'invalid_response',
+            'MR creation returned a different branch identity or a non-open MR.',
+            'Inspect the created MR before retrying.',
+            handle(created),
+          );
+        return handle(created);
       } catch (error) {
         if (
           !(error instanceof ScmError) ||
@@ -347,6 +398,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           `${root}/merge_requests?${query}`,
           mrSchema,
         );
+        recovered.forEach((mr) => validateProjectMr(mr, configuredProject.id));
         const matches = recovered.filter(
           (candidate) =>
             candidate.source_project_id === candidate.target_project_id &&
@@ -390,7 +442,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
             ...(input?.body === undefined ? {} : { description: input.body }),
           },
         );
-        checkMutationMr(response, handle(mr));
+        await checkMutationMr(response, handle(mr));
       }
       const updated = handle(await read(pr));
       if (updated.draft !== draft)
@@ -519,13 +571,11 @@ export function createGitLabScm(options: ScmAdapterOptions) {
       const support = await features();
       if (support.trains) {
         const entry = await train(pr);
-        if (
-          entry &&
-          ['idle', 'fresh', 'stale', 'merging'].includes(entry.status)
-        ) {
+        if (entry) {
           if (
-            entry.pipeline &&
-            ['failed', 'canceled'].includes(entry.pipeline.status)
+            !['idle', 'fresh', 'merging'].includes(entry.status) ||
+            (entry.pipeline &&
+              ['failed', 'canceled'].includes(entry.pipeline.status))
           )
             throw refuse(
               options.repo.id,
@@ -616,7 +666,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           mrSchema,
           { sha: pr.headSha, auto_merge: true },
         );
-        checkMutationMr(response, armCurrent);
+        await checkMutationMr(response, armCurrent);
       }
       const oldestArm = armedHeads.values().next().value;
       if (armedHeads.size >= 1024 && oldestArm !== undefined)

@@ -399,6 +399,29 @@ it('refuses a terminal matching PR without creating or rerunning work', async ()
   transport.done();
 });
 
+it('refuses a created PR response that is not bound to the configured branches', async () => {
+  const lookup =
+    '/repos/team/repo/pulls?state=all&head=team%3Ang-524&base=main&per_page=100&page=1';
+  const transport = scriptedFetch([
+    { path: lookup, value: [] },
+    {
+      path: '/repos/team/repo/pulls',
+      method: 'POST',
+      value: { ...githubPull, head: { ...githubPull.head, ref: 'other' } },
+    },
+  ]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
+  expect(transport.calls.filter((call) => call.method !== 'GET')).toHaveLength(
+    1,
+  );
+  transport.done();
+});
+
 it('does not rerun failed jobs after a concurrent PR closure', async () => {
   const transport = scriptedFetch([
     { path: '/repos/team/repo/pulls/7', value: githubPull },
