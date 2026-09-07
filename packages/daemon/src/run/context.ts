@@ -7,7 +7,7 @@ import type {
   WorkflowContext,
 } from '@rocky/sdk';
 import type { RunHeader } from './header.js';
-import type { BootContext } from './replay.js';
+import type { BootContext, StepOutcome } from './replay.js';
 
 type RawCheckpointAnswer =
   | { decision: 'approve' }
@@ -27,7 +27,7 @@ export type ExternalServices = Partial<ExternalContext> & {
   checkpoint?: (opts: {
     title: string;
     body: string;
-  }) => Promise<RawCheckpointAnswer>;
+  }) => Promise<StepOutcome<RawCheckpointAnswer>>;
 };
 
 export interface ContextServices {
@@ -36,7 +36,7 @@ export interface ContextServices {
     background: boolean,
   ): Promise<ExecResult | BackgroundExecResult>;
   changedFiles(): Promise<string[]>;
-  /** Each adapter journals through the supplied branch-local Steps. */
+  /** Each adapter is given the branch-local approval verifier. */
   external?: (
     steps: BootContext,
     approvals: CheckpointApprovalVerifier,
@@ -135,7 +135,12 @@ export function createWorkflowContext(
           throw new Error(
             'ctx.checkpoint requires an adapter; configure it on the Run runtime',
           );
-        const answer = await checkpoint(opts);
+        // Checkpoints are ctx calls, so the daemon—not an arbitrary adapter—
+        // owns their one journal Step. This also makes a completed raw answer
+        // replay before its Boot-local approval capability is minted.
+        const answer = await current().step('checkpoint', {}, () =>
+          checkpoint(opts),
+        );
         if (answer.decision !== 'approve') return answer;
         const approved = Object.freeze({
           decision: 'approve',

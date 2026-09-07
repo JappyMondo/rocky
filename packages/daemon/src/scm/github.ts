@@ -10,7 +10,7 @@ import type {
 } from '@rocky/sdk';
 import type { StepOutcome } from '../run/replay.js';
 import { ScmError, ScmHttp, refuse, type ScmAdapterOptions } from './http.js';
-import { replyIntent } from './reply.js';
+import { coalesceReply, replyIntent } from './reply.js';
 import { probeGitHub } from './probe.js';
 
 const ref = z.object({
@@ -192,40 +192,44 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       'Verify the GraphQL pagination response.',
     );
   };
+  const findOpenPr = async () => {
+    const query = new URLSearchParams({
+      state: 'all',
+      head: `${owner}:${options.branch}`,
+      base: options.repo.baseBranch,
+      per_page: '100',
+    });
+    for (let page = 1; ; page++) {
+      const pulls = await http.request(
+        'GET',
+        `${root}/pulls?${query}&page=${page}`,
+        z.array(pullSchema),
+      );
+      const found = pulls.find(
+        (pull) =>
+          pull.head.repo?.full_name === options.repo.project &&
+          pull.base.repo?.full_name === options.repo.project &&
+          pull.head.ref === options.branch &&
+          pull.base.ref === options.repo.baseBranch,
+      );
+      if (found) return handle(found);
+      if (pulls.length < 100) return undefined;
+      if (page === 1000)
+        throw refuse(
+          options.repo.id,
+          'unavailable',
+          'PR pagination exceeded its bound.',
+          'Narrow the branch identity.',
+        );
+    }
+  };
   return {
     repo: options.repo,
     signal: options.signal,
     probe: (signal: AbortSignal) => probeGitHub(options, http, root, signal),
     async openPr(input: OpenPrOptions): Promise<Pr> {
-      const query = new URLSearchParams({
-        state: 'all',
-        head: `${owner}:${options.branch}`,
-        base: options.repo.baseBranch,
-        per_page: '100',
-      });
-      for (let page = 1; ; page++) {
-        const pulls = await http.request(
-          'GET',
-          `${root}/pulls?${query}&page=${page}`,
-          z.array(pullSchema),
-        );
-        const found = pulls.find(
-          (pull) =>
-            pull.head.repo?.full_name === options.repo.project &&
-            pull.base.repo?.full_name === options.repo.project &&
-            pull.head.ref === options.branch &&
-            pull.base.ref === options.repo.baseBranch,
-        );
-        if (found) return handle(found);
-        if (pulls.length < 100) break;
-        if (page === 1000)
-          throw refuse(
-            options.repo.id,
-            'unavailable',
-            'PR pagination exceeded its bound.',
-            'Narrow the branch identity.',
-          );
-      }
+      const existing = await findOpenPr();
+      if (existing) return existing;
       try {
         return handle(
           await http.request('POST', `${root}/pulls`, pullSchema, {
@@ -242,8 +246,11 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           ![409, 422].includes(error.status ?? 0)
         )
           throw error;
-        // A concurrent creator may have won after the bounded lookup.
-        return await this.openPr(input);
+        // A concurrent creator may have won after the bounded lookup. Re-read
+        // once, then preserve the original refusal rather than retrying POST.
+        const recovered = await findOpenPr();
+        if (recovered) return recovered;
+        throw error;
       }
     },
     async markDraft(
@@ -559,7 +566,12 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         pullSchema.extend({ mergeable_state: z.string() }),
       );
       const current = handle(pull);
-      if (current.id !== pr.id || current.state !== 'open')
+      if (
+        current.id !== pr.id ||
+        current.sourceBranch !== pr.sourceBranch ||
+        current.baseBranch !== pr.baseBranch ||
+        current.state !== 'open'
+      )
         throw refuse(
           options.repo.id,
           'not_open',
@@ -681,16 +693,36 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       const existing = await notes(actual.id);
       const intent = replyIntent(actual, body, runId, existing.bodies);
       if (!intent.exists)
-        await http.graphql(
-          'mutation Reply($input: AddPullRequestReviewThreadReplyInput!) { addPullRequestReviewThreadReply(input: $input) { comment { id } } }',
-          {
-            input: { pullRequestReviewThreadId: actual.id, body: intent.body },
+        await coalesceReply(
+          `${http.root}:${options.repo.project}:${options.token}:${actual.id}`,
+          intent.body,
+          async () => {
+            try {
+              await http.graphql(
+                'mutation Reply($input: AddPullRequestReviewThreadReplyInput!) { addPullRequestReviewThreadReply(input: $input) { comment { id } } }',
+                {
+                  input: {
+                    pullRequestReviewThreadId: actual.id,
+                    body: intent.body,
+                  },
+                },
+                z.object({
+                  addPullRequestReviewThreadReply: z.object({
+                    comment: z.object({ id: z.string() }),
+                  }),
+                }),
+              );
+            } catch (error) {
+              if (!(
+                error instanceof ScmError &&
+                [409, 422].includes(error.status ?? 0)
+              ))
+                throw error;
+              const recovered = await notes(actual.id);
+              if (!replyIntent(actual, body, runId, recovered.bodies).exists)
+                throw error;
+            }
           },
-          z.object({
-            addPullRequestReviewThreadReply: z.object({
-              comment: z.object({ id: z.string() }),
-            }),
-          }),
         );
       if (!existing.resolved) {
         try {

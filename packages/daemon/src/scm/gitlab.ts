@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import type {
   CiResult,
   FailedJob,
@@ -11,7 +12,7 @@ import type {
 } from '@rocky/sdk';
 import type { StepOutcome } from '../run/replay.js';
 import { ScmError, ScmHttp, refuse, type ScmAdapterOptions } from './http.js';
-import { replyIntent } from './reply.js';
+import { coalesceReply, replyIntent } from './reply.js';
 import { probeGitLab } from './probe.js';
 
 const pipelineSchema = z.object({
@@ -104,16 +105,13 @@ const readyTitle = (title: string) =>
     '',
   );
 
-// A successful arm is remembered only as a disposable transport optimization.
-// The journal is the durable dedupe boundary; retaining this across adapter
-// recreation prevents an active MR from being hot-looped within a Boot.
-const armedHeads = new WeakMap<typeof fetch, Set<string>>();
+// A successful arm is remembered only as a bounded, disposable process-local
+// optimization. A restart may issue an idempotent arm once; the journal and
+// platform readback remain the durable recovery boundary.
+const armedHeads = new Set<string>();
 
 export function createGitLabScm(options: ScmAdapterOptions) {
   const http = new ScmHttp(options, 'https://gitlab.com/api/v4');
-  const transport = options.fetch ?? fetch;
-  const armed = armedHeads.get(transport) ?? new Set<string>();
-  armedHeads.set(transport, armed);
   const root = `/projects/${encodeURIComponent(options.repo.project)}`;
   const handle = (mr: z.infer<typeof mrSchema>): Pr => ({
     repo: options.repo.id,
@@ -520,8 +518,12 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           'Verify the GitLab version and auto-merge readback with a maintainer.',
           current,
         );
-      const armKey = `${options.repo.project}:${pr.id}:${pr.headSha}`;
-      if (mr.merge_when_pipeline_succeeds === true && armed.has(armKey))
+      const armKey = createHash('sha256')
+        .update(
+          `${http.root}\0${options.repo.project}\0${options.token}\0${pr.id}\0${pr.headSha}`,
+        )
+        .digest('hex');
+      if (mr.merge_when_pipeline_succeeds === true && armedHeads.has(armKey))
         return { status: 'waiting' };
       // The merge-named endpoint is exclusively an auto_merge request, never immediate merge.
       if (support.trains)
@@ -538,7 +540,10 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           mrSchema,
           { sha: pr.headSha, auto_merge: true },
         );
-      armed.add(armKey);
+      const oldestArm = armedHeads.values().next().value;
+      if (armedHeads.size >= 1024 && oldestArm !== undefined)
+        armedHeads.delete(oldestArm);
+      armedHeads.add(armKey);
       return { status: 'waiting' };
     },
     async waitForCi(
@@ -695,11 +700,39 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         discussion.notes.map((note) => note.body),
       );
       if (!intent.exists)
-        await http.request(
-          'POST',
-          `${path}/notes`,
-          z.object({ id: z.number() }),
-          { body: intent.body },
+        await coalesceReply(
+          `${http.root}:${options.repo.project}:${options.token}:${actual.id}`,
+          intent.body,
+          async () => {
+            try {
+              await http.request(
+                'POST',
+                `${path}/notes`,
+                z.object({ id: z.number() }),
+                { body: intent.body },
+              );
+            } catch (error) {
+              if (!(
+                error instanceof ScmError &&
+                [409, 422].includes(error.status ?? 0)
+              ))
+                throw error;
+              const recovered = await http.request(
+                'GET',
+                path,
+                discussionSchema,
+              );
+              if (
+                !replyIntent(
+                  actual,
+                  body,
+                  runId,
+                  recovered.notes.map((note) => note.body),
+                ).exists
+              )
+                throw error;
+            }
+          },
         );
       if (discussion.notes.some((note) => note.resolvable && !note.resolved)) {
         try {

@@ -46,9 +46,8 @@ function open(workflow: Workflow, timeoutMs?: number) {
     loadWorkflow: async () => workflow,
     workspace: () => dir,
     execTimeoutMs: timeoutMs,
-    external: (_run, steps) => ({
-      checkpoint: () =>
-        steps.step('checkpoint', {}, async () => ({ status: 'waiting' })),
+    external: () => ({
+      checkpoint: async () => ({ status: 'waiting' }),
     }),
   });
   return runtime;
@@ -88,7 +87,9 @@ it('captures real command output and records renewed ports in the header', async
   const ports: number[] = [];
   let done = false;
   open(async (ctx) => {
-    ports.push(ctx.ports[0]!);
+    const port = ctx.ports[0];
+    if (port === undefined) throw new Error('expected Run port');
+    ports.push(port);
     expect(await ctx.exec('printf rocky; printf warning >&2; exit 7')).toEqual({
       exitCode: 7,
       stdout: 'rocky',
@@ -124,13 +125,11 @@ it('keeps background work while Parked, respawns on Boot, and kills the group an
     paths,
     loadWorkflow: async () => workflow,
     workspace: () => dir,
-    external: (_run, steps) => ({
-      checkpoint: () =>
-        steps.step<{ decision: 'approve' }>('checkpoint', {}, async () =>
-          ready
-            ? { status: 'done', result: { decision: 'approve' } }
-            : { status: 'waiting' },
-        ),
+    external: () => ({
+      checkpoint: async () =>
+        ready
+          ? { status: 'done', result: { decision: 'approve' } }
+          : { status: 'waiting' },
     }),
   });
   expect(

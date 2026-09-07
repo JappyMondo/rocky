@@ -94,7 +94,9 @@ export class ScmHttp {
     let state = scoped.get(key);
     if (!state) {
       state = { notBefore: 0, cache: new Map() };
-      if (scoped.size >= 256) scoped.delete(scoped.keys().next().value!);
+      const oldestScope = scoped.keys().next().value;
+      if (scoped.size >= 256 && oldestScope !== undefined)
+        scoped.delete(oldestScope);
       scoped.set(key, state);
     }
     this.state = state;
@@ -118,6 +120,7 @@ export class ScmHttp {
       );
     const cached =
       method === 'GET' && !log ? this.state.cache.get(path) : undefined;
+    const etag = cached?.headers.get('etag');
     const response = await (this.options.fetch ?? fetch)(
       `${this.root}${path}`,
       {
@@ -126,7 +129,7 @@ export class ScmHttp {
           Authorization: `Bearer ${this.options.token}`,
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(cached ? { 'If-None-Match': cached.headers.get('etag')! } : {}),
+          ...(etag ? { 'If-None-Match': etag } : {}),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         redirect: log ? 'manual' : 'error',
@@ -233,8 +236,9 @@ export class ScmHttp {
       );
     }
     if (method === 'GET' && response.headers.has('etag')) {
-      if (this.state.cache.size >= 256)
-        this.state.cache.delete(this.state.cache.keys().next().value!);
+      const oldestCached = this.state.cache.keys().next().value;
+      if (this.state.cache.size >= 256 && oldestCached !== undefined)
+        this.state.cache.delete(oldestCached);
       this.state.cache.set(path, { value, headers: response.headers });
     }
     const parsed = schema.safeParse(value);

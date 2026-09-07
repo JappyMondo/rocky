@@ -213,7 +213,7 @@ it.each([false, true])(
       status: 'done',
       result: { status: 'merged', pr: { state: 'merged' } },
     });
-    expect(transport.calls[2].body.variables.input).toMatchObject({
+    expect(transport.calls[2].body.variables?.input).toMatchObject({
       pullRequestId: 'PR_one',
       expectedHeadOid: 'abc',
     });
@@ -250,6 +250,25 @@ it('requests a guarded branch update and waits for the new head instead of treat
     status: 'done',
     result: { status: 'updated', pr: { headSha: 'updated' } },
   });
+  transport.done();
+});
+
+it('does not update a retargeted PR handle', async () => {
+  const transport = scriptedFetch([
+    {
+      path: '/repos/team/repo/pulls/7',
+      value: {
+        ...githubPull,
+        base: { ...githubPull.base, ref: 'release' },
+        mergeable_state: 'behind',
+      },
+    },
+  ]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).updateBranch(
+      githubPr(),
+    ),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
   transport.done();
 });
 
@@ -309,6 +328,7 @@ it('recovers one immutable reply per manual Run/thread and resolves it', async (
       data = { node: { reviewThreads: { nodes: [thread], pageInfo } } };
     else if (query.includes('query Notes')) data = { node: thread };
     else if (query.includes('addPullRequestReviewThreadReply')) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
       reply = variables.input.body;
       writes++;
       data = { addPullRequestReviewThreadReply: { comment: { id: 'C1' } } };
@@ -325,16 +345,38 @@ it('recovers one immutable reply per manual Run/thread and resolves it', async (
     line: 4,
     body: 'Fix this',
   });
-  await adapter.replyToThread(thread, 'Fixed in abc', 'NG-524-2');
-  await createGitHubScm({ ...githubOptions, fetch: fetcher }).replyToThread(
-    thread,
-    'Fixed in abc',
-    'NG-524-2',
-  );
+  await Promise.all([
+    adapter.replyToThread(thread, 'Fixed in abc', 'NG-524-2'),
+    createGitHubScm({ ...githubOptions, fetch: fetcher }).replyToThread(
+      thread,
+      'Fixed in abc',
+      'NG-524-2',
+    ),
+  ]);
   expect(writes).toBe(1);
   expect(resolved).toBe(true);
   await adapter.replyToThread(thread, 'Fixed in def', 'NG-524-3');
   expect(writes).toBe(2);
+});
+
+it('re-reads once after a persistent create conflict without retrying POST', async () => {
+  const lookup =
+    '/repos/team/repo/pulls?state=all&head=team%3Ang-524&base=main&per_page=100&page=1';
+  const transport = scriptedFetch([
+    { path: lookup, value: [] },
+    { path: '/repos/team/repo/pulls', method: 'POST', status: 422, value: {} },
+    { path: lookup, value: [] },
+  ]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).openPr({
+      title: 'Change',
+      body: 'Plan',
+    }),
+  ).rejects.toMatchObject({ status: 422 });
+  expect(transport.calls.filter((call) => call.method === 'POST')).toHaveLength(
+    1,
+  );
+  transport.done();
 });
 
 it('recovers a draft PR created before its Step was recorded, scoped to source and base', async () => {
