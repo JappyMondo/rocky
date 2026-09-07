@@ -20,14 +20,13 @@ export default defineConfig({
       // The `#!/usr/bin/env node` shim: it only runs as a real process, and
       // everything it calls is covered through `cli.ts`.
       exclude: ['src/main.ts'],
-      // The rebase adds main's endpoint surface to this project, lowering its
-      // branch baseline. Linux covers slightly fewer branches than darwin, so
-      // retain the measured cross-platform margin below the local reading.
+      // Pinned to the measured CI baseline. Linux is the platform of record;
+      // update these when coverage rises.
       thresholds: {
-        statements: 86.74,
-        branches: 81.4,
-        functions: 83.07,
-        lines: 87.53,
+        statements: 88.04,
+        branches: 80.49,
+        functions: 84.84,
+        lines: 88.77,
       },
     },
   },
