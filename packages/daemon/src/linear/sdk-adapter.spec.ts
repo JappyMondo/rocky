@@ -10,8 +10,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 const createAgentActivity = vi.fn(async () => ({ success: true }));
 const createComment = vi.fn(async () => ({ success: true }));
-const createAttachment = vi.fn(async () => ({ success: true }));
+const createAttachment = vi.fn(async () => ({
+  success: true,
+  attachmentId: 'actual-id',
+}));
 const workflowStates = vi.fn(async () => ({
+  pageInfo: { hasNextPage: false },
   nodes: [
     {
       id: 's1',
@@ -34,16 +38,16 @@ const fileUpload = vi.fn(async () => ({
   },
 }));
 
-const constructed: { accessToken?: string }[] = [];
+const constructed: unknown[] = [];
 
 vi.mock('@linear/sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@linear/sdk')>();
 
   return {
     ...actual,
-    LinearClient: class {
-      constructor(options: { accessToken?: string }) {
-        constructed.push(options);
+    LinearSdk: class {
+      constructor(request: unknown) {
+        constructed.push(request);
       }
       createAgentActivity = createAgentActivity;
       createComment = createComment;
@@ -78,10 +82,10 @@ function client() {
 }
 
 describe('the real SDK adapter', () => {
-  it('constructs the SDK with the current access token', async () => {
+  it('constructs the public SDK with an owned HTTP transport', async () => {
     await client().viewer();
 
-    expect(constructed.at(-1)).toEqual({ accessToken: 'the-token' });
+    expect(constructed.at(-1)).toBeTypeOf('function');
   });
 
   it('turns a signal into the SDK`s enum member, not the bare string', async () => {

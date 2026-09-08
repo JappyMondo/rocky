@@ -53,6 +53,7 @@ interface RawWebhookBody {
   agentSession?: { id?: string; issueId?: string };
   agentActivity?: {
     id?: string;
+    createdAt?: string;
     content?: { body?: unknown };
     signal?: string;
   };
@@ -101,6 +102,9 @@ function toEvent(body: RawWebhookBody): AgentSessionEvent | undefined {
       body.action === 'prompted' && activity?.id
         ? {
             activityId: activity.id,
+            ...(typeof activity.createdAt === 'string'
+              ? { createdAt: activity.createdAt }
+              : {}),
             body:
               typeof activity.content?.body === 'string'
                 ? activity.content.body
