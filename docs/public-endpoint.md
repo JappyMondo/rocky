@@ -70,8 +70,10 @@ version or other private headers. Ping exposes only an opaque instance ID, not
 credentials. This is routing identity evidence, not user authentication or
 proof against a malicious endpoint deliberately relaying ping.
 
-Local health, UI/assets, shutdown, OAuth callback, Run/settings and artifact APIs
-stay on the daemon port. The filter does not add authentication to that port:
+Local health, UI/assets, shutdown, Run/settings and artifact APIs stay on the
+daemon port. The filter forwards the exact OAuth callback route so Linear can
+return the browser to Rocky through the public URL; the callback broker still
+accepts only the setup's pending state. The filter does not add authentication to that port:
 never expose it through a second tunnel, port forward or public bind. A filter
 outage fails closed (connection failure), and a daemon outage returns 502.
 
@@ -208,7 +210,7 @@ hot-reloaded like the rest of the file. It does **not** move Linear's webhook
 URL, which is still fixed on the OAuth app. To actually move it you need a
 workspace admin to edit the app in Linear's settings, or a new app.
 
-The same applies to the daemon's port: the OAuth redirect URI
-(`http://127.0.0.1:<port>/api/linear/oauth/callback`) is baked into the app at
-creation too. Changing `server.port` after setup will break re-authorization,
-even though it leaves everything else working.
+The OAuth redirect URI is the public URL plus
+`/api/linear/oauth/callback`, and is baked into the app at creation too. Changing
+the public URL after setup requires a workspace admin to update the app or create
+a new one.

@@ -57,7 +57,7 @@ function clientWith(sdk: LinearSdkLike, deps: Record<string, unknown> = {}) {
     auth: async () => ({
       clientId: 'cid',
       clientSecret: 'csec',
-      redirectUri: 'http://127.0.0.1:7625/api/linear/oauth/callback',
+      redirectUri: 'https://rocky.example.com/api/linear/oauth/callback',
       accessToken: 'at',
       refreshToken: 'rt',
       expiresAt: undefined,
@@ -678,7 +678,7 @@ describe('the access token', () => {
       auth: async () => ({
         clientId: 'cid',
         clientSecret: 'csec',
-        redirectUri: 'http://127.0.0.1:7625/api/linear/oauth/callback',
+        redirectUri: 'https://rocky.example.com/api/linear/oauth/callback',
         accessToken: 'good',
         refreshToken: 'rt',
         expiresAt: 10_000_000,
@@ -713,7 +713,7 @@ describe('the access token', () => {
       auth: async () => ({
         clientId: 'cid',
         clientSecret: 'csec',
-        redirectUri: 'http://127.0.0.1:7625/api/linear/oauth/callback',
+        redirectUri: 'https://rocky.example.com/api/linear/oauth/callback',
         accessToken: 'stale',
         refreshToken: 'rt',
         expiresAt: 1_000,

@@ -313,7 +313,7 @@ describe('a self-ping that fails at the end', () => {
 });
 
 describe('the manifest the admin is handed', () => {
-  it('carries the webhook on the public URL and the callback on the daemon', async () => {
+  it('carries the webhook and OAuth callback on the public URL', async () => {
     const { said } = await runHappyPath([
       'Jan Jaap',
       PUBLIC_URL,
@@ -334,8 +334,8 @@ describe('the manifest the admin is handed', () => {
 
     expect(manifest.webhook.url).toBe(`${PUBLIC_URL}/api/linear/webhook`);
     expect(manifest.oauth.client_name).toBe('Rocky (Jan Jaap)');
-    expect(manifest.oauth.redirect_uris[0]).toMatch(
-      /^http:\/\/127\.0\.0\.1:\d+\/api\/linear\/oauth\/callback$/,
-    );
+    expect(manifest.oauth.redirect_uris).toEqual([
+      `${PUBLIC_URL}/api/linear/oauth/callback`,
+    ]);
   });
 });

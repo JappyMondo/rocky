@@ -165,7 +165,7 @@ it.each([
   },
 );
 
-it('only forwards the two exact public method/target pairs, never local controls', async () => {
+it('only forwards public ping, webhook, and OAuth callback routes, never local controls', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rocky-ingress-'));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'index.html'), '<h1>Local Rocky</h1>');
@@ -207,6 +207,10 @@ it('only forwards the two exact public method/target pairs, never local controls
     status: 200,
     body: JSON.stringify({ instanceId }),
   });
+  expect(
+    (await send(port, 'GET', '/api/linear/oauth/callback?code=x&state=y'))
+      .status,
+  ).toBe(400);
   const raw = JSON.stringify(
     {
       type: 'AgentSessionEvent',
@@ -267,7 +271,7 @@ it('only forwards the two exact public method/target pairs, never local controls
     '/app.js',
     '/api/health',
     '/api/shutdown',
-    '/api/linear/oauth/callback',
+    '/api/linear/oauth/callback/',
     '/api/runs',
     '/api/settings',
     '/api/runs/r1/screenshots/a.png',

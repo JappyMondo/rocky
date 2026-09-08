@@ -24,7 +24,7 @@ shipped-content lanes land.
 | `rocky upgrade` | Named failing stub | NG-608 implements ADR 0003's interactive comparison, not an automatic merge |
 | `rocky mcp login <server>` | Implemented | NG-599/583; URL-keyed machine OAuth is documented in [MCP OAuth](mcp.md) |
 | `rocky trigger <name> <issue>` | Named failing stub | NG-580; admission/loader/local API wiring follows NG-540/598/609 |
-| `rocky-ingress [--port <port>] [--daemon-port <port>]` | Implemented operator utility | NG-651; separate webhook/ping-only filter, not a tunnel manager |
+| `rocky-ingress [--port <port>] [--daemon-port <port>]` | Implemented operator utility | NG-651; separate webhook/ping/OAuth-callback filter, not a tunnel manager |
 
 The first binary's full lifecycle also accepts `--host`/`--port` where shown by
 `rocky --help` and command help. Config and a live pidfile supply omitted

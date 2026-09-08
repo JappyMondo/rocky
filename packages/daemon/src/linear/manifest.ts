@@ -26,10 +26,9 @@ const CREATE_PAGE = 'https://linear.app/settings/api/applications/new';
 export const WEBHOOK_PATH = '/api/linear/webhook';
 
 /**
- * Where Linear sends the developer back after they authorize. It is the
- * daemon's own port, not a throwaway listener: the redirect URI is as fixed at
- * creation as the webhook URL, so re-authorizing later — after a refresh token
- * finally fails — has to land somewhere that still exists.
+ * Where Linear sends the developer back after they authorize. It uses the same
+ * public endpoint as the webhook because Linear's browser cannot reach the
+ * developer's loopback daemon directly.
  */
 export const OAUTH_CALLBACK_PATH = '/api/linear/oauth/callback';
 
@@ -51,7 +50,7 @@ export interface ManifestOptions {
   developerName: string;
   /** The BYO stable endpoint. Origin only — no path. */
   publicUrl: string;
-  /** The daemon's OAuth callback, from `oauthRedirectUri`. */
+  /** The public OAuth callback, from `oauthRedirectUri`. */
   redirectUri: string;
 }
 
@@ -128,9 +127,8 @@ export function webhookUrl(publicUrl: string): string {
 }
 
 /** Where Linear sends the developer back after they authorize. */
-export function oauthRedirectUri(host: string, port: number): string {
-  const authority = host.includes(':') ? `[${host}]` : host;
-  return `http://${authority}:${port}${OAUTH_CALLBACK_PATH}`;
+export function oauthRedirectUri(publicUrl: string): string {
+  return `${assertPublicUrl(publicUrl)}${OAUTH_CALLBACK_PATH}`;
 }
 
 /**

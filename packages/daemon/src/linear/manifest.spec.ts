@@ -19,7 +19,7 @@ import {
 const options = {
   developerName: 'Jan Jaap',
   publicUrl: 'https://rocky-janjaap.example.com',
-  redirectUri: 'http://127.0.0.1:7625/api/linear/oauth/callback',
+  redirectUri: 'https://rocky-janjaap.example.com/api/linear/oauth/callback',
 };
 
 describe('the manifest', () => {
@@ -147,12 +147,12 @@ describe('the manifest URL handed to the workspace admin', () => {
 });
 
 describe('the two URLs derived from the endpoint', () => {
-  it('put the webhook on the public URL and the callback on the daemon', () => {
+  it('puts the webhook and callback on the public URL', () => {
     expect(webhookUrl('https://rocky.example.com')).toBe(
       `https://rocky.example.com${WEBHOOK_PATH}`,
     );
-    expect(oauthRedirectUri('127.0.0.1', 7625)).toBe(
-      'http://127.0.0.1:7625/api/linear/oauth/callback',
+    expect(oauthRedirectUri('https://rocky.example.com')).toBe(
+      'https://rocky.example.com/api/linear/oauth/callback',
     );
   });
 });

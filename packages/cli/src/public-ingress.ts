@@ -7,9 +7,14 @@ export function createPublicIngress(daemonPort: number) {
     (req, res) => {
       // Compare the raw target, before any URL decoding or normalization. Neither
       // loopback peers nor Host/forwarded headers confer access to local routes.
+      const oauthCallback =
+        req.method === 'GET' &&
+        (req.url === '/api/linear/oauth/callback' ||
+          req.url?.startsWith('/api/linear/oauth/callback?'));
       if (!(
         (req.method === 'GET' && req.url === '/api/ping') ||
-        (req.method === 'POST' && req.url === '/api/linear/webhook')
+        (req.method === 'POST' && req.url === '/api/linear/webhook') ||
+        oauthCallback
       )) {
         res.writeHead(404, { connection: 'close' }).end();
         return;
