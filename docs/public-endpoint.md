@@ -30,6 +30,7 @@ are not part of this protocol:
 | --- | --- |
 | `POST /api/linear/webhook` | Linear's agent-session events |
 | `GET /api/ping` | Rocky's own self-ping; answers an opaque instance id |
+| `GET /api/linear/oauth/callback?...` | Linear's OAuth browser return during setup |
 
 The web UI is **not** on the public endpoint and must not be put there. It has
 no authentication under any binding, and it controls every Run on your machine —
@@ -46,18 +47,17 @@ the old `ngrok http 7625` recipe and Tailscale `--set-path` recipes, is unsuppor
 
 ### Mandatory local filter
 
-Run the daemon on loopback and launch the filter separately:
-
-```sh
-rocky start -d
-rocky-ingress                        # 127.0.0.1:7626 -> 127.0.0.1:7625
-```
+`rocky setup` installs and starts two per-user background services: the private
+daemon on `127.0.0.1:7625` and this filter on `127.0.0.1:7626`. They restart
+after a crash and at login. There is no terminal to keep open and no separate
+`rocky-ingress` command in normal use.
 
 From a source checkout, build with `pnpm exec nx build rocky`, then use
 `node packages/cli/dist/ingress-main.js`. For a non-default port, use
 `rocky-ingress --daemon-port 8000 --port 8001` and point the tunnel at **8001**.
-The filter always binds and forwards to `127.0.0.1`. Keep it running in its own
-terminal or your own service manager; Rocky manages neither it nor the tunnel.
+The filter always binds and forwards to `127.0.0.1`. `rocky-ingress` remains
+available only for development or a custom service manager; Rocky manages the
+local filter, but intentionally does not manage your tunnel provider.
 
 The filter compares the raw HTTP method and target before decoding. Everything
 else gets 404 without opening an upstream request, including future APIs. Host,

@@ -37,7 +37,11 @@ import {
 } from './daemon-control.js';
 import { followLog, readTail } from './logs.js';
 import {
-  installService,
+  installManagedServices,
+  loadManagedServices,
+  runServiceCommands,
+  serviceIsInstalled,
+  serviceTarget,
   uninstallService,
   UnsupportedPlatformError,
   type ServiceEnvironment,
@@ -68,6 +72,8 @@ export interface CliOptions extends ControlOptions {
   doctor?: DoctorOptions;
   /** Overrides where the service unit is written and what it runs. */
   service?: ServiceEnvironment;
+  /** Executes service-manager commands; injectable so CLI tests stay local. */
+  runServiceCommands?: typeof runServiceCommands;
   /** Setup seams stay on the CLI because the wizard owns terminal I/O. */
   runSetup?: typeof runSetup;
   createPrompter?: typeof createConsolePrompter;
@@ -179,7 +185,15 @@ export function buildCli(
     .action(async () => {
       const prompter = prompterFor();
       try {
-        const result = await setup({ prompter });
+        const result = await setup({ prompter, paths });
+        const services = await installManagedServices(paths, cli.service);
+        await loadManagedServices(
+          services,
+          cli.runServiceCommands ?? runServiceCommands,
+        );
+        io.out(
+          'Rocky daemon and public ingress are running as background services.',
+        );
         // A tunnel that is not up yet is a real failure to report, but the
         // credentials are written either way — see the wizard.
         if (!result.ok) {
@@ -397,13 +411,21 @@ export function buildCli(
     )
     .action(async () => {
       try {
-        const { target, changed } = await installService(paths, cli.service);
-        io.out(
-          changed
-            ? `Wrote ${target.file}`
-            : `${target.file} was already up to date`,
+        const services = await installManagedServices(paths, cli.service);
+        for (const result of [services.daemon, services.ingress]) {
+          io.out(
+            result.changed
+              ? `Wrote ${result.target.file}`
+              : `${result.target.file} was already up to date`,
+          );
+        }
+        await loadManagedServices(
+          services,
+          cli.runServiceCommands ?? runServiceCommands,
         );
-        io.out(`Load it now with: ${target.loadHint}`);
+        io.out(
+          'Rocky daemon and public ingress are running as background services.',
+        );
       } catch (error) {
         if (error instanceof UnsupportedPlatformError) {
           fail(error.message);
@@ -418,13 +440,18 @@ export function buildCli(
     .description('Remove the launchd or systemd user unit.')
     .action(async () => {
       try {
-        const { target, removed } = await uninstallService(cli.service);
-        if (!removed) {
-          io.out(`No unit at ${target.file}.`);
-          return;
+        for (const kind of ['ingress', 'daemon'] as const) {
+          const target = serviceTarget(cli.service, kind);
+          if (await serviceIsInstalled(cli.service, kind)) {
+            await (cli.runServiceCommands ?? runServiceCommands)(
+              target.unloadCommand,
+            );
+          }
+          const { removed } = await uninstallService(cli.service, kind);
+          io.out(
+            removed ? `Removed ${target.file}` : `No unit at ${target.file}.`,
+          );
         }
-        io.out(`Removed ${target.file}`);
-        io.out(`If it is still loaded, unload it with: ${target.unloadHint}`);
       } catch (error) {
         if (error instanceof UnsupportedPlatformError) {
           fail(error.message);
