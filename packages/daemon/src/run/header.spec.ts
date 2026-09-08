@@ -199,6 +199,38 @@ describe('reading a broken header', () => {
     await expect(readRunHeader(paths, 'NG-601-1')).rejects.toThrow(/repo/);
   });
 
+  it.each([
+    ['no', [false]],
+    ['multiple', [true, true]],
+  ])(
+    'rejects frozen membership with %s lead repositories',
+    async (_description, leads) => {
+      mkdirSync(paths.run('NG-601-1').dir, { recursive: true });
+      await writeFile(
+        paths.run('NG-601-1').runJson,
+        JSON.stringify({
+          ...header(),
+          execution: {
+            source: 'repository',
+            sourceCommit: 'frozen-commit',
+            trigger: { kind: 'linear.onDelegate' },
+            members: leads.map((lead, index) => ({
+              name: `repo-${index}`,
+              path: `repo-${index}`,
+              lead,
+              url: `file:///repo-${index}`,
+              baseBranch: 'main',
+            })),
+          },
+        }),
+      );
+
+      await expect(readRunHeader(paths, 'NG-601-1')).rejects.toThrow(
+        'exactly one lead repository',
+      );
+    },
+  );
+
   it('refuses a header from an incompatible daemon version', async () => {
     await writeRunHeader(paths, header({ v: RUN_HEADER_VERSION + 1 }));
 

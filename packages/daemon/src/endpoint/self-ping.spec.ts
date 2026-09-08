@@ -127,9 +127,7 @@ describe('the webhook on a daemon nobody wired up', () => {
     expect(response.status).toBe(503);
   });
 
-  it('accepts a verified event with no Run engine behind it', async () => {
-    // The seam's default is a no-op, so a daemon started before the Run engine
-    // exists still answers Linear correctly instead of failing the delivery.
+  it('does not acknowledge a verified event without Run admission', async () => {
     daemon = await startDaemon({
       port: 0,
       webRoot: false,
@@ -157,7 +155,7 @@ describe('the webhook on a daemon nobody wired up', () => {
       body,
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
   });
 });
 

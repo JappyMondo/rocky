@@ -48,7 +48,7 @@ export type CheckpointAnswer =
   | { decision: 'reject'; reason?: string }
   | { decision: 'steer'; message: string };
 
-export type RunOutcome = 'merged' | 'rejected' | 'exhausted';
+export type RunOutcome = 'merged' | 'rejected' | 'exhausted' | 'completed';
 
 // ── The Linear seam (NG-578) ───────────────────────────────────────────────
 
@@ -74,9 +74,13 @@ export interface AgentCallOpts<S extends z.ZodType = z.ZodType> {
   /** Display-only Step name for the journal and web UI, e.g. "review 3/5". */
   label?: string;
   harness?: string;
+  /** Passed verbatim to the Harness. */
   model?: string;
+  effort?: string;
+  /** Agent call timeout in milliseconds. */
+  timeout?: number;
   /** The portable tool grants: `read`, `edit`, `bash`. */
-  capabilities?: ('read' | 'edit' | 'bash')[];
+  tools?: ('read' | 'edit' | 'bash')[];
   /** Names of servers declared in `.rocky/mcp.json`. */
   mcp?: string[];
 }
@@ -104,12 +108,17 @@ export interface WorkflowContext {
    * inline one. The markdown carries no frontmatter: everything else is here.
    */
   agent<S extends z.ZodType>(
-    agent: string | { prompt: string },
+    agent: string,
     opts: AgentCallOpts<S> & { schema: S },
-  ): Promise<z.infer<S>>;
+  ): Promise<z.infer<S> & { summary: string }>;
+  agent<S extends z.ZodType>(
+    agent: { prompt: string },
+    opts: AgentCallOpts<S> & { schema: S; label: string },
+  ): Promise<z.infer<S> & { summary: string }>;
+  agent(agent: string, opts?: AgentCallOpts): Promise<{ summary: string }>;
   agent(
-    agent: string | { prompt: string },
-    opts?: AgentCallOpts,
+    agent: { prompt: string },
+    opts: AgentCallOpts & { label: string },
   ): Promise<{ summary: string }>;
 
   /** Start a shell command in the background. One journaled Step. */
@@ -150,4 +159,11 @@ export interface WorkflowContext {
   readonly linear: LinearOps;
 }
 
-export type Workflow = (ctx: WorkflowContext) => Promise<RunOutcome>;
+export interface WorkflowInput {
+  members: readonly { name: string; path: string; lead: boolean }[];
+}
+
+export type Workflow = (
+  ctx: WorkflowContext,
+  input: WorkflowInput,
+) => Promise<RunOutcome>;

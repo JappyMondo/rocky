@@ -13,10 +13,38 @@ import type { LinearSdkLike } from './client.js';
 
 function fakeSdk(overrides: Partial<LinearSdkLike> = {}): LinearSdkLike {
   return {
+    updateSession: vi.fn(async () => ({ success: true })),
+    attachments: vi.fn(async () => ({
+      nodes: [],
+      pageInfo: { hasNextPage: false },
+    })),
+    updateAttachment: vi.fn(async () => ({ success: true })),
+    comment: vi.fn(async () => null),
+    comments: vi.fn(async () => ({
+      nodes: [],
+      pageInfo: { hasNextPage: false },
+    })),
+    activity: vi.fn(async () => null),
+    activities: vi.fn(async () => ({
+      nodes: [],
+      pageInfo: { hasNextPage: false },
+    })),
+    session: vi.fn(async () => ({
+      id: 'sess-1',
+      issueId: 'issue-1',
+      appUserId: 'app-user',
+      dismissedAt: null,
+      delegateId: 'app-user',
+      status: 'active',
+    })),
     createAgentActivity: vi.fn(async () => ({ success: true })),
     createComment: vi.fn(async () => ({ success: true })),
-    createAttachment: vi.fn(async () => ({ success: true })),
-    workflowStates: vi.fn(async () => ({ nodes: [] })),
+    createAttachment: vi.fn(async () => ({ success: true, id: 'actual-id' })),
+    workflowStates: vi.fn(async () => ({
+      nodes: [],
+      pageInfo: { hasNextPage: false },
+    })),
+    updateIssue: vi.fn(async () => ({ success: true })),
     fileUpload: vi.fn(async () => ({ success: true, uploadFile: null })),
     viewer: Promise.resolve({ id: 'app-user', name: 'Rocky (Jan Jaap)' }),
     ...overrides,
@@ -41,6 +69,205 @@ function clientWith(sdk: LinearSdkLike, deps: Record<string, unknown> = {}) {
 }
 
 describe('activities', () => {
+  it('verifies JSON-equivalent optional fields rather than rejecting omitted undefined values', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const row = {
+      id,
+      sessionId: 'sess-1',
+      createdAt: '2026-09-07T00:00:00.000Z',
+      content: { type: 'action', action: 'Checked', parameter: 'Step 1' },
+      ephemeral: false,
+      signalMetadata: { options: [] },
+    };
+    const sdk = fakeSdk({ activity: vi.fn(async () => row) });
+    expect(
+      await clientWith(sdk).ensureActivity({
+        id,
+        sessionId: 'sess-1',
+        content: { ...row.content, result: undefined },
+        signalMetadata: { options: [], unused: undefined },
+      }),
+    ).toEqual({ id, success: true });
+    expect(sdk.createAgentActivity).not.toHaveBeenCalled();
+  });
+  it('never treats a duplicate-ID error or unverified success as completion', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const sdk = fakeSdk({
+      createAgentActivity: vi.fn(async () => {
+        throw new Error('duplicate ID');
+      }),
+    });
+    const client = clientWith(sdk);
+    await expect(
+      client.ensureActivity({
+        id,
+        sessionId: 'sess-1',
+        content: { type: 'thought', body: 'Working' },
+      }),
+    ).rejects.toThrow(/duplicate ID/);
+    sdk.createAgentActivity = vi.fn(async () => ({ success: true }));
+    await expect(
+      client.ensureActivity({
+        id,
+        sessionId: 'sess-1',
+        content: { type: 'thought', body: 'Working' },
+      }),
+    ).rejects.toThrow(/could not be verified/);
+  });
+
+  it('rejects non-UUID effect IDs before any read or write', async () => {
+    const sdk = fakeSdk();
+    const client = clientWith(sdk);
+    await expect(
+      client.ensureActivity({
+        id: 'not-a-uuid',
+        sessionId: 'sess-1',
+        content: { type: 'thought', body: 'Working' },
+      }),
+    ).rejects.toThrow(/UUID-v4/);
+    await expect(
+      client.ensureComment({
+        id: 'not-a-uuid',
+        issueId: 'issue-1',
+        body: 'Start',
+      }),
+    ).rejects.toThrow(/UUID-v4/);
+    expect(sdk.activity).not.toHaveBeenCalled();
+    expect(sdk.comment).not.toHaveBeenCalled();
+  });
+
+  it('refuses to verify ephemeral activities that Linear may already have replaced', async () => {
+    const sdk = fakeSdk();
+    await expect(
+      clientWith(sdk).ensureActivity({
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        sessionId: 'sess-1',
+        ephemeral: true,
+        content: {
+          type: 'action',
+          action: 'Working',
+          parameter: 'Step 1',
+        },
+      }),
+    ).rejects.toThrow(/ephemeral.*postActivity/i);
+    expect(sdk.activity).not.toHaveBeenCalled();
+    expect(sdk.createAgentActivity).not.toHaveBeenCalled();
+  });
+
+  it('refuses a looping pagination cursor instead of returning partial recovery', async () => {
+    const sdk = fakeSdk({
+      activities: vi.fn(async () => ({
+        nodes: [],
+        pageInfo: { hasNextPage: true, endCursor: 'stuck' },
+      })),
+    });
+    await expect(clientWith(sdk).activities('sess-1')).rejects.toThrow(
+      /pagination did not advance/,
+    );
+    expect(sdk.activities).toHaveBeenCalledTimes(2);
+  });
+  it('acknowledges a session using public externalUrls without altering localhost or emitting an activity', async () => {
+    const sdk = fakeSdk();
+    expect(
+      await clientWith(sdk).acknowledgeSession(
+        'sess-1',
+        'http://localhost:7625/runs/run-1',
+      ),
+    ).toEqual({ id: 'sess-1', success: true });
+    expect(sdk.updateSession).toHaveBeenCalledWith('sess-1', {
+      externalUrls: [
+        { label: 'Rocky', url: 'http://localhost:7625/runs/run-1' },
+      ],
+    });
+    expect(sdk.createAgentActivity).not.toHaveBeenCalled();
+  });
+  it('refuses an invented action body instead of sending invalid action content', async () => {
+    const sdk = fakeSdk();
+    await expect(
+      clientWith(sdk).postActivity({
+        sessionId: 'sess-1',
+        content: { type: 'action', body: 'Done' },
+      }),
+    ).rejects.toThrow(/action.*parameter/i);
+    expect(sdk.createAgentActivity).not.toHaveBeenCalled();
+  });
+  it('recovers an ambiguously created activity only after verifying its identity and payload', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const content = {
+      type: 'action',
+      action: 'Checked',
+      parameter: 'Step 1',
+      result: 'Passed',
+    };
+    const row = {
+      id,
+      sessionId: 'sess-1',
+      content,
+      ephemeral: false,
+      createdAt: '2026-09-07T00:00:00.000Z',
+    };
+    const activity = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(row);
+    const createAgentActivity = vi.fn(async () => {
+      throw new Error('connection lost');
+    });
+    const client = clientWith(fakeSdk({ activity, createAgentActivity }));
+    expect(
+      await client.ensureActivity({ id, sessionId: 'sess-1', content }),
+    ).toEqual({ id, success: true });
+    expect(
+      await client.ensureActivity({ id, sessionId: 'sess-1', content }),
+    ).toEqual({ id, success: true });
+    expect(createAgentActivity).toHaveBeenCalledTimes(1);
+    await expect(
+      client.ensureActivity({ id, sessionId: 'other-session', content }),
+    ).rejects.toThrow(/mismatch/i);
+  });
+  it('reads every page with a one-second overlap, dedupes IDs and sorts by time then ID', async () => {
+    const a = {
+      id: 'a',
+      sessionId: 'sess-1',
+      createdAt: '2026-09-07T00:00:01.000Z',
+      content: { type: 'prompt', body: 'first' },
+      ephemeral: false,
+    };
+    const b = {
+      ...a,
+      id: 'b',
+      content: { type: 'prompt', body: 'second' },
+      signal: 'stop' as const,
+    };
+    const activities = vi
+      .fn()
+      .mockResolvedValueOnce({
+        nodes: [b],
+        pageInfo: { hasNextPage: true, endCursor: 'page2' },
+      })
+      .mockResolvedValueOnce({
+        nodes: [b, a],
+        pageInfo: { hasNextPage: false },
+      });
+    expect(
+      await clientWith(fakeSdk({ activities })).activities('sess-1', {
+        since: '2026-09-07T00:00:02.000Z',
+      }),
+    ).toEqual([a, b]);
+    expect(activities.mock.calls).toEqual([
+      ['sess-1', { since: '2026-09-07T00:00:01.000Z' }],
+      ['sess-1', { since: '2026-09-07T00:00:01.000Z', after: 'page2' }],
+    ]);
+  });
+  it('reads the known session and retains dismissal, owner and delegate identity', async () => {
+    const summary = {
+      id: 'sess-1',
+      issueId: 'issue-1',
+      appUserId: 'app-user',
+      delegateId: null,
+      dismissedAt: '2026-09-07T00:00:00.000Z',
+      status: 'complete',
+    };
+    const client = clientWith(fakeSdk({ session: vi.fn(async () => summary) }));
+    expect(await client.session('sess-1')).toEqual(summary);
+  });
   it('posts one and returns the id it chose, so no second call is needed', async () => {
     const sdk = fakeSdk();
     const client = clientWith(sdk);
@@ -112,6 +339,104 @@ describe('activities', () => {
 });
 
 describe('comments and attachments', () => {
+  it('dedupes an attachment repeated across pages before validating identity', async () => {
+    const row = {
+      id: 'actual',
+      issueId: 'issue-1',
+      url: 'http://localhost:7625/issues/issue-1',
+    };
+    const attachments = vi
+      .fn()
+      .mockResolvedValueOnce({
+        nodes: [row],
+        pageInfo: { hasNextPage: true, endCursor: 'next' },
+      })
+      .mockResolvedValueOnce({
+        nodes: [row],
+        pageInfo: { hasNextPage: false },
+      });
+    const sdk = fakeSdk({ attachments });
+    expect(
+      await clientWith(sdk).maintainAttachment({
+        issueId: row.issueId,
+        url: row.url,
+        title: 'Rocky',
+      }),
+    ).toEqual({ id: 'actual', success: true });
+    expect(sdk.createAttachment).not.toHaveBeenCalled();
+  });
+  it('maintains one attachment by issue and stable URL across Runs, using the actual ID', async () => {
+    const url = 'http://localhost:7625/issues/issue-1';
+    const row = { id: 'actual-id', issueId: 'issue-1', url };
+    const attachments = vi
+      .fn()
+      .mockResolvedValueOnce({ nodes: [], pageInfo: { hasNextPage: false } })
+      .mockResolvedValue({ nodes: [row], pageInfo: { hasNextPage: false } });
+    const sdk = fakeSdk({ attachments });
+    const client = clientWith(sdk);
+    expect(
+      await client.maintainAttachment({
+        issueId: 'issue-1',
+        title: 'Rocky',
+        url,
+        subtitle: 'Run 1',
+      }),
+    ).toEqual({ id: 'actual-id', success: true });
+    expect(
+      await client.maintainAttachment({
+        issueId: 'issue-1',
+        title: 'Rocky',
+        url,
+        subtitle: 'Run 2',
+        iconUrl: 'https://example.com/icon.png',
+      }),
+    ).toEqual({ id: 'actual-id', success: true });
+    expect(sdk.createAttachment).toHaveBeenCalledTimes(1);
+    expect(sdk.updateAttachment).toHaveBeenLastCalledWith('actual-id', {
+      title: 'Rocky',
+      subtitle: 'Run 2',
+      iconUrl: 'https://example.com/icon.png',
+    });
+  });
+  it('finds or creates a comment and verifies an ambiguous result, exposing automatic comment associations', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const row = {
+      id,
+      issueId: 'issue-1',
+      body: 'Run started',
+      createdAt: '2026-09-07T00:00:00.000Z',
+      sessionId: 'sess-1',
+      userId: 'app-user',
+      parentId: null,
+    };
+    const comment = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(row);
+    const createComment = vi.fn(async () => {
+      throw new Error('lost response');
+    });
+    const comments = vi
+      .fn()
+      .mockResolvedValueOnce({
+        nodes: [],
+        pageInfo: { hasNextPage: true, endCursor: 'next' },
+      })
+      .mockResolvedValueOnce({
+        nodes: [row],
+        pageInfo: { hasNextPage: false },
+      });
+    const client = clientWith(fakeSdk({ comment, createComment, comments }));
+    expect(
+      await client.ensureComment({
+        id,
+        issueId: 'issue-1',
+        body: 'Run started',
+      }),
+    ).toEqual({ id, success: true });
+    expect(await client.comments('issue-1')).toEqual([row]);
+    await expect(
+      client.ensureComment({ id, issueId: 'issue-1', body: 'Different' }),
+    ).rejects.toThrow(/mismatch/);
+    expect(createComment).toHaveBeenCalledTimes(1);
+  });
   it('posts a comment, optionally as a reply in one thread', async () => {
     const sdk = fakeSdk();
     const client = clientWith(sdk);
@@ -151,12 +476,46 @@ describe('comments and attachments', () => {
 });
 
 describe('issue state reads', () => {
+  it('sets an exact case-insensitive state from a later page and lists all names on a typo', async () => {
+    const workflowStates = vi.fn(async (variables) =>
+      variables?.after
+        ? {
+            nodes: [
+              { id: 'review', name: 'In Review', type: 'started', position: 2 },
+            ],
+            pageInfo: { hasNextPage: false },
+          }
+        : {
+            nodes: [
+              { id: 'todo', name: 'Todo', type: 'unstarted', position: 1 },
+            ],
+            pageInfo: { hasNextPage: true, endCursor: 'next' },
+          },
+    );
+    const sdk = fakeSdk({ workflowStates });
+    const client = clientWith(sdk);
+    expect(
+      await client.setIssueState('issue-1', 'team-1', 'in review'),
+    ).toEqual({ id: 'issue-1', success: true });
+    expect(sdk.updateIssue).toHaveBeenCalledWith('issue-1', {
+      stateId: 'review',
+    });
+    await expect(
+      client.setIssueState('issue-1', 'team-1', 'In Reviw'),
+    ).rejects.toThrow(/Todo, In Review/);
+    expect(sdk.updateIssue).toHaveBeenCalledTimes(1);
+  });
   it('lists a team`s states', async () => {
     const nodes = [
       { id: 's1', name: 'In Progress', type: 'started', position: 1 },
       { id: 's2', name: 'In Review', type: 'started', position: 2 },
     ];
-    const sdk = fakeSdk({ workflowStates: vi.fn(async () => ({ nodes })) });
+    const sdk = fakeSdk({
+      workflowStates: vi.fn(async () => ({
+        nodes,
+        pageInfo: { hasNextPage: false },
+      })),
+    });
 
     expect(await clientWith(sdk).workflowStates('team-1')).toEqual(nodes);
     expect(sdk.workflowStates).toHaveBeenCalledWith({
@@ -168,7 +527,12 @@ describe('issue state reads', () => {
     const nodes = [
       { id: 's2', name: 'In Review', type: 'started', position: 2 },
     ];
-    const sdk = fakeSdk({ workflowStates: vi.fn(async () => ({ nodes })) });
+    const sdk = fakeSdk({
+      workflowStates: vi.fn(async () => ({
+        nodes,
+        pageInfo: { hasNextPage: false },
+      })),
+    });
 
     expect(
       await clientWith(sdk).findWorkflowState('team-1', 'in review'),
@@ -180,7 +544,12 @@ describe('issue state reads', () => {
       { id: 's1', name: 'In Progress', type: 'started', position: 1 },
       { id: 's2', name: 'In Review', type: 'started', position: 2 },
     ];
-    const sdk = fakeSdk({ workflowStates: vi.fn(async () => ({ nodes })) });
+    const sdk = fakeSdk({
+      workflowStates: vi.fn(async () => ({
+        nodes,
+        pageInfo: { hasNextPage: false },
+      })),
+    });
 
     await expect(
       clientWith(sdk).findWorkflowState('team-1', 'Reviewing'),
@@ -270,6 +639,37 @@ describe('uploading a file', () => {
 });
 
 describe('the access token', () => {
+  it('shares one rotating refresh across concurrent calls until persistence finishes', async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        access_token: 'fresh',
+        refresh_token: 'rotated',
+        expires_in: 86400,
+      }),
+    );
+    const save = vi.fn(async () => undefined);
+    const client = new RockyLinearClient({
+      auth: async () => ({
+        accessToken: 'old',
+        refreshToken: 'rt',
+        clientId: 'id',
+        clientSecret: 'secret',
+        expiresAt: 1,
+      }),
+      save,
+      fetch,
+      now: () => 500000,
+    });
+    expect(
+      await Promise.all([
+        client.accessToken(),
+        client.accessToken(),
+        client.accessToken(),
+      ]),
+    ).toEqual(['fresh', 'fresh', 'fresh']);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
   it('is used as-is while it is still good', async () => {
     const createSdk = vi.fn(() => fakeSdk());
     const save = vi.fn(async () => undefined);
