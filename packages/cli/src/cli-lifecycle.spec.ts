@@ -369,7 +369,12 @@ describe('`rocky service`', () => {
     });
 
     expect(lines.out.join('\n')).toContain('running as background services');
-    expect(commands).toEqual(['launchctl', 'launchctl']);
+    expect(commands).toEqual([
+      'launchctl',
+      'launchctl',
+      'launchctl',
+      'launchctl',
+    ]);
   });
 
   it('writes and loads the daemon and ingress units', async () => {
@@ -384,7 +389,12 @@ describe('`rocky service`', () => {
     expect(lines.out[0]).toContain(serviceTarget(MAC()).file);
     expect(lines.out[1]).toContain(serviceTarget(MAC(), 'ingress').file);
     expect(lines.out.join('\n')).toContain('running as background services');
-    expect(commands).toEqual(['launchctl', 'launchctl']);
+    expect(commands).toEqual([
+      'launchctl',
+      'launchctl',
+      'launchctl',
+      'launchctl',
+    ]);
   });
 
   it('leaves an unchanged unit in place', async () => {

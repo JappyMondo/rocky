@@ -12,7 +12,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { readInstanceConfig, type RockyPaths } from '@rocky/daemon';
@@ -120,7 +120,11 @@ export function unitFor(
   const execPath = environment.execPath ?? process.execPath;
   const entry = environment.entry ?? process.argv[1];
   const ingressEntry =
-    environment.ingressEntry ?? join(dirname(entry), 'ingress-main.js');
+    environment.ingressEntry ??
+    join(
+      dirname(entry),
+      basename(entry) === 'rocky' ? 'rocky-ingress' : 'ingress-main.js',
+    );
   const command =
     kind === 'daemon'
       ? [execPath, entry, 'start']
@@ -244,9 +248,16 @@ export async function loadManagedServices(
   services: ManagedServicesResult,
   run = runServiceCommands,
 ): Promise<void> {
-  // The daemon must be present before the ingress begins forwarding requests.
-  await run(services.daemon.target.loadCommand);
-  await run(services.ingress.target.loadCommand);
+  // launchd remembers the old ProgramArguments even after its plist changes.
+  // Unloading first makes `rocky service install` an actual update, not merely
+  // a file write. Missing jobs are normal on a first install.
+  for (const service of [services.daemon, services.ingress]) {
+    if (service.target.platform === 'darwin') {
+      await run(service.target.unloadCommand).catch(() => undefined);
+    }
+    // The daemon must be present before the ingress begins forwarding requests.
+    await run(service.target.loadCommand);
+  }
 }
 
 export interface UninstallResult {
