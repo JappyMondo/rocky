@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
   createWorkflowContext,
   type CheckpointApprovalVerifier,
+  type ExternalContext,
 } from './context.js';
 import type { ApprovedCheckpoint } from '@rocky/sdk';
 import { newRunHeader } from './header.js';
@@ -49,6 +50,56 @@ it('names missing external adapters without inventing behavior', async () => {
       ] as const) {
         expect(() => ctx[name]).toThrow(`ctx.${name} requires an adapter`);
       }
+      return 'merged';
+    },
+  });
+});
+
+it('exposes supplied adapters and preserves a non-approval checkpoint answer', async () => {
+  const adapters = {
+    agent: { run: async () => undefined },
+    post: { publish: async () => undefined },
+    scm: { createPullRequest: async () => undefined },
+    linear: { activity: async () => undefined },
+  } as unknown as ExternalContext;
+  await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (runner) => {
+      const ctx = createWorkflowContext(runner, header, {
+        exec: async () => ({ pid: 1 }),
+        changedFiles: async () => [],
+        external: () => ({
+          ...adapters,
+          checkpoint: async () => ({
+            status: 'done',
+            result: { decision: 'reject', reason: 'not ready' },
+          }),
+        }),
+      });
+      expect(ctx.agent).toBe(adapters.agent);
+      expect(ctx.post).toBe(adapters.post);
+      expect(ctx.scm).toBe(adapters.scm);
+      expect(ctx.linear).toBe(adapters.linear);
+      await expect(
+        ctx.checkpoint({ title: 'Ship?', body: '' }),
+      ).resolves.toEqual({ decision: 'reject', reason: 'not ready' });
+      return 'merged';
+    },
+  });
+});
+
+it('requires a checkpoint adapter when the workflow invokes a checkpoint', async () => {
+  await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (runner) => {
+      const ctx = createWorkflowContext(runner, header, {
+        exec: async () => ({ pid: 1 }),
+        changedFiles: async () => [],
+        external: () => ({}),
+      });
+      await expect(
+        ctx.checkpoint({ title: 'Ship?', body: '' }),
+      ).rejects.toThrow('ctx.checkpoint requires an adapter');
       return 'merged';
     },
   });

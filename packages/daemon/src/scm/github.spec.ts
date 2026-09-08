@@ -273,6 +273,24 @@ it('keeps polling while any current-head CI report is incomplete', async () => {
   transport.done();
 });
 
+it('rejects unsafe CI log limits and PR handles before reading platform state', async () => {
+  const adapter = createGitHubScm({
+    ...githubOptions,
+    fetch: async () => {
+      throw new Error('should not fetch');
+    },
+  });
+  await expect(
+    adapter.waitForCi(githubPr(), { logTailLines: -1 }),
+  ).rejects.toThrow('logTailLines must be between 0 and 10000');
+  await expect(
+    adapter.waitForCi(
+      { ...githubPr(), baseBranch: 'other' },
+      { logTailLines: 0 },
+    ),
+  ).rejects.toMatchObject({ refusal: { reason: 'not_open' } });
+});
+
 it.each([false, true])(
   'ensures guarded auto-merge/queue once but waits for actual merge (queue=%s)',
   async (queue) => {

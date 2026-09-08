@@ -76,11 +76,14 @@ it('runs the explicit Start-Preflight seam before loading the workflow', async (
       order.push('workflow');
       return async () => 'merged';
     },
+    beforeWorkflow: async () => {
+      order.push('prepare');
+    },
   });
   expect(
     (await runtime.boot(header, 'run', new AbortController().signal)).status,
   ).toBe('finished');
-  expect(order).toEqual(['preflight', 'workflow']);
+  expect(order).toEqual(['preflight', 'workflow', 'prepare']);
 });
 
 it('captures real command output and records renewed ports in the header', async () => {
@@ -218,6 +221,67 @@ it('journals real changed files against the configured base, including untracked
     (await runtime.boot(header, 'run', new AbortController().signal)).status,
   ).toBe('finished');
   expect(files).toEqual([['tracked', 'untracked']]);
+});
+
+it('collects changed files from every frozen repository member against its base branch', async () => {
+  const workspace = join(dir, 'group');
+  const members = [
+    { name: 'app', path: 'app', lead: true },
+    { name: 'api', path: 'api', lead: false },
+  ];
+  for (const member of members) {
+    const cwd = join(workspace, member.path);
+    await git(['init', '-b', 'main', cwd]);
+    await writeFile(join(cwd, 'tracked'), 'before');
+    await git(['add', '.'], { cwd });
+    await git(
+      [
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@localhost',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '-m',
+        'base',
+      ],
+      { cwd },
+    );
+    await git(['branch', 'origin/main', 'main'], { cwd });
+    await git(['switch', '-c', 'work'], { cwd });
+    await writeFile(join(cwd, 'tracked'), 'after');
+    await writeFile(join(cwd, 'untracked'), 'new');
+  }
+  header = {
+    ...header,
+    execution: {
+      source: 'repository',
+      sourceCommit: 'frozen',
+      trigger: { kind: 'linear.onDelegate' },
+      members: members.map((member) => ({
+        ...member,
+        url: `https://example.test/${member.name}`,
+        baseBranch: 'main',
+      })),
+    },
+  };
+  await writeRunHeader(paths, header);
+  const files: string[][] = [];
+  runtime = new WorkflowRuntime({
+    paths,
+    workspace: () => workspace,
+    loadWorkflow: async () => async (ctx) => {
+      files.push(await ctx.changedFiles());
+      return 'merged';
+    },
+  });
+  expect(
+    (await runtime.boot(header, 'run', new AbortController().signal)).status,
+  ).toBe('finished');
+  expect(files).toEqual([
+    ['app/tracked', 'app/untracked', 'api/tracked', 'api/untracked'],
+  ]);
 });
 
 it('fails readably on an invalid working directory and cleans up its worker', async () => {

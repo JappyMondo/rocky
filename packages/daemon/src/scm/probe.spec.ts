@@ -392,3 +392,145 @@ it('uses the GitLab OAuth scope fallback and rejects an insufficient project rol
     draft: { status: 'unknown' },
   });
 });
+
+it.each([
+  [
+    'cannot observe the target branch',
+    undefined,
+    'unknown',
+    'Target branch is not observable',
+  ],
+  [
+    'cannot observe protected target grants',
+    { protected: true, policies: [] },
+    'unknown',
+    'Allowed to merge policy is hidden or empty',
+  ],
+  [
+    'proves the account is excluded from protected target grants',
+    {
+      protected: true,
+      policies: [
+        {
+          name: 'main',
+          merge_access_levels: [{ user_id: 2 }],
+          push_access_levels: [],
+          allow_force_push: false,
+        },
+      ],
+    },
+    'denied',
+    "Account dev is not in main's Allowed to merge policy",
+  ],
+] as const)(
+  'fails closed when GitLab %s',
+  async (_case, target, status, source) => {
+    const fetcher: typeof fetch = async (url) => {
+      const path = new URL(String(url)).pathname.replace(/^\/api\/v4/, '');
+      if (path === '/user') return Response.json({ id: 1, username: 'dev' });
+      if (path === '/version') return Response.json({ version: '19.1.0-ee' });
+      if (path === '/projects/team%2Frepo')
+        return Response.json({
+          id: 5,
+          merge_trains_enabled: false,
+          permissions: {
+            project_access: { access_level: 30 },
+            group_access: null,
+          },
+        });
+      if (path === '/personal_access_tokens/self')
+        return Response.json({ scopes: ['api'] });
+      if (path.endsWith('/protected_branches'))
+        return Response.json(
+          target && 'policies' in target ? target.policies : [],
+        );
+      if (path.endsWith('/repository/branches/main')) {
+        if (!target) return Response.json({}, { status: 404 });
+        return Response.json({ protected: target.protected, can_push: true });
+      }
+      if (path.endsWith('/repository/branches/ng-524'))
+        return Response.json({ protected: false, can_push: true });
+      if (path.endsWith('/merge_requests')) return Response.json([]);
+      throw new Error(`Unexpected ${path}`);
+    };
+
+    const probe = await createGitLabScm({
+      ...gitlabOptions,
+      fetch: fetcher,
+    }).probe(new AbortController().signal);
+
+    expect(probe.merge).toMatchObject({
+      status,
+      source: expect.stringContaining(source),
+    });
+  },
+);
+
+it.each([
+  ['GitHub branch policy', 'GET /repos/team/repo/rules/branches/main'],
+  ['GitHub completion capability', 'POST /graphql'],
+])('propagates unexpected %s failures', async (_case, failure) => {
+  const fetcher: typeof fetch = async (url, init) => {
+    const path = `${init?.method ?? 'GET'} ${new URL(String(url)).pathname}`;
+    if (path.endsWith(failure)) throw new Error('network unavailable');
+    const value =
+      path === 'GET /user'
+        ? { login: 'dev' }
+        : path === 'GET /repos/team/repo'
+          ? { private: true, permissions: { push: true } }
+          : path.includes('/rules/branches/')
+            ? []
+            : path.includes('/branches/')
+              ? { protected: false }
+              : path === 'POST /graphql'
+                ? { data: { repository: { autoMergeAllowed: true } } }
+                : path.endsWith('/pulls')
+                  ? []
+                  : undefined;
+    if (value === undefined) throw new Error(`Unexpected ${path}`);
+    return Response.json(value, { headers: { 'x-oauth-scopes': 'repo' } });
+  };
+
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: fetcher }).probe(
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('network unavailable');
+});
+
+it.each([
+  ['scope lookup', '/personal_access_tokens/self'],
+  ['OAuth fallback', '/oauth/token/info'],
+  ['protected-branch policy', '/protected_branches'],
+  ['source branch lookup', '/repository/branches/main'],
+])('propagates unexpected GitLab %s failures', async (_case, failure) => {
+  const fetcher: typeof fetch = async (url) => {
+    const path = new URL(String(url)).pathname.replace(/^\/api\/v4/, '');
+    if (path.endsWith(failure)) throw new Error('network unavailable');
+    if (path === '/user') return Response.json({ id: 1, username: 'dev' });
+    if (path === '/version') return Response.json({ version: '19.1.0-ee' });
+    if (path === '/projects/team%2Frepo')
+      return Response.json({
+        id: 5,
+        merge_trains_enabled: false,
+        permissions: {
+          project_access: { access_level: 30 },
+          group_access: null,
+        },
+      });
+    if (path === '/personal_access_tokens/self')
+      return Response.json({}, { status: 404 });
+    if (path === '/oauth/token/info') return Response.json({ scope: ['api'] });
+    if (path.endsWith('/protected_branches')) return Response.json([]);
+    if (path.includes('/repository/branches/'))
+      return Response.json({ protected: false, can_push: true });
+    if (path.endsWith('/merge_requests')) return Response.json([]);
+    throw new Error(`Unexpected ${path}`);
+  };
+
+  await expect(
+    createGitLabScm({ ...gitlabOptions, fetch: fetcher }).probe(
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('network unavailable');
+});

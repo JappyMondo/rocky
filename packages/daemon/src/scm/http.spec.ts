@@ -91,6 +91,39 @@ it('tails a secure redirected log without forwarding the developer token', async
   expect(calls[1]?.headers.get('authorization')).toBeNull();
 });
 
+it('avoids downloading unnecessary or bodyless log tails', async () => {
+  let calls = 0;
+  const client = http(async () => {
+    calls++;
+    return new Response(null);
+  });
+
+  await expect(client.logTail('/logs', 0)).resolves.toBe('');
+  await expect(client.logTail('/logs', 1)).resolves.toBe('');
+  expect(calls).toBe(1);
+});
+
+it('bounds both transport scopes and conditional-response cache entries', async () => {
+  const fetch: typeof globalThis.fetch = async () =>
+    Response.json({ ok: true }, { headers: { etag: 'fixture' } });
+  const schema = z.object({ ok: z.boolean() });
+  for (let id = 0; id <= 256; id++) {
+    const client = new ScmHttp(
+      {
+        repo: repository,
+        branch: 'ng-524',
+        token: `secret-token-${id}`,
+        fetch,
+      },
+      'https://default.test',
+    );
+    await client.request('GET', `/cached-${id}`, schema);
+  }
+  const cached = http(fetch);
+  for (let id = 0; id <= 256; id++)
+    await cached.request('GET', `/entry-${id}`, schema);
+});
+
 it('refuses unsafe log redirects and redacts GraphQL error tokens', async () => {
   const unsafeRedirect = http(
     async () =>
