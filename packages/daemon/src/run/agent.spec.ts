@@ -11,7 +11,7 @@ import {
   type AgentOptions,
 } from './agent.js';
 import { runBoot } from './replay.js';
-import { appendEntry, openJournal } from './journal.js';
+import { JOURNAL_FORMAT_VERSION, appendEntry, openJournal } from './journal.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -578,11 +578,63 @@ it('a missing snapshot prompt is Run-fatal even when Workflow code catches it', 
   });
 });
 
-it('names the Harness successor when no adapter has been integrated', async () => {
+it('refuses a named Agent prompt that escapes the snapshot', async () => {
+  const f = fixture();
+  await mkdir(join(f.options.snapshotDir, 'agents'), { recursive: true });
+  await writeFile(join(dir, 'outside.md'), 'Work.');
+  const outcome = await runBoot({
+    journalPath: join(dir, 'escaped-prompt.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)('../../outside', { label: 'worker' });
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'Agent prompt must be inside the snapshot',
+      ),
+    },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('uses the current Harness registry to refuse an unavailable configured Harness', async () => {
   const f = fixture();
   delete f.options.adapterFor;
+  f.options.harnesses.missing = {
+    command: 'missing',
+    env: {},
+    sessionStorage: 'rocky',
+  };
   const outcome = await runBoot({
     journalPath: join(dir, 'harness-missing.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker', harness: 'missing' },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'Harness #20 returned no runnable adapter for missing',
+      ),
+    },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('requires instance Harness configuration even when the current registry provides an adapter', async () => {
+  const f = fixture();
+  delete f.options.adapterFor;
+  delete f.options.harnesses.opencode;
+  const outcome = await runBoot({
+    journalPath: join(dir, 'harness-config-missing.jsonl'),
     workflow: async (steps) => {
       await createAgent(steps, f.options)(
         { prompt: 'Work.' },
@@ -593,7 +645,180 @@ it('names the Harness successor when no adapter has been integrated', async () =
   });
   expect(outcome).toMatchObject({
     status: 'failed',
-    error: { message: expect.stringContaining('Integrate Harness #20') },
+    error: { message: expect.stringContaining('Unknown Harness opencode') },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('makes non-Error MCP preparation failures terminal before invoking a Harness', async () => {
+  const f = fixture();
+  f.resolveServers.mockRejectedValue('unstructured MCP failure');
+  const outcome = await runBoot({
+    journalPath: join(dir, 'mcp-non-error.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: {
+      message:
+        'MCP preparation failed; check snapshot mcp.json and rocky mcp login',
+    },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('fails a third interrupted Agent invocation without starting a fourth attempt', async () => {
+  const f = fixture();
+  const journalPath = join(dir, 'interrupted-agent.jsonl');
+  const startedAt = Date.now();
+  await appendEntry(journalPath, {
+    v: JOURNAL_FORMAT_VERSION,
+    seq: 0,
+    step: 'agent',
+    label: 'worker',
+    status: 'running',
+    boot: 1,
+    startedAt: new Date(startedAt).toISOString(),
+    progress: {
+      kind: 'agent',
+      attempt: 3,
+      startedAt,
+      deadline: startedAt + 30 * 60_000,
+      phase: 'invoking',
+      nudges: [],
+      usage: {},
+      turns: [],
+      delivered: [],
+    },
+  });
+
+  const outcome = await runBoot({
+    journalPath,
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'Agent attempt 3 did not settle before this Boot',
+      ),
+    },
+  });
+  expect(f.run).not.toHaveBeenCalled();
+  expect((await openJournal(journalPath)).latest(0)?.attempts).toMatchObject([
+    { kind: 'failed', attempt: 3 },
+  ]);
+});
+
+it('replays persisted Agent failure state and refuses malformed continuation state', async () => {
+  const f = fixture();
+  const startedAt = Date.now();
+  const base = {
+    kind: 'agent' as const,
+    attempt: 3,
+    startedAt,
+    deadline: startedAt + 30 * 60_000,
+    nudges: [],
+    usage: {},
+    turns: [],
+    delivered: [],
+  };
+  const failedJournal = join(dir, 'failed-without-error.jsonl');
+  await appendEntry(failedJournal, {
+    v: JOURNAL_FORMAT_VERSION,
+    seq: 0,
+    step: 'agent',
+    label: 'worker',
+    status: 'running',
+    boot: 1,
+    startedAt: new Date(startedAt).toISOString(),
+    progress: { ...base, phase: 'failed' },
+  });
+  const failed = await runBoot({
+    journalPath: failedJournal,
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(failed).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining('failed without a durable error'),
+    },
+  });
+
+  const recordedErrorJournal = join(dir, 'recorded-agent-error.jsonl');
+  await appendEntry(recordedErrorJournal, {
+    v: JOURNAL_FORMAT_VERSION,
+    seq: 0,
+    step: 'agent',
+    label: 'worker',
+    status: 'running',
+    boot: 1,
+    startedAt: new Date(startedAt).toISOString(),
+    progress: {
+      ...base,
+      phase: 'failed',
+      error: { name: 'Error', message: 'retained Agent failure' },
+    },
+  });
+  const recordedError = await runBoot({
+    journalPath: recordedErrorJournal,
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(recordedError).toMatchObject({
+    status: 'failed',
+    error: { message: 'retained Agent failure' },
+  });
+
+  const continuationJournal = join(dir, 'continuation-without-session.jsonl');
+  await appendEntry(continuationJournal, {
+    v: JOURNAL_FORMAT_VERSION,
+    seq: 0,
+    step: 'agent',
+    label: 'worker',
+    status: 'running',
+    boot: 1,
+    startedAt: new Date(startedAt).toISOString(),
+    progress: { ...base, phase: 'resume', continuation: 'steer' },
+  });
+  const continuation = await runBoot({
+    journalPath: continuationJournal,
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Work.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  expect(continuation).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining('continuation is missing its durable'),
+    },
   });
   expect(f.run).not.toHaveBeenCalled();
 });
@@ -701,6 +926,32 @@ it('does not let display callback failures affect a completed Agent', async () =
       },
     }),
   ).resolves.toMatchObject({ status: 'finished' });
+});
+
+it('refuses a Steer after the Agent conversation has closed', async () => {
+  const f = fixture();
+  let conversation!: AgentContinuation;
+  f.options.steer = {
+    register(handle) {
+      conversation = handle;
+      return () => undefined;
+    },
+  };
+  await expect(
+    runBoot({
+      journalPath: join(dir, 'closed-conversation.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, f.options)(
+          { prompt: 'Work.' },
+          { label: 'worker' },
+        );
+        return 'completed';
+      },
+    }),
+  ).resolves.toMatchObject({ status: 'finished' });
+  await expect(
+    conversation.steer({ id: 'late', note: 'Do not lose this direction.' }),
+  ).rejects.toThrow('Agent conversation is closed');
 });
 
 it('coalesces queued Steers and acknowledges an already durable continuation', async () => {
