@@ -78,7 +78,6 @@ export async function createProductionComposition(options: {
     },
   });
   const controls = new Map<string, LinearRunControl>();
-  let execution!: ExecutionIntegration;
 
   const controlFor = async (
     runId: string,
@@ -107,7 +106,7 @@ export async function createProductionComposition(options: {
     return control;
   };
 
-  execution = await openExecution({
+  const execution = await openExecution({
     paths: options.paths,
     config: () => options.config.current,
     repos: createRepoContext({
