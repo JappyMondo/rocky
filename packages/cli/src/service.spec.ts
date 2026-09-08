@@ -124,6 +124,21 @@ describe('the launchd unit', () => {
     expect(unit).toContain('<string>8123</string>');
   });
 
+  it('uses the installed rocky-ingress binary when the CLI was launched through node_modules/.bin', () => {
+    const unit = unitFor(
+      paths,
+      {
+        ...MAC(),
+        entry: '/project/node_modules/.bin/rocky',
+      },
+      'ingress',
+    );
+
+    expect(unit).toContain(
+      '<string>/project/node_modules/.bin/rocky-ingress</string>',
+    );
+  });
+
   it('comes back after a reboot and after a crash', () => {
     const unit = unitFor(paths, MAC());
 
@@ -235,7 +250,9 @@ describe('installing', () => {
       '<string>8123</string>',
     );
     expect(loaded).toEqual([
+      `launchctl unload -w ${services.daemon.target.file}`,
       `launchctl load -w ${services.daemon.target.file}`,
+      `launchctl unload -w ${services.ingress.target.file}`,
       `launchctl load -w ${services.ingress.target.file}`,
     ]);
   });
