@@ -141,6 +141,10 @@ it('composes grouped delegation and manual admission through the real Boot and i
     requestId: 'manual-2',
   });
   expect(next.kind).toBe('started');
+  await expect(execution.journal('not-a-run')).rejects.toThrow(
+    'Unknown Run not-a-run',
+  );
+  await execution.tick();
   await execution.close();
 });
 
