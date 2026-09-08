@@ -26,7 +26,10 @@ import type { RockyPaths } from '../config/paths.js';
  * snapshot is only a durable marker: production.ts selects the shipped
  * onboarding Workflow when it sees `execution.source === 'onboarding'`.
  */
-async function prepareOnboardingSnapshot(paths: RockyPaths, signal: AbortSignal) {
+async function prepareOnboardingSnapshot(
+  paths: RockyPaths,
+  signal: AbortSignal,
+) {
   signal.throwIfAborted();
   const staging = join(paths.root, 'snapshots');
   await mkdir(staging, { recursive: true });
@@ -117,7 +120,8 @@ export async function createProductionComposition(options: {
         content: { type: 'error', body: message },
       });
     },
-    onboarding: (_lead, signal) => prepareOnboardingSnapshot(options.paths, signal),
+    onboarding: (_lead, signal) =>
+      prepareOnboardingSnapshot(options.paths, signal),
     agentSteer: {
       open: async (runId, conversation) =>
         (await controlFor(runId))?.openConversation({
