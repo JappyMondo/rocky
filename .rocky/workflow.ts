@@ -23,9 +23,9 @@ import {
 } from './schemas.js';
 
 // BEGIN ROCKY CONFIG
-const commands = {"install":"pnpm install","test":"","lint":"","build":""};
+const commands = { install: 'pnpm install', test: '', lint: '', build: '' };
 const ui: { start: string; url: string } | null = null;
-const states = {"started":"In Progress","review":"In Review","done":"Done"};
+const states = { started: 'In Progress', review: 'In Review', done: 'Done' };
 const reviewCap = 5;
 const ciCap = 3;
 const agent = { harness: 'claude-code', model: 'sonnet' };
