@@ -2,7 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { createWorkflowContext } from './context.js';
+import {
+  createWorkflowContext,
+  type CheckpointApprovalVerifier,
+  type ExternalContext,
+} from './context.js';
+import type { ApprovedCheckpoint } from '@rocky/sdk';
 import { newRunHeader } from './header.js';
 import { openJournal, type JournalEntry } from './journal.js';
 import { runBoot } from './replay.js';
@@ -48,6 +53,130 @@ it('names missing external adapters without inventing behavior', async () => {
       return 'merged';
     },
   });
+});
+
+it('exposes supplied adapters and preserves a non-approval checkpoint answer', async () => {
+  const adapters = {
+    agent: { run: async () => undefined },
+    post: { publish: async () => undefined },
+    scm: { createPullRequest: async () => undefined },
+    linear: { activity: async () => undefined },
+  } as unknown as ExternalContext;
+  await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (runner) => {
+      const ctx = createWorkflowContext(runner, header, {
+        exec: async () => ({ pid: 1 }),
+        changedFiles: async () => [],
+        external: () => ({
+          ...adapters,
+          checkpoint: async () => ({
+            status: 'done',
+            result: { decision: 'reject', reason: 'not ready' },
+          }),
+        }),
+      });
+      expect(ctx.agent).toBe(adapters.agent);
+      expect(ctx.post).toBe(adapters.post);
+      expect(ctx.scm).toBe(adapters.scm);
+      expect(ctx.linear).toBe(adapters.linear);
+      await expect(
+        ctx.checkpoint({ title: 'Ship?', body: '' }),
+      ).resolves.toEqual({ decision: 'reject', reason: 'not ready' });
+      return 'merged';
+    },
+  });
+});
+
+it('requires a checkpoint adapter when the workflow invokes a checkpoint', async () => {
+  await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (runner) => {
+      const ctx = createWorkflowContext(runner, header, {
+        exec: async () => ({ pid: 1 }),
+        changedFiles: async () => [],
+        external: () => ({}),
+      });
+      await expect(
+        ctx.checkpoint({ title: 'Ship?', body: '' }),
+      ).rejects.toThrow('ctx.checkpoint requires an adapter');
+      return 'merged';
+    },
+  });
+});
+
+it('mints approval capabilities only from this Boot checkpoint answer, including replay', async () => {
+  const journalPath = join(dir, 'journal.jsonl');
+  let verifier: CheckpointApprovalVerifier | undefined;
+  let previous: ApprovedCheckpoint | undefined;
+  for (let boot = 0; boot < 2; boot++) {
+    await runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+          external: (_steps, approvals) => {
+            verifier = approvals;
+            return {
+              checkpoint: async () => ({
+                status: 'done',
+                result: { decision: 'approve' as const },
+              }),
+            };
+          },
+        });
+        const answer = await ctx.checkpoint({ title: 'Merge', body: '' });
+        expect(answer.decision).toBe('approve');
+        if (answer.decision !== 'approve') throw new Error('expected approval');
+        expect(verifier?.(answer)).toBe(true);
+        expect(verifier?.({ decision: 'approve' } as ApprovedCheckpoint)).toBe(
+          false,
+        );
+        if (previous) expect(verifier?.(previous)).toBe(false);
+        previous = answer;
+        return 'merged';
+      },
+    });
+  }
+});
+
+it('journals an unjournalled raw checkpoint once and remints approval on replay', async () => {
+  const journalPath = join(dir, 'journal.jsonl');
+  let effects = 0;
+  let prior: ApprovedCheckpoint | undefined;
+  for (let boot = 0; boot < 2; boot++) {
+    await runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        let verifier: CheckpointApprovalVerifier | undefined;
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+          external: (_steps, approvals) => {
+            verifier = approvals;
+            return {
+              checkpoint: async () => {
+                effects++;
+                return { status: 'done', result: { decision: 'approve' } };
+              },
+            };
+          },
+        });
+        const answer = await ctx.checkpoint({ title: 'Merge', body: '' });
+        if (answer.decision !== 'approve') throw new Error('expected approval');
+        expect(verifier?.(answer)).toBe(true);
+        if (prior) expect(verifier?.(prior)).toBe(false);
+        prior = answer;
+        return 'merged';
+      },
+    });
+  }
+  expect(effects).toBe(1);
+  const journal = await openJournal(journalPath);
+  expect(
+    journal.entries.filter((entry) => entry.step === 'checkpoint'),
+  ).toHaveLength(2);
 });
 
 it('runs ordinary loops and nested parallel callbacks through the same ctx and replays their Steps', async () => {

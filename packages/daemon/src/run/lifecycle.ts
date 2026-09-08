@@ -2,7 +2,11 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Workflow } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
-import { createWorkflowContext, type ExternalContext } from './context.js';
+import {
+  createWorkflowContext,
+  type CheckpointApprovalVerifier,
+  type ExternalServices,
+} from './context.js';
 import { readRunHeader, updateRunHeader, type RunHeader } from './header.js';
 import {
   runBoot,
@@ -14,6 +18,16 @@ import { startCommand, type OwnedCommand } from './process.js';
 
 export interface WorkflowRuntimeOptions {
   paths: RockyPaths;
+  /**
+   * Optional composition seam for NG-605. The composition root binds this to
+   * runPreflight plus frozen members and MCP config; the runtime owns only the
+   * journal ordering and replay.
+   */
+  startPreflight?(
+    run: RunHeader,
+    steps: BootContext,
+    signal: AbortSignal,
+  ): Promise<void>;
   /** NG-598 supplies the snapshotted Workflow, never a mutable repo import. */
   loadWorkflow(run: RunHeader, signal: AbortSignal): Promise<Workflow>;
   /** Framework preparation (workspace/Preflight), journaled through these same Steps. */
@@ -29,7 +43,8 @@ export interface WorkflowRuntimeOptions {
     run: RunHeader,
     steps: BootContext,
     signal: AbortSignal,
-  ): Partial<ExternalContext>;
+    approvals: CheckpointApprovalVerifier,
+  ): ExternalServices;
   execTimeoutMs?: number;
   append?: RunBootOptions['append'];
   read?: RunBootOptions['read'];
@@ -81,6 +96,7 @@ export class WorkflowRuntime {
             this.ports.set(run.runId, [port]);
             run = await updateRunHeader(paths, run.runId, { ports: [port] });
           }
+          await this.options.startPreflight?.(run, steps, signal);
           const workflow = await this.options.loadWorkflow(run, signal);
           await this.options.beforeWorkflow?.(run, steps, signal);
           const cwd =
@@ -155,8 +171,8 @@ export class WorkflowRuntime {
                 }
                 return [...new Set(files)];
               },
-              external: (branch) =>
-                this.options.external?.(run, branch, signal) ?? {},
+              external: (branch, approvals) =>
+                this.options.external?.(run, branch, signal, approvals) ?? {},
             }),
             {
               members:

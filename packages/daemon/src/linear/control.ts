@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { CheckpointAnswer } from '@rocky/sdk';
 import { z } from 'zod';
 import type {
   PostActivityOptions,
@@ -9,6 +8,11 @@ import type {
 } from './client.js';
 import type { StepOutcome } from '../run/replay.js';
 import type { AgentSessionEvent } from './events.js';
+
+type RawCheckpointAnswer =
+  | { decision: 'approve' }
+  | { decision: 'reject'; reason?: string }
+  | { decision: 'steer'; message: string };
 
 /** Bound to runner-owned records in the Run's Journal, never a header cache. */
 export interface LinearControlStore {
@@ -40,18 +44,18 @@ export interface CheckpointIdentity {
 export interface CheckpointSnapshot extends CheckpointIdentity {
   title: string;
   body: string;
-  answer?: CheckpointAnswer;
+  answer?: RawCheckpointAnswer;
   answeredAt?: string;
 }
 
 export interface CheckpointAnswerInput extends CheckpointIdentity {
   requestId: string;
-  answer: CheckpointAnswer;
+  answer: RawCheckpointAnswer;
 }
 
 export type CheckpointAnswerResult =
-  | { kind: 'accepted'; answer: CheckpointAnswer }
-  | { kind: 'already-answered'; answer: CheckpointAnswer };
+  | { kind: 'accepted'; answer: RawCheckpointAnswer }
+  | { kind: 'already-answered'; answer: RawCheckpointAnswer };
 
 export interface SteerTargetSnapshot {
   stepKey: string;
@@ -145,7 +149,7 @@ export interface ControlInput {
   /** Local Answer calls must bind both parts of the Checkpoint identity. */
   stepKey?: string;
   generation?: string;
-  answer?: CheckpointAnswer;
+  answer?: RawCheckpointAnswer;
   /** Internal guard for local Compose, which cannot resolve a Checkpoint. */
   steerOnly?: boolean;
 }
@@ -313,7 +317,7 @@ export class LinearRunControl {
   async checkpoint(
     stepKey: string,
     request: CheckpointRequest,
-  ): Promise<StepOutcome<CheckpointAnswer>> {
+  ): Promise<StepOutcome<RawCheckpointAnswer>> {
     const previous = await this.exclusive(async () =>
       (await this.state()).checkpoints.find((item) => item.stepKey === stepKey),
     );

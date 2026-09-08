@@ -71,17 +71,14 @@ it('composes grouped delegation and manual admission through the real Boot and i
     },
     external: (_run, steps, signal) => ({
       checkpoint: async () => {
-        const resolved = await steps.step('checkpoint', {}, async () => {
-          expect(signal.aborted).toBe(false);
-          return answer
-            ? {
-                status: 'done' as const,
-                result: { decision: 'approve' as const },
-              }
-            : { status: 'waiting' as const };
-        });
-        if (!resolved) throw new Error('Checkpoint remained parked');
-        return resolved;
+        expect(steps).toBeDefined();
+        expect(signal.aborted).toBe(false);
+        return answer
+          ? {
+              status: 'done' as const,
+              result: { decision: 'approve' as const },
+            }
+          : { status: 'waiting' as const };
       },
     }),
   });

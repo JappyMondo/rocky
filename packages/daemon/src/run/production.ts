@@ -65,7 +65,7 @@ export function createProductionRuntime(
       await options.preflight?.(run, steps, signal);
     },
     env: () => env,
-    external: (run, steps, signal) => {
+    external: (run, steps, signal, approvals) => {
       const resolveHarness = (name: 'claude-code' | 'opencode') => {
         const settings = expandHarness(
           name,
@@ -84,7 +84,7 @@ export function createProductionRuntime(
         };
       };
       return {
-        ...options.external?.(run, steps, signal),
+        ...options.external?.(run, steps, signal, approvals),
         agent: createAgent(steps, {
           snapshotDir: options.paths.run(run.runId).snapshotDir,
           cwd: options.paths.run(run.runId).workspaceDir,
