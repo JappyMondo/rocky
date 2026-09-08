@@ -37,4 +37,5 @@ export type {
   ScmRefusal,
   Workflow,
   WorkflowContext,
+  WorkflowInput,
 } from './ctx.js';

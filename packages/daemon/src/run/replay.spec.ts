@@ -21,6 +21,7 @@ import {
   runBoot,
   type BootContext,
   type BootResult,
+  type EffectHandle,
 } from './replay.js';
 import {
   END_STEP,
@@ -464,6 +465,353 @@ describe('a failed Step', () => {
 });
 
 describe('attempts', () => {
+  it.each(['record', 'update'] as const)(
+    'drains an unawaited %s failure before any later effect or terminal record',
+    async (method) => {
+      const failure = new Error('flush failed');
+      let fail = false;
+      let reached = false;
+      const appended: JournalEntry[] = [];
+      await expect(
+        boot(
+          async (ctx) => {
+            await ctx
+              .step('agent', {}, async (handle) => {
+                fail = true;
+                if (method === 'update')
+                  void handle.update({ session: 'first' });
+                else
+                  void handle.record({
+                    kind: 'failed',
+                    startedAt: 'now',
+                    ms: 1,
+                    error: { name: 'Error', message: 'retry' },
+                  });
+                void handle.update({ session: 'second' });
+                throw new Error(
+                  'ordinary effect error must not hide persistence failure',
+                );
+              })
+              .catch(() => undefined);
+            await ctx
+              .step('later', {}, async () => {
+                reached = true;
+                return { status: 'done', result: null };
+              })
+              .catch(() => undefined);
+            return 'merged';
+          },
+          {
+            append: async (target, entry, options) => {
+              if (fail) {
+                fail = false;
+                throw failure;
+              }
+              appended.push(entry);
+              await appendEntry(target, entry, options);
+            },
+          },
+        ),
+      ).rejects.toBe(failure);
+      expect(reached).toBe(false);
+      expect(appended).toHaveLength(1);
+      expect((await openJournal(path)).latest(0)?.status).toBe('running');
+    },
+  );
+
+  it('rejects non-JSON progress through the promised API without changing progress', async () => {
+    let checked = false;
+    const result = await boot(async (ctx) => {
+      await ctx.step('agent', {}, async (handle) => {
+        await handle.update({ session: 'kept' });
+        await expect(handle.update({ session: new Date() })).rejects.toThrow(
+          'plain JSON',
+        );
+        expect(handle.progress).toEqual({ session: 'kept' });
+        checked = true;
+        return { status: 'done', result: null };
+      });
+      return 'merged';
+    });
+    expect(checked).toBe(true);
+    expect(result.status).toBe('finished');
+  });
+
+  it.each(['done', 'waiting', 'failed'] as const)(
+    'drains unawaited snapshots before %s and rejects late writers',
+    async (status) => {
+      let handle!: EffectHandle;
+      const writing = deferred<void>();
+      const release = deferred<void>();
+      const progress = { session: { id: 'original' } };
+      const attempt = {
+        kind: 'steer' as const,
+        note: 'original',
+        startedAt: 'now',
+        ms: 1,
+        usage: { input_tokens: 1 },
+        nudges: [{ error: 'original' }],
+      };
+      const result = boot(
+        async (ctx) => {
+          await ctx.step('agent', {}, async (current) => {
+            handle = current;
+            void handle.update(progress);
+            progress.session.id = 'mutated';
+            void handle.record(attempt);
+            attempt.note = 'mutated';
+            attempt.usage.input_tokens = 999;
+            attempt.nudges[0]!.error = 'mutated';
+            void handle.update({ session: { id: 'final' } });
+            if (status === 'failed') throw new Error('effect failed');
+            return status === 'waiting' ? { status } : { status, result: null };
+          });
+          return 'merged';
+        },
+        {
+          append: async (target, entry, options) => {
+            if (
+              entry.progress &&
+              !entry.attempts &&
+              entry.status === 'running'
+            ) {
+              writing.resolve();
+              await release.promise;
+            }
+            await appendEntry(target, entry, options);
+          },
+        },
+      );
+      await writing.promise;
+      try {
+        expect((await openJournal(path)).latest(0)?.status).toBe('running');
+        await expect(handle.update({ late: true })).rejects.toThrow('closed');
+        await expect(handle.record(attempt)).rejects.toThrow('closed');
+      } finally {
+        release.resolve();
+      }
+      await result;
+      const journal = await openJournal(path);
+      expect(
+        journal.entries
+          .filter((entry) => entry.step === 'agent')
+          .map((entry) => entry.progress),
+      ).toEqual([
+        undefined,
+        { session: { id: 'original' } },
+        { session: { id: 'original' } },
+        { session: { id: 'final' } },
+        { session: { id: 'final' } },
+      ]);
+      expect(journal.latest(0)).toMatchObject({
+        status,
+        attempts: [
+          {
+            note: 'original',
+            usage: { input_tokens: 1 },
+            nudges: [{ error: 'original' }],
+          },
+        ],
+      });
+      await expect(handle.update(null)).rejects.toThrow('closed');
+      expect(await lines()).toEqual(journal.entries);
+    },
+  );
+
+  it.each(['record', 'update'] as const)(
+    'latches a caught %s persistence failure across nested siblings and later root Steps',
+    async (method) => {
+      const failed = deferred<void>();
+      const failure = new Error('disk unavailable');
+      const touched: string[] = [];
+      let rejectWrite = false;
+      const result = boot(
+        async (ctx) => {
+          await ctx
+            .parallel('outer', [0, 1], {}, async (branch, index) => {
+              if (index === 0) {
+                await branch
+                  .parallel('inner', [0], {}, async (nested) => {
+                    await nested
+                      .step('agent', {}, async (handle) => {
+                        rejectWrite = true;
+                        try {
+                          if (method === 'update')
+                            await handle.update({ session: 'saved' });
+                          else
+                            await handle.record({
+                              kind: 'steer',
+                              note: 'continue',
+                              startedAt: 'now',
+                              ms: 1,
+                            });
+                        } catch {
+                          failed.resolve();
+                        }
+                        return { status: 'done', result: null };
+                      })
+                      .catch(() => undefined);
+                  })
+                  .catch(() => undefined);
+              } else {
+                await failed.promise;
+                await branch
+                  .step('later sibling', {}, async () => {
+                    touched.push('sibling');
+                    return { status: 'done', result: null };
+                  })
+                  .catch(() => undefined);
+              }
+            })
+            .catch(() => undefined);
+          await ctx
+            .step('later root', {}, async () => {
+              touched.push('root');
+              return { status: 'done', result: null };
+            })
+            .catch(() => undefined);
+          return 'merged';
+        },
+        {
+          append: async (target, entry, options) => {
+            if (rejectWrite) {
+              rejectWrite = false;
+              throw failure;
+            }
+            await appendEntry(target, entry, options);
+          },
+        },
+      );
+      await expect(result).rejects.toBe(failure);
+      expect(touched).toEqual([]);
+      expect((await openJournal(path)).end).toBeUndefined();
+    },
+  );
+
+  it('recovers detached progress and stable identities through nested parallel reservations', async () => {
+    const identities: string[] = [];
+    const saved: unknown[] = [];
+    const workflow =
+      (controller?: AbortController): Workflow =>
+      async (ctx) => {
+        await ctx.parallel('outer', [0, 1], {}, async (branch, index) => {
+          await branch.parallel('inner', [0], {}, async (nested) => {
+            await nested.step('agent', {}, async (handle) => {
+              identities.push(handle.identity);
+              if (controller) {
+                await handle.update({ session: { id: `session-${index}` } });
+                await handle.record({
+                  kind: 'steer',
+                  note: 'continue',
+                  ms: 1,
+                  startedAt: 'now',
+                });
+                saved.push(handle.progress);
+              } else {
+                saved.push(handle.progress);
+                const detached = handle.progress;
+                if (typeof detached === 'object' && detached !== null) {
+                  Object.assign(detached, { session: null });
+                }
+                expect(handle.progress).toEqual({
+                  session: { id: `session-${index}` },
+                });
+              }
+              if (controller) {
+                // Both branches reach a durable update before shutting down.
+                if (saved.length === 2) controller.abort();
+                await bothUpdated.promise;
+                throw new Error('shutdown');
+              }
+              return { status: 'done', result: null };
+            });
+          });
+        });
+        return 'merged';
+      };
+    const bothUpdated = deferred<void>();
+    const controller = new AbortController();
+    controller.signal.addEventListener('abort', () => bothUpdated.resolve());
+    expect(
+      (await boot(workflow(controller), { signal: controller.signal })).status,
+    ).toBe('cancelled');
+    const journal = await openJournal(path);
+    for (const branch of journal.latest(0)!.parallel!.branches) {
+      expect(branch.at(-1)?.parallel?.branches[0]?.at(-1)).toMatchObject({
+        status: 'running',
+        attempts: [{ kind: 'steer', note: 'continue' }],
+      });
+    }
+    expect((await boot(workflow())).status).toBe('finished');
+    expect(identities).toEqual([
+      '0/0/0/0/0',
+      '0/1/0/0/0',
+      '0/0/0/0/0',
+      '0/1/0/0/0',
+    ]);
+    expect(saved).toEqual([
+      { session: { id: 'session-0' } },
+      { session: { id: 'session-1' } },
+      { session: { id: 'session-0' } },
+      { session: { id: 'session-1' } },
+    ]);
+  });
+
+  it('persists attempts while running and preserves them in the next Boot reservation', async () => {
+    const attempt = {
+      kind: 'failed' as const,
+      startedAt: '2026-09-02T10:00:00.000Z',
+      ms: 5,
+      error: { name: 'Error', message: 'retry' },
+      usage: { input_tokens: 12, output_tokens: 3 },
+      nudges: [{ error: 'invalid output' }],
+      attempt: 1,
+    };
+    const controller = new AbortController();
+    let running: JournalEntry | undefined;
+    await boot(
+      async (ctx) => {
+        await ctx.step('agent', {}, async (handle) => {
+          await handle.record(attempt);
+          await handle.update({ session: 'resume-me' });
+          running = (await openJournal(path)).latest(0);
+          controller.abort();
+          throw new Error('shutdown');
+        });
+        return 'merged';
+      },
+      { signal: controller.signal },
+    );
+    expect(running).toMatchObject({
+      status: 'running',
+      attempts: [attempt],
+      progress: { session: 'resume-me' },
+    });
+
+    await expect(
+      boot(
+        async (ctx) => {
+          await ctx.step('agent', {}, async () => {
+            throw new Error('must not reach effect');
+          });
+          return 'merged';
+        },
+        {
+          append: async (target, entry, options) => {
+            await appendEntry(target, entry, options);
+            throw new Error('interrupted after reservation');
+          },
+        },
+      ),
+    ).rejects.toThrow('interrupted after reservation');
+    expect((await openJournal(path)).latest(0)).toMatchObject({
+      boot: 2,
+      status: 'running',
+      attempts: [attempt],
+      progress: { session: 'resume-me' },
+    });
+  });
+
   it('accumulate on the entry without consuming a seq', async () => {
     await boot(async (ctx) => {
       await ctx.step('agent', {}, async (attempt) => {
