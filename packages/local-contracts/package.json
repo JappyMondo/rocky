@@ -1,0 +1,16 @@
+{
+  "name": "@rocky/local-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Type-only wire contracts for Rocky's local product, separate from Workflow SDK semantics.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "@rocky/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  }
+}

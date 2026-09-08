@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -6,6 +7,13 @@ export default defineConfig({
   // The daemon serves these statics from its own root, so no base prefix.
   base: '/',
   plugins: [react()],
+  define: {
+    __ROCKY_VERSION__: JSON.stringify(
+      JSON.parse(
+        readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+      ).version,
+    ),
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

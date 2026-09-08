@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [react()],
+  define: { __ROCKY_VERSION__: JSON.stringify('0.0.0') },
   test: {
     name: 'web',
     environment: 'jsdom',
