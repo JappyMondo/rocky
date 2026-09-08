@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { lstat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import {
   AUTH_PROBES,
   expandHarness,
@@ -22,6 +23,13 @@ export interface InteractiveExit {
   code: number | null;
   signal: NodeJS.Signals | null;
 }
+
+export interface ClaudeCodeCompatibility {
+  version: string;
+  help: string;
+}
+
+const executeFile = promisify(execFile);
 
 export async function initContent(options: {
   repo: string;
@@ -48,7 +56,30 @@ export interface UpgradeOptions {
   resolveHarness?(
     harness: ShippedHarness,
   ): Promise<{ command: string; env: NodeJS.ProcessEnv }>;
+  /** Read-only native CLI probe used to prove the requested consent mode exists. */
+  probeClaude?(
+    request: Pick<InteractiveRequest, 'command' | 'cwd' | 'env'>,
+  ): Promise<ClaudeCodeCompatibility>;
   launch?(request: InteractiveRequest): Promise<InteractiveExit>;
+}
+
+/** Choose only a mode the installed CLI explicitly advertises as human-approved. */
+export function selectClaudeConsentMode(
+  claude: ClaudeCodeCompatibility,
+): 'manual' | 'default' {
+  const entry = claude.help.match(
+    /(?:^|\n)\s*--permission-mode\b[\s\S]*?(?=\n\s{2,}--|\n\s*$|$)/,
+  )?.[0];
+  const choices = entry
+    ?.match(/\(choices:\s*([^)]+)\)/)?.[1]
+    ?.split(',')
+    .map((choice) => choice.trim().replace(/^['"]|['"]$/g, ''));
+  if (choices?.includes('manual')) return 'manual';
+  if (choices?.includes('default')) return 'default';
+  const version = claude.version.trim() || 'an unknown version';
+  throw new Error(
+    `Claude Code ${version} does not advertise manual or default in \`claude --help\`. Install a compatible Claude Code version or rerun \`rocky upgrade --harness opencode\`; Rocky did not start a session.`,
+  );
 }
 
 export async function upgradeContent(
@@ -85,57 +116,64 @@ export async function upgradeContent(
       );
   const prompt = `Compare the locally edited Workflow tree at ${JSON.stringify(local)} with the read-only shipped default at ${JSON.stringify(shipped)}. Read and discuss differences file by file, showing what to take and what to keep. Preserve local Config values and custom edits. Ask the human to approve each proposed change before applying it through native edit confirmation. Keep the shipped tree untouched. Leave accepted edits uncommitted. Never stage, commit, push, reset, roll back, or write version metadata. If the human aborts before approving edits, leave the working copy and index byte-identical; if they abort later, retain accepted edits. This is a conversation, not an automatic merge.`;
   const env = { ...resolved.env };
-  let args: string[];
-  if (harness === 'claude-code') {
-    args = [
-      '--permission-mode',
-      'default',
-      '--tools',
-      'Read,Glob,Grep,Edit,Write',
-      '--strict-mcp-config',
-      '--mcp-config',
-      '{"mcpServers":{}}',
-      '--settings',
-      JSON.stringify({
-        disableAllHooks: true,
-        permissions: {
-          ask: ['Edit', 'Write', 'Bash', 'NotebookEdit', 'mcp__*'],
-          deny: [`Edit(/${shipped}/**)`, `Write(/${shipped}/**)`],
-        },
-      }),
-      prompt,
-    ];
-  } else {
-    const permission = {
-      '*': 'ask',
-      read: 'allow',
-      glob: 'allow',
-      grep: 'allow',
-      question: 'allow',
-      edit: { '*': 'ask', [`${shipped}/**`]: 'deny' },
-      bash: 'deny',
-      task: 'deny',
-    };
-    const inherited = env.OPENCODE_CONFIG_CONTENT
-      ? JSON.parse(env.OPENCODE_CONFIG_CONTENT)
-      : {};
-    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
-      ...inherited,
-      agent: {
-        ...inherited.agent,
-        'rocky-upgrade': {
-          description: 'Negotiate Workflow changes with the human',
-          mode: 'primary',
-          permission,
-        },
-      },
-    });
-    env.OPENCODE_PERMISSION = JSON.stringify(permission);
-    // Project config discovery can itself write .opencode files before the first turn.
-    env.OPENCODE_DISABLE_PROJECT_CONFIG = 'true';
-    args = ['--pure', '--agent', 'rocky-upgrade', '--prompt', prompt];
-  }
   try {
+    let args: string[];
+    if (harness === 'claude-code') {
+      const mode = selectClaudeConsentMode(
+        await (options.probeClaude ?? probeClaudeCompatibility)({
+          command: resolved.command,
+          cwd: repo,
+          env,
+        }),
+      );
+      args = [
+        '--permission-mode',
+        mode,
+        '--tools',
+        'Read,Glob,Grep,Edit,Write',
+        '--strict-mcp-config',
+        '--mcp-config',
+        '{"mcpServers":{}}',
+        '--settings',
+        JSON.stringify({
+          disableAllHooks: true,
+          permissions: {
+            ask: ['Edit', 'Write', 'Bash', 'NotebookEdit', 'mcp__*'],
+            deny: [`Edit(${shipped}/**)`, `Write(${shipped}/**)`],
+          },
+        }),
+        prompt,
+      ];
+    } else {
+      const permission = {
+        '*': 'ask',
+        read: 'allow',
+        glob: 'allow',
+        grep: 'allow',
+        question: 'allow',
+        edit: { '*': 'ask', [`${shipped}/**`]: 'deny' },
+        bash: 'deny',
+        task: 'deny',
+      };
+      const inherited = env.OPENCODE_CONFIG_CONTENT
+        ? JSON.parse(env.OPENCODE_CONFIG_CONTENT)
+        : {};
+      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+        ...inherited,
+        agent: {
+          ...inherited.agent,
+          'rocky-upgrade': {
+            description: 'Negotiate Workflow changes with the human',
+            mode: 'primary',
+            permission,
+          },
+        },
+      });
+      env.OPENCODE_PERMISSION = JSON.stringify(permission);
+      // Project config discovery can itself write .opencode files before the first turn.
+      env.OPENCODE_DISABLE_PROJECT_CONFIG = 'true';
+      args = ['--pure', '--agent', 'rocky-upgrade', '--prompt', prompt];
+    }
     return await (options.launch ?? launchInteractive)({
       command: resolved.command,
       args,
@@ -144,7 +182,7 @@ export async function upgradeContent(
       stdio: 'inherit',
     });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isMissingCommand(error)) {
       throw new Error(
         `Cannot launch ${harness}: install ${resolved.command} or fix harnesses.${harness}.command, then sign in with its native login command.`,
         { cause: error },
@@ -152,6 +190,47 @@ export async function upgradeContent(
     }
     throw error;
   }
+}
+
+export async function probeClaudeCompatibility(
+  request: Pick<InteractiveRequest, 'command' | 'cwd' | 'env'>,
+): Promise<ClaudeCodeCompatibility> {
+  let version: string;
+  try {
+    version = (await nativeOutput(request, ['--version'])).trim() || 'unknown';
+  } catch (error) {
+    throw new Error(
+      `Cannot inspect Claude Code compatibility: ${request.command} --version failed. Install a working Claude Code CLI or rerun \`rocky upgrade --harness opencode\`; Rocky did not start a session.`,
+      { cause: error },
+    );
+  }
+  try {
+    return { version, help: await nativeOutput(request, ['--help']) };
+  } catch (error) {
+    throw new Error(
+      `Cannot inspect Claude Code ${version} compatibility: ${request.command} --help failed. Install a version whose help lists manual or default, or rerun \`rocky upgrade --harness opencode\`; Rocky did not start a session.`,
+      { cause: error },
+    );
+  }
+}
+
+async function nativeOutput(
+  request: Pick<InteractiveRequest, 'command' | 'cwd' | 'env'>,
+  args: string[],
+): Promise<string> {
+  const { stdout } = await executeFile(request.command, args, {
+    cwd: request.cwd,
+    env: request.env,
+    encoding: 'utf8',
+  });
+  return stdout;
+}
+
+function isMissingCommand(error: unknown): boolean {
+  for (let cause = error; cause instanceof Error; cause = cause.cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return true;
+  }
+  return false;
 }
 
 export async function resolveInteractiveHarness(

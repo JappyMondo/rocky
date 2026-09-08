@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -9,11 +16,31 @@ import {
   initContent,
   launchInteractive,
   resolveInteractiveHarness,
+  selectClaudeConsentMode,
   upgradeContent,
   type InteractiveRequest,
 } from './content-commands.js';
 
 const temporary: string[] = [];
+const claudeHelp = (modes: string[]) =>
+  [
+    'Usage: claude [options]',
+    '  --permission-mode <mode> Permission mode to use for the session',
+    `    (choices: ${modes.map((mode) => JSON.stringify(mode)).join(', ')})`,
+    '  --permission-prompts <target> Who answers permission prompts',
+  ].join('\n');
+const currentClaude = {
+  version: '2.1.263 (Claude Code)',
+  help: claudeHelp([
+    'acceptEdits',
+    'auto',
+    'bypassPermissions',
+    'manual',
+    'dontAsk',
+    'plan',
+  ]),
+};
+const currentClaudeProbe = { probeClaude: async () => currentClaude };
 afterEach(async () => {
   await Promise.all(
     temporary.map((path) => rm(path, { recursive: true, force: true })),
@@ -30,6 +57,44 @@ async function fixture() {
   return { repo, shippedDir };
 }
 
+async function nativeClaude(repo: string) {
+  const command = join(repo, 'claude-fixture.mjs');
+  await writeFile(
+    command,
+    [
+      `#!${process.execPath}`,
+      "import { appendFileSync, writeFileSync } from 'node:fs';",
+      'const args = process.argv.slice(2);',
+      'const trace = process.env.ROCKY_CLAUDE_TRACE;',
+      "if (trace) appendFileSync(trace, JSON.stringify(args) + '\\n');",
+      "if (args.includes('--version')) {",
+      "  process.stdout.write(process.env.ROCKY_CLAUDE_VERSION ?? 'fixture');",
+      "  process.exit(Number(process.env.ROCKY_CLAUDE_VERSION_EXIT ?? '0'));",
+      '}',
+      "if (args.includes('--help')) {",
+      "  process.stdout.write(process.env.ROCKY_CLAUDE_HELP ?? '');",
+      "  process.exit(Number(process.env.ROCKY_CLAUDE_HELP_EXIT ?? '0'));",
+      '}',
+      'if (process.env.ROCKY_CLAUDE_ACCEPTED_FILE)',
+      '  writeFileSync(',
+      '    process.env.ROCKY_CLAUDE_ACCEPTED_FILE,',
+      "    process.env.ROCKY_CLAUDE_ACCEPTED_CONTENT ?? '',",
+      '  );',
+      "process.exit(Number(process.env.ROCKY_CLAUDE_EXIT ?? '0'));",
+    ].join('\n'),
+  );
+  await chmod(command, 0o755);
+  return command;
+}
+
+async function invocations(trace: string): Promise<string[][]> {
+  return (await readFile(trace, 'utf8'))
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 it('init delegates to foreground inspection/seeding and refuses existing content first', async () => {
   const { repo } = await fixture();
   const seed = vi.fn(async () => join(repo, '.rocky'));
@@ -42,7 +107,23 @@ it('init delegates to foreground inspection/seeding and refuses existing content
   expect(seed).toHaveBeenCalledWith(repo);
 });
 
-it('upgrade opens a native interactive Claude session with edit consent and propagates exit', async () => {
+it('selects only explicitly advertised Claude consent modes', () => {
+  expect(selectClaudeConsentMode(currentClaude)).toBe('manual');
+  expect(
+    selectClaudeConsentMode({
+      version: '2.0.0',
+      help: claudeHelp(['default', 'acceptEdits']),
+    }),
+  ).toBe('default');
+  expect(() =>
+    selectClaudeConsentMode({
+      version: '2.1.263 (Claude Code)',
+      help: claudeHelp(['acceptEdits', 'auto', 'plan']),
+    }),
+  ).toThrow(/does not advertise manual or default/);
+});
+
+it('upgrade opens a native interactive Claude session with explicit edit consent and propagates exit', async () => {
   const { repo, shippedDir } = await fixture();
   const launch = vi.fn(async (_request: InteractiveRequest) => ({
     code: 7,
@@ -52,6 +133,7 @@ it('upgrade opens a native interactive Claude session with edit consent and prop
     repo,
     shippedDir,
     interactive: true,
+    ...currentClaudeProbe,
     launch,
     resolveHarness: async () => ({
       command: 'my-claude',
@@ -67,7 +149,7 @@ it('upgrade opens a native interactive Claude session with edit consent and prop
     env: { CLAUDE_CONFIG_DIR: '/account' },
   });
   expect(request?.args).toContain('--permission-mode');
-  expect(request?.args).toContain('default');
+  expect(request?.args).toContain('manual');
   expect(request?.args.join(' ')).toContain(
     '"ask":["Edit","Write","Bash","NotebookEdit","mcp__*"]',
   );
@@ -76,6 +158,142 @@ it('upgrade opens a native interactive Claude session with edit consent and prop
   expect(await readFile(join(repo, '.rocky/workflow.ts'), 'utf8')).toBe(
     '// edited',
   );
+});
+
+it('runs the real version/help probes, starts only the advertised manual flow, and preserves abort semantics', async () => {
+  const { repo, shippedDir } = await fixture();
+  const git = async (...args: string[]) =>
+    promisify(execFile)('git', args, { cwd: repo });
+  await git('init', '--quiet');
+  await writeFile(join(repo, 'dirty.txt'), 'staged');
+  await git('add', 'dirty.txt', '.rocky/workflow.ts');
+  await writeFile(join(repo, 'dirty.txt'), 'unstaged');
+  const index = await readFile(join(repo, '.git/index'));
+  const command = await nativeClaude(repo);
+  const trace = join(repo, 'claude-trace.jsonl');
+  const env = {
+    ROCKY_CLAUDE_TRACE: trace,
+    ROCKY_CLAUDE_VERSION: currentClaude.version,
+    ROCKY_CLAUDE_HELP: currentClaude.help,
+    ROCKY_CLAUDE_EXIT: '130',
+  };
+  const common = {
+    repo,
+    shippedDir,
+    interactive: true,
+    resolveHarness: async () => ({ command, env }),
+  };
+  await expect(upgradeContent(common)).resolves.toEqual({
+    code: 130,
+    signal: null,
+  });
+  expect(await readFile(join(repo, '.git/index'))).toEqual(index);
+  expect(await readFile(join(repo, 'dirty.txt'), 'utf8')).toBe('unstaged');
+  expect(await readFile(join(repo, '.rocky/workflow.ts'), 'utf8')).toBe(
+    '// edited',
+  );
+  const first = await invocations(trace);
+  expect(first.slice(0, 2)).toEqual([['--version'], ['--help']]);
+  const session = first[2];
+  if (!session) throw new Error('Expected an interactive Claude invocation.');
+  expect(session[session.indexOf('--permission-mode') + 1]).toBe('manual');
+  expect(session[session.indexOf('--tools') + 1]).toBe(
+    'Read,Glob,Grep,Edit,Write',
+  );
+  expect(session).toContain('--strict-mcp-config');
+  expect(session).not.toContain('--print');
+  expect(session).not.toContain('--dangerously-skip-permissions');
+  const settings = JSON.parse(
+    session[session.indexOf('--settings') + 1] ?? '{}',
+  );
+  expect(settings.permissions).toEqual({
+    ask: ['Edit', 'Write', 'Bash', 'NotebookEdit', 'mcp__*'],
+    deny: [`Edit(${shippedDir}/**)`, `Write(${shippedDir}/**)`],
+  });
+
+  await expect(
+    upgradeContent({
+      ...common,
+      resolveHarness: async () => ({
+        command,
+        env: {
+          ...env,
+          ROCKY_CLAUDE_ACCEPTED_FILE: join(repo, '.rocky/workflow.ts'),
+          ROCKY_CLAUDE_ACCEPTED_CONTENT: '// accepted',
+        },
+      }),
+    }),
+  ).resolves.toEqual({ code: 130, signal: null });
+  expect(await readFile(join(repo, '.git/index'))).toEqual(index);
+  expect(await readFile(join(repo, 'dirty.txt'), 'utf8')).toBe('unstaged');
+  expect(await readFile(join(repo, '.rocky/workflow.ts'), 'utf8')).toBe(
+    '// accepted',
+  );
+});
+
+it('names a failed real Claude help probe without starting a session', async () => {
+  const { repo, shippedDir } = await fixture();
+  const command = await nativeClaude(repo);
+  const trace = join(repo, 'claude-trace.jsonl');
+  await expect(
+    upgradeContent({
+      repo,
+      shippedDir,
+      interactive: true,
+      resolveHarness: async () => ({
+        command,
+        env: {
+          ROCKY_CLAUDE_TRACE: trace,
+          ROCKY_CLAUDE_VERSION: currentClaude.version,
+          ROCKY_CLAUDE_HELP_EXIT: '9',
+        },
+      }),
+    }),
+  ).rejects.toThrow(/2\.1\.263.*--help failed/);
+  expect(await invocations(trace)).toEqual([['--version'], ['--help']]);
+});
+
+it('names a failed real Claude version probe without reading help or starting a session', async () => {
+  const { repo, shippedDir } = await fixture();
+  const command = await nativeClaude(repo);
+  const trace = join(repo, 'claude-trace.jsonl');
+  await expect(
+    upgradeContent({
+      repo,
+      shippedDir,
+      interactive: true,
+      resolveHarness: async () => ({
+        command,
+        env: {
+          ROCKY_CLAUDE_TRACE: trace,
+          ROCKY_CLAUDE_VERSION_EXIT: '9',
+        },
+      }),
+    }),
+  ).rejects.toThrow(/--version failed/);
+  expect(await invocations(trace)).toEqual([['--version']]);
+});
+
+it('refuses unproved real Claude consent compatibility before launching', async () => {
+  const { repo, shippedDir } = await fixture();
+  const command = await nativeClaude(repo);
+  const trace = join(repo, 'claude-trace.jsonl');
+  await expect(
+    upgradeContent({
+      repo,
+      shippedDir,
+      interactive: true,
+      resolveHarness: async () => ({
+        command,
+        env: {
+          ROCKY_CLAUDE_TRACE: trace,
+          ROCKY_CLAUDE_VERSION: currentClaude.version,
+          ROCKY_CLAUDE_HELP: claudeHelp(['acceptEdits', 'auto', 'plan']),
+        },
+      }),
+    }),
+  ).rejects.toThrow(/did not start a session/);
+  expect(await invocations(trace)).toEqual([['--version'], ['--help']]);
 });
 
 it('OpenCode uses its TUI, preserves account/storage config, and overrides automatic editing', async () => {
@@ -143,6 +361,7 @@ it('uses the configured native defaults without inheriting an OpenCode policy', 
     interactive: true,
     paths,
     env: {},
+    ...currentClaudeProbe,
     launch,
   });
   await upgradeContent({
@@ -178,6 +397,7 @@ it('uses default storage and environment only after interactive consent', async 
       repo,
       shippedDir,
       interactive: true,
+      ...currentClaudeProbe,
       launch: async (request) => {
         requests.push(request);
         return { code: 0, signal: null };
@@ -216,6 +436,7 @@ it('preserves an unexpected native launch failure', async () => {
       repo,
       shippedDir,
       interactive: true,
+      ...currentClaudeProbe,
       resolveHarness: async () => ({ command: 'claude', env: {} }),
       launch: async () => {
         throw failure;
@@ -246,45 +467,6 @@ it('refuses missing terminal, local content, and packaged assets before launchin
     upgradeContent({ repo, shippedDir, interactive: true, launch }),
   ).rejects.toThrow('rocky init');
   expect(launch).not.toHaveBeenCalled();
-});
-
-it('preserves staged and dirty bytes on abort and retains only human-accepted edits on later exit', async () => {
-  const { repo, shippedDir } = await fixture();
-  const git = async (...args: string[]) =>
-    promisify(execFile)('git', args, { cwd: repo });
-  await git('init', '--quiet');
-  await writeFile(join(repo, 'dirty.txt'), 'staged');
-  await git('add', 'dirty.txt', '.rocky/workflow.ts');
-  await writeFile(join(repo, 'dirty.txt'), 'unstaged');
-  const index = await readFile(join(repo, '.git/index'));
-  const common = {
-    repo,
-    shippedDir,
-    interactive: true,
-    resolveHarness: async () => ({ command: 'claude', env: {} }),
-  };
-  await upgradeContent({
-    ...common,
-    launch: async () => ({ code: 130, signal: null }),
-  });
-  expect(await readFile(join(repo, '.git/index'))).toEqual(index);
-  expect(await readFile(join(repo, 'dirty.txt'), 'utf8')).toBe('unstaged');
-  expect(await readFile(join(repo, '.rocky/workflow.ts'), 'utf8')).toBe(
-    '// edited',
-  );
-  await upgradeContent({
-    ...common,
-    launch: async () => {
-      // The native-process seam represents an edit explicitly accepted by the human.
-      await writeFile(join(repo, '.rocky/workflow.ts'), '// accepted');
-      return { code: 130, signal: null };
-    },
-  });
-  expect(await readFile(join(repo, '.git/index'))).toEqual(index);
-  expect(await readFile(join(repo, '.rocky/workflow.ts'), 'utf8')).toBe(
-    '// accepted',
-  );
-  expect(await readFile(join(repo, 'dirty.txt'), 'utf8')).toBe('unstaged');
 });
 
 it('resolves configured command and environment with shared expansion without reading credentials', async () => {
