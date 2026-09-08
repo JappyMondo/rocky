@@ -7,13 +7,13 @@ const root = resolve(import.meta.dirname, '..');
 const cliRoot = join(root, 'packages/cli');
 const output = join(cliRoot, 'dist/package');
 const manifests = await Promise.all(
-  ['sdk', 'daemon', 'cli'].map(async (name) =>
+  ['sdk', 'daemon', 'local-contracts', 'cli'].map(async (name) =>
     JSON.parse(
       await readFile(join(root, 'packages', name, 'package.json'), 'utf8'),
     ),
   ),
 );
-const cli = manifests[2];
+const cli = manifests.at(-1);
 const dependencies = Object.fromEntries(
   Object.entries(
     Object.assign({}, ...manifests.map((manifest) => manifest.dependencies)),
