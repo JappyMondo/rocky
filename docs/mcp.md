@@ -165,10 +165,9 @@ type McpServer = {
 };
 ```
 
-OAuth arrives as ordinary `config.headers.Authorization: "Bearer ..."`.
-The older optional `authorization` field on `ResolvedMcpServer` is not populated.
-An explicit case-insensitive Authorization header takes precedence at
-attempt-render. Never-logged-in remotes pass through without a fabricated token:
+OAuth arrives as ordinary `config.headers.Authorization: "Bearer ..."`; there is no
+separate authorization field on Harness input. An explicit case-insensitive
+Authorization header takes precedence at attempt resolution. Never-logged-in remotes pass through without a fabricated token:
 only the server's first rejection establishes whether auth is required.
 
 Adapters must enforce the effective Step policy against personal, global and

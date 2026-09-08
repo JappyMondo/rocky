@@ -65,6 +65,7 @@ export const repoGroupSchema = z.looseObject({
 export const harnessSchema = z.looseObject({
   command: nonEmpty.optional(),
   env: z.record(nonEmpty, z.string()).optional(),
+  sessionStorage: z.enum(['rocky', 'opencode']).default('rocky'),
 });
 
 /**
@@ -125,6 +126,7 @@ const instanceConfigShape = z.looseObject({
 export type RepoEntry = z.infer<typeof repoEntrySchema>;
 export type RepoGroup = z.infer<typeof repoGroupSchema>;
 export type RockyIdentity = z.infer<typeof identitySchema>;
+export type HarnessConfigInput = z.input<typeof harnessSchema>;
 export type HarnessConfig = z.infer<typeof harnessSchema>;
 export type InstanceConfig = z.infer<typeof instanceConfigShape>;
 
@@ -196,6 +198,15 @@ export const instanceConfigSchema = instanceConfigShape.superRefine(
     }
 
     for (const name of Object.keys(config.harnesses)) {
+      if (
+        name === 'claude-code' &&
+        config.harnesses[name].sessionStorage !== 'rocky'
+      ) {
+        fail(
+          ['harnesses', name, 'sessionStorage'],
+          'claude-code requires Rocky-owned session storage; opencode storage is only available to opencode',
+        );
+      }
       if (!(SHIPPED_HARNESSES as readonly string[]).includes(name)) {
         fail(
           ['harnesses', name],

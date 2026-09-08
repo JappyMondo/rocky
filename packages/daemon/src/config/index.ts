@@ -27,6 +27,7 @@ export {
   serverSchema,
   type Credentials,
   type HarnessConfig,
+  type HarnessConfigInput,
   type InstanceConfig,
   type RepoEntry,
   type RepoGroup,

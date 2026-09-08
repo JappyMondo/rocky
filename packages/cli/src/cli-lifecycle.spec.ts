@@ -18,6 +18,7 @@ import {
   writeInstanceConfig,
   writePidFile,
   type DaemonProcess,
+  type HarnessAdapter,
   type RockyPaths,
 } from '@rocky/daemon';
 
@@ -62,10 +63,24 @@ function io() {
 }
 
 /** Never touches the network or a real harness binary. */
+const adapterFor =
+  (
+    checkAuth: (
+      harness: HarnessAdapter['name'],
+    ) => Awaited<ReturnType<HarnessAdapter['checkAuth']>>,
+  ): NonNullable<NonNullable<CliOptions['doctor']>['adapterFor']> =>
+  (name) =>
+    name === 'claude-code' || name === 'opencode'
+      ? { name, checkAuth: () => Promise.resolve(checkAuth(name)) }
+      : undefined;
+
 const HEALTHY_DOCTOR: CliOptions['doctor'] = {
   fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-  checkHarness: (harness) =>
-    Promise.resolve({ harness, ok: true, detail: 'signed in' }),
+  adapterFor: adapterFor((harness) => ({
+    harness,
+    ok: true,
+    detail: 'signed in',
+  })),
 };
 
 async function run(argv: string[], options: CliOptions = {}) {
@@ -96,7 +111,7 @@ describe('`rocky doctor`', () => {
   it('exits non-zero when a check fails', async () => {
     await writeFile(paths.configFile, '{ not json');
 
-    await run(['doctor'], { doctor: HEALTHY_DOCTOR });
+    await run(['doctor']);
 
     expect(process.exitCode).toBe(1);
   });
@@ -120,13 +135,12 @@ describe('`rocky doctor`', () => {
     const lines = await run(['doctor'], {
       doctor: {
         ...HEALTHY_DOCTOR,
-        checkHarness: (harness) =>
-          Promise.resolve({
-            harness,
-            ok: false,
-            detail: 'not signed in',
-            fix: 'claude login',
-          }),
+        adapterFor: adapterFor((harness) => ({
+          harness,
+          ok: false,
+          detail: 'not signed in',
+          fix: 'claude login',
+        })),
       },
     });
 
@@ -140,8 +154,11 @@ describe('`rocky doctor`', () => {
     const lines = await run(['doctor'], {
       doctor: {
         ...HEALTHY_DOCTOR,
-        checkHarness: (harness) =>
-          Promise.resolve({ harness, ok: false, detail: 'not signed in' }),
+        adapterFor: adapterFor((harness) => ({
+          harness,
+          ok: false,
+          detail: 'not signed in',
+        })),
       },
     });
 
@@ -234,6 +251,23 @@ describe('the commands that need a daemon to be there', () => {
     );
   });
 
+  it('`status` honors explicit flags and tolerates an older health response', async () => {
+    const lines = await run(
+      ['status', '--host', '127.0.0.2', '--port', '9999'],
+      {
+        fetch: async (input) => {
+          expect(String(input)).toBe('http://127.0.0.2:9999/api/health');
+          return new Response('{}', { status: 200 });
+        },
+      },
+    );
+
+    expect(lines.out[0]).toBe('Rocky v? is running on http://127.0.0.2:9999');
+    expect(lines.out.join('\n')).not.toContain(
+      'The web UI is not built into this daemon.',
+    );
+  });
+
   it('`stop` ends it and says which pid it ended', async () => {
     await start();
 
@@ -315,6 +349,14 @@ describe('`rocky service`', () => {
 
     expect(lines.out[0]).toContain(serviceTarget(MAC()).file);
     expect(lines.out[1]).toContain('launchctl load');
+  });
+
+  it('leaves an unchanged unit in place', async () => {
+    await run(['service', 'install'], { service: MAC() });
+
+    const lines = await run(['service', 'install'], { service: MAC() });
+
+    expect(lines.out[0]).toContain('was already up to date');
   });
 
   it('removes the unit it wrote', async () => {

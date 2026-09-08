@@ -223,12 +223,43 @@ describe('the harnesses block', () => {
     expect(config.harnesses.opencode).toEqual({
       command: '/opt/opencode/opencode',
       env: { OPENCODE_CONFIG_DIR: '${ROCKY_WORK_OPENCODE}' },
+      sessionStorage: 'rocky',
     });
 
     expect(
       parseInstanceConfig({ ...oneRepo, harnesses: { 'claude-code': {} } })
         .harnesses['claude-code'],
-    ).toEqual({});
+    ).toEqual({ sessionStorage: 'rocky' });
+  });
+
+  it('defaults session storage to Rocky-managed native sessions', () => {
+    const config = parseInstanceConfig({ harnesses: { opencode: {} } });
+
+    expect(config.harnesses.opencode.sessionStorage).toBe('rocky');
+  });
+
+  it('retains opencode session storage when explicitly configured', () => {
+    const config = parseInstanceConfig({
+      harnesses: { opencode: { sessionStorage: 'opencode' } },
+    });
+
+    expect(config.harnesses.opencode.sessionStorage).toBe('opencode');
+  });
+
+  it('rejects an unknown session storage', () => {
+    expect(() =>
+      parseInstanceConfig({
+        harnesses: { opencode: { sessionStorage: 'other' } },
+      }),
+    ).toThrow(/sessionStorage/);
+  });
+
+  it('does not offer the OpenCode native store to Claude', () => {
+    expect(() =>
+      parseInstanceConfig({
+        harnesses: { 'claude-code': { sessionStorage: 'opencode' } },
+      }),
+    ).toThrow(/sessionStorage/);
   });
 
   it('refuses a harness Rocky ships no adapter for, and names the ones it does', () => {

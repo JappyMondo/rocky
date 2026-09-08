@@ -1,20 +1,24 @@
+import type { McpServer } from '../mcp/config.js';
+
 export type Capability = 'read' | 'edit' | 'bash';
 
-export interface ResolvedMcpServer {
-  name: string;
-  config: Record<string, unknown>;
-  authorization?: string;
-}
+/** The MCP lane expands and authenticates this immediately before an attempt. */
+export type ResolvedMcpServer = McpServer;
 
 export interface HarnessInvocation {
   cwd: string;
   prompt: string;
+  sessionStorage: 'rocky' | 'opencode';
   model?: string;
   capabilities: readonly Capability[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
   env: NodeJS.ProcessEnv;
   transcriptPath: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /** Emitted while the child is running, after the raw record is persisted. */
+  onEvent?: (event: HarnessEvent, sessionId: string) => void;
 }
 
 export type HarnessEvent =
@@ -38,18 +42,13 @@ export interface HarnessResult {
   usage?: HarnessUsage;
 }
 
-export interface HarnessAuthResult {
-  authenticated: boolean;
-  fix?: string;
-}
-
-export interface HarnessAdapter {
-  run(invocation: HarnessInvocation): Promise<HarnessResult>;
-  resume(
-    invocation: HarnessInvocation & { sessionId: string },
-  ): Promise<HarnessResult>;
-  checkAuth(input: {
-    command: string;
-    env: NodeJS.ProcessEnv;
-  }): Promise<HarnessAuthResult>;
+export class HarnessError extends Error {
+  constructor(
+    message: string,
+    readonly retryable = true,
+    readonly fix?: string,
+  ) {
+    super(message);
+    this.name = 'HarnessError';
+  }
 }

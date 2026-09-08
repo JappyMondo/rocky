@@ -9,6 +9,7 @@ import {
   createDaemon,
   rockyPaths,
   runDoctor,
+  type DoctorOptions,
   writeInstanceConfig,
 } from '@rocky/daemon';
 import { afterEach, expect, it } from 'vitest';
@@ -20,6 +21,15 @@ afterEach(async () => {
   for (const close of cleanup.reverse()) await close();
   cleanup.length = 0;
 });
+
+const fixtureAdapterFor: NonNullable<DoctorOptions['adapterFor']> = (name) => {
+  if (name !== 'claude-code' && name !== 'opencode') return undefined;
+  return {
+    name,
+    checkAuth: () =>
+      Promise.resolve({ harness: name, ok: true, detail: 'fixture' }),
+  };
+};
 
 async function listen(server: Server): Promise<number> {
   server.listen(0, '127.0.0.1');
@@ -246,7 +256,7 @@ it('only forwards the two exact public method/target pairs, never local controls
     publicUrl: `http://127.0.0.1:${port}`,
   });
   const report = await runDoctor(paths, {
-    checkHarness: async (harness) => ({ harness, ok: true, detail: 'fixture' }),
+    adapterFor: fixtureAdapterFor,
   });
   expect(report.find((check) => check.name === 'publicUrl')?.ok).toBe(true);
   expect(seen).toEqual(['/api/ping', '/api/ping']);

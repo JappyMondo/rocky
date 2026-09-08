@@ -29,7 +29,7 @@ The shipped defaults *are* those files, so customising means editing something a
 
 - **A daemon per developer**, on your machine, as you — using the toolchain and CLI credentials you already have. Its own clone and a worktree per run live under `~/.rocky`, so it never touches your working copies.
 - **One Linear app per developer**, so the thread shows whose machine is working. No coordinator, no claim protocol.
-- **Agent harnesses**: Claude Code and opencode ship tested; the others are configurable but untested. Rocky wraps the official CLIs and never hand-rolls an agent loop.
+- **Harnesses**: Rocky ships exactly `claude-code` and `opencode` adapters. A third Harness requires an adapter contribution, not configuration. Rocky drives the official CLIs and never hand-rolls an agent loop. See [Harness configuration and verification](docs/harnesses.md) for session storage, policy limits and live-test gates.
 - **Runs are journaled**, so one survives a daemon restart or a sleeping laptop and resumes at the last completed step.
 - **A local, keyboard-first web UI** bound to localhost, plus a thin `rocky` CLI. It renders live runs, diffs, screenshots and the checkpoints waiting on you.
 

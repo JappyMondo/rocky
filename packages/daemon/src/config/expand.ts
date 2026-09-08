@@ -3,7 +3,7 @@
  * `.rocky/mcp.json` uses. It keeps raw keys out of `config.json`, which is the
  * file that holds no secrets.
  */
-import { ConfigError, type HarnessConfig } from './schema.js';
+import { ConfigError, type HarnessConfigInput } from './schema.js';
 
 /** `${NAME}` — shell-ish, but deliberately without defaults or `$BARE`. */
 const VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -49,11 +49,11 @@ export function expandVars(
  */
 export function expandHarness(
   name: string,
-  harness: HarnessConfig,
+  harness: HarnessConfigInput,
   env: Env = process.env,
-): HarnessConfig {
+): HarnessConfigInput {
   const where = `config.json harnesses.${name}`;
-  const resolved: HarnessConfig = { ...harness };
+  const resolved: HarnessConfigInput = { ...harness };
 
   if (harness.command !== undefined) {
     resolved.command = expandVars(harness.command, env, where);

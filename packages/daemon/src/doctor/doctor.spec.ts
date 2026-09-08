@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { anyFailed, runDoctor, type DoctorOptions } from './doctor.js';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
+import type { HarnessConfigInput } from '../config/schema.js';
 import { writeInstanceConfig } from '../config/store.js';
 
 let root: string;
@@ -31,9 +32,34 @@ afterEach(() => {
 /** Nothing here should touch the network or a real harness binary. */
 const OFFLINE: DoctorOptions = {
   fetch: () => Promise.reject(new Error('the endpoint was not reached')),
-  checkHarness: (harness) =>
-    Promise.resolve({ harness, ok: true, detail: 'signed in' }),
+  adapterFor: (name) =>
+    name === 'claude-code' || name === 'opencode'
+      ? {
+          name,
+          checkAuth: () =>
+            Promise.resolve({ harness: name, ok: true, detail: 'signed in' }),
+        }
+      : undefined,
 };
+
+const adapterFor =
+  (
+    checkAuth: (
+      name: string,
+      config: HarnessConfigInput,
+    ) => Promise<{
+      harness: string;
+      ok: boolean;
+      detail: string;
+      fix?: string;
+    }>,
+  ): NonNullable<DoctorOptions['adapterFor']> =>
+  (name) => {
+    const adapter = OFFLINE.adapterFor?.(name);
+    return adapter
+      ? { ...adapter, checkAuth: (config) => checkAuth(name, config) }
+      : undefined;
+  };
 
 const check = (report: Awaited<ReturnType<typeof runDoctor>>, name: string) => {
   const found = report.find((entry) => entry.name === name);
@@ -204,10 +230,10 @@ describe('the harness checks', () => {
 
     await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: (harness, config) => {
+      adapterFor: adapterFor((harness, config) => {
         seen.push(config);
         return Promise.resolve({ harness, ok: true, detail: 'signed in' });
-      },
+      }),
     });
 
     expect(seen[0]).toMatchObject({ command: '/opt/claude/claude' });
@@ -218,13 +244,14 @@ describe('the harness checks', () => {
 
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: (harness) =>
+      adapterFor: adapterFor((harness) =>
         Promise.resolve({
           harness,
           ok: false,
           detail: 'not signed in',
           fix: 'claude login',
         }),
+      ),
     });
 
     expect(check(report, 'harness claude-code').ok).toBe(false);
@@ -238,13 +265,14 @@ describe('the harness checks', () => {
     // the ones this machine has deliberately configured.
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: (harness) =>
+      adapterFor: adapterFor((harness) =>
         Promise.resolve({
           harness,
           ok: false,
           detail: 'not signed in',
           fix: `${harness} login`,
         }),
+      ),
     });
 
     expect(check(report, 'harness claude-code').ok).toBe(false);
@@ -268,7 +296,9 @@ describe('a check that goes wrong rather than failing', () => {
 
     const report = await runDoctor(paths, {
       ...OFFLINE,
-      checkHarness: () => Promise.reject(new Error('the probe exploded')),
+      adapterFor: adapterFor(() =>
+        Promise.reject(new Error('the probe exploded')),
+      ),
     });
 
     expect(check(report, 'harness claude-code').ok).toBe(false);
