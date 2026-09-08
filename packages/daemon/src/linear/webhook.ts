@@ -45,6 +45,8 @@ export interface LinearWebhookOptions {
   /** The Run router. See `events.ts` for why this is a seam. */
   onEvent: AgentSessionEventHandler;
   logError?(message: string): void;
+  /** Accepted delivery metadata only; never log raw payloads or signatures. */
+  logInfo?(message: string): void;
 }
 
 interface RawWebhookBody {
@@ -122,6 +124,8 @@ export async function registerLinearWebhook(
 ): Promise<void> {
   const logError =
     options.logError ?? ((message: string) => app.log.error(message));
+  const logInfo =
+    options.logInfo ?? ((message: string) => app.log.info(message));
 
   // Encapsulated, so the raw-buffer parser applies to this route and leaves the
   // rest of the API parsing JSON into objects as usual.
@@ -168,6 +172,9 @@ export async function registerLinearWebhook(
 
       const event =
         body.type === 'AgentSessionEvent' ? toEvent(body) : undefined;
+      logInfo(
+        `accepted Linear webhook type=${body.type ?? 'unknown'} action=${body.action ?? 'unknown'} session=${body.agentSession?.id ?? 'none'} ${event ? 'routed' : 'ignored'}`,
+      );
 
       // 200 first. The handler runs after the reply is on the wire, so a Run
       // that takes a minute to wake cannot cost Rocky the delivery.

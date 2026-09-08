@@ -35,6 +35,7 @@ import {
 import { DAEMON_VERSION } from '../version.js';
 import type { ExecutionIntegration } from '../run/execution.js';
 import type { AgentSessionEventHandler } from '../linear/events.js';
+import { createProductionComposition } from './production-composition.js';
 
 /** The signals a service manager and a terminal use to ask for a clean end. */
 const STOP_SIGNALS = ['SIGTERM', 'SIGINT'] as const;
@@ -163,7 +164,9 @@ export async function runDaemon(
   let polling = Promise.resolve();
   let ticking = false;
   try {
-    composition = await options.compose?.({ paths, config });
+    composition = options.compose
+      ? await options.compose({ paths, config })
+      : await createProductionComposition({ paths, config });
     server = await startDaemon({
       host: options.host ?? config.current.server.host,
       port: options.port ?? config.current.server.port,

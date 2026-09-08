@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import {
+  cp,
   mkdtemp,
   mkdir,
   readFile,
@@ -11,6 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 
@@ -119,12 +121,30 @@ test(
     assert.equal(cli('--version').trim(), manifest.version);
     assert.match(
       run(join(consumer, 'node_modules/.bin/rocky-ingress'), ['--help']),
-      /webhook\/ping-only/i,
+      /Webhook, ping and OAuth-callback filtering proxy/i,
     );
     assert.match(
       await readFile(join(installed, 'docs', 'mcp.md'), 'utf8'),
       /rocky mcp login/,
     );
+    // Agent's production resolver loads this path lazily from boot-child.js;
+    // its absence only surfaces when a real Agent Step starts.
+    await readFile(join(installed, 'harness', 'adapter.js'), 'utf8');
+    // Workflow validation forks these files after the first Agent Step, so
+    // the normal CLI smoke cannot exercise their dynamic URL imports.
+    for (const file of ['validate-child.js', 'validate-worker.js', 'loader.js'])
+      await readFile(join(installed, 'dist', file), 'utf8');
+    const seedSnapshot = join(root, 'seed-snapshot');
+    await cp(join(installed, 'content', '.rocky'), seedSnapshot, {
+      recursive: true,
+    });
+    const triggerTable = run(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      `const { importSnapshotTriggers } = await import(${JSON.stringify(pathToFileURL(join(installed, 'dist', 'loader.js')).href)});
+       console.log(JSON.stringify((await importSnapshotTriggers(${JSON.stringify(seedSnapshot)})).map(({ descriptor }) => descriptor)));`,
+    ]);
+    assert.match(triggerTable, /linear\.onDelegate/);
     for (const file of await readdir(join(installed, 'dist'))) {
       if (file.endsWith('.js'))
         assert.doesNotMatch(

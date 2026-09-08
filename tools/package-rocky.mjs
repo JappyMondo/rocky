@@ -36,6 +36,19 @@ const result = await build({
   entryPoints: {
     main: 'packages/cli/src/main.ts',
     'ingress-main': 'packages/cli/src/ingress-main.ts',
+    // RunWorkers forks this sibling by URL. It cannot be folded into main:
+    // the child has its own IPC lifecycle and must exist in the tarball.
+    'boot-child': 'packages/daemon/src/run/boot-child.ts',
+    // Node will not type-strip a raw .ts file under installed node_modules.
+    // Keep the seed content raw, but bundle Rocky's own onboarding runner.
+    onboarding: 'packages/daemon/content/onboarding.ts',
+    // Workflow validation supervises its import in separate processes. Each
+    // URL is resolved beside dist/boot-child.js in an installed package.
+    'validate-child': 'packages/daemon/src/run/loading/validate-child.ts',
+    'validate-worker': 'packages/daemon/src/run/loading/validate-worker.ts',
+    loader: 'packages/daemon/src/run/loading/loader.ts',
+    // Seeded workflows import this from the isolated snapshot process.
+    sdk: 'packages/sdk/src/index.ts',
   },
   outdir: join(output, 'dist'),
   bundle: true,
@@ -45,13 +58,35 @@ const result = await build({
   external: Object.keys(dependencies),
   metafile: true,
 });
-for (const file of Object.values(result.metafile.outputs)) {
+// Agent's adapter loader is intentionally late-bound so tests and embedders can
+// supply a harness.  Its production fallback resolves this package-root path
+// from dist/boot-child.js, therefore it must be emitted outside dist as well.
+const harness = await build({
+  absWorkingDir: root,
+  entryPoints: ['packages/daemon/src/harness/adapter.ts'],
+  outfile: join(output, 'harness', 'adapter.js'),
+  bundle: true,
+  platform: 'node',
+  target: 'node24',
+  format: 'esm',
+  external: Object.keys(dependencies),
+  metafile: true,
+});
+for (const file of [
+  ...Object.values(result.metafile.outputs),
+  ...Object.values(harness.metafile.outputs),
+]) {
   for (const imported of file.imports) {
     if (imported.path.startsWith('@rocky/'))
       throw new Error(`Workspace import escaped the bundle: ${imported.path}`);
   }
 }
 await cp(join(root, 'packages/daemon/public'), join(output, 'public'), {
+  recursive: true,
+});
+// Onboarding imports this tree at runtime instead of bundling it: seed output
+// must remain raw, reviewable TypeScript and Markdown in the installed artifact.
+await cp(join(root, 'packages/daemon/content'), join(output, 'content'), {
   recursive: true,
 });
 await cp(join(root, 'LICENSE'), join(output, 'LICENSE'));
@@ -78,7 +113,15 @@ await writeFile(
         url: 'https://github.com/JappyMondo/rocky.git',
       },
       bin: cli.bin,
-      files: ['dist', 'public', 'docs', 'LICENSE', 'README.md'],
+      files: [
+        'dist',
+        'harness',
+        'public',
+        'content',
+        'docs',
+        'LICENSE',
+        'README.md',
+      ],
       dependencies,
     },
     null,
