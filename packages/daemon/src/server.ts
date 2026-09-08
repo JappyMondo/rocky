@@ -153,8 +153,8 @@ export async function createDaemon(
   });
 
   /**
-   * The self-ping's target, and the only route besides the webhook that has to
-   * be reachable through the public URL. It answers an opaque id and nothing
+   * The self-ping's target. Along with the webhook and OAuth callback it is
+   * reachable through the public URL. It answers an opaque id and nothing
    * else — enough to prove the tunnel lands on *this* daemon, and no use to
    * anyone who finds the URL.
    */

@@ -107,7 +107,7 @@ async function pingEndpoint(
       name: 'publicUrl',
       ok: false,
       detail: `public /api/ping ${messageOf(error)}`,
-      fix: "point the tunnel at this daemon's webhook/ping-only filter; check `rocky-ingress` and publicUrl using docs/public-endpoint.md, then rerun `rocky doctor`",
+      fix: "point the tunnel at this daemon's webhook/ping/OAuth-callback filter; check `rocky-ingress` and publicUrl using docs/public-endpoint.md, then rerun `rocky doctor`",
     };
   }
 }

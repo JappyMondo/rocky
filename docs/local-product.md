@@ -84,7 +84,7 @@ is read by this module. MCP login remains a printed CLI command.
 
 The plugin rejects non-loopback peers/Hosts, forwarded requests and cross-origin
 requests. It is defense in depth, not a substitute for NG-651's separate
-webhook/ping-only public ingress. A reverse proxy on loopback can conceal its
+webhook/ping/OAuth-callback public ingress. A reverse proxy on loopback can conceal its
 origin; production must never forward public requests to this listener. No
 tunnel or public exposure is part of local browser verification.
 

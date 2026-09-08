@@ -18,7 +18,7 @@ import {
 const app = {
   clientId: 'client-123',
   clientSecret: 'secret-456',
-  redirectUri: 'http://127.0.0.1:7625/api/linear/oauth/callback',
+  redirectUri: 'https://rocky.example.com/api/linear/oauth/callback',
 };
 
 function jsonResponse(body: unknown, status = 200): Response {

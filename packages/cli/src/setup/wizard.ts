@@ -155,7 +155,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   });
 
   try {
-    const redirectUri = oauthRedirectUri(daemon.host, daemon.port);
+    const redirectUri = oauthRedirectUri(publicUrl);
     const manifest = buildManifest({ developerName, publicUrl, redirectUri });
 
     prompter.say('');
