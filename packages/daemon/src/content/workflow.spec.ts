@@ -12,7 +12,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type {
   AgentCallOpts,
-  CheckpointAnswer,
   ScmOps,
   Triggers,
   WorkflowContext,
@@ -33,6 +32,11 @@ const { default: triggers, addressPrConversations } = await createJiti(
   default: Triggers;
   addressPrConversations: (ctx: unknown) => Promise<string>;
 }>(new URL('../../content/.rocky/workflow.ts', import.meta.url).pathname);
+
+type RawCheckpointAnswer =
+  | { decision: 'approve' }
+  | { decision: 'reject'; reason?: string }
+  | { decision: 'steer'; message: string };
 
 let dir: string;
 beforeEach(async () => {
@@ -92,7 +96,7 @@ function fixture(
     options?: AgentCallOpts;
   }[] = [];
   const scmCalls: { operation: string; args: unknown[] }[] = [];
-  const answers: CheckpointAnswer[] = [];
+  const answers: RawCheckpointAnswer[] = [];
   let merged = false;
   const pr = {
     repo: 'fixture',
@@ -134,7 +138,7 @@ function fixture(
                   };
             },
             changedFiles: async () => ['src/a.ts'],
-            external: (steps) => ({
+            external: (steps, _approvals) => ({
               agent: async <S extends z.ZodType>(
                 name: string | { prompt: string },
                 opts?: AgentCallOpts<S>,
@@ -165,14 +169,13 @@ function fixture(
                     }),
                   };
                 }),
-              checkpoint: (checkpoint) =>
-                steps.step('checkpoint', {}, async () => {
-                  trace.push('checkpoint');
-                  const answer = answers.shift();
-                  return answer
-                    ? { status: 'done', result: answer }
-                    : { status: 'waiting', detail: checkpoint };
-                }),
+              checkpoint: async (checkpoint) => {
+                trace.push('checkpoint');
+                const answer = answers.shift();
+                return answer
+                  ? { status: 'done', result: answer }
+                  : { status: 'waiting', detail: checkpoint };
+              },
               post: (body) =>
                 steps
                   .step('post', {}, async () => {
@@ -229,7 +232,7 @@ function fixture(
           (trigger) => trigger.kind === 'linear.onDelegate',
         );
         if (!binding) throw new Error('Missing delegation Trigger');
-        return binding.workflow(ctx as WorkflowContext);
+        return binding.workflow(ctx as WorkflowContext, { members: [] });
       },
     });
   return {
@@ -237,7 +240,7 @@ function fixture(
     calls,
     scmCalls,
     boot,
-    answer: (answer: CheckpointAnswer) => answers.push(answer),
+    answer: (answer: RawCheckpointAnswer) => answers.push(answer),
     approve: () => {
       answers.push({ decision: 'approve' });
     },
