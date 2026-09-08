@@ -12,7 +12,7 @@ function port(value: string): number {
 
 const command = new Command('rocky-ingress')
   .description(
-    'Webhook/ping-only filtering proxy. Point your BYO tunnel here, never at the daemon.',
+    'Webhook, ping and OAuth-callback filtering proxy. Point your BYO tunnel here, never at the daemon.',
   )
   .option('--port <port>', 'Loopback filter port.', port, 7626)
   .option('--daemon-port <port>', 'Loopback daemon port.', port, 7625)
@@ -28,7 +28,9 @@ server.on('error', () => {
   process.exitCode = 1;
 });
 server.listen(options.port, '127.0.0.1', () => {
-  console.log(`Webhook/ping-only ingress on http://127.0.0.1:${options.port}`);
+  console.log(
+    `Webhook/ping/OAuth-callback ingress on http://127.0.0.1:${options.port}`,
+  );
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

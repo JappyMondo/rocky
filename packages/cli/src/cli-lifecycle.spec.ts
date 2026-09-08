@@ -99,6 +99,9 @@ const MAC = () => ({
   entry: '/usr/local/lib/rocky/main.js',
   execPath: '/usr/local/bin/node',
 });
+const NOOP_SERVICE_RUNNER: NonNullable<
+  CliOptions['runServiceCommands']
+> = async () => undefined;
 
 describe('`rocky doctor`', () => {
   it('exits zero and says so when every check passes', async () => {
@@ -344,31 +347,79 @@ describe('`rocky logs`', () => {
 });
 
 describe('`rocky service`', () => {
-  it('writes the unit and says how to load it', async () => {
-    const lines = await run(['service', 'install'], { service: MAC() });
+  it('makes setup take over both services without a second terminal command', async () => {
+    const commands: string[] = [];
+    const lines = await run(['setup'], {
+      service: MAC(),
+      createPrompter: () => ({
+        say: () => undefined,
+        ask: async () => '',
+        askSecret: async () => '',
+        waitFor: async () => undefined,
+        close: () => undefined,
+      }),
+      runSetup: async () => ({
+        ok: true,
+        publicUrl: 'https://rocky.example.com',
+        endpoint: { configured: true, ok: true, detail: 'ok' },
+      }),
+      runServiceCommands: async (steps) => {
+        commands.push(...steps.map(([command]) => command));
+      },
+    });
+
+    expect(lines.out.join('\n')).toContain('running as background services');
+    expect(commands).toEqual(['launchctl', 'launchctl']);
+  });
+
+  it('writes and loads the daemon and ingress units', async () => {
+    const commands: string[] = [];
+    const lines = await run(['service', 'install'], {
+      service: MAC(),
+      runServiceCommands: async (steps) => {
+        commands.push(...steps.map(([command]) => command));
+      },
+    });
 
     expect(lines.out[0]).toContain(serviceTarget(MAC()).file);
-    expect(lines.out[1]).toContain('launchctl load');
+    expect(lines.out[1]).toContain(serviceTarget(MAC(), 'ingress').file);
+    expect(lines.out.join('\n')).toContain('running as background services');
+    expect(commands).toEqual(['launchctl', 'launchctl']);
   });
 
   it('leaves an unchanged unit in place', async () => {
-    await run(['service', 'install'], { service: MAC() });
+    await run(['service', 'install'], {
+      service: MAC(),
+      runServiceCommands: NOOP_SERVICE_RUNNER,
+    });
 
-    const lines = await run(['service', 'install'], { service: MAC() });
+    const lines = await run(['service', 'install'], {
+      service: MAC(),
+      runServiceCommands: NOOP_SERVICE_RUNNER,
+    });
 
     expect(lines.out[0]).toContain('was already up to date');
   });
 
   it('removes the unit it wrote', async () => {
-    await run(['service', 'install'], { service: MAC() });
+    await run(['service', 'install'], {
+      service: MAC(),
+      runServiceCommands: NOOP_SERVICE_RUNNER,
+    });
 
-    const lines = await run(['service', 'uninstall'], { service: MAC() });
+    const lines = await run(['service', 'uninstall'], {
+      service: MAC(),
+      runServiceCommands: NOOP_SERVICE_RUNNER,
+    });
 
     expect(lines.out[0]).toContain('Removed');
   });
 
   it('says there was nothing to remove', async () => {
-    const lines = await run(['service', 'uninstall'], { service: MAC() });
+    const lines = await run(['service', 'uninstall'], {
+      service: MAC(),
+      runServiceCommands: NOOP_SERVICE_RUNNER,
+    });
 
     expect(lines.out[0]).toContain('No unit at');
   });

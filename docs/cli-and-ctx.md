@@ -13,18 +13,18 @@ shipped-content lanes land.
 
 | Command | Current implementation | Contract/owner |
 | --- | --- | --- |
-| `rocky setup` | Implemented wizard | NG-600; stable endpoint first, admin-assisted app creation, local OAuth |
+| `rocky setup` | Implemented wizard | NG-600; stable endpoint first, admin-assisted app creation, local OAuth, then managed daemon and ingress services |
 | `rocky start [-d]` | Implemented | NG-595; foreground or detached daemon |
 | `rocky stop`, `restart`, `status` | Implemented | NG-595; local API, pidfile, explicit restart on version mismatch |
 | `rocky logs [-f]` | Implemented | NG-595; daemon log, not per-Run Transcript |
 | `rocky doctor` | Implemented | NG-595/651; config, local/public ping identity, Harness sign-in; NG-628 owns adapter auth adoption |
-| `rocky service install\|uninstall` | Implemented | NG-595; launchd/systemd user unit |
+| `rocky service install\|uninstall` | Implemented | NG-595; launches/removes daemon and ingress launchd/systemd user units |
 | `rocky repo add <url>`, `list`, `remove <name>` | Implemented | NG-521; Rocky-owned clones |
 | `rocky init` | Named failing stub | NG-607 implements NG-581's uncommitted default `.rocky/` copy |
 | `rocky upgrade` | Named failing stub | NG-608 implements ADR 0003's interactive comparison, not an automatic merge |
 | `rocky mcp login <server>` | Implemented | NG-599/583; URL-keyed machine OAuth is documented in [MCP OAuth](mcp.md) |
 | `rocky trigger <name> <issue>` | Named failing stub | NG-580; admission/loader/local API wiring follows NG-540/598/609 |
-| `rocky-ingress [--port <port>] [--daemon-port <port>]` | Implemented operator utility | NG-651; separate webhook/ping/OAuth-callback filter, not a tunnel manager |
+| `rocky-ingress [--port <port>] [--daemon-port <port>]` | Implemented developer utility | NG-651; managed automatically by setup in normal use; separate webhook/ping/OAuth-callback filter, not a tunnel manager |
 
 The first binary's full lifecycle also accepts `--host`/`--port` where shown by
 `rocky --help` and command help. Config and a live pidfile supply omitted

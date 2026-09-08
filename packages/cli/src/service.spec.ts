@@ -13,11 +13,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { rockyPaths, type RockyPaths } from '@rocky/daemon';
+import {
+  rockyPaths,
+  writeInstanceConfig,
+  type RockyPaths,
+} from '@rocky/daemon';
 
 import {
   SERVICE_LABEL,
+  INGRESS_SERVICE_LABEL,
   installService,
+  installManagedServices,
+  loadManagedServices,
   serviceTarget,
   uninstallService,
   unitFor,
@@ -106,6 +113,17 @@ describe('the launchd unit', () => {
     expect(unit).toContain('<string>/usr/local/lib/rocky/main.js</string>');
   });
 
+  it('runs a separate ingress process that forwards only to the daemon port', () => {
+    const unit = unitFor(paths, MAC(), 'ingress', 8123);
+
+    expect(unit).toContain(`<string>${INGRESS_SERVICE_LABEL}</string>`);
+    expect(unit).toContain(
+      '<string>/usr/local/lib/rocky/ingress-main.js</string>',
+    );
+    expect(unit).toContain('<string>--daemon-port</string>');
+    expect(unit).toContain('<string>8123</string>');
+  });
+
   it('comes back after a reboot and after a crash', () => {
     const unit = unitFor(paths, MAC());
 
@@ -149,6 +167,16 @@ describe('the systemd unit', () => {
   it('comes back after a crash', () => {
     expect(unitFor(paths, LINUX())).toContain('Restart=on-failure');
   });
+
+  it('makes ingress wait for the daemon on systemd', () => {
+    const unit = unitFor(paths, LINUX(), 'ingress', 8123);
+
+    expect(unit).toContain('After=rocky.service network-online.target');
+    expect(unit).toContain('Requires=rocky.service');
+    expect(unit).toContain(
+      'ExecStart=/usr/local/bin/node /usr/local/lib/rocky/ingress-main.js --daemon-port 8123',
+    );
+  });
 });
 
 describe('installing', () => {
@@ -187,6 +215,29 @@ describe('installing', () => {
     await expect(
       installService(paths, { ...MAC(), platform: 'win32' }),
     ).rejects.toThrow(UnsupportedPlatformError);
+  });
+
+  it('writes both background services and loads daemon before ingress', async () => {
+    await writeInstanceConfig(paths, { server: { port: 8123 } });
+    const services = await installManagedServices(paths, MAC());
+    const loaded: string[] = [];
+
+    await loadManagedServices(services, async (commands) => {
+      loaded.push(
+        ...commands.map(([command, ...args]) => [command, ...args].join(' ')),
+      );
+    });
+
+    expect(await readFile(services.daemon.target.file, 'utf8')).toContain(
+      '<string>start</string>',
+    );
+    expect(await readFile(services.ingress.target.file, 'utf8')).toContain(
+      '<string>8123</string>',
+    );
+    expect(loaded).toEqual([
+      `launchctl load -w ${services.daemon.target.file}`,
+      `launchctl load -w ${services.ingress.target.file}`,
+    ]);
   });
 });
 

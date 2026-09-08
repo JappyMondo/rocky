@@ -14,6 +14,7 @@
  * installs require one and no API removes that.
  */
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
 
 import {
   DEFAULT_HOST,
@@ -36,6 +37,7 @@ import {
 } from '@rocky/daemon';
 
 import type { Prompter } from './prompter.js';
+import { createPublicIngress } from '../public-ingress.js';
 
 /** How many times a question is re-asked before the wizard gives up. */
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -45,6 +47,8 @@ export interface SetupOptions {
   paths?: RockyPaths;
   host?: string;
   port?: number;
+  /** The loopback port a public tunnel reaches. Normal installs use 7626. */
+  ingressPort?: number;
   maxAttempts?: number;
   /**
    * What to do with the authorize URL. In production the human opens it; a test
@@ -153,8 +157,16 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
     // `resolvePublicUrl` decided; an hourly timer would only get in the way.
     selfPing: false,
   });
+  // The callback must be public while the OAuth browser flow is in progress.
+  // Setup owns this short-lived ingress; after it closes, the user service
+  // installed by the CLI takes over without requiring a second terminal.
+  let ingress: Server | undefined;
 
   try {
+    ingress = await startWizardIngress(
+      options.ingressPort ?? 7626,
+      daemon.port,
+    );
     const redirectUri = oauthRedirectUri(publicUrl);
     const manifest = buildManifest({ developerName, publicUrl, redirectUri });
 
@@ -243,7 +255,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
     if (endpoint.ok) {
       prompter.say(`The self-ping reached Rocky through ${publicUrl}.`);
       prompter.say('');
-      prompter.say('Setup is done. Run `rocky start`.');
+      prompter.say('Setup authorization is complete.');
     } else {
       prompter.say(
         `The self-ping did not get back: ${publicUrl} ${endpoint.detail}.`,
@@ -255,13 +267,45 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
         'endpoint up and check it with `rocky doctor`. See docs/public-endpoint.md.',
       );
       prompter.say('');
-      prompter.say('Then run `rocky start`.');
+      prompter.say(
+        'Rocky will keep trying in the background; run `rocky doctor` after the endpoint is up.',
+      );
     }
 
     return { ok: endpoint.ok, publicUrl, endpoint };
   } finally {
+    if (ingress !== undefined) await closeIngress(ingress);
     await daemon.close();
   }
+}
+
+async function startWizardIngress(
+  port: number,
+  daemonPort: number,
+): Promise<Server> {
+  const ingress = createPublicIngress(daemonPort);
+  await new Promise<void>((resolve, reject) => {
+    ingress.once('error', reject);
+    ingress.listen(port, '127.0.0.1', () => {
+      ingress.off('error', reject);
+      resolve();
+    });
+  }).catch((error: unknown) => {
+    ingress.close();
+    if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      throw new Error(
+        `Ingress port ${String(port)} is already in use. Stop the old \`rocky-ingress\` process and run \`rocky setup\` again.`,
+      );
+    }
+    throw error;
+  });
+  return ingress;
+}
+
+async function closeIngress(ingress: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) =>
+    ingress.close((error) => (error ? reject(error) : resolve())),
+  );
 }
 
 /**

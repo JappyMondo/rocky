@@ -89,6 +89,7 @@ async function runHappyPath(
     prompter: harness.prompter,
     paths: rockyPaths(home),
     port: 0,
+    ingressPort: 0,
     // The wizard hands the code back through the daemon's own callback route,
     // so the test plays the part of the browser Linear redirects.
     onAuthorizeUrl: async (url, running) => {
@@ -269,7 +270,7 @@ describe('what a completed run leaves behind', () => {
     expect(transcript()).toMatch(/reached Rocky|self-ping|reachable/i);
   });
 
-  it('ends by offering `rocky start`', async () => {
+  it('ends by confirming authorization completion', async () => {
     const { transcript } = await runHappyPath([
       'Jan Jaap',
       PUBLIC_URL,
@@ -280,7 +281,7 @@ describe('what a completed run leaves behind', () => {
       '',
     ]);
 
-    expect(transcript()).toContain('rocky start');
+    expect(transcript()).toContain('Setup authorization is complete.');
   });
 });
 

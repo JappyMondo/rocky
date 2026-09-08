@@ -2,7 +2,7 @@
 
 Rocky requires Node 24 or newer on macOS or Linux. The installable artifact is
 **one local npm tarball**, provisionally named `rocky`, containing the CLI, daemon code, the built local web
-shell and the separately operated `rocky-ingress` filtering utility. Ordinary
+shell and the managed `rocky-ingress` filtering utility. Ordinary
 third-party dependencies still install from npm; private workspace packages do
 not. `@rocky/daemon` remains private. `@rocky/sdk` is a separate, independently
 versioned developer dependency for consumer Workflows, not a prerequisite to
@@ -24,12 +24,15 @@ potentially unrelated command already installed globally:
 
 ```sh
 npm install --ignore-scripts /absolute/path/to/rocky-<version>.tgz
-./node_modules/.bin/rocky start -d
+./node_modules/.bin/rocky setup
+./node_modules/.bin/rocky doctor
 ./node_modules/.bin/rocky status
-./node_modules/.bin/rocky stop
 ```
 
-The filter binary is `./node_modules/.bin/rocky-ingress` from that same install.
+`rocky setup` starts the daemon and the filter as per-user background services;
+there is no ingress terminal to keep open. The filter binary is
+`./node_modules/.bin/rocky-ingress` from that same install for development or a
+custom service manager only.
 Registry installation instructions must be written only after a maintainer
 proves ownership of the chosen scoped package and authorizes its release.
 The implemented MCP login flow is documented in [`mcp.md`](mcp.md) in the
@@ -37,7 +40,7 @@ source repository and `docs/mcp.md` in the tarball.
 The local API and web
 shell use `http://127.0.0.1:7625` by default. They have no authentication and must
 never be exposed publicly. Follow [the public endpoint guide](public-endpoint.md)
-to run `rocky-ingress` and connect a BYO stable HTTPS tunnel to the filter, not to
+to connect a BYO stable HTTPS tunnel to the managed filter, not to
 the daemon. The package contains that guide under `docs/public-endpoint.md`.
 
 The current artifact contains the foundation, local lifecycle commands and web

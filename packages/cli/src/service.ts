@@ -9,16 +9,21 @@
  *
  * NG-578 ruled out pm2, and Windows is explicitly not v1.
  */
+import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 
-import type { RockyPaths } from '@rocky/daemon';
+import { readInstanceConfig, type RockyPaths } from '@rocky/daemon';
 
 export type ServicePlatform = 'darwin' | 'linux';
 
 /** The reverse-DNS label launchd wants, and the name systemd gets too. */
 export const SERVICE_LABEL = 'com.digimondo.rocky';
+export const INGRESS_SERVICE_LABEL = 'com.digimondo.rocky.ingress';
+
+export type ServiceKind = 'daemon' | 'ingress';
 
 export interface ServiceTarget {
   platform: ServicePlatform;
@@ -27,6 +32,9 @@ export interface ServiceTarget {
   /** What to run to load it now, rather than at the next login. */
   loadHint: string;
   unloadHint: string;
+  name: string;
+  loadCommand: readonly [string, ...string[]][];
+  unloadCommand: readonly [string, ...string[]][];
 }
 
 export interface ServiceEnvironment {
@@ -34,6 +42,8 @@ export interface ServiceEnvironment {
   home?: string;
   /** The `rocky` entry point the unit runs. */
   entry?: string;
+  /** The `rocky-ingress` entry point the ingress unit runs. */
+  ingressEntry?: string;
   /** The node binary the unit runs it with. */
   execPath?: string;
 }
@@ -49,33 +59,39 @@ export class UnsupportedPlatformError extends Error {
 
 export function serviceTarget(
   environment: ServiceEnvironment = {},
+  kind: ServiceKind = 'daemon',
 ): ServiceTarget {
   const platform = environment.platform ?? process.platform;
   const home = environment.home ?? homedir();
 
   if (platform === 'darwin') {
-    const file = join(
-      home,
-      'Library',
-      'LaunchAgents',
-      `${SERVICE_LABEL}.plist`,
-    );
+    const label = kind === 'daemon' ? SERVICE_LABEL : INGRESS_SERVICE_LABEL;
+    const file = join(home, 'Library', 'LaunchAgents', `${label}.plist`);
     return {
       platform: 'darwin',
       file,
       loadHint: `launchctl load -w ${file}`,
       unloadHint: `launchctl unload -w ${file}`,
+      name: label,
+      loadCommand: [['launchctl', 'load', '-w', file]],
+      unloadCommand: [['launchctl', 'unload', '-w', file]],
     };
   }
 
   if (platform === 'linux') {
-    const file = join(home, '.config', 'systemd', 'user', 'rocky.service');
+    const name = kind === 'daemon' ? 'rocky' : 'rocky-ingress';
+    const file = join(home, '.config', 'systemd', 'user', `${name}.service`);
     return {
       platform: 'linux',
       file,
-      loadHint:
-        'systemctl --user daemon-reload && systemctl --user enable --now rocky',
-      unloadHint: 'systemctl --user disable --now rocky',
+      loadHint: `systemctl --user daemon-reload && systemctl --user enable --now ${name}`,
+      unloadHint: `systemctl --user disable --now ${name}`,
+      name,
+      loadCommand: [
+        ['systemctl', '--user', 'daemon-reload'],
+        ['systemctl', '--user', 'enable', '--now', name],
+      ],
+      unloadCommand: [['systemctl', '--user', 'disable', '--now', name]],
     };
   }
 
@@ -97,13 +113,21 @@ function escapeXml(value: string): string {
 export function unitFor(
   paths: RockyPaths,
   environment: ServiceEnvironment = {},
+  kind: ServiceKind = 'daemon',
+  daemonPort = 7625,
 ): string {
-  const target = serviceTarget(environment);
+  const target = serviceTarget(environment, kind);
   const execPath = environment.execPath ?? process.execPath;
   const entry = environment.entry ?? process.argv[1];
+  const ingressEntry =
+    environment.ingressEntry ?? join(dirname(entry), 'ingress-main.js');
+  const command =
+    kind === 'daemon'
+      ? [execPath, entry, 'start']
+      : [execPath, ingressEntry, '--daemon-port', String(daemonPort)];
 
   if (target.platform === 'darwin') {
-    const args = [execPath, entry, 'start']
+    const args = command
       .map((value) => `    <string>${escapeXml(value)}</string>`)
       .join('\n');
 
@@ -112,7 +136,7 @@ export function unitFor(
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${SERVICE_LABEL}</string>
+  <string>${target.name}</string>
   <key>ProgramArguments</key>
   <array>
 ${args}
@@ -132,14 +156,24 @@ ${args}
 `;
   }
 
+  const after =
+    kind === 'daemon'
+      ? 'network-online.target'
+      : 'rocky.service network-online.target';
+  const requires = kind === 'daemon' ? '' : 'Requires=rocky.service\n';
+  const description =
+    kind === 'daemon'
+      ? 'Rocky — the per-developer local daemon'
+      : 'Rocky — the public Linear ingress filter';
   return `[Unit]
-Description=Rocky — the per-developer local daemon
+Description=${description}
 Documentation=https://github.com/JappyMondo/rocky
-After=network-online.target
+After=${after}
+${requires}
 
 [Service]
 Type=simple
-ExecStart=${execPath} ${entry} start
+ExecStart=${command.join(' ')}
 Restart=on-failure
 RestartSec=5
 
@@ -157,9 +191,11 @@ export interface InstallResult {
 export async function installService(
   paths: RockyPaths,
   environment: ServiceEnvironment = {},
+  kind: ServiceKind = 'daemon',
+  daemonPort = 7625,
 ): Promise<InstallResult> {
-  const target = serviceTarget(environment);
-  const unit = unitFor(paths, environment);
+  const target = serviceTarget(environment, kind);
+  const unit = unitFor(paths, environment, kind, daemonPort);
 
   const existing = await readFile(target.file, 'utf8').catch(() => undefined);
   if (existing === unit) {
@@ -172,16 +208,68 @@ export async function installService(
   return { target, changed: true };
 }
 
+export interface ManagedServicesResult {
+  daemon: InstallResult;
+  ingress: InstallResult;
+}
+
+/** Write the two cooperating user services. The ingress is deliberately a
+ * separate process: it is the only thing a tunnel may reach. */
+export async function installManagedServices(
+  paths: RockyPaths,
+  environment: ServiceEnvironment = {},
+): Promise<ManagedServicesResult> {
+  const config = await readInstanceConfig(paths);
+  const daemonPort = config.server.port;
+  const [daemon, ingress] = await Promise.all([
+    installService(paths, environment, 'daemon', daemonPort),
+    installService(paths, environment, 'ingress', daemonPort),
+  ]);
+  return { daemon, ingress };
+}
+
+const execFile = promisify(execFileCallback);
+
+/** Load (or unload) a user unit now. This is intentionally part of Rocky, so
+ * setup never leaves a person with a command to paste into a second terminal. */
+export async function runServiceCommands(
+  commands: readonly (readonly [string, ...string[]])[],
+): Promise<void> {
+  for (const [command, ...args] of commands) {
+    await execFile(command, args);
+  }
+}
+
+export async function loadManagedServices(
+  services: ManagedServicesResult,
+  run = runServiceCommands,
+): Promise<void> {
+  // The daemon must be present before the ingress begins forwarding requests.
+  await run(services.daemon.target.loadCommand);
+  await run(services.ingress.target.loadCommand);
+}
+
 export interface UninstallResult {
   target: ServiceTarget;
   /** False when there was no unit to remove. */
   removed: boolean;
 }
 
+export async function serviceIsInstalled(
+  environment: ServiceEnvironment = {},
+  kind: ServiceKind = 'daemon',
+): Promise<boolean> {
+  const target = serviceTarget(environment, kind);
+  return (
+    (await readFile(target.file, 'utf8').catch(() => undefined)) !== undefined
+  );
+}
+
 export async function uninstallService(
   environment: ServiceEnvironment = {},
+  kind: ServiceKind = 'daemon',
 ): Promise<UninstallResult> {
-  const target = serviceTarget(environment);
+  const target = serviceTarget(environment, kind);
   const existed =
     (await readFile(target.file, 'utf8').catch(() => undefined)) !== undefined;
 
