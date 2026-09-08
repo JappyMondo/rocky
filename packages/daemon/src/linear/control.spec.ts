@@ -175,6 +175,46 @@ describe('Checkpoint Answer intake', () => {
     ).toHaveLength(1);
   });
 
+  it('keeps a queued local Answer ahead of a later stop across a restart', async () => {
+    const f = fixture();
+    let halted = false;
+    let cancelled = false;
+    const control = f.open({
+      halt: () => {
+        halted = true;
+      },
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    await control.checkpoint('0', question);
+    const checkpoint = must(await control.currentCheckpoint());
+
+    const answer = control.answer({
+      requestId: 'approve-first',
+      stepKey: checkpoint.stepKey,
+      generation: checkpoint.generation,
+      answer: { decision: 'approve' },
+    });
+    const stop = control.intake({
+      source: 'linear',
+      id: 'stop-second',
+      signal: 'stop',
+    });
+
+    expect(halted).toBe(true);
+    await expect(answer).resolves.toEqual({
+      kind: 'accepted',
+      answer: { decision: 'approve' },
+    });
+    expect(await stop).toBe('accepted');
+    expect(cancelled).toBe(true);
+    expect(await f.open().checkpoint('0', question)).toEqual({
+      status: 'done',
+      result: { decision: 'approve' },
+    });
+  });
+
   it('refuses a local Answer without its full Checkpoint identity', async () => {
     const f = fixture();
     const control = f.open();
@@ -192,6 +232,19 @@ describe('Checkpoint Answer intake', () => {
     expect(await control.currentCheckpoint()).toMatchObject({
       stepKey: checkpoint.stepKey,
     });
+  });
+
+  it('rejects malformed intake before it can create a Steer', async () => {
+    const f = fixture();
+    const control = f.open();
+
+    await expect(
+      control.intake({ source: 'local', id: '', body: 'not persisted' }),
+    ).rejects.toThrow(/requires a request/);
+    await expect(
+      control.intake({ source: 'local', id: 'missing-body' }),
+    ).rejects.toThrow(/requires verbatim text/);
+    expect(await control.pendingSteers()).toEqual([]);
   });
 
   it('does not let local Compose resolve a waiting Checkpoint before reporting the conflict', async () => {
@@ -322,6 +375,92 @@ describe('Checkpoint Answer intake', () => {
     expect(await control.intake(input)).toBe('accepted');
   });
 
+  it('keeps a persisted Answer and its wake when its nonessential notice fails', async () => {
+    const f = fixture();
+    const errors: string[] = [];
+    let wakes = 0;
+    const control = f.open({
+      wake: () => {
+        wakes++;
+      },
+      onError: (error) => {
+        errors.push(error instanceof Error ? error.message : String(error));
+        throw new Error('The notice reporter is unavailable');
+      },
+    });
+    await control.checkpoint('0', question);
+    const checkpoint = must(await control.currentCheckpoint());
+    const ensureActivity = f.client.ensureActivity;
+    f.client.ensureActivity = async (input) => {
+      if (input.content.type === 'action')
+        throw new Error('Linear notice is unavailable');
+      return ensureActivity(input);
+    };
+
+    await expect(
+      control.answer({
+        requestId: 'durable-answer',
+        stepKey: checkpoint.stepKey,
+        generation: checkpoint.generation,
+        answer: { decision: 'approve' },
+      }),
+    ).resolves.toEqual({
+      kind: 'accepted',
+      answer: { decision: 'approve' },
+    });
+    expect(wakes).toBe(1);
+    expect(errors).toEqual(['Linear notice is unavailable']);
+
+    f.client.ensureActivity = ensureActivity;
+    const restarted = f.open();
+    await restarted.reconcile();
+    expect(await restarted.checkpoint('0', question)).toEqual({
+      status: 'done',
+      result: { decision: 'approve' },
+    });
+    expect(
+      f.activities.filter(
+        (activity) =>
+          activity.content.type === 'action' &&
+          activity.content.action === 'Checkpoint answered',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('keeps a persisted Steer and its wake when notice confirmation has the wrong identity', async () => {
+    const f = fixture();
+    const errors: string[] = [];
+    let wakes = 0;
+    const ensureActivity = f.client.ensureActivity;
+    f.client.ensureActivity = async (input) => {
+      if (input.content.type === 'action')
+        return { id: 'wrong-notice-id', success: true };
+      return ensureActivity(input);
+    };
+    const control = f.open({
+      wake: () => {
+        wakes++;
+      },
+      onError: (error) => {
+        errors.push(error instanceof Error ? error.message : String(error));
+      },
+    });
+
+    await expect(
+      control.steer({
+        requestId: 'wrong-notice-id',
+        message: 'keep this receipt',
+      }),
+    ).resolves.toMatchObject({
+      requestId: 'wrong-notice-id',
+      message: 'keep this receipt',
+      state: 'held',
+    });
+    expect(wakes).toBe(1);
+    expect(errors).toEqual(['Linear did not confirm the control activity']);
+    expect(await control.pendingSteers()).toEqual(['keep this receipt']);
+  });
+
   it('halts stop immediately, persists a reject, and never resumes product effects', async () => {
     const f = fixture();
     let halted = false;
@@ -356,6 +495,39 @@ describe('Checkpoint Answer intake', () => {
       }),
     ).toBe('ended');
     expect(f.activities).toHaveLength(1);
+  });
+
+  it('routes a prompted stop through the same Checkpoint reject and cancellation', async () => {
+    const f = fixture();
+    let halted = false;
+    let cancelled = false;
+    const control = f.open({
+      halt: () => {
+        halted = true;
+      },
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    await control.checkpoint('0', question);
+
+    await expect(
+      control.prompted({
+        action: 'prompted',
+        sessionId: 'session',
+        issueId: 'issue',
+        appUserId: 'app',
+        organizationId: 'org',
+        prompt: { activityId: 'prompted-stop', signal: 'stop' },
+        payload: {} as AgentSessionEvent['payload'],
+      }),
+    ).resolves.toBe('accepted');
+    expect(halted).toBe(true);
+    expect(cancelled).toBe(true);
+    expect(await control.checkpoint('0', question)).toEqual({
+      status: 'done',
+      result: { decision: 'reject', reason: 'Stopped by the human' },
+    });
   });
 
   it('recovers stop persisted before the scheduler saw it, without reading Linear', async () => {
@@ -445,6 +617,71 @@ describe('Checkpoint Answer intake', () => {
       result: { decision: 'approve' },
     });
   });
+
+  it('rejects foreign or malformed Linear prompts before they enter durable intake', async () => {
+    const f = fixture();
+    const control = f.open();
+    const event: AgentSessionEvent = {
+      action: 'prompted',
+      sessionId: 'session',
+      issueId: 'issue',
+      appUserId: 'app',
+      organizationId: 'org',
+      prompt: { activityId: 'missing-source-time', body: 'keep this exact' },
+      payload: {} as AgentSessionEvent['payload'],
+    };
+
+    await expect(
+      control.prompted({ ...event, issueId: 'another-issue' }),
+    ).rejects.toThrow(/does not belong/);
+    await expect(
+      control.prompted({ ...event, prompt: undefined }),
+    ).rejects.toThrow(/requires its activity/);
+    await expect(control.prompted(event)).rejects.toThrow(
+      /Recover the original Linear prompt timestamp/,
+    );
+    expect(await control.pendingSteers()).toEqual([]);
+  });
+
+  it('fails recovery before a foreign or malformed activity can enter intake', async () => {
+    const f = fixture();
+    const control = f.open();
+    f.prompts.push({
+      id: 'foreign-activity',
+      sessionId: 'another-session',
+      createdAt: '2026-09-07T10:00:01Z',
+      content: { type: 'prompt', body: 'do not persist this' },
+      ephemeral: false,
+    });
+
+    await expect(control.reconcile()).rejects.toThrow(/another session/);
+    f.prompts.length = 0;
+    f.prompts.push({
+      id: 'missing-body',
+      sessionId: 'session',
+      createdAt: '2026-09-07T10:00:02Z',
+      content: { type: 'prompt' },
+      ephemeral: false,
+    });
+    await expect(control.reconcile()).rejects.toThrow(/has no text/);
+    expect(await control.pendingSteers()).toEqual([]);
+  });
+
+  it('fails recovery when Linear session ownership changes', async () => {
+    const f = fixture();
+    const control = f.open({
+      client: {
+        ...f.client,
+        session: async () => ({
+          ...f.session,
+          issueId: 'another-issue',
+        }),
+      },
+    });
+
+    await expect(control.reconcile()).rejects.toThrow(/association changed/);
+    expect(await control.pendingSteers()).toEqual([]);
+  });
 });
 
 describe('Steer delivery', () => {
@@ -529,6 +766,74 @@ describe('Steer delivery', () => {
     const second = await control.takeSteers('3/1/0');
     expect(first?.message).toBe('check the empty state too');
     expect(second?.message).toBe('check the empty state too');
+  });
+
+  it('delivers a persisted Steer to a sibling that opens after another branch reaches its boundary', async () => {
+    const f = fixture();
+    const control = f.open();
+    await control.openConversation({
+      stepKey: '3/0/0',
+      label: 'first',
+      group: '3',
+    });
+    await control.steer({
+      requestId: 'late-sibling',
+      message: 'review the empty state too',
+    });
+    const first = must(await control.takeSteers('3/0/0'));
+    await control.delivered('3/0/0', first.ids);
+
+    const restarted = f.open();
+    await restarted.openConversation({
+      stepKey: '3/1/0',
+      label: 'second',
+      group: '3',
+    });
+    const second = must(await restarted.takeSteers('3/1/0'));
+    expect(second.message).toBe('review the empty state too');
+    await restarted.delivered('3/1/0', second.ids);
+    expect(await restarted.steers()).toMatchObject([
+      {
+        requestId: 'late-sibling',
+        state: 'delivered',
+        targets: [
+          { stepKey: '3/0/0', delivered: true },
+          { stepKey: '3/1/0', delivered: true },
+        ],
+      },
+    ]);
+  });
+
+  it('does not consume a Steer when its delivery acknowledgement is wrong', async () => {
+    const f = fixture();
+    const control = f.open();
+    await control.openConversation({ stepKey: '0', label: 'reviewer' });
+    await control.steer({
+      requestId: 'acknowledgement',
+      message: 'deliver this once',
+    });
+    const batch = must(await control.takeSteers('0'));
+
+    await expect(control.delivered('0', ['wrong-id'])).rejects.toThrow(
+      /No matching Steer delivery/,
+    );
+    await control.delivered('0', batch.ids);
+    expect(await control.pendingSteers()).toEqual([]);
+  });
+
+  it('refuses duplicate and stopped Conversations', async () => {
+    const f = fixture();
+    const control = f.open();
+    await control.openConversation({ stepKey: '0', label: 'reviewer' });
+    await expect(
+      control.openConversation({ stepKey: '0', label: 'reviewer' }),
+    ).rejects.toThrow(/already live/);
+
+    const stopped = f.open({ cancel: () => undefined });
+    await stopped.intake({ source: 'linear', id: 'stop', signal: 'stop' });
+    await expect(
+      stopped.openConversation({ stepKey: '1', label: 'implementer' }),
+    ).rejects.toThrow(/stopped/);
   });
 
   it('retains queued/exec notes across a cold restart and coalesces them only at the next boundary', async () => {
@@ -723,6 +1028,84 @@ describe('Steer delivery', () => {
       ephemeral: true,
       content: { type: 'action', action: 'Steer heard' },
     });
+  });
+
+  it('keeps a live Steer receipt when Linear rejects its ephemeral notice', async () => {
+    const f = fixture();
+    const errors: string[] = [];
+    let wakes = 0;
+    f.client.postActivity = async () => ({ id: 'ephemeral', success: false });
+    const control = f.open({
+      wake: () => {
+        wakes++;
+      },
+      onError: (error) => {
+        errors.push(error instanceof Error ? error.message : String(error));
+      },
+    });
+    await control.openConversation({ stepKey: '0', label: 'reviewer' });
+
+    await expect(
+      control.steer({
+        requestId: 'rejected-ephemeral-notice',
+        message: 'continue after the notice failure',
+      }),
+    ).resolves.toMatchObject({
+      requestId: 'rejected-ephemeral-notice',
+      state: 'held',
+      targets: [{ stepKey: '0', delivered: false }],
+    });
+    expect(wakes).toBe(1);
+    expect(errors).toEqual([
+      'Linear did not accept the ephemeral control activity',
+    ]);
+  });
+
+  it('returns a persisted Steer and wakes when its nonessential notice fails', async () => {
+    const f = fixture();
+    const errors: string[] = [];
+    let wakes = 0;
+    const ensureActivity = f.client.ensureActivity;
+    f.client.ensureActivity = async (input) => {
+      if (input.content.type === 'action')
+        throw new Error('Linear notice is unavailable');
+      return ensureActivity(input);
+    };
+    const control = f.open({
+      wake: () => {
+        wakes++;
+      },
+      onError: (error) => {
+        errors.push(error instanceof Error ? error.message : String(error));
+      },
+    });
+
+    await expect(
+      control.steer({
+        requestId: 'durable-note',
+        message: 'resume with this',
+      }),
+    ).resolves.toMatchObject({
+      requestId: 'durable-note',
+      message: 'resume with this',
+      state: 'held',
+    });
+    expect(wakes).toBe(1);
+    expect(errors).toEqual(['Linear notice is unavailable']);
+
+    f.client.ensureActivity = ensureActivity;
+    const restarted = f.open();
+    await restarted.reconcile();
+    expect(await restarted.pendingSteers()).toEqual(['resume with this']);
+    await restarted.openConversation({ stepKey: '0', label: 'reviewer' });
+    expect((await restarted.takeSteers('0'))?.message).toBe('resume with this');
+    expect(
+      f.activities.filter(
+        (activity) =>
+          activity.content.type === 'action' &&
+          activity.content.action === 'Steer waiting',
+      ),
+    ).toHaveLength(1);
   });
 
   it('treats a new prompt after a resolved Checkpoint as a Steer, not a late exclusive Answer', async () => {

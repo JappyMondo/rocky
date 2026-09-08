@@ -40,9 +40,11 @@ The local API calls `answer({ requestId, stepKey, generation, answer })` for a
 Checkpoint and `steer({ requestId, message })` for a running Run. Both enter the
 same serialized durable intake as Linear prompts. `answer()` validates the full
 Step key and generation, then returns either the accepted Answer or the durable
-winner for a conflict. A Linear prompt uses source `linear`, activity ID, original
-`createdAt`, signal and body. Internal intake results are `accepted`, `already
-answered`, `duplicate`, `ended`. Never interpret free text into approve/reject;
+winner for a conflict. A stop fences effects immediately, but cannot overtake an
+Answer that was already queued in that intake. A Linear prompt uses source
+`linear`, activity ID, original `createdAt`, signal and body. Internal intake
+results are `accepted`, `already answered`, `duplicate`, `ended`. Never interpret
+free text into approve/reject;
 it is a verbatim Steer-as-Answer at a Checkpoint.
 
 `waiting()` supplies the current decision surface. `pendingSteers()` supplies
@@ -82,7 +84,9 @@ at most one in-flight batch per Step. The execution owner durably records the
 with exactly `message`. No input splicing or SIGINT on intake.
 
 Only after continuation accepts that user turn, call `delivered(stepKey, ids)`.
-Per-target acknowledgements survive partial parallel delivery and restart.
+Per-target acknowledgements survive partial parallel delivery and restart. A
+sibling that opens later in a bound fan-out group gets its own target even after
+another branch has reached a boundary.
 The delivery/ack crash window is at-least-once, not distributed exactly-once.
 `closeConversation(stepKey)` moves any outstanding recipient back to pending
 for the next Agent; it never silently consumes it. A cold retry with the same
@@ -98,7 +102,9 @@ that could lose a delayed prompt; durable activity-ID dedupe is authoritative.
 The client paginates. A future high-water mark in `run.json` is only a cache.
 `tick()` runs the 60-second backstop while conversations are live; the runtime
 scheduler already owns the five-minute Checkpoint cadence and admission cap.
-`wake` schedules `scheduler.poll(runId)` without awaiting the current Boot.
+`wake` schedules `scheduler.poll(runId)` without awaiting the current Boot. It
+follows the durable receipt before the best-effort notice; an unsent notice stays
+durable for retry and cannot reject an Answer or Steer.
 
 Wire synchronous `halt` to abort owned processes and fence network/product
 effects immediately. After recording stop (and a reject Answer if waiting),

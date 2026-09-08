@@ -244,6 +244,9 @@ export class LinearRunControl {
   private readonly now: () => number;
   private readonly conversations = new Map<string, LiveConversation>();
   private readonly inFlight = new Map<string, string[]>();
+  // A stop fences new work immediately without overtaking an already queued Answer.
+  private nextInput = 0;
+  private stopInput?: number;
   private stopping = false;
   private nextLivePoll: number;
   private reconciliation?: Promise<void>;
@@ -386,7 +389,9 @@ export class LinearRunControl {
           'Control intake requires a request/activity ID and valid source time',
         ),
       );
+    const inputOrder = ++this.nextInput;
     if (input.signal === 'stop') {
+      this.stopInput ??= inputOrder;
       this.stopping = true;
       this.options.halt?.();
     }
@@ -408,7 +413,12 @@ export class LinearRunControl {
         await this.save(state);
         return 'accepted';
       }
-      if (this.stopping || state.stopped) return 'ended';
+      if (
+        state.stopped ||
+        (this.stopping &&
+          (this.stopInput === undefined || inputOrder > this.stopInput))
+      )
+        return 'ended';
       if (state.inputs[id])
         return state.inputs[id] === 'already answered'
           ? 'already answered'
@@ -526,10 +536,9 @@ export class LinearRunControl {
       }
       if (input.signal !== 'stop' && result !== 'ended') {
         if (!(await this.waiting())) await this.options.parked?.(false);
+        if (result === 'accepted') this.options.wake?.();
         await this.flushNotices();
       }
-      if (result === 'accepted' && input.signal !== 'stop')
-        this.options.wake?.();
       return result;
     });
   }
@@ -601,22 +610,31 @@ export class LinearRunControl {
             result: notice.result,
           },
         };
-        if (notice.ephemeral) {
-          const result = await this.options.client.postActivity({
-            ...input,
-            ephemeral: true,
-          });
-          if (!result.success)
-            throw new Error(
-              'Linear did not accept the ephemeral control activity',
-            );
-        } else {
-          const result = await this.options.client.ensureActivity({
-            ...input,
-            id: notice.id,
-          });
-          if (!result.success || result.id !== notice.id)
-            throw new Error('Linear did not confirm the control activity');
+        try {
+          if (notice.ephemeral) {
+            const result = await this.options.client.postActivity({
+              ...input,
+              ephemeral: true,
+            });
+            if (!result.success)
+              throw new Error(
+                'Linear did not accept the ephemeral control activity',
+              );
+          } else {
+            const result = await this.options.client.ensureActivity({
+              ...input,
+              id: notice.id,
+            });
+            if (!result.success || result.id !== notice.id)
+              throw new Error('Linear did not confirm the control activity');
+          }
+        } catch (error) {
+          try {
+            this.options.onError?.(error);
+          } catch {
+            // A reporter must not turn a nonessential notice into a failed receipt.
+          }
+          return;
         }
         notice.sent = true;
         await this.save(state);
@@ -660,11 +678,6 @@ export class LinearRunControl {
 
   /** Atomically validates an exact Checkpoint identity and exposes a CAS winner. */
   async answer(input: CheckpointAnswerInput): Promise<CheckpointAnswerResult> {
-    const before = await this.checkpointSnapshot(input);
-    if (!before)
-      throw new Error(
-        `Checkpoint Step key ${input.stepKey} does not match generation ${input.generation}`,
-      );
     const result = await this.intake({
       source: 'local',
       id: input.requestId,
@@ -741,7 +754,6 @@ export class LinearRunControl {
         ),
       );
       if (!notes.length) return undefined;
-      for (const note of notes) note.binding = false;
       await this.save(state);
       const ids = notes.map((note) => note.id);
       this.inFlight.set(stepKey, ids);
