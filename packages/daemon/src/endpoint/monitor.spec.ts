@@ -1,5 +1,5 @@
 /**
- * AC4: killing the tunnel triggers the hourly ping's failure path — a log line
+ * AC4: killing the tunnel triggers the bounded ping's failure path — a log line
  * and a flag the web UI banners and `rocky status` warns from. No
  * auto-remediation: NG-578 rejected a managed tunnel process outright, so the
  * only thing a failure does is become visible.
@@ -196,7 +196,7 @@ describe('recovery', () => {
     expect(logInfo).toHaveBeenCalledWith(expect.stringContaining('reachable'));
   });
 
-  it('does not repeat the same warning on every hourly ping', async () => {
+  it('does not repeat the same warning on every bounded ping', async () => {
     const logWarn = vi.fn();
     const monitor = createEndpointMonitor({
       publicUrl: () => 'https://rocky.example.com',
@@ -223,7 +223,7 @@ describe('the schedule', () => {
     vi.useRealTimers();
   });
 
-  it('is boot and then hourly', async () => {
+  it('is boot and then once a minute', async () => {
     const doFetch = vi.fn(async () => pingResponse(INSTANCE));
     const monitor = createEndpointMonitor({
       publicUrl: () => 'https://rocky.example.com',
@@ -231,7 +231,7 @@ describe('the schedule', () => {
       fetch: doFetch as unknown as typeof fetch,
     });
 
-    expect(SELF_PING_INTERVAL_MS).toBe(60 * 60 * 1000);
+    expect(SELF_PING_INTERVAL_MS).toBe(60_000);
 
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);

@@ -353,6 +353,13 @@ button:disabled {
   background: #fff4d9;
   border: 1px solid #e4c16c;
 }
+.endpointHealthy {
+  max-width: 900px;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: #edf8f0;
+  border: 1px solid #93c9a2;
+}
 .error {
   background: #fff0f0;
   border-color: #e2a1a1;

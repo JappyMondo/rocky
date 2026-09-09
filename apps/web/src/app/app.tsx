@@ -27,7 +27,12 @@ type Route =
 type Health = {
   status: string;
   version: string;
-  endpoint?: { configured: boolean; ok: boolean; detail?: string };
+  endpoint?: {
+    configured: boolean;
+    ok: boolean;
+    checkedAt?: string;
+    detail?: string;
+  };
 };
 
 const route = (): Route => {
@@ -562,11 +567,24 @@ export function App() {
             The daemon is temporarily unreachable; showing the last known state.
           </p>
         )}
-        {health?.endpoint?.configured && !health.endpoint.ok && (
-          <p className={styles.warning} role="status">
-            <strong>Linear cannot reach Rocky.</strong> The public endpoint{' '}
-            {health.endpoint.detail ?? 'is not answering'}. Runs still progress,
-            more slowly.
+        {health?.endpoint?.configured && (
+          <p
+            className={
+              health.endpoint.ok ? styles.endpointHealthy : styles.warning
+            }
+            role="status"
+          >
+            <strong>
+              {health.endpoint.ok
+                ? 'Public endpoint is reachable.'
+                : 'Linear cannot reach Rocky.'}
+            </strong>{' '}
+            {health.endpoint.checkedAt
+              ? `Last verified ${new Date(health.endpoint.checkedAt).toLocaleString()}.`
+              : 'Checking the public endpoint now.'}{' '}
+            {health.endpoint.ok
+              ? 'Rocky checks it once a minute.'
+              : `${health.endpoint.detail ?? 'The endpoint is not answering'} Restore your tunnel or Tailscale Funnel, then run rocky doctor.`}
           </p>
         )}
         {error && (

@@ -19,8 +19,8 @@
 import { readPingIdentity } from './ping.js';
 export { PING_PATH } from './ping.js';
 
-/** Boot, then hourly (NG-578). */
-export const SELF_PING_INTERVAL_MS = 60 * 60 * 1000;
+/** Boot, then once a minute: prompt enough for an ingress outage, bounded enough for BYO tunnels. */
+export const SELF_PING_INTERVAL_MS = 60_000;
 
 export interface EndpointHealth {
   /** False when no `publicUrl` is set — a machine mid-setup, not a failure. */
@@ -48,7 +48,7 @@ export interface EndpointMonitor {
   readonly health: EndpointHealth;
   /** One ping now. */
   check(): Promise<EndpointHealth>;
-  /** Ping now, then every hour. */
+  /** Ping now, then on the bounded ingress-health cadence. */
   start(): void;
   stop(): void;
 }

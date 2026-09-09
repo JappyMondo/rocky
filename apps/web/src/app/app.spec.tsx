@@ -406,6 +406,44 @@ describe('Inbox behavior', () => {
     ).toBe(true);
   });
 
+  it('surfaces current public-ingress liveness, verification age, and a tunnel remedy', async () => {
+    daemon({
+      health: () => ({
+        body: {
+          status: 'ok',
+          version: '0.0.0',
+          endpoint: {
+            configured: true,
+            ok: true,
+            checkedAt: '2026-09-09T11:00:00.000Z',
+          },
+        },
+      }),
+    });
+    render(<App />);
+    expect(
+      await screen.findByText('Public endpoint is reachable.'),
+    ).toBeTruthy();
+    expect(screen.getByText(/Last verified/)).toBeTruthy();
+    expect(screen.getByText(/once a minute/)).toBeTruthy();
+    cleanup();
+    daemon({
+      health: () => ({
+        body: {
+          status: 'ok',
+          version: '0.0.0',
+          endpoint: { configured: true, ok: false, detail: 'answered 502' },
+        },
+      }),
+    });
+    render(<App />);
+    expect(await screen.findByText('Linear cannot reach Rocky.')).toBeTruthy();
+    expect(screen.getByText(/Checking the public endpoint now/)).toBeTruthy();
+    expect(
+      screen.getByText(/Restore your tunnel or Tailscale Funnel/),
+    ).toBeTruthy();
+  });
+
   it('polls active detail and refreshes the selected diff on a revision then closes it', async () => {
     vi.useFakeTimers();
     const active = { ...r2, status: 'running' as const };

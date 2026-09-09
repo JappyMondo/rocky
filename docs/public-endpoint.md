@@ -170,7 +170,7 @@ remote bodies, transport errors or URL credentials. The local identity check
 requires an IPv4 loopback listener; other local binding choices must provide
 one before using this ingress recipe.
 
-The daemon self-pings through the public URL **on boot and every hour**. The
+The daemon self-pings through the public URL **on boot and once a minute**. The
 ping leaves the machine and comes back, and compares an instance id — which
 catches the failure a plain `200` hides, a URL still pointed at another
 developer's daemon.
@@ -180,8 +180,8 @@ because Rocky did not start it.
 
 A failure shows up in three places:
 
-- a warning in `~/.rocky/logs/daemon.log`, once per outage rather than hourly;
-- a banner in the web UI;
+- a warning in `~/.rocky/logs/daemon.log`, once per outage rather than every minute;
+- a banner in the web UI that shows the most recent verification time and remediation;
 - `rocky status`, on stderr.
 
 ```sh
@@ -201,7 +201,7 @@ Run parked at a Checkpoint still picks up its answer with the tunnel down.
 It is still worth fixing promptly. Linear retries a failed delivery after 1
 minute, then 1 hour, then 6 hours, and **may then disable the webhook
 outright** — and re-enabling it is a manual trip through Linear's settings.
-That, not the missed events, is why the ping runs hourly.
+That, not the missed events, is why the ping runs every minute.
 
 ## Moving the endpoint later
 
