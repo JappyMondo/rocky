@@ -118,7 +118,9 @@ describe('`rocky repo add`', () => {
         profile: 'niotix',
       },
     ]);
-    expect((await readRepositoryProfile(rockyPaths(home), 'niotix')).remote).toBe(
+    expect(
+      (await readRepositoryProfile(rockyPaths(home), 'niotix')).remote,
+    ).toBe(
       `file://${upstreamUrl
         .slice('file://'.length)
         .replace(/\.git$/, '')

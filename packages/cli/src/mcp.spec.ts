@@ -236,7 +236,9 @@ if (${mode === 'cancelled'}) {
         },
       }).parseAsync(['mcp', 'login', name, '--repo', 'api'], { from: 'user' });
       expect(process.exitCode).toBe(1);
-      expect(errors.join('\n')).toMatch(/profiles\/api\.json.*(unknown MCP server|stdio)/);
+      expect(errors.join('\n')).toMatch(
+        /profiles\/api\.json.*(unknown MCP server|stdio)/,
+      );
       expect(output).toEqual([]);
     },
   );
