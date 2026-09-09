@@ -52,6 +52,7 @@ export {
   exportRepositoryProfile,
   listRepositoryProfiles,
   newRepositoryProfile,
+  newSeedRepositoryProfile,
   parseRepositoryProfile,
   profileMcpConfig,
   readRepositoryProfile,

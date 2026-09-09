@@ -6,6 +6,8 @@
  * profile by placing files in `.rocky/` (or anywhere else) in Git.
  */
 import { readdir, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { z } from 'zod';
 
@@ -114,6 +116,69 @@ export function newRepositoryProfile(input: {
     },
     `profiles/${input.id}.json`,
   );
+}
+
+/**
+ * The shipped workflow is a local product default, not repository content.
+ * It gives `rocky repo add` a runnable first-ticket pipeline while keeping the
+ * full workflow, prompts, schemas, rules and MCP declaration in the profile
+ * store from its first byte.
+ */
+export async function newSeedRepositoryProfile(input: {
+  id: string;
+  remote: string;
+}): Promise<RepositoryProfile> {
+  const content = new URL('../../content/.rocky/', import.meta.url);
+  const directory = fileURLToPath(content);
+  const [workflow, schemas, mcp, agents, rules] = await Promise.all([
+    readFile(join(directory, 'workflow.ts'), 'utf8'),
+    readFile(join(directory, 'schemas.ts'), 'utf8'),
+    readFile(join(directory, 'mcp.json'), 'utf8'),
+    readTextDirectory(join(directory, 'agents')),
+    readTextDirectory(join(directory, 'rules')),
+  ]);
+  return parseRepositoryProfile(
+    {
+      ...newRepositoryProfile(input),
+      workflow: { source: workflow, triggers: ['linear.onDelegate'] },
+      prompts: agents,
+      schemas,
+      rules,
+      mcp: JSON.parse(mcp) as unknown,
+      settings: {
+        env: {},
+        // These are references only. Their values are taken from this
+        // machine's credentials.json or environment at Run time.
+        secretEnv: ['GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN'],
+      },
+    },
+    `profiles/${input.id}.json`,
+  );
+}
+
+async function readTextDirectory(
+  directory: string,
+): Promise<Record<string, string>> {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+  const values = await Promise.all(
+    entries
+      .filter((entry) => entry.endsWith('.md'))
+      .sort()
+      .map(
+        async (entry) =>
+          [
+            entry.slice(0, -3),
+            await readFile(join(directory, entry), 'utf8'),
+          ] as const,
+      ),
+  );
+  return Object.fromEntries(values);
 }
 
 export async function readRepositoryProfile(

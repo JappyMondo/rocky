@@ -73,7 +73,7 @@ export async function prepareProfileSnapshot(
     await writeFile(join(snapshotDir, 'workflow.ts'), profile.workflow.source);
     await writeFile(join(snapshotDir, 'mcp.json'), JSON.stringify(profile.mcp));
     await writeFile(join(snapshotDir, 'profile.json'), JSON.stringify(profile));
-    await writeFile(join(snapshotDir, 'schemas.txt'), profile.schemas);
+    await writeFile(join(snapshotDir, 'schemas.ts'), profile.schemas);
     await Promise.all([
       ...Object.entries(profile.prompts).map(([name, prompt]) =>
         writeFile(join(snapshotDir, 'agents', `${name}.md`), prompt),

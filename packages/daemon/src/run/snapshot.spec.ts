@@ -13,7 +13,10 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, expect, it } from 'vitest';
 import { rockyPaths } from '../config/paths.js';
-import { newRepositoryProfile } from '../config/profiles.js';
+import {
+  newRepositoryProfile,
+  newSeedRepositoryProfile,
+} from '../config/profiles.js';
 import { createRepoContext } from '../repos/index.js';
 import { prepareProfileSnapshot, prepareWorkflowSnapshot } from './snapshot.js';
 
@@ -121,6 +124,30 @@ it('snapshots only the local profile when a repository tries to supply .rocky', 
   expect(
     await readFile(join(snapshot.snapshotDir, 'agents/worker.md'), 'utf8'),
   ).toBe('Local instructions only.');
+});
+
+it('validates the runnable shipped profile without loading repository .rocky', async () => {
+  const { repo, context, lead, commit } = await repository();
+  await writeFile(
+    join(repo, '.rocky/workflow.ts'),
+    'throw new Error("ignored")',
+  );
+  await commit();
+
+  const snapshot = await prepareProfileSnapshot(
+    context,
+    lead,
+    await newSeedRepositoryProfile({ id: 'local', remote: lead.url }),
+    { mcp },
+  );
+
+  expect(snapshot.triggers).toContainEqual({ kind: 'linear.onDelegate' });
+  expect(
+    await readFile(join(snapshot.snapshotDir, 'schemas.ts'), 'utf8'),
+  ).toContain('export');
+  expect(
+    await readFile(join(snapshot.snapshotDir, 'agents/planner.md'), 'utf8'),
+  ).not.toBe('');
 });
 
 it('routes and snapshots one default-branch commit, preserving binary bytes and ignoring live edits', async () => {

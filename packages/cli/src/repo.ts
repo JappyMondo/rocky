@@ -23,7 +23,7 @@ import {
   ensureInstanceLayout,
   exportRepositoryProfile,
   listRepositoryProfiles,
-  newRepositoryProfile,
+  newSeedRepositoryProfile,
   parseRepositoryProfile,
   readRepositoryProfile,
   ensureClone,
@@ -105,7 +105,7 @@ export async function addRepo(
     await ensureInstanceLayout(paths);
     await writeRepositoryProfile(
       paths,
-      newRepositoryProfile({ id: name, remote: url }),
+      await newSeedRepositoryProfile({ id: name, remote: url }),
     );
     const entry: RepoEntry = { name, url, baseBranch, label, profile: name };
     await writeInstanceConfig(paths, {
@@ -114,10 +114,10 @@ export async function addRepo(
     });
 
     io.out(
-      `Added "${name}" — local profile \`${name}\`, base branch \`${baseBranch}\`, routed by the Linear label \`${label}\`.`,
+      `Added "${name}" — runnable local profile \`${name}\`, base branch \`${baseBranch}\`, routed by the Linear label \`${label}\`.`,
     );
     io.out(
-      'Put that label on an issue and delegate it to Rocky. A running daemon picks this up without a restart.',
+      'Put that label on an issue and delegate it to Rocky. The profile is local; repository .rocky files are ignored. A running daemon picks this up without a restart.',
     );
   } catch (error) {
     fail(io, error);

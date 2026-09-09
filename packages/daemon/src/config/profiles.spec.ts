@@ -7,6 +7,7 @@ import { ensureInstanceLayout } from './store.js';
 import {
   canonicalRemote,
   newRepositoryProfile,
+  newSeedRepositoryProfile,
   profileMcpConfig,
   readRepositoryProfile,
   writeRepositoryProfile,
@@ -14,6 +15,20 @@ import {
 import { rockyPaths } from './paths.js';
 
 describe('local repository profiles', () => {
+  it('turns the shipped workflow into local-only runnable profile content', async () => {
+    const profile = await newSeedRepositoryProfile({
+      id: 'api',
+      remote: 'https://github.com/acme/api.git',
+    });
+
+    expect(profile.workflow.triggers).toEqual(['linear.onDelegate']);
+    expect(profile.workflow.source).toContain('linear.onDelegate(main)');
+    expect(profile.prompts.planner).toBeTruthy();
+    expect(profile.schemas).toContain('export');
+    expect(profile.mcp).toMatchObject({ mcpServers: {} });
+    expect(profile.settings.secretEnv).toContain('GITHUB_TOKEN');
+  });
+
   it('stores a pipeline locally and never needs a checkout path', async () => {
     const paths = rockyPaths(await mkdtemp(join(tmpdir(), 'rocky-profile-')));
     await ensureInstanceLayout(paths);

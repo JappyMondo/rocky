@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 import { expandHarness } from '../config/expand.js';
 import type { RockyPaths } from '../config/paths.js';
-import { resolveRepoEnv } from '../config/routing.js';
 import type { InstanceConfig } from '../config/schema.js';
 import { readCredentials } from '../config/store.js';
 import { LinearRunMirror } from '../linear/mirror.js';
@@ -38,6 +37,33 @@ function scmProject(url: string): {
     );
   const platform = /gitlab\.com/i.test(url) ? 'gitlab' : 'github';
   return { platform, project: match[1] };
+}
+
+/** Profile-owned environment: repository config cannot inject a Run variable. */
+function profileEnv(
+  run: {
+    profile?: {
+      settings: { env: Record<string, string>; secretEnv: string[] };
+    };
+    repo: string;
+  },
+  credentials: Awaited<ReturnType<typeof readCredentials>>,
+): Record<string, string> {
+  const profile = run.profile;
+  if (!profile)
+    throw new Error(
+      `${run.repo}: missing local profile snapshot; re-delegate after assigning a profile.`,
+    );
+  const stored = credentials.repos[run.repo] ?? {};
+  return {
+    ...profile.settings.env,
+    ...Object.fromEntries(
+      profile.settings.secretEnv.flatMap((name) => {
+        const value = stored[name] ?? process.env[name];
+        return value === undefined ? [] : [[name, value]];
+      }),
+    ),
+  };
 }
 
 const effectId = (value: string) =>
@@ -160,7 +186,7 @@ export function createProductionRuntime(
       servicesEnabled = Boolean(credentials.linear?.accessToken);
       env = {
         ...process.env,
-        ...resolveRepoEnv(options.config(), credentials, run.repo),
+        ...profileEnv(run, credentials),
         ROCKY_RUN_DIR: options.paths.run(run.runId).dir,
         ROCKY_SCREENSHOT_DIR: options.paths.run(run.runId).screenshotsDir,
         ROCKY_PORT: String(run.ports[0] ?? ''),

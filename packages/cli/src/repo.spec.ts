@@ -118,14 +118,16 @@ describe('`rocky repo add`', () => {
         profile: 'niotix',
       },
     ]);
-    expect(
-      (await readRepositoryProfile(rockyPaths(home), 'niotix')).remote,
-    ).toBe(
+    const profile = await readRepositoryProfile(rockyPaths(home), 'niotix');
+    expect(profile.remote).toBe(
       `file://${upstreamUrl
         .slice('file://'.length)
         .replace(/\.git$/, '')
         .replace(/\/+$/, '')}`,
     );
+    expect(profile.workflow.source).toContain('linear.onDelegate(main)');
+    expect(profile.prompts.implementer).toBeTruthy();
+    expect(profile.schemas).toContain('export');
     expect(out).toContain('Added "niotix"');
   });
 

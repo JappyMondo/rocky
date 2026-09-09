@@ -6,6 +6,7 @@ import type { Workflow } from '@rocky/sdk';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { rockyPaths } from '../config/paths.js';
+import { newRepositoryProfile } from '../config/profiles.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { writeCredentials } from '../config/store.js';
 import { appendEntry, readJournal } from './journal.js';
@@ -81,6 +82,10 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
     },
     branch: 'ng-544-agent',
     repo: 'app',
+    profile: newRepositoryProfile({
+      id: 'app',
+      remote: 'https://example.test/app.git',
+    }),
     trigger: 'linear.onDelegate',
     now: '2026-09-07T00:00:00.000Z',
   });
