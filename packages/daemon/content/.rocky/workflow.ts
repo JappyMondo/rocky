@@ -37,7 +37,7 @@ const ciLogLines = 200;
 // END ROCKY CONFIG
 
 async function shell(ctx: WorkflowContext, command: string) {
-  const result = await ctx.exec(command);
+  const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`);
   if (result.exitCode !== 0)
     throw new Error(`Command failed: ${command}\n${result.stderr}`);
   return result.stdout.trim();

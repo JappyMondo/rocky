@@ -187,6 +187,10 @@ export function createProductionRuntime(
         ...process.env,
         ...profileEnv(run, credentials),
         ROCKY_RUN_DIR: options.paths.run(run.runId).dir,
+        ROCKY_LEAD_REPO: join(
+          options.paths.run(run.runId).workspaceDir,
+          run.execution.members.find((member) => member.lead)?.path ?? run.repo,
+        ),
         ROCKY_SCREENSHOT_DIR: options.paths.run(run.runId).screenshotsDir,
         ROCKY_PORT: String(run.ports[0] ?? ''),
       };
