@@ -165,6 +165,20 @@ describe('LinearRunMirror', () => {
     ]);
   });
 
+  it('creates the run attachment without an icon when none is configured', async () => {
+    const f = fixture();
+    const { iconUrl: _iconUrl, ...options } = f.options;
+
+    await new LinearRunMirror(options).start();
+
+    expect([...f.attachments.values()][0]).toMatchObject({
+      issueId: 'issue-test',
+      title: 'Rocky',
+      url: 'http://localhost:7431/issues/issue-test',
+    });
+    expect([...f.attachments.values()][0]).not.toHaveProperty('iconUrl');
+  });
+
   it('coalesces status and persists post/settle actions with summaries and local Transcript links', async () => {
     const f = fixture();
     const mirror = new LinearRunMirror(f.options);

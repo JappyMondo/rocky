@@ -28,7 +28,8 @@ export interface LinearRunMirrorOptions {
   sessionId: string;
   teamId: string;
   localOrigin: string;
-  iconUrl: string;
+  /** Optional because Linear rejects some otherwise-valid icon formats (SVG). */
+  iconUrl?: string;
   /** Qualification evidence, not an assumption based on schema availability. */
   platform: {
     terminalComments: 'one';
@@ -56,7 +57,7 @@ const attachmentSchema = z.object({
   issueId: z.string(),
   title: z.literal('Rocky'),
   url: z.string(),
-  iconUrl: z.string(),
+  iconUrl: z.string().optional(),
   subtitle: z.string(),
 });
 const actionSchema = z.object({
@@ -660,7 +661,9 @@ export class LinearRunMirror {
           issueId: this.options.issueId,
           title: 'Rocky',
           url: `${this.options.localOrigin}/issues/${encodeURIComponent(this.options.issueId)}`,
-          iconUrl: this.options.iconUrl,
+          ...(this.options.iconUrl === undefined
+            ? {}
+            : { iconUrl: this.options.iconUrl }),
           subtitle: `Run ${this.options.runId}`,
         }),
       );

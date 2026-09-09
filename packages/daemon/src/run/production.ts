@@ -125,7 +125,6 @@ export function createProductionRuntime(
       sessionId: run.linear.sessionId,
       teamId: run.linear.teamId,
       localOrigin: `http://localhost:${options.config().server.port}`,
-      iconUrl: 'https://rocky.local/icon.svg',
       platform: {
         terminalComments: 'one',
         elicitationComments: 'none',
