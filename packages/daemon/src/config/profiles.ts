@@ -15,6 +15,7 @@ import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import { parseMcpConfig, type McpConfig } from '../mcp/config.js';
 import type { RockyPaths } from './paths.js';
 import { ConfigError } from './schema.js';
+import type { WorkflowDefaults } from './schema.js';
 
 const segment = z
   .string()
@@ -127,6 +128,7 @@ export function newRepositoryProfile(input: {
 export async function newSeedRepositoryProfile(input: {
   id: string;
   remote: string;
+  defaults?: WorkflowDefaults;
 }): Promise<RepositoryProfile> {
   const content = new URL('../../content/.rocky/', import.meta.url);
   const directory = fileURLToPath(content);
@@ -137,15 +139,19 @@ export async function newSeedRepositoryProfile(input: {
     readTextDirectory(join(directory, 'agents')),
     readTextDirectory(join(directory, 'rules')),
   ]);
+  const defaults = input.defaults ?? { harness: 'opencode' as const };
   return parseRepositoryProfile(
     {
       ...newRepositoryProfile(input),
-      workflow: { source: workflow, triggers: ['linear.onDelegate'] },
+      workflow: {
+        source: configuredWorkflow(workflow, defaults),
+        triggers: ['linear.onDelegate'],
+      },
       prompts: agents,
       schemas,
       rules,
       mcp: JSON.parse(mcp) as unknown,
-      grants: { harness: 'opencode', capabilities: [], mcp: [] },
+      grants: { harness: defaults.harness, capabilities: [], mcp: [] },
       settings: {
         env: {},
         // These are references only. Their values are taken from this
@@ -155,6 +161,23 @@ export async function newSeedRepositoryProfile(input: {
     },
     `profiles/${input.id}.json`,
   );
+}
+
+function configuredWorkflow(
+  source: string,
+  defaults: WorkflowDefaults,
+): string {
+  const setting = (name: string) =>
+    `const ${name} = { harness: '${defaults.harness}'${defaults.model === undefined ? '' : `, model: ${JSON.stringify(defaults.model)}`} };`;
+  if (
+    !/^const agent = .*;$/m.test(source) ||
+    !/^const fastAgent = .*;$/m.test(source)
+  )
+    throw new Error('Shipped workflow is missing its harness configuration.');
+  const configured = source
+    .replace(/^const agent = .*;$/m, setting('agent'))
+    .replace(/^const fastAgent = .*;$/m, setting('fastAgent'));
+  return configured;
 }
 
 async function readTextDirectory(

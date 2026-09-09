@@ -105,7 +105,11 @@ export async function addRepo(
     await ensureInstanceLayout(paths);
     await writeRepositoryProfile(
       paths,
-      await newSeedRepositoryProfile({ id: name, remote: url }),
+      await newSeedRepositoryProfile({
+        id: name,
+        remote: url,
+        defaults: config.workflowDefaults,
+      }),
     );
     const entry: RepoEntry = { name, url, baseBranch, label, profile: name };
     await writeInstanceConfig(paths, {
@@ -347,7 +351,11 @@ export async function seedProfile(io: CliIo, repoName: string): Promise<void> {
     await ensureInstanceLayout(paths);
     await writeRepositoryProfile(
       paths,
-      await newSeedRepositoryProfile({ id, remote: repo.url }),
+      await newSeedRepositoryProfile({
+        id,
+        remote: repo.url,
+        defaults: config.workflowDefaults,
+      }),
     );
     await writeInstanceConfig(paths, {
       ...config,

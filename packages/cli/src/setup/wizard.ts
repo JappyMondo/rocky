@@ -275,6 +275,35 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
       );
     }
 
+    const harness = await askUntil(
+      prompter,
+      'Harness for new Rocky profiles (opencode or claude-code) [opencode]:',
+      (answer) => {
+        const value = answer.trim() || 'opencode';
+        if (value !== 'opencode' && value !== 'claude-code')
+          throw new Error('Choose opencode or claude-code.');
+        return value;
+      },
+      maxAttempts,
+    );
+    const model = await askUntil(
+      prompter,
+      `Default ${harness} model for new profiles (blank uses the harness default):`,
+      (answer) => answer.trim(),
+      maxAttempts,
+    );
+    await writeInstanceConfig(paths, {
+      ...config,
+      publicUrl,
+      workflowDefaults: {
+        harness,
+        ...(model === '' ? {} : { model }),
+      },
+    });
+    prompter.say(
+      `New local profiles will use ${harness}${model === '' ? "'s configured default model" : ` model ${model}`}.`,
+    );
+
     prompter.say('');
     prompter.say(
       'Before the first delegation, ask a workspace admin to verify:',

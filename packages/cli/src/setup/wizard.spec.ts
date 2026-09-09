@@ -240,6 +240,27 @@ describe('what a completed run leaves behind', () => {
     expect(credentials.linear?.expiresAt).toEqual(expect.any(Number));
   });
 
+  it('persists the selected harness and model for future repository profiles', async () => {
+    await runHappyPath([
+      'Jan Jaap',
+      PUBLIC_URL,
+      '',
+      'client-id-1',
+      'client-secret-1',
+      'webhook-secret-1',
+      'opencode',
+      'openai/gpt-5.2',
+    ]);
+
+    const config = JSON.parse(
+      readFileSync(rockyPaths(home).configFile, 'utf8'),
+    ) as { workflowDefaults?: unknown };
+    expect(config.workflowDefaults).toEqual({
+      harness: 'opencode',
+      model: 'openai/gpt-5.2',
+    });
+  });
+
   it('leaves credentials.json readable only by its owner', async () => {
     await runHappyPath([
       'Jan Jaap',
@@ -285,6 +306,7 @@ describe('what a completed run leaves behind', () => {
     expect(transcript()).toContain(`${PUBLIC_URL}/api/linear/webhook`);
     expect(transcript()).toContain('AgentSessionEvent');
     expect(transcript()).toContain('Rocky cannot inspect');
+    expect(transcript()).toContain('New local profiles will use opencode');
   });
 });
 

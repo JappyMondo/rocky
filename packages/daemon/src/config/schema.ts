@@ -115,6 +115,13 @@ export const concurrencySchema = z.looseObject({
   maxRuns: z.number().int().min(1).default(3),
 });
 
+/** The harness/model choice made during setup for subsequently created profiles. */
+export const workflowDefaultsSchema = z.looseObject({
+  harness: z.enum(SHIPPED_HARNESSES).default('opencode'),
+  /** OpenCode accepts provider/model strings such as `openai/gpt-5.2`. */
+  model: z.string().min(1).optional(),
+});
+
 const instanceConfigShape = z.looseObject({
   /** The stable public URL Linear's webhook points at. BYO — no tunnel. */
   publicUrl: z.url().optional(),
@@ -123,6 +130,7 @@ const instanceConfigShape = z.looseObject({
   server: serverSchema.prefault({}),
   retention: retentionSchema.prefault({}),
   concurrency: concurrencySchema.prefault({}),
+  workflowDefaults: workflowDefaultsSchema.prefault({}),
   identity: identitySchema.prefault({}),
   repos: z.array(repoEntrySchema).default([]),
   groups: z.array(repoGroupSchema).default([]),
@@ -134,6 +142,7 @@ export type RepoGroup = z.infer<typeof repoGroupSchema>;
 export type RockyIdentity = z.infer<typeof identitySchema>;
 export type HarnessConfigInput = z.input<typeof harnessSchema>;
 export type HarnessConfig = z.infer<typeof harnessSchema>;
+export type WorkflowDefaults = z.infer<typeof workflowDefaultsSchema>;
 export type InstanceConfig = z.infer<typeof instanceConfigShape>;
 
 /** Routing labels are compared case-insensitively, as state names are. */

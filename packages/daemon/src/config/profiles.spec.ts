@@ -31,6 +31,17 @@ describe('local repository profiles', () => {
     expect(profile.settings.secretEnv).toContain('GITHUB_TOKEN');
   });
 
+  it('pins the harness and model selected during setup into a new profile', async () => {
+    const profile = await newSeedRepositoryProfile({
+      id: 'api',
+      remote: 'https://github.com/acme/api.git',
+      defaults: { harness: 'opencode', model: 'openai/gpt-5.2' },
+    });
+
+    expect(profile.grants.harness).toBe('opencode');
+    expect(profile.workflow.source).toContain('model: "openai/gpt-5.2"');
+  });
+
   it('stores a pipeline locally and never needs a checkout path', async () => {
     const paths = rockyPaths(await mkdtemp(join(tmpdir(), 'rocky-profile-')));
     await ensureInstanceLayout(paths);

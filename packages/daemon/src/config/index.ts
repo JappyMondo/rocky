@@ -25,6 +25,7 @@ export {
   repoGroupSchema,
   retentionSchema,
   serverSchema,
+  workflowDefaultsSchema,
   type Credentials,
   type HarnessConfig,
   type HarnessConfigInput,
@@ -32,6 +33,7 @@ export {
   type RepoEntry,
   type RepoGroup,
   type RockyIdentity,
+  type WorkflowDefaults,
 } from './schema.js';
 
 export { expandHarness, expandVars, type Env } from './expand.js';
