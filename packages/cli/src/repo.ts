@@ -333,6 +333,36 @@ export async function useProfile(
   }
 }
 
+/** Explicitly migrate a legacy route without consulting its checkout. */
+export async function seedProfile(io: CliIo, repoName: string): Promise<void> {
+  const paths = rockyPaths();
+  try {
+    const config = await readInstanceConfig(paths);
+    const repo = config.repos.find((entry) => entry.name === repoName);
+    if (!repo)
+      throw new Refused(
+        `There is no repo entry called "${repoName}". \`rocky repo list\` shows them.`,
+      );
+    const id = repo.profile ?? repo.name;
+    await ensureInstanceLayout(paths);
+    await writeRepositoryProfile(
+      paths,
+      await newSeedRepositoryProfile({ id, remote: repo.url }),
+    );
+    await writeInstanceConfig(paths, {
+      ...config,
+      repos: config.repos.map((entry) =>
+        entry.name === repoName ? { ...entry, profile: id } : entry,
+      ),
+    });
+    io.out(
+      `Repo "${repoName}" now uses runnable local profile "${id}". Repository .rocky files remain ignored.`,
+    );
+  } catch (error) {
+    fail(io, error);
+  }
+}
+
 export async function deleteProfile(io: CliIo, id: string): Promise<void> {
   const paths = rockyPaths();
   try {

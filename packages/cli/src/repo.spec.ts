@@ -230,6 +230,27 @@ describe('`rocky repo add`', () => {
 });
 
 describe('`rocky repo profile`', () => {
+  it('migrates a legacy route into a runnable local profile without recloning', async () => {
+    await run('repo', 'add', upstreamUrl);
+    const paths = rockyPaths(home);
+    const config = await readInstanceConfig(paths);
+    await writeInstanceConfig(paths, {
+      ...config,
+      repos: config.repos.map((repo) => {
+        const { profile: _profile, ...legacy } = repo;
+        return legacy;
+      }),
+    });
+
+    const result = await run('repo', 'profile', 'seed', 'niotix');
+
+    expect(result.out).toContain('runnable local profile');
+    expect((await readInstanceConfig(paths)).repos[0]?.profile).toBe('niotix');
+    expect(
+      (await readRepositoryProfile(paths, 'niotix')).workflow.source,
+    ).toContain('linear.onDelegate(main)');
+  });
+
   it('lists, exports and keeps an assigned local profile from deletion', async () => {
     await run('repo', 'add', upstreamUrl);
 

@@ -27,6 +27,7 @@ import {
   listProfiles,
   removeRepo,
   repoSummary,
+  seedProfile,
   useProfile,
   type AddRepoOptions,
 } from './repo.js';
@@ -511,6 +512,12 @@ export function buildCli(
   profile
     .command('use <repo> <id>')
     .action((repoName: string, id: string) => useProfile(io, repoName, id));
+  profile
+    .command('seed <repo>')
+    .description(
+      'Replace a legacy route with the runnable shipped local profile.',
+    )
+    .action((repoName: string) => seedProfile(io, repoName));
   profile.command('delete <id>').action((id: string) => deleteProfile(io, id));
 
   attachMcpCommand(program, io, paths, cli.mcp);
