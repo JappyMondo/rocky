@@ -69,11 +69,20 @@ async function immutableFiles(
 /** The missing-lead binding runs this with the internal .rocky/ as its snapshot. */
 export function createOnboarding(services: OnboardingServices) {
   return async (ctx: WorkflowContext) => {
-    const model = { harness: 'claude-code', model: 'sonnet' };
+    // First-run onboarding must use the harness already authenticated on this
+    // machine. OpenCode owns its provider/model selection, so leave `model`
+    // unset instead of imposing a Claude-only default before Rocky can seed
+    // the repository's own configuration.
+    const model = { harness: 'opencode' };
     const edit: AgentCallOpts = { ...model, tools: ['read', 'edit', 'bash'] };
     const directory = join(services.repo, '.rocky');
     const shell = async (command: string) => {
-      const result = await ctx.exec(command);
+      // Workflow context commands normally start at the Run workspace, which
+      // contains every registered clone. Onboarding changes only its lead, so
+      // every git operation must explicitly enter that owned clone.
+      const result = await ctx.exec(
+        `cd -- ${quote(services.repo)} && ${command}`,
+      );
       if (result.exitCode !== 0)
         throw new Error(
           `Onboarding command failed: ${command}\n${result.stderr}`,
@@ -170,7 +179,7 @@ export function createOnboarding(services: OnboardingServices) {
     if (update.status !== 'clean') {
       await shell('git fetch origin');
       const merge = await ctx.exec(
-        `git merge --no-edit -- ${quote(`refs/remotes/origin/${update.status === 'updated' ? pr.sourceBranch : pr.baseBranch}`)}`,
+        `cd -- ${quote(services.repo)} && git merge --no-edit -- ${quote(`refs/remotes/origin/${update.status === 'updated' ? pr.sourceBranch : pr.baseBranch}`)}`,
       );
       const conflicts = await shell('git diff --name-only --diff-filter=U');
       if (update.status === 'conflict' || conflicts)

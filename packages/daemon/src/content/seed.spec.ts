@@ -12,6 +12,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { format } from 'prettier';
 import { afterEach, expect, it, vi } from 'vitest';
 import { inspectAndSeed, seedContent, selectStates } from './seed.js';
 
@@ -140,7 +141,9 @@ it('foreground init obtains validated inspection and routing team states before 
   expect(inspect).toHaveBeenCalledWith(repo);
   expect(resolveTeamStates).toHaveBeenCalledWith(repo);
   const source = await readFile(join(repo, '.rocky/workflow.ts'), 'utf8');
-  expect(source).toContain('"review":"Review"');
+  expect(source).toContain(
+    "const states = { started: 'Doing', review: 'Review', done: 'Finished' };",
+  );
   expect(source).not.toContain('Verify these Linear state names');
   await expect(
     inspectAndSeed({
@@ -224,6 +227,33 @@ it('seeds installed assets byte-identically outside Config and preserves the dir
   expect(await readFile(join(repo, 'existing.txt'), 'utf8')).toBe('dirty');
 });
 
+it('renders the generated Config block in the shipped formatter style', async () => {
+  const { repo } = await fixture();
+  const shippedDir = fileURLToPath(
+    new URL('../../content/.rocky/', import.meta.url),
+  );
+  const directory = await seedContent({
+    repo,
+    shippedDir,
+    inspection: {
+      commands: { install: 'pnpm install', test: '', lint: '', build: '' },
+      ui: null,
+    },
+    teamStates: [
+      { name: 'Building', type: 'started', position: 1 },
+      { name: 'Done', type: 'completed', position: 2 },
+    ],
+    validate: async () => undefined,
+  });
+  const workflow = await readFile(join(directory, 'workflow.ts'), 'utf8');
+  expect(workflow).toBe(
+    await format(workflow, {
+      filepath: join(directory, 'workflow.ts'),
+      singleQuote: true,
+    }),
+  );
+});
+
 it('leaves no installation after malformed Config or failed rule distillation', async () => {
   const { repo, shippedDir } = await fixture();
   const options = {
@@ -297,6 +327,9 @@ it('validates the staged tree before installing and changes only the Config bloc
   expect(source.split('// BEGIN ROCKY CONFIG')[0]).toBe('// before\n');
   expect(source.split('// END ROCKY CONFIG')[1]).toBe('\n// after\n');
   expect(source).toContain('Verify these Linear state names');
+  expect(source).toContain(
+    "const commands = { install: 'pnpm install', test: 'pnpm test', lint: '', build: '' };",
+  );
   expect(source).toContain('const reviewCap = 5;');
   expect(await readFile(join(result, 'schemas.ts'), 'utf8')).toBe(
     '// exact schema bytes\n',

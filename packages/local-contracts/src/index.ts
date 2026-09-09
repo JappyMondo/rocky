@@ -80,7 +80,8 @@ export interface SteerReceipt {
   message: string;
   receivedAt: string;
   state: 'held' | 'delivered';
-  targets?: string[];
+  /** Per-conversation delivery state survives a partial parallel delivery. */
+  targets?: Array<{ stepKey: string; delivered: boolean }>;
 }
 
 export interface RunDetail {

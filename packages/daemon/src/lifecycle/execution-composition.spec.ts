@@ -116,7 +116,7 @@ it('connects signed delegation to admission and runBoot through the daemon lifec
   }
 });
 
-it('does not acknowledge and discard delegations when production intake is not wired', async () => {
+it('starts the production intake root rather than an acknowledge-only webhook', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rocky-no-intake-'));
   const daemon = await runDaemon({
     paths: rockyPaths(root),
@@ -131,7 +131,7 @@ it('does not acknowledge and discard delegations when production intake is not w
       body: '{}',
     });
     expect(response.status).toBe(503);
-    expect(await response.text()).toContain('Run admission is unavailable');
+    expect(await response.text()).toContain('no Linear webhook secret');
   } finally {
     await daemon.stop();
     await rm(root, { recursive: true, force: true });

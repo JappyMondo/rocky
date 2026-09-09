@@ -17,8 +17,9 @@ const requests = new Map<
 >();
 
 function send(message: unknown) {
-  const parent = process.send;
-  if (process.connected && parent) parent(message);
+  // Node's IPC send reads its receiver. Calling a captured function loses
+  // that receiver and crashes the child before its first workspace request.
+  if (process.connected && process.send) process.send(message);
 }
 
 function request(request: BootRequest): Promise<unknown> {

@@ -926,7 +926,7 @@ function RunView(p: {
               <p>
                 <strong>Delivery</strong> ·{' '}
                 {steer.state === 'delivered'
-                  ? `delivered${steer.targets?.length ? ` to ${steer.targets.join(', ')}` : ''}.`
+                  ? `delivered${steer.targets?.length ? ` to ${steer.targets.map((target) => target.stepKey).join(', ')}` : ''}.`
                   : 'held for the next Agent conversation.'}
               </p>
             </article>

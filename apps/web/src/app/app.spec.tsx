@@ -443,7 +443,7 @@ describe('Inbox behavior', () => {
               message: 'Check the mobile layout too.',
               receivedAt: '2026-09-07T12:01:00Z',
               state: 'delivered',
-              targets: ['ui-inspector'],
+              targets: [{ stepKey: 'ui-inspector', delivered: true }],
             },
           ],
         }),

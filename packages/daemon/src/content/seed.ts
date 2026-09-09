@@ -69,6 +69,20 @@ export interface TeamState {
   position: number;
 }
 
+/** Render the small, string-only Config records in the shipped formatter style. */
+function configRecord(values: Record<string, string>) {
+  const string = (value: string) =>
+    `'${value
+      .replaceAll('\\', '\\\\')
+      .replaceAll("'", "\\'")
+      .replaceAll('\n', '\\n')
+      .replaceAll('\r', '\\r')
+      .replaceAll('\t', '\\t')}'`;
+  return `{ ${Object.entries(values)
+    .map(([key, value]) => `${key}: ${string(value)}`)
+    .join(', ')} }`;
+}
+
 export function selectStates(teamStates?: readonly TeamState[]) {
   if (!teamStates)
     return { started: 'In Progress', review: 'In Review', done: 'Done' };
@@ -158,9 +172,9 @@ export async function seedContent(options: SeedOptions): Promise<string> {
       options.teamStates
         ? ''
         : '// Verify these Linear state names against your team before running Rocky.',
-      `const commands = ${JSON.stringify(inspection.commands)};`,
-      `const ui: { start: string; url: string } | null = ${JSON.stringify(inspection.ui)};`,
-      `const states = ${JSON.stringify(states)};`,
+      `const commands = ${configRecord(inspection.commands)};`,
+      `const ui: { start: string; url: string } | null = ${inspection.ui ? configRecord(inspection.ui) : 'null'};`,
+      `const states = ${configRecord(states)};`,
       'const reviewCap = 5;',
       'const ciCap = 3;',
       "const agent = { harness: 'claude-code', model: 'sonnet' };",

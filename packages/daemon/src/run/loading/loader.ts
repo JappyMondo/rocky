@@ -77,6 +77,14 @@ function registerSnapshotHooks() {
         specifier === 'zod' ||
         specifier.startsWith('zod/')
       ) {
+        // The standalone Rocky tarball bundles its SDK beside this loader.
+        // Source builds retain normal package resolution, where this file does
+        // not exist and @rocky/sdk remains the workspace dependency.
+        if (specifier === '@rocky/sdk') {
+          const shippedSdk = new URL('./sdk.js', import.meta.url);
+          if (existsSync(shippedSdk))
+            return { url: shippedSdk.href, shortCircuit: true };
+        }
         return nextResolve(specifier, {
           ...context,
           parentURL: import.meta.url,

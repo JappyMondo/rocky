@@ -52,6 +52,17 @@ export interface LinearSessionSummary {
   status: string;
 }
 
+/** The immutable issue facts captured at admission; never hand a Workflow a live SDK model. */
+export interface LinearIssueSummary {
+  id: string;
+  identifier: string;
+  title: string;
+  description: string;
+  url: string;
+  labels: string[];
+  teamId: string;
+}
+
 export interface LinearSessionActivity {
   id: string;
   sessionId: string;
@@ -153,6 +164,7 @@ interface UploadTarget {
 
 /** Exactly the `@linear/sdk` surface Rocky uses. Nothing else is depended on. */
 export interface LinearSdkLike {
+  issue?(id: string): Promise<LinearIssueSummary>;
   session(id: string): Promise<LinearSessionSummary>;
   updateSession(
     id: string,
@@ -255,6 +267,23 @@ function defaultSdk(request: LinearRequest): LinearSdkLike {
   const client = new LinearSdk(request);
 
   return {
+    issue: async (id) => {
+      const issue = await client.issue(id);
+      const [labels, team] = await Promise.all([issue.labels(), issue.team]);
+      if (!team)
+        throw new Error(
+          `Linear issue ${id} has no team; delegate an issue in a Rocky-enabled team.`,
+        );
+      return {
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        description: issue.description ?? '',
+        url: issue.url,
+        labels: labels.nodes.map((label) => label.name),
+        teamId: team.id,
+      };
+    },
     updateSession: (id, input) => client.updateAgentSession(id, input),
     attachments: async (issueId, url, after) => {
       const issue = await client.issue(issueId);
@@ -590,6 +619,15 @@ export class RockyLinearClient {
 
   async session(sessionId: string): Promise<LinearSessionSummary> {
     return (await this.sdk()).session(sessionId);
+  }
+
+  async issue(issueId: string): Promise<LinearIssueSummary> {
+    const issue = (await this.sdk()).issue;
+    if (!issue)
+      throw new Error(
+        'This Linear client cannot hydrate delegated issues; update Rocky before accepting delegations.',
+      );
+    return issue(issueId);
   }
 
   /** Call immediately after durable receipt, before queueing or loading a Workflow. */

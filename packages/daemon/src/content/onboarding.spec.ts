@@ -30,6 +30,7 @@ afterEach(async () => {
 
 function fixture(failing = false) {
   const events: string[] = [];
+  const harnesses: string[] = [];
   const posts: string[] = [];
   const pr = {
     repo: 'repo',
@@ -64,9 +65,10 @@ function fixture(failing = false) {
     },
     agent: async (
       name: string | { prompt: string },
-      opts: { label?: string; schema?: z.ZodType },
+      opts: { label?: string; schema?: z.ZodType; harness?: string },
     ) => {
       events.push(typeof name === 'string' ? name : (opts.label ?? 'inline'));
+      if (opts.harness) harnesses.push(opts.harness);
       const value =
         typeof name === 'string'
           ? { action: 'retry' }
@@ -142,12 +144,17 @@ function fixture(failing = false) {
       );
     },
   });
-  return { run: () => run(ctx), events, posts };
+  return { run: () => run(ctx), events, harnesses, posts };
 }
 
 it('seeds a non-draft PR, returns completed rather than merged, and adopts the same content on re-delegation', async () => {
   const f = fixture();
   expect(await f.run()).toBe('completed');
+  expect(
+    f.events.some((event) =>
+      event.startsWith(`cd -- '${dir}' && git add -- .rocky`),
+    ),
+  ).toBe(true);
   const source = await readFile(join(dir, '.rocky/workflow.ts'), 'utf8');
   expect(source).toContain('Building');
   expect(source).toContain('Reviewing');
@@ -158,6 +165,7 @@ it('seeds a non-draft PR, returns completed rather than merged, and adopts the s
   expect(
     f.events.filter((event) => event === 'inspect repository'),
   ).toHaveLength(1);
+  expect(f.harnesses).toEqual(['opencode']);
   expect(await readFile(join(dir, '.rocky/workflow.ts'), 'utf8')).toBe(source);
   expect(await readFile(join(dir, 'unrelated.txt'), 'utf8')).toBe('human work');
 });
