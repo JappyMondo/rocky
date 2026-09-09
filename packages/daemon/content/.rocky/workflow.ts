@@ -28,8 +28,10 @@ const ui: { start: string; url: string } | null = null;
 const states = { started: 'In Progress', review: 'In Review', done: 'Done' };
 const reviewCap = 5;
 const ciCap = 3;
-const agent = { harness: 'claude-code', model: 'sonnet' };
-const fastAgent = { harness: 'claude-code', model: 'haiku' };
+// OpenCode owns provider and model selection. Its configured OpenAI model is
+// therefore used without baking a Claude model name into local profiles.
+const agent = { harness: 'opencode' };
+const fastAgent = { harness: 'opencode' };
 const readiness = { attempts: 30, intervalMs: 1000 };
 const ciLogLines = 200;
 // END ROCKY CONFIG

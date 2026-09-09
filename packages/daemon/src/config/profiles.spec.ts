@@ -23,6 +23,8 @@ describe('local repository profiles', () => {
 
     expect(profile.workflow.triggers).toEqual(['linear.onDelegate']);
     expect(profile.workflow.source).toContain('linear.onDelegate(main)');
+    expect(profile.workflow.source).toContain("harness: 'opencode'");
+    expect(profile.grants.harness).toBe('opencode');
     expect(profile.prompts.planner).toBeTruthy();
     expect(profile.schemas).toContain('export');
     expect(profile.mcp).toMatchObject({ mcpServers: {} });

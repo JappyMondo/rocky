@@ -145,6 +145,7 @@ export async function newSeedRepositoryProfile(input: {
       schemas,
       rules,
       mcp: JSON.parse(mcp) as unknown,
+      grants: { harness: 'opencode', capabilities: [], mcp: [] },
       settings: {
         env: {},
         // These are references only. Their values are taken from this

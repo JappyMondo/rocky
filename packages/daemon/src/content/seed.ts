@@ -177,8 +177,8 @@ export async function seedContent(options: SeedOptions): Promise<string> {
       `const states = ${configRecord(states)};`,
       'const reviewCap = 5;',
       'const ciCap = 3;',
-      "const agent = { harness: 'claude-code', model: 'sonnet' };",
-      "const fastAgent = { harness: 'claude-code', model: 'haiku' };",
+      "const agent = { harness: 'opencode' };",
+      "const fastAgent = { harness: 'opencode' };",
       'const readiness = { attempts: 30, intervalMs: 1000 };',
       'const ciLogLines = 200;',
     ]
