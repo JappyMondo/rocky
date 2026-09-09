@@ -122,7 +122,10 @@ function linearWebhookRegistration(publicUrl: string): DoctorCheck {
   // Config parsing accepts any URL so Doctor can diagnose a bad local setup;
   // manifest creation remains the HTTPS gate. Do not let this advisory itself
   // throw before reporting the real endpoint checks.
-  const configuredWebhook = new URL('/api/linear/webhook', publicUrl).href;
+  const endpoint = new URL('/api/linear/webhook', publicUrl);
+  endpoint.username = '';
+  endpoint.password = '';
+  const configuredWebhook = endpoint.href;
   return {
     name: 'Linear AgentSessionEvent webhook',
     ok: false,
