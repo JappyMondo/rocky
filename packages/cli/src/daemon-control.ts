@@ -7,6 +7,9 @@
  * always address a daemon the pidfile has lost track of.
  */
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   DEFAULT_HOST,
@@ -53,6 +56,20 @@ export interface ControlOptions {
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_INTERVAL_MS = 50;
+const controlDirectory = dirname(fileURLToPath(import.meta.url));
+
+/** The installed entry, even when `rocky` was invoked through a source loader. */
+export const DETACHED_ENTRY = join(
+  existsSync(join(controlDirectory, 'main.js'))
+    ? controlDirectory
+    : existsSync(join(controlDirectory, '../dist/main.js'))
+      ? join(controlDirectory, '../dist')
+      : controlDirectory,
+  existsSync(join(controlDirectory, 'main.js')) ||
+    existsSync(join(controlDirectory, '../dist/main.js'))
+    ? 'main.js'
+    : 'main.ts',
+);
 
 function addressOf(host: string, port: number): Address {
   return { host, port, url: `http://${host}:${port}` };
@@ -207,7 +224,7 @@ export async function startDetached(
   }
 
   const spawn = options.spawn ?? nodeSpawn;
-  const entry = options.entry ?? process.argv[1];
+  const entry = options.entry ?? DETACHED_ENTRY;
 
   const args = [entry, 'start'];
   if (flags.host !== undefined) {

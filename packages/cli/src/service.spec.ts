@@ -116,7 +116,8 @@ describe('the launchd unit', () => {
   it('uses Rocky’s module entry rather than a test runner argv by default', () => {
     const unit = unitFor(paths, { platform: 'darwin', home });
 
-    expect(unit).toMatch(/<string>.*\/main\.(?:js|ts)<\/string>/);
+    expect(unit).toContain('<string>');
+    expect(unit).toMatch(/<string>.*\/dist\/main\.js<\/string>/);
     expect(unit).not.toContain('vitest');
   });
 

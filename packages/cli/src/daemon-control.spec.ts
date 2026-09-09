@@ -28,6 +28,7 @@ import {
 
 import {
   daemonStatus,
+  DETACHED_ENTRY,
   resolveAddress,
   startDetached,
   stopDaemon,
@@ -107,6 +108,10 @@ function control() {
 const started = () => startDetached(paths, { port: 0 }, control());
 
 describe('`rocky start -d`', () => {
+  it('uses the built CLI entry rather than the source-loader argv', () => {
+    expect(DETACHED_ENTRY).toMatch(/\/dist\/main\.js$/);
+  });
+
   it('leaves a daemon running after the CLI has returned', async () => {
     const address = await started();
 

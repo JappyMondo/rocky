@@ -32,9 +32,17 @@ export type ServiceKind = 'daemon' | 'ingress';
 // Vitest worker during tests and previously produced permanently broken user
 // launchd units when that context leaked into an install.
 const serviceModule = fileURLToPath(import.meta.url);
+const serviceDirectory = dirname(serviceModule);
 const SHIPPED_ENTRY = join(
-  dirname(serviceModule),
-  existsSync(join(dirname(serviceModule), 'main.js')) ? 'main.js' : 'main.ts',
+  existsSync(join(serviceDirectory, 'main.js'))
+    ? serviceDirectory
+    : existsSync(join(serviceDirectory, '../dist/main.js'))
+      ? join(serviceDirectory, '../dist')
+      : serviceDirectory,
+  existsSync(join(serviceDirectory, 'main.js')) ||
+    existsSync(join(serviceDirectory, '../dist/main.js'))
+    ? 'main.js'
+    : 'main.ts',
 );
 
 export interface ServiceTarget {
