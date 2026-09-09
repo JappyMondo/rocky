@@ -72,6 +72,8 @@ export interface ServiceEnvironment {
    * socket is often different (for example when Bitwarden owns the agent).
    */
   sshAuthSock?: string;
+  /** Installer PATH, needed for user-installed harness CLIs such as OpenCode. */
+  path?: string;
 }
 
 export class UnsupportedPlatformError extends Error {
@@ -156,18 +158,27 @@ export function unitFor(
       ? [execPath, entry, 'start']
       : [execPath, ingressEntry, '--daemon-port', String(daemonPort)];
   const sshAuthSock = environment.sshAuthSock ?? process.env.SSH_AUTH_SOCK;
+  const path = environment.path ?? process.env.PATH;
 
   if (target.platform === 'darwin') {
     const args = command
       .map((value) => `    <string>${escapeXml(value)}</string>`)
       .join('\n');
+    const variables = [
+      ...(sshAuthSock === undefined ? [] : [['SSH_AUTH_SOCK', sshAuthSock]]),
+      ...(path === undefined ? [] : [['PATH', path]]),
+    ];
     const environmentVariables =
-      sshAuthSock === undefined
+      variables.length === 0
         ? ''
         : `  <key>EnvironmentVariables</key>
   <dict>
-    <key>SSH_AUTH_SOCK</key>
-    <string>${escapeXml(sshAuthSock)}</string>
+${variables
+  .map(
+    ([key, value]) => `    <key>${key}</key>
+    <string>${escapeXml(value)}</string>`,
+  )
+  .join('\n')}
   </dict>
 `;
 
@@ -206,10 +217,12 @@ ${environmentVariables}
     kind === 'daemon'
       ? 'Rocky — the per-developer local daemon'
       : 'Rocky — the public Linear ingress filter';
-  const serviceEnvironment =
-    sshAuthSock === undefined
-      ? ''
-      : `Environment=SSH_AUTH_SOCK=${JSON.stringify(sshAuthSock)}\n`;
+  const serviceEnvironment = [
+    ...(sshAuthSock === undefined
+      ? []
+      : [`Environment=SSH_AUTH_SOCK=${JSON.stringify(sshAuthSock)}`]),
+    ...(path === undefined ? [] : [`Environment=PATH=${JSON.stringify(path)}`]),
+  ].join('\n');
   return `[Unit]
 Description=${description}
 Documentation=https://github.com/JappyMondo/rocky
@@ -219,7 +232,7 @@ ${requires}
 [Service]
 Type=simple
 ExecStart=${command.join(' ')}
-${serviceEnvironment}Restart=on-failure
+${serviceEnvironment}${serviceEnvironment ? '\n' : ''}Restart=on-failure
 RestartSec=5
 
 [Install]

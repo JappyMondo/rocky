@@ -167,6 +167,18 @@ describe('the launchd unit', () => {
     );
   });
 
+  it('preserves the installing shell PATH for user-installed harnesses', () => {
+    const unit = unitFor(paths, {
+      ...MAC(),
+      path: '/Users/jappy/.opencode/bin:/usr/bin',
+    });
+
+    expect(unit).toContain('<key>PATH</key>');
+    expect(unit).toContain(
+      '<string>/Users/jappy/.opencode/bin:/usr/bin</string>',
+    );
+  });
+
   it('escapes a path that would otherwise break the XML', () => {
     const unit = unitFor(paths, {
       ...MAC(),
