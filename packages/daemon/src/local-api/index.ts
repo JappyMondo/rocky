@@ -64,6 +64,16 @@ export interface LocalApiOptions {
     input: { requestId: string; message: string },
   ) => Promise<SteerReceipt>;
   steers?: (runId: string) => Promise<SteerReceipt[]>;
+  /** Webhook work that failed after Linear received its mandatory 200 response. */
+  intakeFailures?: () => Promise<
+    Array<{
+      sessionId: string;
+      action: 'created' | 'prompted';
+      occurredAt: string;
+      reason: string;
+      remediation: string;
+    }>
+  >;
   manual?: (input: {
     trigger: string;
     issue: string;
@@ -431,6 +441,10 @@ export async function registerLocalApi(
       },
     );
     local.get('/api/settings', () => options.settings.read());
+    local.get(
+      '/api/intake-failures',
+      async () => options.intakeFailures?.() ?? [],
+    );
     local.patch('/api/settings', (request) =>
       options.settings.patch(request.body),
     );

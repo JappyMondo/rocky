@@ -70,6 +70,8 @@ export interface RockyPaths {
   root: string;
   configFile: string;
   credentialsFile: string;
+  /** Bounded, safe diagnostics for webhook work that failed after acknowledgement. */
+  intakeFailuresFile: string;
   pidFile: string;
   logsDir: string;
   daemonLog: string;
@@ -93,6 +95,7 @@ export function rockyPaths(root: string = defaultRockyHome()): RockyPaths {
     root,
     configFile: join(root, 'config.json'),
     credentialsFile: join(root, 'credentials.json'),
+    intakeFailuresFile: join(root, 'intake-failures.json'),
     pidFile: join(root, 'daemon.pid'),
     logsDir,
     daemonLog: join(logsDir, 'daemon.log'),

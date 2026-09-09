@@ -14,6 +14,7 @@ import { LocalArtifacts, registerLocalApi } from '../local-api/index.js';
 import { LocalSettings } from '../local-api/settings.js';
 import { RockyLinearClient } from '../linear/client.js';
 import { LinearRunControl } from '../linear/control.js';
+import { IntakeFailures } from '../linear/intake-failures.js';
 import type { AgentSessionEventHandler } from '../linear/events.js';
 import { openExecution, type ExecutionIntegration } from '../run/execution.js';
 import type { RunHeader } from '../run/header.js';
@@ -78,6 +79,7 @@ export async function createProductionComposition(options: {
     },
   });
   const controls = new Map<string, LinearRunControl>();
+  const intakeFailures = new IntakeFailures(options.paths);
 
   const controlFor = async (
     runId: string,
@@ -183,24 +185,29 @@ export async function createProductionComposition(options: {
   // deliveries are subsequently checked against that record before control
   // intake, rather than against an unpersisted process-local value.
   const handler: AgentSessionEventHandler = async (event) => {
-    if (event.action === 'created') {
-      await created(event);
-      return;
-    }
-    const control = await find(event.sessionId);
-    const run = (await execution.scheduler.list()).find(
-      (row) => row.linear?.sessionId === event.sessionId,
-    );
-    if (
-      !control ||
-      !run?.linear ||
-      run.linear.appUserId !== event.appUserId ||
-      run.linear.organizationId !== event.organizationId
-    )
-      throw new Error(
-        'Linear event does not belong to this installed app and workspace',
+    try {
+      if (event.action === 'created') {
+        await created(event);
+        return;
+      }
+      const control = await find(event.sessionId);
+      const run = (await execution.scheduler.list()).find(
+        (row) => row.linear?.sessionId === event.sessionId,
       );
-    await control.prompted(event);
+      if (
+        !control ||
+        !run?.linear ||
+        run.linear.appUserId !== event.appUserId ||
+        run.linear.organizationId !== event.organizationId
+      )
+        throw new Error(
+          'Linear event does not belong to this installed app and workspace',
+        );
+      await control.prompted(event);
+    } catch (error) {
+      await intakeFailures.record(event);
+      throw error;
+    }
   };
 
   return {
@@ -249,6 +256,7 @@ export async function createProductionComposition(options: {
             targets: receipt.targets,
           }));
         },
+        intakeFailures: () => intakeFailures.list(),
       });
     },
     close: async () => controls.clear(),
