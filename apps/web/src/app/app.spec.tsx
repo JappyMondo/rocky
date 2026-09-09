@@ -151,6 +151,7 @@ function daemon(
     health?: (count: number) => Reply;
     settings?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
+    recovery?: (init?: RequestInit) => Reply;
     diffs?: (path: string) => Reply;
   } = {},
 ) {
@@ -169,6 +170,12 @@ function daemon(
       return options.settings?.(init) ?? { body: settings() };
     if (path === '/api/triggers')
       return options.trigger?.(init) ?? { body: { runId: 'r3' } };
+    if (/\/recover-session$/.test(path))
+      return (
+        options.recovery?.(init) ?? {
+          body: { issueIdentifier: 'NG-612', sessionId: 'stale-session' },
+        }
+      );
     if (/\/diffs\//.test(path)) return options.diffs?.(path) ?? { body: diff };
     if (path.startsWith('/api/runs/'))
       return (
@@ -190,6 +197,82 @@ afterEach(() => {
 });
 
 describe('Inbox behavior', () => {
+  it('releases a failed Linear session only on the explicit recovery action', async () => {
+    const failed = { ...r1, status: 'failed' as const };
+    const mock = daemon({
+      runs: [failed],
+      detail: () => ({
+        body: detail(failed, {
+          checkpoint: undefined,
+          controls: { answer: false, steer: false },
+        }),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enable fresh Linear delegation' }),
+    );
+    expect(
+      await screen.findByText(
+        'Released the stale Linear session for NG-612. Delegate Rocky again in Linear to start a fresh Run.',
+      ),
+    ).toBeTruthy();
+    expect(mock).toHaveBeenCalledWith(
+      '/api/runs/r1/recover-session',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('keeps a failed session recoverable when the daemon rejects the release', async () => {
+    const failed = { ...r1, status: 'failed' as const };
+    daemon({
+      runs: [failed],
+      detail: () => ({
+        body: detail(failed, {
+          checkpoint: undefined,
+          controls: { answer: false, steer: false },
+        }),
+      }),
+      recovery: () => ({
+        ok: false,
+        status: 409,
+        body: { error: 'The session belongs to a live Run.' },
+      }),
+    });
+    render(<App />);
+    await loaded();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enable fresh Linear delegation' }),
+    );
+    expect(
+      await screen.findByText(
+        'Could not release this Linear session for re-delegation. The session belongs to a live Run.',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Enable fresh Linear delegation' }),
+    ).toBeTruthy();
+  });
+
+  it('offers the same explicit recovery for a cancelled Run', async () => {
+    const cancelled = { ...r1, status: 'cancelled' as const };
+    daemon({
+      runs: [cancelled],
+      detail: () => ({
+        body: detail(cancelled, {
+          checkpoint: undefined,
+          controls: { answer: false, steer: false },
+        }),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    expect(
+      screen.getByRole('button', { name: 'Enable fresh Linear delegation' }),
+    ).toBeTruthy();
+  });
+
   it('routes direct Runs and issue hashes, and tells a missing issue apart from an empty inbox', async () => {
     window.history.replaceState({}, '', '/runs/r2');
     const mock = daemon({

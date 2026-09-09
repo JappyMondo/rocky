@@ -435,7 +435,6 @@ export function App() {
     }
   };
   const recoverSession = async (runId: string) => {
-    if (!mutationsAllowed) return;
     setError(null);
     try {
       const result = await api<{
