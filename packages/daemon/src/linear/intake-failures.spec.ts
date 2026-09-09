@@ -4,18 +4,22 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { rockyPaths } from '../config/paths.js';
+import type { AgentSessionEvent } from './events.js';
 import { IntakeFailures } from './intake-failures.js';
 
 describe('post-acknowledgement intake failures', () => {
   it('persists only safe diagnostic fields and replaces a stale session record', async () => {
     const paths = rockyPaths(await mkdtemp(join(tmpdir(), 'rocky-intake-')));
     const failures = new IntakeFailures(paths);
-    const event = {
-      action: 'created' as const,
+    const event: AgentSessionEvent = {
+      action: 'created',
       sessionId: 'session-1',
       appUserId: 'app-user',
       organizationId: 'workspace',
-      payload: { prompt: 'never persist this' },
+      // The payload's real shape is intentionally irrelevant here. This
+      // request text comes from it and must never reach durable diagnostics.
+      promptContext: 'never persist this',
+      payload: {} as AgentSessionEvent['payload'],
     };
 
     await failures.record(event);
