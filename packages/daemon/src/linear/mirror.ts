@@ -413,13 +413,17 @@ export class LinearRunMirror {
       () => this.options.client.comments(this.options.issueId),
       access,
     );
-    // Without public association, new comments are conservatively unclassified.
-    // Never silently dismiss a possible automatic platform artifact as human text.
+    // The baseline is the authoritative pre-run boundary. Linear can retain
+    // historical (including subsequently hidden/deleted) activities and can
+    // associate one with a later session, but neither must consume this run's
+    // comment budget. Without public association, new comments are still
+    // conservatively unclassified.
     const relevant = comments.filter(
       (comment) =>
-        comment.id === start.id ||
-        comment.sessionId === this.options.sessionId ||
-        (!comment.sessionId && !baseline.includes(comment.id)),
+        !baseline.includes(comment.id) &&
+        (comment.id === start.id ||
+          comment.sessionId === this.options.sessionId ||
+          !comment.sessionId),
     );
     const extras = relevant.filter((comment) => comment.id !== start.id);
     if (

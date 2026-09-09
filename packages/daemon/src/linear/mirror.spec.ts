@@ -337,6 +337,28 @@ describe('LinearRunMirror', () => {
     expect(f.calls).not.toContain('upload');
   });
 
+  it('does not let a pre-existing session-associated comment block a fresh run', async () => {
+    const f = fixture();
+    // Linear can retain an old activity even after it is hidden/deleted in the
+    // issue UI. It was present before this mirror recorded its baseline.
+    f.comments.push({
+      id: randomUUID(),
+      body: 'Historical platform activity',
+      sessionId: 'session-test',
+      issueId: 'issue-test',
+      userId: null,
+      parentId: null,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const mirror = new LinearRunMirror(f.options);
+
+    await mirror.start();
+    await mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready.' });
+
+    expect(f.comments).toHaveLength(3);
+    expect(f.comments.at(-1)?.body).toContain('Ready.');
+  });
+
   it('refuses an elicitation known to auto-comment and rejects unqualified platform behavior', async () => {
     const f = fixture();
     const mirror = new LinearRunMirror({
