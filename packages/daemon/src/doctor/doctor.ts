@@ -20,7 +20,6 @@ import { SHIPPED_HARNESSES } from '../config/schema.js';
 import { readInstanceConfig } from '../config/store.js';
 import { readPingIdentity } from '../endpoint/ping.js';
 import { inspectPidFile } from '../lifecycle/pidfile.js';
-import { webhookUrl } from '../linear/manifest.js';
 
 export interface DoctorCheck {
   /** Short and stable — the CLI prints it as the check's label. */
@@ -120,13 +119,17 @@ async function pingEndpoint(
  * precise, human-verifiable handoff in Doctor instead.
  */
 function linearWebhookRegistration(publicUrl: string): DoctorCheck {
+  // Config parsing accepts any URL so Doctor can diagnose a bad local setup;
+  // manifest creation remains the HTTPS gate. Do not let this advisory itself
+  // throw before reporting the real endpoint checks.
+  const configuredWebhook = new URL('/api/linear/webhook', publicUrl).href;
   return {
     name: 'Linear AgentSessionEvent webhook',
     ok: false,
     advisory: true,
     detail:
       'Rocky cannot inspect this installed Linear app’s webhook registration with its delegated OAuth token.',
-    fix: `ask a workspace admin to verify ${webhookUrl(publicUrl)}, that the webhook is enabled, and that AgentSessionEvent is subscribed; then delegate a test issue and confirm it appears in Rocky’s Inbox.`,
+    fix: `ask a workspace admin to verify ${configuredWebhook}, that the webhook is enabled, and that AgentSessionEvent is subscribed; then delegate a test issue and confirm it appears in Rocky’s Inbox.`,
   };
 }
 
