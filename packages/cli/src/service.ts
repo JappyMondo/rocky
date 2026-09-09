@@ -10,9 +10,11 @@
  * NG-578 ruled out pm2, and Windows is explicitly not v1.
  */
 import { execFile as execFileCallback } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { readInstanceConfig, type RockyPaths } from '@rocky/daemon';
@@ -24,6 +26,16 @@ export const SERVICE_LABEL = 'com.digimondo.rocky';
 export const INGRESS_SERVICE_LABEL = 'com.digimondo.rocky.ingress';
 
 export type ServiceKind = 'daemon' | 'ingress';
+
+// A service unit must describe Rocky itself, not whichever test runner or
+// package-manager wrapper happened to invoke the CLI. `process.argv[1]` is a
+// Vitest worker during tests and previously produced permanently broken user
+// launchd units when that context leaked into an install.
+const serviceModule = fileURLToPath(import.meta.url);
+const SHIPPED_ENTRY = join(
+  dirname(serviceModule),
+  existsSync(join(dirname(serviceModule), 'main.js')) ? 'main.js' : 'main.ts',
+);
 
 export interface ServiceTarget {
   platform: ServicePlatform;
@@ -118,7 +130,7 @@ export function unitFor(
 ): string {
   const target = serviceTarget(environment, kind);
   const execPath = environment.execPath ?? process.execPath;
-  const entry = environment.entry ?? process.argv[1];
+  const entry = environment.entry ?? SHIPPED_ENTRY;
   const ingressEntry =
     environment.ingressEntry ??
     join(

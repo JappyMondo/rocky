@@ -113,6 +113,13 @@ describe('the launchd unit', () => {
     expect(unit).toContain('<string>/usr/local/lib/rocky/main.js</string>');
   });
 
+  it('uses Rocky’s module entry rather than a test runner argv by default', () => {
+    const unit = unitFor(paths, { platform: 'darwin', home });
+
+    expect(unit).toMatch(/<string>.*\/main\.(?:js|ts)<\/string>/);
+    expect(unit).not.toContain('vitest');
+  });
+
   it('runs a separate ingress process that forwards only to the daemon port', () => {
     const unit = unitFor(paths, MAC(), 'ingress', 8123);
 
