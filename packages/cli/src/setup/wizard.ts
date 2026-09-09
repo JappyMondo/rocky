@@ -34,6 +34,7 @@ import {
   type EndpointHealth,
   type RockyPaths,
   type RunningDaemon,
+  webhookUrl,
 } from '@rocky/daemon';
 
 import type { Prompter } from './prompter.js';
@@ -255,7 +256,9 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
     if (endpoint.ok) {
       prompter.say(`The self-ping reached Rocky through ${publicUrl}.`);
       prompter.say('');
-      prompter.say('Setup authorization is complete.');
+      prompter.say(
+        'Setup authorization is complete; intake still needs one admin check.',
+      );
     } else {
       prompter.say(
         `The self-ping did not get back: ${publicUrl} ${endpoint.detail}.`,
@@ -271,6 +274,16 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
         'Rocky will keep trying in the background; run `rocky doctor` after the endpoint is up.',
       );
     }
+
+    prompter.say('');
+    prompter.say(
+      'Before the first delegation, ask a workspace admin to verify:',
+    );
+    prompter.say(`  webhook URL: ${webhookUrl(publicUrl)}`);
+    prompter.say('  webhook enabled, with AgentSessionEvent subscribed.');
+    prompter.say(
+      'Rocky cannot inspect this admin-only setting. Delegate a test issue and confirm it appears in Rocky’s Inbox; `rocky doctor` repeats this check.',
+    );
 
     return { ok: endpoint.ok, publicUrl, endpoint };
   } finally {

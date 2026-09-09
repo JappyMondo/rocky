@@ -20,6 +20,7 @@ import { SHIPPED_HARNESSES } from '../config/schema.js';
 import { readInstanceConfig } from '../config/store.js';
 import { readPingIdentity } from '../endpoint/ping.js';
 import { inspectPidFile } from '../lifecycle/pidfile.js';
+import { webhookUrl } from '../linear/manifest.js';
 
 export interface DoctorCheck {
   /** Short and stable — the CLI prints it as the check's label. */
@@ -113,6 +114,23 @@ async function pingEndpoint(
 }
 
 /**
+ * An app-actor token deliberately cannot hold Linear's `admin` scope, so it
+ * cannot read or repair the installed app's webhook configuration. Do not turn
+ * a reachable tunnel into an unearned claim that delegation is ready: leave a
+ * precise, human-verifiable handoff in Doctor instead.
+ */
+function linearWebhookRegistration(publicUrl: string): DoctorCheck {
+  return {
+    name: 'Linear AgentSessionEvent webhook',
+    ok: false,
+    advisory: true,
+    detail:
+      'Rocky cannot inspect this installed Linear app’s webhook registration with its delegated OAuth token.',
+    fix: `ask a workspace admin to verify ${webhookUrl(publicUrl)}, that the webhook is enabled, and that AgentSessionEvent is subscribed; then delegate a test issue and confirm it appears in Rocky’s Inbox.`,
+  };
+}
+
+/**
  * Every check, in the order a human wants to read them: the config first,
  * because a config that will not parse makes the rest unknowable.
  */
@@ -158,6 +176,13 @@ export async function runDoctor(
           options,
         ),
   );
+
+  // This is intentionally an advisory rather than a permanent non-zero exit:
+  // Rocky cannot observe an admin-only setting, but it must show the required
+  // acceptance check every time it reports the public endpoint as reachable.
+  if (config.publicUrl !== undefined) {
+    report.push(linearWebhookRegistration(config.publicUrl));
+  }
 
   const adapterFor = options.adapterFor ?? getHarnessAdapter;
 

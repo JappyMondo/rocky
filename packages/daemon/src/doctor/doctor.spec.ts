@@ -178,6 +178,26 @@ describe('the endpoint check', () => {
     expect(check(report, 'publicUrl').ok).toBe(true);
   });
 
+  it('leaves the admin-only Linear webhook verification actionable', async () => {
+    await writeInstanceConfig(paths, {
+      publicUrl: 'https://rocky.example.com',
+    });
+
+    const report = await runDoctor(paths, {
+      ...OFFLINE,
+      fetch: () => Promise.resolve(Response.json({ instanceId: 'fixture' })),
+    });
+    const webhook = check(report, 'Linear AgentSessionEvent webhook');
+
+    expect(webhook.ok).toBe(false);
+    expect(webhook.advisory).toBe(true);
+    expect(webhook.fix).toContain(
+      'https://rocky.example.com/api/linear/webhook',
+    );
+    expect(webhook.fix).toContain('AgentSessionEvent');
+    expect(anyFailed(report)).toBe(false);
+  });
+
   it('fails with the fix when nothing answers', async () => {
     await writeInstanceConfig(paths, {
       publicUrl: 'https://rocky.example.com',

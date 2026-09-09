@@ -170,6 +170,24 @@ remote bodies, transport errors or URL credentials. The local identity check
 requires an IPv4 loopback listener; other local binding choices must provide
 one before using this ingress recipe.
 
+## Verify the installed Linear app
+
+A successful ping proves the route reaches this machine. It cannot prove that
+Linear will send an agent-session event: Rocky's delegated app token is
+intentionally not allowed to inspect or alter an installed app's webhook.
+Before treating intake as ready, ask a workspace admin to open the installed
+Rocky app in Linear and verify all of the following:
+
+- its webhook URL is exactly `https://<your-host>/api/linear/webhook`;
+- the webhook is enabled; and
+- `AgentSessionEvent` is enabled in the webhook subscriptions.
+
+Then delegate a harmless test issue to Rocky and confirm it appears in the
+local Inbox. If Linear acknowledges the event but Rocky cannot intake it, check
+`GET /api/intake-failures` locally for the bounded diagnostic. `rocky doctor`
+always repeats this admin handoff as an advisory, rather than claiming that a
+reachable public endpoint makes intake ready.
+
 The daemon self-pings through the public URL **on boot and once a minute**. The
 ping leaves the machine and comes back, and compares an instance id — which
 catches the failure a plain `200` hides, a URL still pointed at another

@@ -270,7 +270,7 @@ describe('what a completed run leaves behind', () => {
     expect(transcript()).toMatch(/reached Rocky|self-ping|reachable/i);
   });
 
-  it('ends by confirming authorization completion', async () => {
+  it('ends by confirming authorization and the remaining admin webhook check', async () => {
     const { transcript } = await runHappyPath([
       'Jan Jaap',
       PUBLIC_URL,
@@ -281,7 +281,10 @@ describe('what a completed run leaves behind', () => {
       '',
     ]);
 
-    expect(transcript()).toContain('Setup authorization is complete.');
+    expect(transcript()).toContain('Setup authorization is complete');
+    expect(transcript()).toContain(`${PUBLIC_URL}/api/linear/webhook`);
+    expect(transcript()).toContain('AgentSessionEvent');
+    expect(transcript()).toContain('Rocky cannot inspect');
   });
 });
 
