@@ -85,10 +85,22 @@ export async function probeGitHub(
         return unknown(
           `Branch ${branch} has restricted update/creation rules; bypass is not permission.`,
         );
-      const native = await get(
-        `${root}/branches/${encodeURIComponent(branch)}`,
-        z.object({ protected: z.boolean() }),
-      );
+      let native: { protected: boolean };
+      try {
+        native = await get(
+          `${root}/branches/${encodeURIComponent(branch)}`,
+          z.object({ protected: z.boolean() }),
+        );
+      } catch (error) {
+        // Rules were read successfully above and Contents write is already
+        // proven. A 404 here is the normal shape of a new source branch.
+        if (error instanceof ScmError && error.status === 404)
+          return ability(
+            'allowed',
+            `Branch ${branch} does not exist yet; visible creation rules and Contents write permit creating it.`,
+          );
+        throw error;
+      }
       if (native.protected) {
         const protection = await get(
           `${root}/branches/${encodeURIComponent(branch)}/protection`,
@@ -143,14 +155,12 @@ export async function probeGitHub(
       },
       z.object({ repository: z.object({ autoMergeAllowed: z.boolean() }) }),
     );
-    completion = repository.autoMergeAllowed
-      ? ability(
-          'allowed',
-          'Repository auto-merge capability is visible through the read-only GraphQL API.',
-        )
-      : unknown(
-          'Repository auto-merge/merge-queue capability is disabled or not observable.',
-        );
+    completion = ability(
+      'allowed',
+      repository.autoMergeAllowed
+        ? 'Repository auto-merge capability is visible through the read-only GraphQL API.'
+        : 'Repository auto-merge is disabled; ordinary pull-request merge remains available subject to the visible base-branch policy.',
+    );
   } catch (error) {
     signal.throwIfAborted();
     if (!(error instanceof ScmError)) throw error;

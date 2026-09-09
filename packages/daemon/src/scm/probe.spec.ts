@@ -111,6 +111,47 @@ it('fails closed when GitHub cannot read auto-merge capability', async () => {
   expect(probe.merge).toMatchObject({ status: 'unknown' });
 });
 
+it('allows creating a missing GitHub source branch when its rules are visible', async () => {
+  const fetcher: typeof fetch = async (url) => {
+    const path = new URL(String(url)).pathname;
+    if (path === '/user')
+      return Response.json(
+        { login: 'dev' },
+        { headers: { 'x-oauth-scopes': 'repo' } },
+      );
+    if (path === '/repos/team/repo')
+      return Response.json(
+        { private: true, permissions: { push: true } },
+        { headers: { 'x-oauth-scopes': 'repo' } },
+      );
+    if (path.includes('/rules/branches/')) return Response.json([]);
+    if (path.endsWith('/branches/main'))
+      return Response.json({ protected: false });
+    if (path.endsWith('/branches/ng-524'))
+      return Response.json({}, { status: 404 });
+    if (path === '/graphql')
+      return Response.json({
+        data: { repository: { autoMergeAllowed: false } },
+      });
+    if (path.endsWith('/pulls')) return Response.json([]);
+    throw new Error(`Unexpected ${path}`);
+  };
+
+  const probe = await createGitHubScm({
+    ...githubOptions,
+    fetch: fetcher,
+  }).probe(new AbortController().signal);
+
+  expect(probe).toMatchObject({
+    merge: { status: 'allowed' },
+    sourcePush: {
+      status: 'allowed',
+      source: expect.stringContaining('does not exist yet'),
+    },
+    rebase: { status: 'allowed' },
+  });
+});
+
 it('names unobservable GitLab scope and branch-policy evidence as unknown', async () => {
   const fetcher: typeof fetch = async (url) => {
     const path = new URL(String(url)).pathname.replace(/^\/api\/v4/, '');
