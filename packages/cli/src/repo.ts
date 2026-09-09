@@ -13,12 +13,19 @@
  * and the daemon picks the new entry up through its config watcher anyway
  * (NG-578's hot reload).
  */
+import { readFile, rm } from 'node:fs/promises';
+
 import {
   CloneError,
+  canonicalRemote,
   cloneStatus,
   createRepoContext,
   ensureInstanceLayout,
+  exportRepositoryProfile,
+  listRepositoryProfiles,
   newRepositoryProfile,
+  parseRepositoryProfile,
+  readRepositoryProfile,
   ensureClone,
   readInstanceConfig,
   rockyPaths,
@@ -236,6 +243,109 @@ export async function removeRepo(io: CliIo, name: string): Promise<void> {
     io.out(
       `Its clone is still at ${paths.repo(name)}; delete it by hand once you are sure no Run needs the branches in it.`,
     );
+  } catch (error) {
+    fail(io, error);
+  }
+}
+
+/** Local-only profile operations. They never read a target checkout. */
+export async function listProfiles(io: CliIo): Promise<void> {
+  const paths = rockyPaths();
+  try {
+    const profiles = await listRepositoryProfiles(paths);
+    io.out(
+      profiles.length === 0
+        ? 'No local profiles. `rocky repo add <url>` creates one, or import a secret-safe profile JSON.'
+        : table([
+            ['PROFILE', 'REMOTE', 'HARNESS'],
+            ...profiles.map((profile) => [
+              profile.id,
+              profile.remote,
+              profile.grants.harness,
+            ]),
+          ]),
+    );
+  } catch (error) {
+    fail(io, error);
+  }
+}
+
+export async function exportProfile(io: CliIo, id: string): Promise<void> {
+  const paths = rockyPaths();
+  try {
+    io.out(
+      JSON.stringify(
+        exportRepositoryProfile(await readRepositoryProfile(paths, id)),
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    fail(io, error);
+  }
+}
+
+export async function importProfile(io: CliIo, file: string): Promise<void> {
+  const paths = rockyPaths();
+  try {
+    const profile = parseRepositoryProfile(
+      JSON.parse(await readFile(file, 'utf8')) as unknown,
+      file,
+    );
+    await ensureInstanceLayout(paths);
+    await writeRepositoryProfile(paths, profile);
+    io.out(
+      `Imported local profile "${profile.id}" for ${profile.remote}. Use \`rocky repo profile use <repo> ${profile.id}\` to assign it.`,
+    );
+  } catch (error) {
+    fail(io, error);
+  }
+}
+
+export async function useProfile(
+  io: CliIo,
+  repoName: string,
+  id: string,
+): Promise<void> {
+  const paths = rockyPaths();
+  try {
+    const config = await readInstanceConfig(paths);
+    const repo = config.repos.find((entry) => entry.name === repoName);
+    if (!repo)
+      throw new Refused(
+        `There is no repo entry called "${repoName}". \`rocky repo list\` shows them.`,
+      );
+    const profile = await readRepositoryProfile(paths, id);
+    if (profile.remote !== canonicalRemote(repo.url)) {
+      throw new Refused(
+        `Profile "${id}" is for ${profile.remote}, not ${canonicalRemote(repo.url)}. Rocky will not assign a profile to another remote.`,
+      );
+    }
+    await writeInstanceConfig(paths, {
+      ...config,
+      repos: config.repos.map((entry) =>
+        entry.name === repoName ? { ...entry, profile: id } : entry,
+      ),
+    });
+    io.out(`Repo "${repoName}" now uses local profile "${id}".`);
+  } catch (error) {
+    fail(io, error);
+  }
+}
+
+export async function deleteProfile(io: CliIo, id: string): Promise<void> {
+  const paths = rockyPaths();
+  try {
+    const config = await readInstanceConfig(paths);
+    const assigned = config.repos.filter((repo) => repo.profile === id);
+    if (assigned.length > 0) {
+      throw new Refused(
+        `Profile "${id}" is assigned to ${quoteList(assigned.map((repo) => repo.name))}. Assign another profile first; Rocky will not leave a route without one.`,
+      );
+    }
+    await readRepositoryProfile(paths, id);
+    await rm(paths.profile(id));
+    io.out(`Deleted local profile "${id}". It did not change any repository.`);
   } catch (error) {
     fail(io, error);
   }

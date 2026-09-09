@@ -28,6 +28,7 @@ const V1_SURFACE = [
   'service uninstall',
   'repo add',
   'repo list',
+  'repo profile',
   'repo remove',
   'init',
   'upgrade',
@@ -80,6 +81,7 @@ describe('the command table', () => {
     const surface = surfaceOf();
 
     expect(surface).toContain('repo add');
+    expect(surface).toContain('repo profile');
     expect(surface).toContain('service install');
     expect(surface).toContain('mcp login');
   });

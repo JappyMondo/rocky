@@ -13,8 +13,9 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, expect, it } from 'vitest';
 import { rockyPaths } from '../config/paths.js';
+import { newRepositoryProfile } from '../config/profiles.js';
 import { createRepoContext } from '../repos/index.js';
-import { prepareWorkflowSnapshot } from './snapshot.js';
+import { prepareProfileSnapshot, prepareWorkflowSnapshot } from './snapshot.js';
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -35,12 +36,13 @@ async function repository() {
   await git('init', '-b', 'main');
   await git('config', 'user.name', 'Snapshot Test');
   await git('config', 'user.email', 'snapshot@example.invalid');
+  await git('config', 'commit.gpgsign', 'false');
   await mkdir(join(repo, '.rocky'));
   const context = createRepoContext({
     paths: rockyPaths(join(root, 'home')),
     identity: { name: 'Rocky', email: 'rocky@example.invalid' },
   });
-  const lead = { name: 'lead', url: repo, baseBranch: 'main' };
+  const lead = { name: 'lead', url: `file://${repo}`, baseBranch: 'main' };
   const commit = async () => {
     await git('add', '.');
     await git('commit', '-m', 'fixture');
@@ -88,6 +90,38 @@ function prepare(
 ) {
   return prepareWorkflowSnapshot(context, lead, { mcp });
 }
+
+it('snapshots only the local profile when a repository tries to supply .rocky', async () => {
+  const { repo, context, lead, commit } = await repository();
+  await writeFile(
+    join(repo, '.rocky/workflow.ts'),
+    'throw new Error("repository-controlled workflow must not load");',
+  );
+  const sourceCommit = await commit();
+  const profile = {
+    ...newRepositoryProfile({ id: 'local', remote: lead.url }),
+    workflow: {
+      source:
+        "import { linear } from '@rocky/sdk'; export default [linear.onDelegate(async () => ({ status: 'completed' }))];",
+      triggers: [],
+    },
+    prompts: { worker: 'Local instructions only.' },
+    mcp: { mcpServers: {} },
+  };
+
+  const snapshot = await prepareProfileSnapshot(context, lead, profile, {
+    mcp,
+  });
+
+  expect(snapshot.sourceCommit).toBe(sourceCommit);
+  expect(snapshot.triggers).toEqual([{ kind: 'linear.onDelegate' }]);
+  expect(
+    await readFile(join(snapshot.snapshotDir, 'workflow.ts'), 'utf8'),
+  ).toBe(profile.workflow.source);
+  expect(
+    await readFile(join(snapshot.snapshotDir, 'agents/worker.md'), 'utf8'),
+  ).toBe('Local instructions only.');
+});
 
 it('routes and snapshots one default-branch commit, preserving binary bytes and ignoring live edits', async () => {
   const { repo, context, lead, commit } = await repository();

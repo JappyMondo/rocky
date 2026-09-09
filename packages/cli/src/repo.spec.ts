@@ -227,6 +227,21 @@ describe('`rocky repo add`', () => {
   });
 });
 
+describe('`rocky repo profile`', () => {
+  it('lists, exports and keeps an assigned local profile from deletion', async () => {
+    await run('repo', 'add', upstreamUrl);
+
+    const listed = await run('repo', 'profile', 'list');
+    const exported = await run('repo', 'profile', 'export', 'niotix');
+    const deleted = await run('repo', 'profile', 'delete', 'niotix');
+
+    expect(listed.out).toContain('niotix');
+    expect(exported.out).toContain('"id": "niotix"');
+    expect(exported.out).not.toContain('GITHUB_TOKEN=');
+    expect(deleted.err).toContain('assigned');
+  });
+});
+
 describe('deriving a repo name from a url', () => {
   it.each([
     ['git@github.com:digimondo/niotix.git', 'niotix'],

@@ -5,17 +5,21 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { rockyPaths } from '../config/paths.js';
+import {
+  newRepositoryProfile,
+  writeRepositoryProfile,
+} from '../config/profiles.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { createRepoContext } from '../repos/index.js';
 import { openExecution, type PreparedExecution } from './execution.js';
 
-const { prepareWorkflowSnapshot, resolveSnapshotTrigger } = vi.hoisted(() => ({
-  prepareWorkflowSnapshot: vi.fn(),
+const { prepareProfileSnapshot, resolveSnapshotTrigger } = vi.hoisted(() => ({
+  prepareProfileSnapshot: vi.fn(),
   resolveSnapshotTrigger: vi.fn(),
 }));
 
 vi.mock('./snapshot.js', () => ({
-  prepareWorkflowSnapshot,
+  prepareProfileSnapshot,
   resolveSnapshotTrigger,
 }));
 
@@ -65,6 +69,7 @@ async function fixture(
         label: 'app',
         url: 'https://example.test/app.git',
         baseBranch: 'main',
+        profile: 'app',
       },
     ],
   });
@@ -80,6 +85,10 @@ async function fixture(
     close: vi.fn(async () => undefined),
   };
   const onRefusal = vi.fn(async () => undefined);
+  await writeRepositoryProfile(
+    paths,
+    newRepositoryProfile({ id: 'app', remote: 'https://example.test/app.git' }),
+  );
   const execution = await openExecution({
     paths,
     config: () => config,
@@ -95,7 +104,7 @@ it('builds and disposes the default immutable snapshot around admission', async 
   const f = await fixture();
   const snapshotDir = join(f.paths.root, 'snapshot');
   await mkdir(snapshotDir);
-  prepareWorkflowSnapshot.mockResolvedValue({
+  prepareProfileSnapshot.mockResolvedValue({
     sourceCommit: 'immutable-commit',
     snapshotDir,
     triggers: [{ kind: 'linear.onDelegate' }],
@@ -111,9 +120,10 @@ it('builds and disposes the default immutable snapshot around admission', async 
       },
     },
   });
-  expect(prepareWorkflowSnapshot).toHaveBeenCalledWith(
+  expect(prepareProfileSnapshot).toHaveBeenCalledWith(
     expect.anything(),
     expect.objectContaining({ name: 'app' }),
+    expect.objectContaining({ id: 'app' }),
     { signal: expect.any(AbortSignal) },
   );
   expect(resolveSnapshotTrigger).toHaveBeenCalledWith(
@@ -132,7 +142,7 @@ it('removes a partially prepared snapshot before publishing a Refusal', async ()
   const f = await fixture();
   const snapshotDir = join(f.paths.root, 'broken-snapshot');
   await mkdir(snapshotDir);
-  prepareWorkflowSnapshot.mockResolvedValue({
+  prepareProfileSnapshot.mockResolvedValue({
     sourceCommit: 'immutable-commit',
     snapshotDir,
     triggers: [{ kind: 'manual', name: 'repair' }],
@@ -162,7 +172,7 @@ it('uses Onboarding only for its named missing-snapshot Refusal', async () => {
     dispose: () => rm(snapshotDir, { recursive: true, force: true }),
   }));
   const f = await fixture(onboarding);
-  prepareWorkflowSnapshot.mockRejectedValue(
+  prepareProfileSnapshot.mockRejectedValue(
     Object.assign(new Error('app/.rocky is missing'), {
       kind: 'onboarding-required',
     }),
@@ -186,7 +196,7 @@ it('uses Onboarding only for its named missing-snapshot Refusal', async () => {
 
 it('names the Onboarding fix when no handler has been wired', async () => {
   const f = await fixture();
-  prepareWorkflowSnapshot.mockRejectedValue(
+  prepareProfileSnapshot.mockRejectedValue(
     Object.assign(new Error('app/.rocky is missing'), {
       kind: 'onboarding-required',
     }),

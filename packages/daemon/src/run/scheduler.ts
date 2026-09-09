@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import type { RockyPaths } from '../config/paths.js';
+import type { RepositoryProfile } from '../config/profiles.js';
 import { concurrencySchema, retentionSchema } from '../config/schema.js';
 import { KeyedMutex } from '../repos/mutex.js';
 import {
@@ -45,6 +46,8 @@ export interface DelegateInput {
   snapshotDir?: string;
   linear?: RunHeader['linear'];
   execution?: RunHeader['execution'];
+  /** Resolved local profile, copied into the immutable Run header. */
+  profile?: RepositoryProfile;
 }
 
 export interface RunAdmission {
@@ -311,6 +314,7 @@ export class RunScheduler {
             issue: input.issue,
             branch: input.branch,
             repo: input.repo,
+            ...(input.profile === undefined ? {} : { profile: input.profile }),
             ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
             now: this.options.now().toISOString(),
           });

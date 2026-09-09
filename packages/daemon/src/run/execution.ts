@@ -2,6 +2,10 @@ import { rm } from 'node:fs/promises';
 import { createWorkspace } from '../repos/workspace.js';
 import type { Issue } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
+import {
+  readRepositoryProfile,
+  type RepositoryProfile,
+} from '../config/profiles.js';
 import { route } from '../config/routing.js';
 import type { InstanceConfig } from '../config/schema.js';
 import type { RepoContext, RepoRef } from '../repos/index.js';
@@ -26,6 +30,7 @@ export interface PreparedExecution {
   sourceCommit: string;
   snapshotDir: string;
   trigger: RunExecution['trigger'];
+  profile?: RepositoryProfile;
   dispose?(): Promise<void>;
 }
 
@@ -189,14 +194,27 @@ export async function openExecution(options: ExecutionOptions) {
     (async (lead, trigger, signal) => {
       const loader = await import('./snapshot.js');
       signal.throwIfAborted();
-      const snapshot = await loader.prepareWorkflowSnapshot(
+      const config = options.config();
+      const configured = config.repos.find((repo) => repo.name === lead.name);
+      if (!configured?.profile) {
+        throw new Error(
+          `${lead.name} has no local profile. Create or import one with \`rocky repo profile import\`; committed .rocky files are not used.`,
+        );
+      }
+      const profile = await readRepositoryProfile(
+        options.paths,
+        configured.profile,
+      );
+      const snapshot = await loader.prepareProfileSnapshot(
         options.repos,
         lead,
+        profile,
         { signal },
       );
       try {
         return {
           ...snapshot,
+          profile,
           trigger: loader.resolveSnapshotTrigger(snapshot.triggers, trigger),
           dispose: () =>
             rm(snapshot.snapshotDir, { recursive: true, force: true }),
@@ -254,6 +272,9 @@ export async function openExecution(options: ExecutionOptions) {
             branch: request.branch,
             trigger: trigger.kind === 'manual' ? trigger.name : trigger.kind,
             snapshotDir: prepared.snapshotDir,
+            ...(prepared.profile === undefined
+              ? {}
+              : { profile: prepared.profile }),
             linear: request.linear,
             execution: {
               source,

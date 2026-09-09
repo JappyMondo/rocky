@@ -20,9 +20,14 @@ import {
 } from './commands.js';
 import {
   addRepo,
+  deleteProfile,
+  exportProfile,
+  importProfile,
   listRepos,
+  listProfiles,
   removeRepo,
   repoSummary,
+  useProfile,
   type AddRepoOptions,
 } from './repo.js';
 import { createConsolePrompter } from './setup/prompter.js';
@@ -494,6 +499,19 @@ export function buildCli(
     .command('remove <name>')
     .description('Remove a repo entry from the instance config.')
     .action((name: string) => removeRepo(io, name));
+
+  const profile = repo
+    .command('profile')
+    .description('Manage local, secret-safe repository profiles.');
+  profile.command('list').action(() => listProfiles(io));
+  profile.command('export <id>').action((id: string) => exportProfile(io, id));
+  profile
+    .command('import <file>')
+    .action((file: string) => importProfile(io, file));
+  profile
+    .command('use <repo> <id>')
+    .action((repoName: string, id: string) => useProfile(io, repoName, id));
+  profile.command('delete <id>').action((id: string) => deleteProfile(io, id));
 
   attachMcpCommand(program, io, paths, cli.mcp);
 

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { ensureClone } from '../repos/clone.js';
 import type { RepoContext, RepoRef } from '../repos/context.js';
+import { canonicalRemote, type RepositoryProfile } from '../config/profiles.js';
 import { WorkflowLoadError, type TriggerSelector } from './loading/loader.js';
 import { loadMcpRuntime, type McpRuntime } from './mcp-contract.js';
 import {
@@ -24,6 +25,82 @@ export interface PreparedWorkflowSnapshot {
 export interface SnapshotPreparationOptions extends SnapshotValidationOptions {
   /** NG-599 supplies the parser; tests inject its public consumer contract. */
   mcp?: Pick<McpRuntime, 'readMcpConfig'>;
+}
+
+/**
+ * Materialize the complete local profile into immutable Run bytes. The target
+ * repository contributes its revision and workspace only; it never supplies a
+ * workflow, prompt, MCP declaration, or grant at admission time.
+ */
+export async function prepareProfileSnapshot(
+  context: RepoContext,
+  lead: RepoRef,
+  profile: RepositoryProfile,
+  options: SnapshotPreparationOptions = {},
+): Promise<PreparedWorkflowSnapshot> {
+  options.signal?.throwIfAborted();
+  if (profile.remote !== canonicalRemote(lead.url)) {
+    throw new WorkflowLoadError(
+      'invalid-workflow',
+      `profiles/${profile.id}.json`,
+      `belongs to ${profile.remote}, not ${canonicalRemote(lead.url)}`,
+      'Assign a local profile for this exact remote with `rocky repo profile import`, then re-delegate.',
+    );
+  }
+  const clone = await ensureClone(context, lead);
+  const staging = join(context.paths.root, 'snapshots');
+  await mkdir(staging, { recursive: true });
+  const snapshotDir = await mkdtemp(join(staging, '.profile-'));
+  let validationDir: string | undefined;
+  try {
+    const sourceCommit = await context.mutex.run(lead.name, async () => {
+      const result = await exec(
+        'git',
+        ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
+        {
+          cwd: clone.dir,
+          encoding: 'buffer',
+          maxBuffer: 64 * 1024 * 1024,
+          timeout: 60_000,
+          signal: options.signal,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        },
+      );
+      return result.stdout.toString('ascii').trim();
+    });
+    await mkdir(join(snapshotDir, 'agents'), { recursive: true });
+    await mkdir(join(snapshotDir, 'rules'), { recursive: true });
+    await writeFile(join(snapshotDir, 'workflow.ts'), profile.workflow.source);
+    await writeFile(join(snapshotDir, 'mcp.json'), JSON.stringify(profile.mcp));
+    await writeFile(join(snapshotDir, 'profile.json'), JSON.stringify(profile));
+    await writeFile(join(snapshotDir, 'schemas.txt'), profile.schemas);
+    await Promise.all([
+      ...Object.entries(profile.prompts).map(([name, prompt]) =>
+        writeFile(join(snapshotDir, 'agents', `${name}.md`), prompt),
+      ),
+      ...Object.entries(profile.rules).map(([name, rule]) =>
+        writeFile(join(snapshotDir, 'rules', `${name}.md`), rule),
+      ),
+    ]);
+    const mcp = options.mcp ?? (await loadMcpRuntime());
+    await mcp.readMcpConfig(join(snapshotDir, 'mcp.json'));
+    validationDir = await mkdtemp(join(staging, '.validate-'));
+    await cp(snapshotDir, validationDir, { recursive: true });
+    const triggers = await validateSnapshotTriggers(validationDir, options);
+    return { sourceCommit, snapshotDir, triggers };
+  } catch (error) {
+    await rm(snapshotDir, { recursive: true, force: true });
+    if (error instanceof WorkflowLoadError) throw error;
+    throw new WorkflowLoadError(
+      'invalid-workflow',
+      `profiles/${profile.id}.json`,
+      error instanceof Error ? error.message : String(error),
+      'Fix this local profile and retry; repository .rocky files are intentionally ignored.',
+    );
+  } finally {
+    if (validationDir)
+      await rm(validationDir, { recursive: true, force: true });
+  }
 }
 
 export async function prepareWorkflowSnapshot(
