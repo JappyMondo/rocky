@@ -23,7 +23,7 @@ import { ensureClone } from './clone.js';
 import { git } from './git.js';
 import { KeyedMutex } from './mutex.js';
 import { createUpstream, makeTempDir, type Upstream } from './upstream.fixtures.js'; // prettier-ignore
-import { WorkspaceError, createWorkspace, removeWorkspace } from './workspace.js'; // prettier-ignore
+import { WorkspaceError, createWorkspace, releaseCleanWorkspace, removeWorkspace } from './workspace.js'; // prettier-ignore
 import type { RepoContext, RepoRef } from './context.js';
 
 /** The Rocky identity these tests expect every commit to carry. */
@@ -696,5 +696,30 @@ describe('removing a workspace', () => {
     // A missing workspace is normal and answers with `[]`; one that is there
     // and unreadable is not, and the sweep turns this into a recorded failure.
     await expect(removeWorkspace(ctx, 'NG-603-1')).rejects.toThrow();
+  });
+});
+
+describe('releasing a clean terminal workspace', () => {
+  it('releases a clean workspace but preserves a dirty one for adoption', async () => {
+    const clean = await createWorkspace(ctx, {
+      runId: 'NG-601-1',
+      branch: BRANCH,
+      members: [niotix],
+      lead: 'niotix',
+    });
+    await expect(releaseCleanWorkspace(ctx, 'NG-601-1')).resolves.toEqual([
+      'niotix',
+    ]);
+    expect(existsSync(clean.dir)).toBe(false);
+
+    const dirty = await createWorkspace(ctx, {
+      runId: 'NG-601-2',
+      branch: BRANCH,
+      members: [niotix],
+      lead: 'niotix',
+    });
+    await writeFile(join(dirty.lead.dir, 'unfinished.txt'), 'preserve me\n');
+    await expect(releaseCleanWorkspace(ctx, 'NG-601-2')).resolves.toEqual([]);
+    expect(existsSync(dirty.dir)).toBe(true);
   });
 });

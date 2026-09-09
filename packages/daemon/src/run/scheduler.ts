@@ -72,6 +72,8 @@ export interface RunSchedulerOptions {
   onError?: (error: unknown) => void;
   /** Production shares this writer with Boot children and control intake. */
   append?: typeof appendEntry;
+  /** Releases only a terminal Run's safely reclaimable workspace. */
+  releaseTerminalWorkspace?(run: RunHeader): Promise<void>;
 }
 
 export interface Cancellation {
@@ -495,6 +497,7 @@ export class RunScheduler {
         this.report(error);
       }
     });
+    await this.releaseTerminalWorkspace(settled);
   }
 
   /** Called under mutate, so a retry cannot overtake durable cancellation intent. */
@@ -534,6 +537,16 @@ export class RunScheduler {
         this.report(writeError);
       }
     });
+    await this.releaseTerminalWorkspace(failed);
+  }
+
+  private async releaseTerminalWorkspace(run: RunHeader): Promise<void> {
+    if (!isTerminal(run) || !this.options.releaseTerminalWorkspace) return;
+    try {
+      await this.options.releaseTerminalWorkspace(structuredClone(run));
+    } catch (error) {
+      this.report(error);
+    }
   }
 
   /** One active Boot per Run, even when webhook and timer race. */

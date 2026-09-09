@@ -320,3 +320,38 @@ export async function removeWorkspace(
 
   return children;
 }
+
+/**
+ * Release a terminal Run's workspace only when every member is clean. Unlike
+ * retention cleanup this never discards uncommitted work: a failed Run with
+ * edits stays available for the next Run to adopt.
+ */
+export async function releaseCleanWorkspace(
+  ctx: RepoContext,
+  runId: string,
+): Promise<string[]> {
+  const workspaceDir = ctx.paths.run(runId).workspaceDir;
+  let children: string[];
+  try {
+    children = await readdir(workspaceDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+
+  for (const repoName of children) {
+    const dir = join(workspaceDir, repoName);
+    if (!(await isWorktree(dir))) return [];
+    if ((await git(['status', '--porcelain'], { cwd: dir })).stdout) return [];
+  }
+
+  for (const repoName of children) {
+    await ctx.mutex.run(repoName, async () => {
+      const dir = join(workspaceDir, repoName);
+      const clone = ctx.paths.repo(repoName);
+      await git(['worktree', 'remove', dir], { cwd: clone });
+    });
+  }
+  await rm(workspaceDir, { recursive: true, force: true });
+  return children;
+}

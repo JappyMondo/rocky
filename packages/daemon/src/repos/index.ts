@@ -35,6 +35,7 @@ export {
   WorkspaceError,
   createWorkspace,
   removeWorkspace,
+  releaseCleanWorkspace,
   type Adoption,
   type CreateWorkspaceOptions,
   type Workspace,

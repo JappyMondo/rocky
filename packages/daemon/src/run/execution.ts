@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises';
-import { createWorkspace } from '../repos/workspace.js';
+import { createWorkspace, releaseCleanWorkspace } from '../repos/workspace.js';
 import type { Issue } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
 import {
@@ -186,6 +186,9 @@ export async function openExecution(options: ExecutionOptions) {
       ? { kill: runtime.kill, cleanup: options.preserve }
       : undefined,
     onError: options.onError,
+    releaseTerminalWorkspace: async (run) => {
+      await releaseCleanWorkspace(options.repos, run.runId);
+    },
     append: async (path, entry, appendOptions) =>
       (await writer(path)).append(entry, appendOptions),
   });
