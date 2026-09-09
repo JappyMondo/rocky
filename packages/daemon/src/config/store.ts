@@ -50,7 +50,12 @@ export async function ensureInstanceLayout(paths: RockyPaths): Promise<void> {
     await chmod(paths.root, ROOT_MODE);
   }
 
-  for (const dir of [paths.logsDir, paths.reposDir, paths.runsDir]) {
+  for (const dir of [
+    paths.logsDir,
+    paths.profilesDir,
+    paths.reposDir,
+    paths.runsDir,
+  ]) {
     await mkdir(dir, { recursive: true });
   }
 }

@@ -48,6 +48,18 @@ export {
 } from './store.js';
 
 export {
+  canonicalRemote,
+  exportRepositoryProfile,
+  listRepositoryProfiles,
+  newRepositoryProfile,
+  parseRepositoryProfile,
+  profileMcpConfig,
+  readRepositoryProfile,
+  writeRepositoryProfile,
+  type RepositoryProfile,
+} from './profiles.js';
+
+export {
   findRepo,
   groupsForRepo,
   resolveGroup,

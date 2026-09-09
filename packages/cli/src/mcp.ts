@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   loginMcpServer,
-  readMcpConfig,
+  profileMcpConfig,
+  readInstanceConfig,
+  readRepositoryProfile,
   type McpLoginOptions,
   type RockyPaths,
 } from '@rocky/daemon';
@@ -15,6 +16,7 @@ export interface McpCliOptions extends Omit<
   McpLoginOptions,
   'paths' | 'openBrowser' | 'clientId' | 'clientSecret' | 'callbackPort'
 > {
+  /** @deprecated Repository working copies are never consulted for MCP config. */
   cwd?: string;
   openBrowser?: McpLoginOptions['openBrowser'];
 }
@@ -30,7 +32,11 @@ export function attachMcpCommand(
     .description('MCP authentication for this machine.')
     .command('login <server>')
     .description(
-      "Authenticate a remote server declared in this repo's .rocky/mcp.json.",
+      'Authenticate a remote server declared in a local repository profile.',
+    )
+    .requiredOption(
+      '--repo <name>',
+      'Repository whose local profile declares the server.',
     )
     .option(
       '--client-id <id>',
@@ -61,6 +67,7 @@ export function attachMcpCommand(
       async (
         name: string,
         flags: {
+          repo: string;
           clientId?: string;
           clientSecret?: string;
           callbackPort?: number;
@@ -70,9 +77,20 @@ export function attachMcpCommand(
         const cancel = () => abort.abort();
         process.once('SIGINT', cancel);
         try {
-          const config = await readMcpConfig(
-            join(options.cwd ?? process.cwd(), '.rocky/mcp.json'),
+          const instance = await readInstanceConfig(paths);
+          const repo = instance.repos.find(
+            (entry) => entry.name === flags.repo,
           );
+          if (!repo)
+            throw new Error(
+              `No local repository named "${flags.repo}". Run \`rocky repo list\`.`,
+            );
+          if (!repo.profile)
+            throw new Error(
+              `Repository "${repo.name}" is a legacy entry with no local profile. Create or explicitly import one; Rocky will not read .rocky/mcp.json from Git.`,
+            );
+          const profile = await readRepositoryProfile(paths, repo.profile);
+          const config = profileMcpConfig(profile, paths.profile(profile.id));
           await loginMcpServer(config, name, {
             ...options,
             ...flags,

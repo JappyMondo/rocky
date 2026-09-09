@@ -50,6 +50,12 @@ export const repoEntrySchema = z.looseObject({
   teams: z.array(nonEmpty).optional(),
   /** Injected into every Run on this repo. Secrets belong in credentials. */
   env: z.record(nonEmpty, z.string()).optional(),
+  /**
+   * The local profile authoritative for this remote on this machine. Absent is
+   * a legacy entry: it is refused until the developer creates or explicitly
+   * imports a local profile; Rocky never imports `.rocky/` on its own.
+   */
+  profile: segment.optional(),
 });
 
 export const repoGroupSchema = z.looseObject({
@@ -57,7 +63,7 @@ export const repoGroupSchema = z.looseObject({
   label: nonEmpty,
   /** Members, by repo-entry name. */
   repos: z.array(segment).min(1),
-  /** The lead: the member whose `.rocky/` a grouped Run executes. */
+  /** The lead: the member whose local profile a grouped Run executes. */
   workflow: segment,
 });
 

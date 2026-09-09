@@ -17,9 +17,12 @@ import {
   CloneError,
   cloneStatus,
   createRepoContext,
+  ensureInstanceLayout,
+  newRepositoryProfile,
   ensureClone,
   readInstanceConfig,
   rockyPaths,
+  writeRepositoryProfile,
   writeInstanceConfig,
   type InstanceConfig,
   type RepoEntry,
@@ -89,14 +92,22 @@ export async function addRepo(
       );
     }
 
-    const entry: RepoEntry = { name, url, baseBranch, label };
+    // Create the profile before publishing the route. A clean checkout is
+    // enough: no `.rocky/` is read or written, and a failed profile write
+    // leaves no route that could later select repository-controlled config.
+    await ensureInstanceLayout(paths);
+    await writeRepositoryProfile(
+      paths,
+      newRepositoryProfile({ id: name, remote: url }),
+    );
+    const entry: RepoEntry = { name, url, baseBranch, label, profile: name };
     await writeInstanceConfig(paths, {
       ...config,
       repos: [...config.repos, entry],
     });
 
     io.out(
-      `Added "${name}" — base branch \`${baseBranch}\`, routed by the Linear label \`${label}\`.`,
+      `Added "${name}" — local profile \`${name}\`, base branch \`${baseBranch}\`, routed by the Linear label \`${label}\`.`,
     );
     io.out(
       'Put that label on an issue and delegate it to Rocky. A running daemon picks this up without a restart.',

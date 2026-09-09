@@ -7,6 +7,7 @@
  * ├── credentials.json     # 0600 — Linear OAuth token(s), per-repo secrets
  * ├── daemon.pid
  * ├── logs/daemon.log
+ * ├── profiles/<profile>/  # user-local repository pipeline profiles
  * ├── repos/<repoName>/    # Rocky's own clone, nothing else inside
  * └── runs/<runId>/        # e.g. NG-601-1
  *     ├── journal.jsonl
@@ -54,7 +55,7 @@ export interface RunPaths {
   journal: string;
   /** The Run header — a pure cache of the journal (NG-574). */
   runJson: string;
-  /** The lead repo's `.rocky/` as of Run start. */
+  /** The resolved local profile snapshot as of Run start. */
   snapshotDir: string;
   /** Harness session records; the session record is the Transcript (NG-579). */
   sessionsDir: string;
@@ -72,6 +73,9 @@ export interface RockyPaths {
   pidFile: string;
   logsDir: string;
   daemonLog: string;
+  profilesDir: string;
+  /** A profile is local data, never a directory in the target repository. */
+  profile(profileId: string): string;
   reposDir: string;
   /** Rocky's own clone of one repo. */
   repo(repoName: string): string;
@@ -81,6 +85,7 @@ export interface RockyPaths {
 
 export function rockyPaths(root: string = defaultRockyHome()): RockyPaths {
   const reposDir = join(root, 'repos');
+  const profilesDir = join(root, 'profiles');
   const runsDir = join(root, 'runs');
   const logsDir = join(root, 'logs');
 
@@ -91,6 +96,9 @@ export function rockyPaths(root: string = defaultRockyHome()): RockyPaths {
     pidFile: join(root, 'daemon.pid'),
     logsDir,
     daemonLog: join(logsDir, 'daemon.log'),
+    profilesDir,
+    profile: (profileId) =>
+      join(profilesDir, `${assertSegment('profile id', profileId)}.json`),
     reposDir,
     repo: (repoName) => join(reposDir, assertSegment('repo name', repoName)),
     runsDir,

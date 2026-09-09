@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'; // prettier-ignore
 
 import {
+  readRepositoryProfile,
   readInstanceConfig,
   rockyPaths,
   writeInstanceConfig,
@@ -109,8 +110,20 @@ describe('`rocky repo add`', () => {
 
     const config = await readInstanceConfig(rockyPaths(home));
     expect(config.repos).toEqual([
-      { name: 'niotix', url: upstreamUrl, baseBranch: 'main', label: 'niotix' },
+      {
+        name: 'niotix',
+        url: upstreamUrl,
+        baseBranch: 'main',
+        label: 'niotix',
+        profile: 'niotix',
+      },
     ]);
+    expect((await readRepositoryProfile(rockyPaths(home), 'niotix')).remote).toBe(
+      `file://${upstreamUrl
+        .slice('file://'.length)
+        .replace(/\.git$/, '')
+        .replace(/\/+$/, '')}`,
+    );
     expect(out).toContain('Added "niotix"');
   });
 

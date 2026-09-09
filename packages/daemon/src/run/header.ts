@@ -18,6 +18,10 @@ import { z } from 'zod';
 
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import type { RockyPaths } from '../config/paths.js';
+import {
+  parseRepositoryProfile,
+  type RepositoryProfile,
+} from '../config/profiles.js';
 import { KeyedMutex } from '../repos/mutex.js';
 import {
   END_STEP,
@@ -55,6 +59,8 @@ export interface RunHeader {
   branch: string;
   /** Lead repo used for retention. Immutable for the Run's life. */
   repo: string;
+  /** Resolved local profile copied at admission; never re-read from Git. */
+  profile?: RepositoryProfile;
   /** Reserved again before a working Boot; poll Boots reuse these values. */
   ports: number[];
   pr?: Pr;
@@ -159,6 +165,17 @@ const headerSchema = z.object({
   issue: issueSchema,
   branch: z.string().min(1),
   repo: z.string().min(1),
+  profile: z
+    .unknown()
+    .transform((value, ctx) => {
+      try {
+        return parseRepositoryProfile(value, 'run profile');
+      } catch (error) {
+        ctx.addIssue({ code: 'custom', message: (error as Error).message });
+        return z.NEVER;
+      }
+    })
+    .optional(),
   ports: z
     .array(z.number().int().min(1).max(65535))
     .refine(
@@ -201,6 +218,7 @@ export function newRunHeader(opts: {
   issue: Issue;
   branch: string;
   repo: string;
+  profile?: RepositoryProfile;
   trigger?: string;
   now: string;
 }): RunHeader {
@@ -211,6 +229,9 @@ export function newRunHeader(opts: {
     issue: opts.issue,
     branch: opts.branch,
     repo: opts.repo,
+    ...(opts.profile === undefined
+      ? {}
+      : { profile: structuredClone(opts.profile) }),
     ports: [],
     // A Run is admitted before it works: `queued` is a real state, so a Run
     // asleep for three days does not jump the cap (NG-574 §8).

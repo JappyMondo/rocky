@@ -3,7 +3,15 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { readCredentials, rockyPaths, type RockyPaths } from '@rocky/daemon';
+import {
+  ensureInstanceLayout,
+  newRepositoryProfile,
+  readCredentials,
+  rockyPaths,
+  writeInstanceConfig,
+  writeRepositoryProfile,
+  type RockyPaths,
+} from '@rocky/daemon';
 import { buildCli } from './cli.js';
 
 let root: string;
@@ -20,16 +28,30 @@ beforeEach(async () => {
   paths = rockyPaths(join(root, 'home'));
   output = [];
   errors = [];
-  await mkdir(join(root, '.rocky'));
-  await writeFile(
-    join(root, '.rocky/mcp.json'),
-    JSON.stringify({
+  await ensureInstanceLayout(paths);
+  await writeInstanceConfig(paths, {
+    repos: [
+      {
+        name: 'api',
+        url: 'https://github.com/acme/api.git',
+        baseBranch: 'main',
+        label: 'api',
+        profile: 'api',
+      },
+    ],
+  });
+  await writeRepositoryProfile(paths, {
+    ...newRepositoryProfile({
+      id: 'api',
+      remote: 'https://github.com/acme/api.git',
+    }),
+    mcp: {
       mcpServers: {
         api: { url: 'https://mcp.example/mcp' },
         local: { command: 'true' },
       },
-    }),
-  );
+    },
+  });
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -72,7 +94,7 @@ if (${mode === 'cancelled'}) {
         vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
       }
       const requests: string[] = [];
-      const text = await readFile(join(root, '.rocky/mcp.json'), 'utf8');
+      const text = await readFile(paths.profile('api'), 'utf8');
       const cli = buildCli(io, {
         paths,
         mcp: {
@@ -141,6 +163,8 @@ if (${mode === 'cancelled'}) {
           'mcp',
           'login',
           'api',
+          '--repo',
+          'api',
           '--client-id',
           'cli-client',
           '--client-secret',
@@ -194,7 +218,7 @@ if (${mode === 'cancelled'}) {
           tokens: { access_token: 'PRIVATE-ACCESS' },
         },
       });
-      expect(await readFile(join(root, '.rocky/mcp.json'), 'utf8')).toBe(text);
+      expect(await readFile(paths.profile('api'), 'utf8')).toBe(text);
       expect(requests).not.toContain('https://auth.example/register');
     },
   );
@@ -210,9 +234,9 @@ if (${mode === 'cancelled'}) {
             throw new Error('should not open');
           },
         },
-      }).parseAsync(['mcp', 'login', name], { from: 'user' });
+      }).parseAsync(['mcp', 'login', name, '--repo', 'api'], { from: 'user' });
       expect(process.exitCode).toBe(1);
-      expect(errors.join('\n')).toMatch(/mcp.json.*(unknown MCP server|stdio)/);
+      expect(errors.join('\n')).toMatch(/profiles\/api\.json.*(unknown MCP server|stdio)/);
       expect(output).toEqual([]);
     },
   );
@@ -220,7 +244,7 @@ if (${mode === 'cancelled'}) {
   it('rejects invalid callback ports before starting login', async () => {
     await expect(
       buildCli(io, { paths, mcp: { cwd: root } }).parseAsync(
-        ['mcp', 'login', 'api', '--callback-port', '65536'],
+        ['mcp', 'login', 'api', '--repo', 'api', '--callback-port', '65536'],
         { from: 'user' },
       ),
     ).rejects.toThrow(/port must be an integer from 0 to 65535/);
