@@ -153,6 +153,19 @@ describe('the launchd unit', () => {
     expect(unit).toContain('<key>KeepAlive</key>');
   });
 
+  it('preserves the installing shell’s SSH agent socket', () => {
+    const unit = unitFor(paths, {
+      ...MAC(),
+      sshAuthSock: '/Users/jappy/.bitwarden/ssh-agent.sock',
+    });
+
+    expect(unit).toContain('<key>EnvironmentVariables</key>');
+    expect(unit).toContain('<key>SSH_AUTH_SOCK</key>');
+    expect(unit).toContain(
+      '<string>/Users/jappy/.bitwarden/ssh-agent.sock</string>',
+    );
+  });
+
   it('escapes a path that would otherwise break the XML', () => {
     const unit = unitFor(paths, {
       ...MAC(),
@@ -188,6 +201,12 @@ describe('the systemd unit', () => {
 
   it('comes back after a crash', () => {
     expect(unitFor(paths, LINUX())).toContain('Restart=on-failure');
+  });
+
+  it('preserves the installing shell’s SSH agent socket', () => {
+    expect(
+      unitFor(paths, { ...LINUX(), sshAuthSock: '/run/user/1000/agent.sock' }),
+    ).toContain('Environment=SSH_AUTH_SOCK="/run/user/1000/agent.sock"');
   });
 
   it('makes ingress wait for the daemon on systemd', () => {

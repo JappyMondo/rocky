@@ -58,6 +58,12 @@ export interface ServiceEnvironment {
   ingressEntry?: string;
   /** The node binary the unit runs it with. */
   execPath?: string;
+  /**
+   * SSH agent socket to make available to the user service. This must be
+   * copied from the interactive installer environment: launchd's default
+   * socket is often different (for example when Bitwarden owns the agent).
+   */
+  sshAuthSock?: string;
 }
 
 export class UnsupportedPlatformError extends Error {
@@ -141,11 +147,21 @@ export function unitFor(
     kind === 'daemon'
       ? [execPath, entry, 'start']
       : [execPath, ingressEntry, '--daemon-port', String(daemonPort)];
+  const sshAuthSock = environment.sshAuthSock ?? process.env.SSH_AUTH_SOCK;
 
   if (target.platform === 'darwin') {
     const args = command
       .map((value) => `    <string>${escapeXml(value)}</string>`)
       .join('\n');
+    const environmentVariables =
+      sshAuthSock === undefined
+        ? ''
+        : `  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SSH_AUTH_SOCK</key>
+    <string>${escapeXml(sshAuthSock)}</string>
+  </dict>
+`;
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -161,6 +177,7 @@ ${args}
   <true/>
   <key>KeepAlive</key>
   <true/>
+${environmentVariables}
   <!-- The daemon writes its own rotated log; these catch anything that dies
        before logging is up. -->
   <key>StandardOutPath</key>
@@ -181,6 +198,10 @@ ${args}
     kind === 'daemon'
       ? 'Rocky — the per-developer local daemon'
       : 'Rocky — the public Linear ingress filter';
+  const serviceEnvironment =
+    sshAuthSock === undefined
+      ? ''
+      : `Environment=SSH_AUTH_SOCK=${JSON.stringify(sshAuthSock)}\n`;
   return `[Unit]
 Description=${description}
 Documentation=https://github.com/JappyMondo/rocky
@@ -190,7 +211,7 @@ ${requires}
 [Service]
 Type=simple
 ExecStart=${command.join(' ')}
-Restart=on-failure
+${serviceEnvironment}Restart=on-failure
 RestartSec=5
 
 [Install]
