@@ -74,6 +74,12 @@ export interface LocalApiOptions {
       remediation: string;
     }>
   >;
+  /** Explicitly allow a terminal Linear session to be delegated again. */
+  recoverSession?: (runId: string) => Promise<{
+    runId: string;
+    issueIdentifier: string;
+    sessionId: string;
+  }>;
   manual?: (input: {
     trigger: string;
     issue: string;
@@ -444,6 +450,19 @@ export async function registerLocalApi(
     local.get(
       '/api/intake-failures',
       async () => options.intakeFailures?.() ?? [],
+    );
+    local.post<{ Params: { id: string } }>(
+      '/api/runs/:id/recover-session',
+      async (request) => {
+        const run = await getRun(request.params.id);
+        if (!options.recoverSession)
+          throw new LocalApiError(
+            503,
+            'session-recovery-unavailable',
+            'Linear session recovery is not connected.',
+          );
+        return options.recoverSession(run.runId);
+      },
     );
     local.patch('/api/settings', (request) =>
       options.settings.patch(request.body),

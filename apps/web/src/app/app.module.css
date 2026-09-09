@@ -366,6 +366,22 @@ button:disabled {
   color: #667585;
   padding: 12px;
 }
+.terminal {
+  display: grid;
+  gap: 8px;
+}
+.terminal .muted {
+  margin: 0;
+}
+.terminal button {
+  width: max-content;
+  border: 1px solid #c35c5c;
+  border-radius: 5px;
+  background: #fff;
+  color: #9b3131;
+  padding: 7px 11px;
+  cursor: pointer;
+}
 .settings {
   display: grid;
   gap: 14px;

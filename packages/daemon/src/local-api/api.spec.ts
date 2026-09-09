@@ -145,6 +145,26 @@ it('reflects real scheduler admission and park without maintaining a second API 
   expect(detail.controls).toEqual({ answer: false, steer: false });
 });
 
+it('exposes explicit terminal-session recovery without making the API a Run registry', async () => {
+  const fixture = await setup({
+    recoverSession: async (runId) => ({
+      runId,
+      issueIdentifier: 'NG-609',
+      sessionId: 'stale-session',
+    }),
+  });
+  const response = await fixture.app.inject({
+    method: 'POST',
+    url: '/api/runs/NG-609-1/recover-session',
+  });
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual({
+    runId: 'NG-609-1',
+    issueIdentifier: 'NG-609',
+    sessionId: 'stale-session',
+  });
+});
+
 it('renders a real three-Boot Journal, nested identities, and native usage without invented zeroes', async () => {
   const { app, paths, run, options } = await setup();
   let pass = 0;

@@ -138,6 +138,7 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
     scheduler: {
       get: vi.fn(async () => run),
       list: vi.fn(async () => [run]),
+      recoverSession: vi.fn(async () => run),
       poll: vi.fn(),
       stop: vi.fn(),
     },
@@ -279,6 +280,17 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
     },
   });
   expect(steer.json()).toMatchObject({ state: 'held' });
+  const recovery = await app.inject({
+    method: 'POST',
+    url: '/api/runs/NG-700-1/recover-session',
+  });
+  expect(recovery.statusCode).toBe(200);
+  expect(recovery.json()).toEqual({
+    runId: 'NG-700-1',
+    issueIdentifier: 'NG-700',
+    sessionId: 'session-1',
+  });
+  expect(execution.scheduler.recoverSession).toHaveBeenCalledWith('NG-700-1');
   expect(control.answer).toHaveBeenCalledWith(
     expect.objectContaining({ answer: { decision: 'approve' } }),
   );

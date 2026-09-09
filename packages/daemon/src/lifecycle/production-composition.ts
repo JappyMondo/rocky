@@ -141,9 +141,11 @@ export async function createProductionComposition(options: {
     },
   });
 
+  const ownsLiveSession = (run: RunHeader, sessionId: string) =>
+    !ended(run) && run.linear?.sessionId === sessionId;
   const find = async (sessionId: string) => {
-    const run = (await execution.scheduler.list()).find(
-      (candidate) => candidate.linear?.sessionId === sessionId,
+    const run = (await execution.scheduler.list()).find((candidate) =>
+      ownsLiveSession(candidate, sessionId),
     );
     return run ? controlFor(run.runId) : undefined;
   };
@@ -191,8 +193,8 @@ export async function createProductionComposition(options: {
         return;
       }
       const control = await find(event.sessionId);
-      const run = (await execution.scheduler.list()).find(
-        (row) => row.linear?.sessionId === event.sessionId,
+      const run = (await execution.scheduler.list()).find((row) =>
+        ownsLiveSession(row, event.sessionId),
       );
       if (
         !control ||
@@ -257,6 +259,16 @@ export async function createProductionComposition(options: {
           }));
         },
         intakeFailures: () => intakeFailures.list(),
+        recoverSession: async (runId) => {
+          const run = await execution.scheduler.recoverSession(runId);
+          if (!run.linear)
+            throw new Error(`${runId}: released session identity is missing`);
+          return {
+            runId: run.runId,
+            issueIdentifier: run.issue.identifier,
+            sessionId: run.linear.sessionId,
+          };
+        },
       });
     },
     close: async () => controls.clear(),

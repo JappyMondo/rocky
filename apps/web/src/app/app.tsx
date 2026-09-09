@@ -434,6 +434,31 @@ export function App() {
       );
     }
   };
+  const recoverSession = async (runId: string) => {
+    if (!mutationsAllowed) return;
+    setError(null);
+    try {
+      const result = await api<{
+        issueIdentifier: string;
+        sessionId: string;
+      }>(
+        `/api/runs/${encodeURIComponent(runId)}/recover-session`,
+        setMismatch,
+        { method: 'POST' },
+      );
+      setError(
+        `Released the stale Linear session for ${result.issueIdentifier}. Delegate Rocky again in Linear to start a fresh Run.`,
+      );
+      await refreshDetail(runId);
+    } catch (caught) {
+      setError(
+        await apiError(
+          caught,
+          'Could not release this Linear session for re-delegation.',
+        ),
+      );
+    }
+  };
   const fireTrigger = async (event: FormEvent) => {
     event.preventDefault();
     if (!triggerIssue.trim() || !triggerName.trim() || !mutationsAllowed)
@@ -571,6 +596,7 @@ export function App() {
             submitSteer={submitSteer}
             allowed={mutationsAllowed}
             answer={submitAnswer}
+            recoverSession={recoverSession}
             openDiff={setDiffId}
           />
         )}
@@ -732,6 +758,7 @@ function RunView(p: {
   submitSteer: (e: FormEvent) => void;
   allowed: boolean;
   answer: (a: Answer) => Promise<void>;
+  recoverSession: (runId: string) => Promise<void>;
   openDiff: (id: string) => void;
 }) {
   const d = p.detail;
@@ -945,9 +972,25 @@ function RunView(p: {
       )}
       {!checkpointOpen &&
         (terminal(d.run.status) ? (
-          <p className={styles.muted}>
-            This Run is finished; its Steer intake is closed.
-          </p>
+          <section className={styles.terminal}>
+            <p className={styles.muted}>
+              This Run is finished; its Steer intake is closed.
+            </p>
+            {(d.run.status === 'failed' || d.run.status === 'cancelled') && (
+              <>
+                <button
+                  disabled={!p.allowed}
+                  onClick={() => void p.recoverSession(d.run.runId)}
+                >
+                  Enable fresh Linear delegation
+                </button>
+                <small>
+                  Use this only when Linear reused this failed Run&apos;s Agent
+                  Session after you delegated Rocky again.
+                </small>
+              </>
+            )}
+          </section>
         ) : (
           <form className={styles.compose} onSubmit={p.submitSteer}>
             <label htmlFor="steer">Steer this Run</label>

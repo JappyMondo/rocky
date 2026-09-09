@@ -157,6 +157,63 @@ it('publishes the snapshot and metadata together and leaves no Run for a refused
   await recovered.close();
 });
 
+it('requires an explicit recovery before a terminal Linear session can delegate again', async () => {
+  const { paths, scheduler } = await setup();
+  const prepared = {
+    ...input,
+    linear: {
+      issueId: 'issue-uuid',
+      teamId: 'team-uuid',
+      organizationId: 'org-uuid',
+      appUserId: 'app-uuid',
+      sessionId: 'session-1',
+    },
+  };
+  const first = await scheduler.admit({
+    issueIdentifier: input.issue.identifier,
+    requestId: 'session-1',
+    prepare: async () => prepared,
+  });
+  await scheduler.close();
+  await writeRunHeader(paths, {
+    ...first.run,
+    status: 'failed',
+    endedAt: '2026-09-09T09:00:00.000Z',
+  });
+  const recovered = await RunScheduler.open({
+    paths,
+    boot: async () => ({
+      status: 'parked',
+      reason: 'checkpoint',
+      boot: 1,
+      replayed: 0,
+      executed: 0,
+    }),
+  });
+  try {
+    await expect(
+      recovered.admit({
+        issueIdentifier: input.issue.identifier,
+        requestId: 'session-1',
+        prepare: async () => prepared,
+      }),
+    ).resolves.toMatchObject({ kind: 'existing', run: { runId: 'NG-598-1' } });
+    await recovered.recoverSession('NG-598-1');
+    expect(
+      (await readRunHeader(paths, 'NG-598-1')).admissionId,
+    ).toBeUndefined();
+    await expect(
+      recovered.admit({
+        issueIdentifier: input.issue.identifier,
+        requestId: 'session-1',
+        prepare: async () => prepared,
+      }),
+    ).resolves.toMatchObject({ kind: 'started', run: { runId: 'NG-598-2' } });
+  } finally {
+    await recovered.close();
+  }
+});
+
 it('lets unrelated admission progress during a slow import and cancels preparation on shutdown', async () => {
   const { scheduler, paths } = await setup();
   let begun!: () => void;

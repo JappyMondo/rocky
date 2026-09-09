@@ -212,6 +212,32 @@ export class RunScheduler {
     return structuredClone([...this.runs.values()]);
   }
 
+  /**
+   * Deliberately releases a terminal Run's transport-deduplication key.
+   * Linear can retain an Agent Session when a person delegates Rocky again;
+   * without this explicit action that delivery is correctly treated as the old
+   * one. The old Run retains its Linear identity for audit, but a fresh
+   * delegation may now start a new Run.
+   */
+  async recoverSession(runId: string): Promise<RunHeader> {
+    return this.mutate(async () => {
+      const run = this.runs.get(runId);
+      if (!run) throw new Error(`Unknown Run ${runId}`);
+      if (!isTerminal(run))
+        throw new Error(
+          `${runId} is still live; only a terminal Run can release its Linear session for re-delegation`,
+        );
+      if (!run.linear || !run.admissionId)
+        throw new Error(
+          `${runId} has no recoverable Linear session association`,
+        );
+      const { admissionId: _released, ...recovered } = run;
+      await this.options.writeHeader(this.options.paths, recovered);
+      this.runs.set(runId, recovered);
+      return structuredClone(recovered);
+    });
+  }
+
   async setMaxRuns(maxRuns: number): Promise<void> {
     this.options.maxRuns = concurrencySchema.parse({ maxRuns }).maxRuns;
     await this.drain();
