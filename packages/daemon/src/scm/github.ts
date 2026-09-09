@@ -704,6 +704,11 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           `${root}/pulls/${pr.number}/update-branch`,
           z.object({ message: z.string() }),
           { expected_head_sha: pr.headSha },
+          undefined,
+          // GitHub accepts this asynchronous request before it has recomputed
+          // mergeability. Unlike ordinary metadata reads, it can legitimately
+          // exceed the transport's short request deadline.
+          30_000,
         );
       } catch (error) {
         if (error instanceof ScmError && [409, 422].includes(error.status ?? 0))

@@ -108,6 +108,7 @@ export class ScmHttp {
     body?: unknown,
     signal = this.options.signal,
     log = false,
+    timeoutMs = 10_000,
   ): Promise<Response> {
     signal?.throwIfAborted();
     this.options.signal?.throwIfAborted();
@@ -134,7 +135,7 @@ export class ScmHttp {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         redirect: log ? 'manual' : 'error',
         signal: AbortSignal.any([
-          AbortSignal.timeout(10_000),
+          AbortSignal.timeout(timeoutMs),
           ...(signal ? [signal] : []),
           ...(this.options.signal ? [this.options.signal] : []),
         ]),
@@ -221,8 +222,16 @@ export class ScmHttp {
     schema: z.ZodType<T>,
     body?: unknown,
     signal = this.options.signal,
+    timeoutMs?: number,
   ): Promise<T> {
-    const response = await this.response(method, path, body, signal);
+    const response = await this.response(
+      method,
+      path,
+      body,
+      signal,
+      false,
+      timeoutMs,
+    );
     let value: unknown;
     try {
       value = response.status === 204 ? undefined : await response.json();

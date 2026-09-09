@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createGitHubScm } from './index.js';
 import { githubOptions, githubPull, scriptedFetch } from './scm.fixtures.js';
 
@@ -557,6 +557,30 @@ it('requests a guarded branch update and waits for the new head instead of treat
     status: 'done',
     result: { status: 'updated', pr: { headSha: 'updated' } },
   });
+  transport.done();
+});
+
+it('gives GitHub asynchronous branch updates their own bounded deadline', async () => {
+  const timeout = vi.spyOn(AbortSignal, 'timeout');
+  const transport = scriptedFetch([
+    {
+      path: '/repos/team/repo/pulls/7',
+      value: { ...githubPull, mergeable_state: 'behind' },
+    },
+    {
+      path: '/repos/team/repo/pulls/7/update-branch',
+      method: 'PUT',
+      body: { expected_head_sha: 'abc' },
+      status: 202,
+      value: { message: 'Updating' },
+    },
+  ]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).updateBranch(
+      githubPr(),
+    ),
+  ).resolves.toEqual({ status: 'waiting' });
+  expect(timeout).toHaveBeenCalledWith(30_000);
   transport.done();
 });
 
