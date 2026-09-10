@@ -320,7 +320,12 @@ export async function useProfile(
         `There is no repo entry called "${repoName}". \`rocky repo list\` shows them.`,
       );
     const profile = await readRepositoryProfile(paths, id);
-    if (profile.remote !== canonicalRemote(repo.url)) {
+    if (
+      profile.remote !== canonicalRemote(repo.url) &&
+      !profile.repos?.some(
+        (member) => canonicalRemote(member.url) === canonicalRemote(repo.url),
+      )
+    ) {
       throw new Refused(
         `Profile "${id}" is for ${profile.remote}, not ${canonicalRemote(repo.url)}. Rocky will not assign a profile to another remote.`,
       );

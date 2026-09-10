@@ -106,6 +106,7 @@ export function createProductionRuntime(
   options: ProductionRuntimeOptions,
 ): WorkflowRuntime {
   let env: NodeJS.ProcessEnv = {};
+  let credentials: Awaited<ReturnType<typeof readCredentials>>;
   let activeRun:
     Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0] | undefined;
   // A direct Runtime construction is useful for isolated Workflow tests. A
@@ -220,10 +221,14 @@ export function createProductionRuntime(
     if (!run.execution) throw new Error(`${run.runId}: missing frozen members`);
     return run.execution.members.map((member) => {
       const source = scmProject(member.url);
+      const memberEnv = profileEnv(
+        { profile: run.profile, repo: member.name },
+        credentials,
+      );
       const token =
         source.platform === 'github'
-          ? (env.GITHUB_TOKEN ?? env.GH_TOKEN)
-          : env.GITLAB_TOKEN;
+          ? (memberEnv.GITHUB_TOKEN ?? memberEnv.GH_TOKEN)
+          : memberEnv.GITLAB_TOKEN;
       if (!token)
         throw new Error(
           `${member.name}: missing ${source.platform === 'github' ? 'GITHUB_TOKEN (or GH_TOKEN)' : 'GITLAB_TOKEN'} in this repository's secret environment.`,
@@ -256,7 +261,7 @@ export function createProductionRuntime(
           `${run.runId}: missing immutable execution metadata; re-delegate through the production admission service`,
         );
       signal.throwIfAborted();
-      const credentials = await readCredentials(options.paths);
+      credentials = await readCredentials(options.paths);
       // A browser-fired manual Run is deliberately not an Agent Session. It
       // still gets the normal local profile, workspace, and Harness, but it
       // must not create a mirror, invoke SCM preflight, or pretend it can post

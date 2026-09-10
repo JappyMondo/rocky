@@ -20,6 +20,8 @@ import {
   readInstanceConfig,
   rockyPaths,
   writeInstanceConfig,
+  newRepositoryProfile,
+  writeRepositoryProfile,
 } from '@rocky/daemon';
 
 import { buildCli, type CliIo } from './cli.js';
@@ -230,6 +232,27 @@ describe('`rocky repo add`', () => {
 });
 
 describe('`rocky repo profile`', () => {
+  it('assigns a multi-repository profile through a non-primary member', async () => {
+    await run('repo', 'add', upstreamUrl);
+    const paths = rockyPaths(home);
+    await writeRepositoryProfile(
+      paths,
+      newRepositoryProfile({
+        id: 'product',
+        repos: [
+          {
+            name: 'web',
+            url: 'https://github.com/acme/web.git',
+            baseBranch: 'main',
+          },
+          { name: 'niotix', url: upstreamUrl, baseBranch: 'main' },
+        ],
+      }),
+    );
+    const result = await run('repo', 'profile', 'use', 'niotix', 'product');
+    expect(result.err).toBe('');
+    expect((await readInstanceConfig(paths)).repos[0].profile).toBe('product');
+  });
   it('migrates a legacy route into a runnable local profile without recloning', async () => {
     await run('repo', 'add', upstreamUrl);
     const paths = rockyPaths(home);

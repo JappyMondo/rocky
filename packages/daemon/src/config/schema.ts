@@ -46,6 +46,8 @@ export const repoEntrySchema = z.looseObject({
   baseBranch: nonEmpty,
   /** Required: the Linear label that routes a delegation here. */
   label: nonEmpty,
+  /** Additional labels that deliberately route to this same destination. */
+  labels: z.array(nonEmpty).min(1).optional(),
   /** Optional second filter, ANDed with the label. */
   teams: z.array(nonEmpty).optional(),
   /** Injected into every Run on this repo. Secrets belong in credentials. */
@@ -205,9 +207,17 @@ export const instanceConfigSchema = instanceConfigShape.superRefine(
       labels.set(key, owner);
     };
 
-    for (const [index, repo] of config.repos.entries()) {
-      claim(repo.label, `repo "${repo.name}"`, ['repos', index, 'label']);
-    }
+    for (const [index, repo] of config.repos.entries())
+      for (const [labelIndex, label] of [
+        repo.label,
+        ...(repo.labels ?? []),
+      ].entries())
+        claim(label, `repo "${repo.name}"`, [
+          'repos',
+          index,
+          labelIndex === 0 ? 'label' : 'labels',
+          labelIndex - 1,
+        ]);
     for (const [index, group] of config.groups.entries()) {
       claim(group.label, `group "${group.name}"`, ['groups', index, 'label']);
     }

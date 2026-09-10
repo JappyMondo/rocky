@@ -4,12 +4,19 @@ import { execFile } from 'node:child_process';
 import { platform } from 'node:os';
 import { promisify } from 'node:util';
 
-import type { RepositoryProfileView } from '@rocky/local-contracts';
+import type {
+  RepositoryProfileView,
+  RepositoryProfileDefaults,
+  ProfileRoutingView,
+} from '@rocky/local-contracts';
 import { z } from 'zod';
 
 import {
   listRepositoryProfiles,
-  newRepositoryProfile,
+  newSeedRepositoryProfile,
+  defaultProfileContent,
+  profileReposSchema,
+  canonicalRemote,
   readRepositoryProfile,
   writeRepositoryProfile,
   type RepositoryProfile,
@@ -18,32 +25,44 @@ import type { RockyPaths } from '../config/paths.js';
 import { KeyedMutex } from '../repos/mutex.js';
 import { LocalApiError } from './settings.js';
 import { PUBLIC_MODE } from '../atomic-write.js';
+import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
+import { ConfigError } from '../config/schema.js';
 
 const id = z.string().regex(/^[A-Za-z0-9._-]+$/);
 const editable = z
   .object({
     id,
-    remote: z.string().min(1),
+    remote: z.string().min(1).optional(),
+    repos: profileReposSchema.optional(),
     revision: z.string().optional(),
     workflow: z
       .object({
         source: z.string().min(1),
         triggers: z.array(z.string().min(1)),
       })
-      .strict(),
+      .strict()
+      .optional(),
     grants: z
       .object({
         harness: z.enum(['claude-code', 'opencode']),
         capabilities: z.array(z.enum(['read', 'edit', 'bash'])),
         mcp: z.array(z.string().min(1)),
       })
-      .strict(),
+      .strict()
+      .optional(),
   })
   .strict();
 
 const updates = new KeyedMutex();
 const deletion = z.object({ id, revision: z.string().min(1) }).strict();
 const editor = z.enum(['default', 'vscode', 'zed']);
+const routingInput = z
+  .object({
+    labels: z.array(z.string().min(1).max(100)).min(1).max(100),
+    teams: z.array(z.string().min(1).max(100)).max(100),
+    revision: z.string(),
+  })
+  .strict();
 
 function revision(profile: RepositoryProfile): string {
   return createHash('sha256').update(JSON.stringify(profile)).digest('hex');
@@ -53,6 +72,7 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
   return {
     id: profile.id,
     remote: profile.remote,
+    ...(profile.repos ? { repos: profile.repos } : {}),
     workflow: profile.workflow,
     grants: profile.grants,
     prompts: Object.keys(profile.prompts).sort(),
@@ -66,23 +86,163 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
 export class LocalProfiles {
   constructor(private readonly paths: RockyPaths) {}
 
+  async defaults(): Promise<RepositoryProfileDefaults> {
+    const config = await readInstanceConfig(this.paths);
+    const content = await defaultProfileContent(config.workflowDefaults);
+    return {
+      workflow: content.workflow,
+      grants: content.grants,
+      prompts: Object.keys(content.prompts).sort(),
+      rules: Object.keys(content.rules).sort(),
+      secretEnv: content.settings.secretEnv,
+    };
+  }
+
   async list(): Promise<RepositoryProfileView[]> {
-    return (await listRepositoryProfiles(this.paths))
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map(view);
+    return Promise.all(
+      (await listRepositoryProfiles(this.paths))
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((profile) => this.view(profile)),
+    );
   }
 
   async read(profileId: string): Promise<RepositoryProfileView> {
-    return view(await readRepositoryProfile(this.paths, profileId));
+    try {
+      return this.view(await readRepositoryProfile(this.paths, profileId));
+    } catch (error) {
+      if (
+        error instanceof ConfigError &&
+        error.message.includes('does not exist.')
+      )
+        throw new LocalApiError(404, 'unknown-profile', 'Profile not found.');
+      throw error;
+    }
   }
 
-  async save(input: unknown): Promise<RepositoryProfileView> {
-    const parsed = editable.safeParse(input);
+  async routing(profileId: string): Promise<ProfileRoutingView> {
+    const profile = await readRepositoryProfile(this.paths, profileId);
+    const config = await readInstanceConfig(this.paths);
+    const repo = config.repos.find(
+      (candidate) => candidate.profile === profile.id,
+    );
+    return {
+      profileId,
+      labels: repo ? [repo.label, ...(repo.labels ?? [])] : [profile.id],
+      teams: repo?.teams ?? [],
+      revision: createHash('sha256')
+        .update(JSON.stringify(config))
+        .digest('hex'),
+    };
+  }
+
+  async saveRouting(
+    profileId: string,
+    input: unknown,
+  ): Promise<ProfileRoutingView> {
+    const parsed = routingInput.safeParse(input);
     if (!parsed.success)
       throw new LocalApiError(
         400,
+        'invalid-routing',
+        'Enter at least one Linear label and optional team names.',
+      );
+    return updates.run(this.paths.configFile, async () => {
+      const profile = await readRepositoryProfile(this.paths, profileId);
+      const config = await readInstanceConfig(this.paths);
+      const before = createHash('sha256')
+        .update(JSON.stringify(config))
+        .digest('hex');
+      if (before !== parsed.data.revision)
+        throw new LocalApiError(
+          409,
+          'routing-changed',
+          'Routing changed. Reload the profile before saving.',
+        );
+      const primary = profile.repos?.[0] ?? {
+        name: profile.id,
+        url: profile.remote,
+        baseBranch: 'main',
+      };
+      const index = config.repos.findIndex(
+        (candidate) => candidate.profile === profile.id,
+      );
+      const route = {
+        name: primary.name,
+        url: primary.url,
+        baseBranch: primary.baseBranch,
+        label: parsed.data.labels[0].trim(),
+        ...(parsed.data.labels.length > 1
+          ? {
+              labels: parsed.data.labels
+                .slice(1)
+                .map((label) => label.trim())
+                .filter(Boolean),
+            }
+          : {}),
+        profile: profile.id,
+        ...(parsed.data.teams.length
+          ? {
+              teams: parsed.data.teams
+                .map((team) => team.trim())
+                .filter(Boolean),
+            }
+          : {}),
+      };
+      const next = {
+        ...config,
+        repos:
+          index < 0
+            ? [...config.repos, route]
+            : config.repos.map((candidate, position) =>
+                position === index ? { ...candidate, ...route } : candidate,
+              ),
+      };
+      try {
+        await writeInstanceConfig(this.paths, next);
+      } catch {
+        throw new LocalApiError(
+          400,
+          'invalid-routing',
+          'One of those labels is already used by another repository or group. Choose unique labels.',
+        );
+      }
+      return this.routing(profileId);
+    });
+  }
+
+  private async view(
+    profile: RepositoryProfile,
+  ): Promise<RepositoryProfileView> {
+    const result = view(profile);
+    if (!result.repos) {
+      const config = await readInstanceConfig(this.paths);
+      const member = config.repos.find(
+        (repo) =>
+          repo.profile === profile.id &&
+          canonicalRemote(repo.url) === profile.remote,
+      );
+      if (member)
+        result.repos = [
+          { name: member.name, url: member.url, baseBranch: member.baseBranch },
+        ];
+    }
+    return result;
+  }
+
+  async save(input: unknown): Promise<RepositoryProfileView> {
+    let parsed;
+    try {
+      parsed = editable.safeParse(input);
+    } catch (error) {
+      if (error instanceof ConfigError)
+        throw new LocalApiError(400, 'invalid-profile', error.message);
+      throw error;
+    }
+    if (!parsed.success || (!parsed.data.remote && !parsed.data.repos))
+      throw new LocalApiError(
+        400,
         'invalid-profile',
-        'A profile needs a safe id, remote, workflow source, triggers, and OpenCode or Claude Code harness.',
+        'A profile needs a safe id and repositories with unique folder names and remotes. Workflow and harness settings must be valid when provided.',
       );
     return updates.run(this.paths.profile(parsed.data.id), async () => {
       let existing: RepositoryProfile | undefined;
@@ -109,18 +269,20 @@ export class LocalProfiles {
         );
       const base =
         existing ??
-        newRepositoryProfile({
+        (await newSeedRepositoryProfile({
           id: parsed.data.id,
           remote: parsed.data.remote,
-          workflow: parsed.data.workflow.source,
-        });
+          repos: parsed.data.repos,
+          defaults: (await readInstanceConfig(this.paths)).workflowDefaults,
+        }));
       const saved = await writeRepositoryProfile(this.paths, {
         ...base,
         remote: parsed.data.remote,
-        workflow: parsed.data.workflow,
-        grants: parsed.data.grants,
+        ...(parsed.data.repos ? { repos: parsed.data.repos } : {}),
+        workflow: parsed.data.workflow ?? base.workflow,
+        grants: parsed.data.grants ?? base.grants,
       });
-      return view(saved);
+      return this.view(saved);
     });
   }
 

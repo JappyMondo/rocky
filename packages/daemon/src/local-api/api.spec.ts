@@ -17,6 +17,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { rockyPaths } from '../config/paths.js';
 import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
 import {
+  newRepositoryProfile,
+  readRepositoryProfile,
+  writeRepositoryProfile,
+} from '../config/profiles.js';
+import {
   newRunHeader,
   readRunHeader,
   updateRunHeader,
@@ -103,6 +108,127 @@ async function setup(overrides: Partial<LocalApiOptions> = {}) {
 async function listen(app: FastifyInstance) {
   return app.listen({ host: '127.0.0.1', port: 0 });
 }
+
+it('serves cached workflow diagrams and retries through the guarded profile API', async () => {
+  const diagram = {
+    sourceHash: 'hash',
+    status: 'ready' as const,
+    mermaid: 'flowchart TB\n A --> B',
+  };
+  const diagrams = {
+    read: vi.fn(async () => diagram),
+    retry: vi.fn(async () => ({
+      sourceHash: 'hash',
+      status: 'queued' as const,
+    })),
+  };
+  const fixture = await setup({ diagrams });
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  await writeRepositoryProfile(
+    fixture.paths,
+    newRepositoryProfile({
+      id: 'test',
+      remote: 'https://github.com/acme/test',
+    }),
+  );
+  expect(
+    (await fixture.app.inject('/api/profiles/test/diagram')).json(),
+  ).toEqual(diagram);
+  expect(diagrams.read).toHaveBeenCalledWith('test');
+  expect(
+    (
+      await fixture.app.inject({
+        method: 'POST',
+        url: '/api/profiles/test/diagram/retry',
+      })
+    ).json(),
+  ).toEqual({ sourceHash: 'hash', status: 'queued' });
+  expect(diagrams.retry).toHaveBeenCalledWith('test');
+  expect(
+    (
+      await fixture.app.inject({
+        method: 'POST',
+        url: '/api/profiles/test/diagram/retry',
+        headers: { 'x-rocky-client-version': 'old' },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    (await fixture.app.inject('/api/profiles/%2e%2e%2fsecret/diagram'))
+      .statusCode,
+  ).toBe(400);
+  expect(
+    (await fixture.app.inject('/api/profiles/absent/diagram')).statusCode,
+  ).toBe(404);
+  fixture.options.diagrams = undefined;
+  expect(
+    (await fixture.app.inject('/api/profiles/test/diagram')).statusCode,
+  ).toBe(503);
+});
+
+it('configures a profile’s Linear label and optional team filter without exposing config editing generally', async () => {
+  const fixture = await setup();
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  await writeRepositoryProfile(
+    fixture.paths,
+    newRepositoryProfile({
+      id: 'product',
+      repos: [
+        { name: 'web', url: 'https://github.com/acme/web', baseBranch: 'main' },
+      ],
+    }),
+  );
+  const initial = (
+    await fixture.app.inject('/api/profiles/product/routing')
+  ).json();
+  expect(initial).toMatchObject({
+    profileId: 'product',
+    labels: ['product'],
+    teams: [],
+  });
+  const saved = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles/product/routing',
+    payload: {
+      labels: ['web-work', 'web-bug'],
+      teams: ['Engineering'],
+      revision: initial.revision,
+    },
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(saved.json()).toMatchObject({
+    profileId: 'product',
+    labels: ['web-work', 'web-bug'],
+    teams: ['Engineering'],
+  });
+  expect((await readInstanceConfig(fixture.paths)).repos).toEqual([
+    expect.objectContaining({
+      name: 'web',
+      label: 'web-work',
+      labels: ['web-bug'],
+      profile: 'product',
+      teams: ['Engineering'],
+    }),
+  ]);
+  expect(
+    (
+      await fixture.app.inject({
+        method: 'PUT',
+        url: '/api/profiles/product/routing',
+        payload: { labels: ['other'], teams: [], revision: initial.revision },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(
+    (
+      await fixture.app.inject({
+        method: 'PUT',
+        url: '/api/profiles/product/routing',
+        payload: { labels: [], teams: [], revision: saved.json().revision },
+      })
+    ).statusCode,
+  ).toBe(400);
+});
 
 it('reflects real scheduler admission and park without maintaining a second API Run index', async () => {
   const fixture = await setup();
@@ -195,6 +321,60 @@ it('exposes only the safe diagnostics for post-acknowledgement intake failures',
   ]);
 });
 
+it('previews the configured default and creates its complete local pipeline for a new profile', async () => {
+  const fixture = await setup();
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  await writeInstanceConfig(fixture.paths, {
+    workflowDefaults: { harness: 'opencode', model: 'openai/configured-model' },
+  });
+  const preview = await fixture.app.inject('/api/profile-defaults');
+  expect(preview.statusCode).toBe(200);
+  expect(preview.json()).toMatchObject({
+    workflow: {
+      source: expect.stringContaining('openai/configured-model'),
+      triggers: ['linear.onDelegate', 'address-pr-conversations'],
+    },
+    grants: { harness: 'opencode' },
+    prompts: expect.arrayContaining(['planner', 'implementer']),
+  });
+  expect(preview.json()).not.toHaveProperty('settings');
+  expect((await fixture.app.inject('/api/profiles')).json()).toEqual({
+    profiles: [],
+  });
+  const repos = [
+    { name: 'web', url: 'git@github.com:acme/web.git', baseBranch: 'main' },
+    { name: 'api', url: 'git@github.com:acme/api.git', baseBranch: 'develop' },
+  ];
+  const created = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: { id: 'product', repos },
+  });
+  expect(created.statusCode).toBe(200);
+  const stored = await readRepositoryProfile(fixture.paths, 'product');
+  expect(stored.workflow).toEqual(preview.json().workflow);
+  expect(stored.repos).toEqual(repos);
+  expect(stored.prompts.planner).toBeTruthy();
+  expect(stored.schemas).toContain('export');
+  expect(Object.keys(stored.rules)).toEqual(preview.json().rules);
+  expect(stored.settings.secretEnv).toContain('GITHUB_TOKEN');
+  // Saving custom workflow text later must not reset it to the template.
+  const updated = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'product',
+      repos,
+      revision: created.json().revision,
+      workflow: { source: 'export default [];', triggers: [] },
+    },
+  });
+  expect(updated.statusCode).toBe(200);
+  expect(
+    (await readRepositoryProfile(fixture.paths, 'product')).workflow.source,
+  ).toBe('export default [];');
+});
+
 it('edits a secret-free local profile with optimistic concurrency', async () => {
   const fixture = await setup();
   fixture.options.profiles = new LocalProfiles(fixture.paths);
@@ -243,6 +423,116 @@ it('edits a secret-free local profile with optimistic concurrency', async () => 
   });
   expect(stale.statusCode).toBe(409);
   expect(stale.json()).toMatchObject({ code: 'profile-changed' });
+});
+
+it('edits complete multi-repository membership and rejects ambiguous or unsafe members', async () => {
+  const fixture = await setup();
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  const repos = [
+    { name: 'web', url: 'git@github.com:acme/web.git', baseBranch: 'main' },
+    {
+      name: 'api',
+      url: 'https://github.com/acme/api.git',
+      baseBranch: 'develop',
+    },
+  ];
+  const input = {
+    id: 'product',
+    repos,
+    workflow: { source: 'export default [];', triggers: [] },
+    grants: { harness: 'opencode', capabilities: [], mcp: [] },
+  };
+  const create = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: input,
+  });
+  expect(create.statusCode).toBe(200);
+  expect(create.json()).toMatchObject({ repos, remote: 'github.com/acme/web' });
+  expect(
+    (await fixture.app.inject('/api/profiles/product')).json(),
+  ).toMatchObject({ repos });
+  const revision = create.json<{ revision: string }>().revision;
+  for (const invalid of [
+    [],
+    [repos[0], repos[0]],
+    [{ ...repos[0], name: '../outside' }],
+    [{ ...repos[0], url: 'invalid' }],
+  ]) {
+    const failed = await fixture.app.inject({
+      method: 'PUT',
+      url: '/api/profiles',
+      payload: { ...input, repos: invalid, revision },
+    });
+    expect(failed.statusCode).toBe(400);
+  }
+  const updated = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: { ...input, repos: [repos[1]], revision },
+  });
+  expect(updated.statusCode).toBe(200);
+  expect(updated.json()).toMatchObject({
+    repos: [repos[1]],
+    remote: 'github.com/acme/api',
+  });
+  const stale = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: { ...input, revision },
+  });
+  expect(stale.statusCode).toBe(409);
+});
+
+it('keeps a legacy profile’s configured folder, SSH remote and base branch when saving membership', async () => {
+  const fixture = await setup();
+  const profiles = new LocalProfiles(fixture.paths);
+  const original = await profiles.save({
+    id: 'pipeline',
+    remote: 'github.com/acme/api',
+    workflow: { source: 'export default [];', triggers: [] },
+    grants: { harness: 'opencode', capabilities: [], mcp: [] },
+  });
+  const member = {
+    name: 'backend',
+    url: 'git@github.com:acme/api.git',
+    baseBranch: 'develop',
+  };
+  await writeInstanceConfig(fixture.paths, {
+    repos: [{ ...member, label: 'api', profile: 'pipeline' }],
+  });
+  const loaded = await profiles.read('pipeline');
+  expect(loaded.repos).toEqual([member]);
+  expect(loaded.revision).toBe(original.revision);
+  await expect(
+    profiles.save({
+      id: loaded.id,
+      repos: loaded.repos,
+      revision: loaded.revision,
+      workflow: loaded.workflow,
+      grants: loaded.grants,
+    }),
+  ).resolves.toMatchObject({ repos: [member] });
+});
+
+it('passes an explicit local profile selection through manual admission', async () => {
+  const fixture = await setup();
+  const manual = vi.fn(async () => ({
+    kind: 'started' as const,
+    runId: 'NG-123-1',
+  }));
+  fixture.options.manual = manual;
+  const input = { trigger: 'edit', issue: 'NG-123', profileId: 'product' };
+  expect(
+    (
+      await fixture.app.inject({
+        method: 'POST',
+        url: '/api/triggers',
+        payload: input,
+      })
+    ).statusCode,
+  ).toBe(201);
+  expect(manual).toHaveBeenCalledWith(input);
 });
 
 it('deletes only a current local profile revision', async () => {

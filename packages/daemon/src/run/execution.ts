@@ -4,6 +4,7 @@ import type { Issue } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
 import {
   readRepositoryProfile,
+  canonicalRemote,
   type RepositoryProfile,
 } from '../config/profiles.js';
 import { route } from '../config/routing.js';
@@ -23,6 +24,8 @@ export interface ExecutionRequest {
   issue: Issue;
   branch: string;
   team?: string;
+  /** Local manual selection; delegations still use configured Linear routing. */
+  profileId?: string;
   /** Delegations have a Linear session; locally-fired manual Runs do not. */
   linear?: RunLinearIdentity;
 }
@@ -32,6 +35,8 @@ export interface PreparedExecution {
   snapshotDir: string;
   trigger: RunExecution['trigger'];
   profile?: RepositoryProfile;
+  members?: RepoRef[];
+  lead?: RepoRef;
   dispose?(): Promise<void>;
 }
 
@@ -193,10 +198,42 @@ export async function openExecution(options: ExecutionOptions) {
     append: async (path, entry, appendOptions) =>
       (await writer(path)).append(entry, appendOptions),
   });
+  const prepareProfile = async (
+    profile: RepositoryProfile,
+    fallbackLead: RepoRef | undefined,
+    trigger: RunExecution['trigger'],
+    signal: AbortSignal,
+  ): Promise<PreparedExecution> => {
+    const lead = profile.repos?.[0] ?? fallbackLead;
+    if (!lead)
+      throw new Error(
+        `Profile ${profile.id} needs repository details. Add its repositories in Profiles before starting a Run.`,
+      );
+    const loader = await import('./snapshot.js');
+    const snapshot = await loader.prepareProfileSnapshot(
+      options.repos,
+      lead,
+      profile,
+      { signal },
+    );
+    try {
+      return {
+        ...snapshot,
+        profile,
+        lead,
+        ...(profile.repos ? { members: profile.repos } : {}),
+        trigger: loader.resolveSnapshotTrigger(snapshot.triggers, trigger),
+        dispose: () =>
+          rm(snapshot.snapshotDir, { recursive: true, force: true }),
+      };
+    } catch (error) {
+      await rm(snapshot.snapshotDir, { recursive: true, force: true });
+      throw error;
+    }
+  };
   const prepareSnapshot =
     options.prepareSnapshot ??
     (async (lead, trigger, signal) => {
-      const loader = await import('./snapshot.js');
       signal.throwIfAborted();
       const config = options.config();
       const configured = config.repos.find((repo) => repo.name === lead.name);
@@ -209,24 +246,7 @@ export async function openExecution(options: ExecutionOptions) {
         options.paths,
         configured.profile,
       );
-      const snapshot = await loader.prepareProfileSnapshot(
-        options.repos,
-        lead,
-        profile,
-        { signal },
-      );
-      try {
-        return {
-          ...snapshot,
-          profile,
-          trigger: loader.resolveSnapshotTrigger(snapshot.triggers, trigger),
-          dispose: () =>
-            rm(snapshot.snapshotDir, { recursive: true, force: true }),
-        };
-      } catch (error) {
-        await rm(snapshot.snapshotDir, { recursive: true, force: true });
-        throw error;
-      }
+      return prepareProfile(profile, lead, trigger, signal);
     });
 
   const admit = async (
@@ -240,19 +260,42 @@ export async function openExecution(options: ExecutionOptions) {
         requestId: request.requestId,
         manual: trigger.kind === 'manual',
         prepare: async (_runId, signal) => {
-          const destination = route(options.config(), {
+          const config = options.config();
+          const explicitProfile =
+            trigger.kind === 'manual' && request.profileId
+              ? await readRepositoryProfile(options.paths, request.profileId)
+              : undefined;
+          const destination = route(config, {
             labels: request.issue.labels,
             team: request.team,
           });
-          if (destination.kind === 'refusal')
+          if (!explicitProfile && destination.kind === 'refusal')
             throw new Error(destination.message);
-          const lead =
-            destination.kind === 'repo' ? destination.repo : destination.lead;
-          const members =
-            destination.kind === 'repo' ? [lead] : destination.members;
+          let lead = explicitProfile
+            ? (explicitProfile.repos?.[0] ??
+              config.repos.find(
+                (repo) =>
+                  repo.profile === explicitProfile.id &&
+                  canonicalRemote(repo.url) === explicitProfile.remote,
+              ))
+            : destination.kind === 'repo'
+              ? destination.repo
+              : destination.kind === 'group'
+                ? destination.lead
+                : undefined;
+          if (!lead)
+            throw new Error(
+              `Profile ${explicitProfile?.id} needs repository details. Add its repositories in Profiles before starting a Run.`,
+            );
+          let members: readonly RepoRef[] =
+            destination.kind === 'group' && !explicitProfile
+              ? destination.members
+              : [lead];
           let source: RunExecution['source'] = 'repository';
           try {
-            prepared = await prepareSnapshot(lead, trigger, signal);
+            prepared = explicitProfile
+              ? await prepareProfile(explicitProfile, lead, trigger, signal)
+              : await prepareSnapshot(lead, trigger, signal);
           } catch (error) {
             if (!(
               error &&
@@ -270,6 +313,8 @@ export async function openExecution(options: ExecutionOptions) {
             source = 'onboarding';
           }
           signal.throwIfAborted();
+          lead = prepared.lead ?? lead;
+          members = prepared.members ?? members;
           return {
             repo: lead.name,
             issue: request.issue,

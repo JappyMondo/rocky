@@ -23,6 +23,10 @@ import type { AgentSessionEventHandler } from '../linear/events.js';
 import { openExecution, type ExecutionIntegration } from '../run/execution.js';
 import type { RunHeader } from '../run/header.js';
 import type { RockyPaths } from '../config/paths.js';
+import {
+  agentDiagramGenerator,
+  WorkflowDiagrams,
+} from '../workflow-diagrams.js';
 
 /**
  * The first delegation has no repository workflow to snapshot.  It still has
@@ -222,6 +226,13 @@ export async function createProductionComposition(options: {
     execution,
     onAgentSessionEvent: handler,
     registerLocalApi: async (app) => {
+      const diagrams = new WorkflowDiagrams({
+        paths: options.paths,
+        generate: agentDiagramGenerator(options.paths, options.config),
+        onError: () =>
+          app.log.warn('Workflow diagram cache could not be refreshed.'),
+      });
+      app.addHook('onClose', () => diagrams.close());
       await registerLocalApi(app, {
         runs: {
           list: () => execution.scheduler.list(),
@@ -235,6 +246,7 @@ export async function createProductionComposition(options: {
           boundServer: options.config.current.server,
         }),
         profiles: new LocalProfiles(options.paths),
+        diagrams,
         currentCheckpoint: async (id) =>
           (await controlFor(id))?.currentCheckpoint(),
         answer: async (id, input) => {
@@ -276,7 +288,7 @@ export async function createProductionComposition(options: {
             sessionId: run.linear.sessionId,
           };
         },
-        manual: async ({ trigger, issue: identifier }) => {
+        manual: async ({ trigger, issue: identifier, profileId }) => {
           const issue = await client.issue(identifier);
           const admitted = await execution.manual(trigger, {
             requestId: randomUUID(),
@@ -289,6 +301,7 @@ export async function createProductionComposition(options: {
             },
             branch: issue.identifier.toLowerCase(),
             team: issue.teamId,
+            ...(profileId === undefined ? {} : { profileId }),
           });
           if (admitted.kind === 'refused')
             return { kind: 'refused' as const, reason: admitted.message };
@@ -301,6 +314,7 @@ export async function createProductionComposition(options: {
           return { kind: 'started' as const, runId: admitted.run.runId };
         },
       });
+      diagrams.start();
     },
     close: async () => controls.clear(),
   };

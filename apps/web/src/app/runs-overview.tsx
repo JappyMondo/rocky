@@ -46,12 +46,16 @@ export function RunsOverview({
     setView((view) => ({ ...view, filter }));
   const setQuery = (query: string) => setView((view) => ({ ...view, query }));
   const setPage = (page: number) => setView((view) => ({ ...view, page }));
-  const repositories = [...new Set(runs.map((run) => run.repo))].sort();
-  const scoped = runs.filter((run) => !repository || run.repo === repository);
+  const repositories = [
+    ...new Set(runs.flatMap((run) => run.repos ?? [run.repo])),
+  ].sort();
+  const scoped = runs.filter(
+    (run) => !repository || (run.repos ?? [run.repo]).includes(repository),
+  );
   const filtered = scoped.filter(
     (run) =>
       matches(run, filter) &&
-      `${run.issue.identifier} ${run.issue.title} ${run.repo} ${run.runId} ${run.branch} ${run.trigger ?? ''}`
+      `${run.issue.identifier} ${run.issue.title} ${(run.repos ?? [run.repo]).join(' ')} ${run.profileId ?? ''} ${run.runId} ${run.branch} ${run.trigger ?? ''}`
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
@@ -241,7 +245,9 @@ export function RunsOverview({
                   </div>
                   <div role="cell" className={styles.repoCell}>
                     <Icon name="repo" size={15} />
-                    <span>{run.repo}</span>
+                    <span title={run.repos?.join(', ')}>
+                      {run.repos?.join(', ') ?? run.repo}
+                    </span>
                   </div>
                   <div role="cell" className={styles.dateCell}>
                     <time dateTime={run.createdAt}>

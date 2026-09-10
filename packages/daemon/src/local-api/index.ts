@@ -34,6 +34,7 @@ import {
 } from './artifacts.js';
 import { LocalApiError, LocalSettings } from './settings.js';
 import { LocalProfiles } from './profiles.js';
+import type { WorkflowDiagrams } from '../workflow-diagrams.js';
 
 export {
   LocalArtifacts,
@@ -55,6 +56,7 @@ export interface LocalApiOptions {
   artifacts: LocalArtifacts;
   settings: LocalSettings;
   profiles?: LocalProfiles;
+  diagrams?: Pick<WorkflowDiagrams, 'read' | 'retry'>;
   currentCheckpoint?: (runId: string) => Promise<Checkpoint | undefined>;
   answer?: (
     runId: string,
@@ -79,6 +81,7 @@ export interface LocalApiOptions {
   manual?: (input: {
     trigger: string;
     issue: string;
+    profileId?: string;
   }) => Promise<
     | { kind: 'started'; runId: string }
     | { kind: 'refused'; reason: string; runId?: string }
@@ -183,6 +186,10 @@ function summary(run: RunHeader): RunSummary {
       title: run.issue.title,
       url: run.issue.url,
     },
+    ...(run.execution
+      ? { repos: run.execution.members.map((member) => member.name) }
+      : {}),
+    ...(run.profile ? { profileId: run.profile.id } : {}),
   };
 }
 
@@ -444,7 +451,11 @@ export async function registerLocalApi(
       '/api/profiles/:id/open-workflow',
       async (request) => {
         if (!options.profiles)
-          throw new LocalApiError(503, 'profiles-unavailable', 'Repository profiles are not connected.');
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Repository profiles are not connected.',
+          );
         await options.profiles.openWorkflow(
           parse(segment, request.params.id),
           request.body?.editor ?? 'default',
@@ -475,9 +486,40 @@ export async function registerLocalApi(
       },
     );
     local.get('/api/settings', () => options.settings.read());
+    local.get('/api/profile-defaults', () => {
+      if (!options.profiles)
+        throw new LocalApiError(
+          503,
+          'profiles-unavailable',
+          'Profile defaults are not connected.',
+        );
+      return options.profiles.defaults();
+    });
     local.get('/api/profiles', async () => ({
       profiles: (await options.profiles?.list()) ?? [],
     }));
+    for (const method of ['GET', 'POST'] as const) {
+      local.route<{ Params: { id: string } }>({
+        method,
+        url:
+          method === 'GET'
+            ? '/api/profiles/:id/diagram'
+            : '/api/profiles/:id/diagram/retry',
+        handler: async (request) => {
+          if (!options.diagrams || !options.profiles)
+            throw new LocalApiError(
+              503,
+              'diagrams-unavailable',
+              'Workflow diagrams are not connected.',
+            );
+          const id = parse(segment, request.params.id);
+          await options.profiles.read(id);
+          return method === 'GET'
+            ? options.diagrams.read(id)
+            : options.diagrams.retry(id);
+        },
+      });
+    }
     local.get<{ Params: { id: string } }>(
       '/api/profiles/:id',
       async (request) => {
@@ -488,6 +530,33 @@ export async function registerLocalApi(
             'Repository profiles are not connected.',
           );
         return options.profiles.read(parse(segment, request.params.id));
+      },
+    );
+    local.get<{ Params: { id: string } }>(
+      '/api/profiles/:id/routing',
+      async (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Repository profiles are not connected.',
+          );
+        return options.profiles.routing(parse(segment, request.params.id));
+      },
+    );
+    local.put<{ Params: { id: string } }>(
+      '/api/profiles/:id/routing',
+      async (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Repository profiles are not connected.',
+          );
+        return options.profiles.saveRouting(
+          parse(segment, request.params.id),
+          request.body,
+        );
       },
     );
     local.put('/api/profiles', async (request) => {
@@ -591,6 +660,7 @@ export async function registerLocalApi(
           .object({
             trigger: segment,
             issue: z.string().regex(/^[A-Za-z][A-Za-z0-9]*-\d+$/),
+            profileId: segment.optional(),
           })
           .strict(),
         request.body,

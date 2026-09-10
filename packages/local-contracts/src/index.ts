@@ -31,6 +31,9 @@ export interface RunSummary {
   runId: string;
   issue: { identifier: string; title: string; url: string };
   repo: string;
+  /** Frozen members of this Run, including the primary repository. */
+  repos?: string[];
+  profileId?: string;
   branch: string;
   trigger?: string;
   status: 'queued' | 'running' | 'parked' | 'finished' | 'failed' | 'cancelled';
@@ -169,6 +172,8 @@ export interface SettingsView {
 export interface RepositoryProfileView {
   id: string;
   remote: string;
+  /** Absent for legacy single-repository profiles. First member is primary. */
+  repos?: Array<{ name: string; url: string; baseBranch: string }>;
   workflow: { source: string; triggers: string[] };
   grants: {
     harness: 'claude-code' | 'opencode';
@@ -185,6 +190,28 @@ export interface RepositoryProfileView {
 export interface RepositoryProfileList {
   profiles: RepositoryProfileView[];
 }
+
+/** The Linear issue labels and optional team filter that select one profile. */
+export interface ProfileRoutingView {
+  profileId: string;
+  labels: string[];
+  teams: string[];
+  revision: string;
+}
+
+/** A diagram belongs to the saved workflow content, independently of profile edits. */
+export interface WorkflowDiagramView {
+  sourceHash: string;
+  status: 'queued' | 'generating' | 'ready' | 'failed';
+  mermaid?: string;
+  generatedAt?: string;
+  error?: string;
+}
+
+export type RepositoryProfileDefaults = Pick<
+  RepositoryProfileView,
+  'workflow' | 'grants' | 'prompts' | 'rules' | 'secretEnv'
+>;
 
 /** A safe diagnostic for webhook work that failed after Linear received 200. */
 export interface IntakeFailure {

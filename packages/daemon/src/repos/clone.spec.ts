@@ -166,17 +166,19 @@ describe('ensuring a clone that is already there', () => {
     ).not.toContain('ng-601-do-a-thing');
   });
 
-  it('follows the url when a hand-edit repoints the entry', async () => {
+  it('refuses to reuse another repository’s clone and preserves its refs', async () => {
     const { dir } = await ensureClone(ctx, entry());
     const moved = await createUpstream({ branches: ['ng-700-elsewhere'] });
 
     try {
-      await ensureClone(ctx, entry({ url: moved.url }));
+      await expect(ensureClone(ctx, entry({ url: moved.url }))).rejects.toThrow(
+        'Choose a different folder name',
+      );
 
-      expect((await git(['remote', 'get-url', 'origin'], { cwd: dir })).stdout).toBe(moved.url); // prettier-ignore
+      expect((await git(['remote', 'get-url', 'origin'], { cwd: dir })).stdout).toBe(upstream.url); // prettier-ignore
       expect(
         (await git(['for-each-ref', '--format=%(refname)', 'refs/remotes'], { cwd: dir })).stdout, // prettier-ignore
-      ).toContain('ng-700-elsewhere');
+      ).not.toContain('ng-700-elsewhere');
     } finally {
       rmSync(moved.dir, { recursive: true, force: true });
       rmSync(moved.workingCopy, { recursive: true, force: true });

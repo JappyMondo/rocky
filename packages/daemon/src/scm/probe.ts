@@ -282,6 +282,7 @@ export async function probeGitLab(
     string,
     { protected: boolean; can_push?: boolean }
   >();
+  const missingBranches = new Set<string>();
   for (const branch of new Set([options.repo.baseBranch, options.branch])) {
     try {
       branches.set(
@@ -297,6 +298,7 @@ export async function probeGitLab(
     } catch (error) {
       signal.throwIfAborted();
       if (!(error instanceof ScmError)) throw error;
+      if (error.status === 404) missingBranches.add(branch);
     }
   }
   let merge: ScmAbility;
@@ -368,18 +370,47 @@ export async function probeGitLab(
   if (merge.status === 'allowed' && completion.status !== 'allowed')
     merge = completion;
   const source = branches.get(options.branch);
+  const sourcePolicies = policies?.filter((policy) =>
+    matches(policy.name, options.branch),
+  );
+  const sourceGrants = sourcePolicies?.flatMap(
+    (policy) => policy.push_access_levels,
+  );
+  const policyAllowsSourcePush = sourceGrants?.some(
+    (grant) =>
+      grant.user_id === user.id ||
+      (!grant.user_id &&
+        !grant.group_id &&
+        (grant.access_level ?? 0) > 0 &&
+        role >= (grant.access_level ?? Infinity)),
+  );
   const sourcePush =
-    !scopes.includes('api') || source?.can_push === undefined
+    !scopes.includes('api')
       ? unknown('Ordinary source push is not verified.')
-      : source.can_push
+      : source?.can_push === true
         ? ability(
             'allowed',
             'API scope and native source branch can_push=true.',
           )
-        : denied('Native source branch can_push=false.');
-  const sourcePolicies = policies?.filter((policy) =>
-    matches(policy.name, options.branch),
-  );
+        : source?.can_push === false
+          ? denied('Native source branch can_push=false.')
+          : missingBranches.has(options.branch) && !sourcePolicies?.length
+            ? ability(
+                'allowed',
+                'API scope and Developer membership permit creating an unprotected source branch.',
+              )
+            : missingBranches.has(options.branch) && policyAllowsSourcePush
+              ? ability(
+                  'allowed',
+                  'API scope and visible protected-branch policy permit creating the source branch.',
+                )
+              : missingBranches.has(options.branch) && sourceGrants?.some((grant) => grant.group_id)
+                ? unknown(
+                    'Source-branch creation requires group membership not proven by the project role.',
+                  )
+                : missingBranches.has(options.branch)
+                  ? denied('Source-branch creation is not allowed by the visible protected-branch policy.')
+                  : unknown('Ordinary source push is not verified.');
   const rebase =
     sourcePush.status !== 'allowed'
       ? sourcePush

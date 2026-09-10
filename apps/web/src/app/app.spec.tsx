@@ -5,6 +5,7 @@ import {
   render,
   screen,
   within,
+  waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -153,6 +154,8 @@ function daemon(
     intakeFailures?: (count: number) => Reply;
     settings?: (init?: RequestInit) => Reply;
     profiles?: (init?: RequestInit) => Reply;
+    routing?: (path: string, init?: RequestInit) => Reply;
+    profileDefaults?: () => Reply;
     openWorkflow?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
     recovery?: (init?: RequestInit) => Reply;
@@ -177,8 +180,36 @@ function daemon(
       return options.settings?.(init) ?? { body: settings() };
     if (path === '/api/profiles')
       return options.profiles?.(init) ?? { body: { profiles: [] } };
+    if (path === '/api/profile-defaults')
+      return (
+        options.profileDefaults?.() ?? {
+          body: {
+            workflow: {
+              source: 'export default [defaultWorkflow];',
+              triggers: ['linear.onDelegate', 'address-pr-conversations'],
+            },
+            grants: { harness: 'opencode', capabilities: [], mcp: [] },
+            prompts: ['planner', 'implementer'],
+            rules: [],
+            secretEnv: ['GITHUB_TOKEN'],
+          },
+        }
+      );
     if (/\/open-workflow$/.test(path))
       return options.openWorkflow?.(init) ?? { body: { opened: true } };
+    if (/\/routing$/.test(path))
+      return (
+        options.routing?.(path, init) ?? {
+          body: {
+            profileId: 'service',
+            labels: ['service'],
+            teams: [],
+            revision: 'routing-revision',
+          },
+        }
+      );
+    if (/\/diagram$/.test(path))
+      return { body: { sourceHash: 'saved', status: 'queued' } };
     if (path === '/api/triggers')
       return options.trigger?.(init) ?? { body: { runId: 'r3' } };
     if (/\/recover-session$/.test(path))
@@ -1217,10 +1248,10 @@ describe('Workspace redesign', () => {
     );
     expect(screen.getByRole('dialog')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Repositories' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Profiles' }));
     expect(
       await screen.findByRole('heading', {
-        name: 'Connect your first repository',
+        name: 'Create your first profile',
       }),
     ).toBeTruthy();
     fireEvent.click(
@@ -1237,6 +1268,139 @@ describe('Workspace redesign', () => {
     expect(
       screen.getByRole('heading', { name: 'Ready when you are.' }),
     ).toBeTruthy();
+  });
+
+  it('finds a multi-repository run by any member and shows all members in its detail', async () => {
+    window.history.replaceState({}, '', '/');
+    const run = { ...r1, repos: ['rocky', 'api'], profileId: 'product' };
+    daemon({ runs: [run], detail: () => ({ body: detail(run) }) });
+    render(<App />);
+    await screen.findByRole('button', { name: 'Open run r1' });
+    fireEvent.change(screen.getByLabelText('Filter by repository'), {
+      target: { value: 'api' },
+    });
+    expect(screen.getByRole('button', { name: 'Open run r1' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open run r1' }));
+    await loaded();
+    expect(screen.getByText('rocky, api')).toBeTruthy();
+  });
+
+  it('starts a run with an explicitly selected multi-repository profile', async () => {
+    window.history.replaceState({}, '', '/');
+    const mock = daemon({
+      profiles: () => ({
+        body: {
+          profiles: [
+            {
+              id: 'product',
+              remote: 'github.com/acme/web',
+              repos: [
+                {
+                  name: 'web',
+                  url: 'https://github.com/acme/web',
+                  baseBranch: 'main',
+                },
+                {
+                  name: 'api',
+                  url: 'https://github.com/acme/api',
+                  baseBranch: 'develop',
+                },
+              ],
+              workflow: {
+                source: 'export default [];',
+                triggers: ['edit-both'],
+              },
+              grants: { harness: 'opencode', capabilities: [], mcp: [] },
+              prompts: [],
+              rules: [],
+              secretEnv: [],
+              revision: 'v1',
+            },
+          ],
+        },
+      }),
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'New run' }));
+    await screen.findByRole('option', { name: 'product · 2 repositories' });
+    fireEvent.change(screen.getByLabelText('Run profile'), {
+      target: { value: 'product' },
+    });
+    fireEvent.change(screen.getByLabelText('Trigger issue'), {
+      target: { value: 'NG-612' },
+    });
+    fireEvent.change(screen.getByLabelText('Trigger name'), {
+      target: { value: 'edit-both' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    await waitFor(() =>
+      expect(mock).toHaveBeenCalledWith(
+        '/api/triggers',
+        expect.objectContaining({
+          body: JSON.stringify({
+            trigger: 'edit-both',
+            issue: 'NG-612',
+            profileId: 'product',
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('loads the configured default before creating a draft and lets a failed load be retried', async () => {
+    window.history.replaceState({}, '', '/profiles');
+    let fail = true;
+    daemon({
+      profileDefaults: () =>
+        fail
+          ? {
+              ok: false,
+              status: 503,
+              body: { error: 'Default workflow unavailable' },
+            }
+          : {
+              body: {
+                workflow: {
+                  source:
+                    "const agent = { harness: 'claude-code', model: 'configured-model' }; export default [workflow];",
+                  triggers: ['linear.onDelegate', 'address-pr-conversations'],
+                },
+                grants: { harness: 'claude-code', capabilities: [], mcp: [] },
+                prompts: ['planner', 'implementer'],
+                rules: [],
+                secretEnv: ['GITHUB_TOKEN'],
+              },
+            },
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }));
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Loading workflow…',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await screen.findByText(/Default workflow unavailable/);
+    expect(screen.queryByRole('heading', { name: 'New profile' })).toBeNull();
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
+    await screen.findByRole('heading', { name: 'New profile' });
+    expect((screen.getByLabelText('Harness') as HTMLSelectElement).value).toBe(
+      'claude-code',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    expect(
+      (screen.getByLabelText('Workflow source') as HTMLTextAreaElement).value,
+    ).toContain('configured-model');
+    expect(
+      (
+        screen.getByLabelText(
+          'Manual triggers (one per line)',
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toContain('address-pr-conversations');
+    expect(screen.getByText(/Configuration files · 2 prompts/)).toBeTruthy();
   });
 
   it('creates, edits, switches, and removes repository profiles including the last profile', async () => {
@@ -1266,9 +1430,8 @@ describe('Workspace redesign', () => {
     });
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Add repository' }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }));
+    await screen.findByRole('heading', { name: 'New profile' });
     expect(
       (
         screen.getByRole('button', {
@@ -1276,12 +1439,40 @@ describe('Workspace redesign', () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
-    fireEvent.change(screen.getByLabelText('Repository id'), {
+    fireEvent.change(screen.getByLabelText('Profile id'), {
       target: { value: 'service' },
     });
-    fireEvent.change(screen.getByLabelText('Repository remote'), {
+    fireEvent.change(screen.getByLabelText('Folder name 1'), {
+      target: { value: 'service' },
+    });
+    fireEvent.change(screen.getByLabelText('Remote URL 1'), {
       target: { value: 'github.com/acme/service' },
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save profile',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText('Folder name 2'), {
+      target: { value: 'api' },
+    });
+    fireEvent.change(screen.getByLabelText('Remote URL 2'), {
+      target: { value: 'git@github.com:acme/api.git' },
+    });
+    fireEvent.change(screen.getByLabelText('Base branch 2'), {
+      target: { value: 'develop' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Make primary' }));
+    expect(
+      (screen.getByLabelText('Folder name 1') as HTMLInputElement).value,
+    ).toBe('api');
+    fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove repository 3' }),
+    );
     fireEvent.change(screen.getByLabelText('Harness'), {
       target: { value: 'claude-code' },
     });
@@ -1291,22 +1482,34 @@ describe('Workspace redesign', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'General' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
-    await screen.findByText('Repository saved');
+    await screen.findByText('Profile saved');
     expect(stored[0].workflow.triggers).toEqual(['first', 'second']);
+    expect(stored[0].repos).toEqual([
+      {
+        name: 'api',
+        url: 'git@github.com:acme/api.git',
+        baseBranch: 'develop',
+      },
+      { name: 'service', url: 'github.com/acme/service', baseBranch: 'main' },
+    ]);
     expect(stored[0].grants.harness).toBe('claude-code');
     expect(
-      (screen.getByLabelText('Repository id') as HTMLInputElement).disabled,
+      (screen.getByLabelText('Profile id') as HTMLInputElement).disabled,
     ).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));
-    fireEvent.change(screen.getByLabelText('Repository id'), {
+    fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
+    await screen.findByRole('heading', { name: 'New profile' });
+    fireEvent.change(screen.getByLabelText('Profile id'), {
       target: { value: 'another' },
     });
-    fireEvent.change(screen.getByLabelText('Repository remote'), {
+    fireEvent.change(screen.getByLabelText('Folder name 1'), {
+      target: { value: 'service' },
+    });
+    fireEvent.change(screen.getByLabelText('Remote URL 1'), {
       target: { value: 'github.com/acme/another' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
-    await screen.findByText('Repository saved');
-    fireEvent.change(screen.getByLabelText('Repository', { exact: true }), {
+    await screen.findByText('Profile saved');
+    fireEvent.change(screen.getByLabelText('Profile', { exact: true }), {
       target: { value: 'service' },
     });
     expect(screen.getByRole('heading', { name: 'service' })).toBeTruthy();
@@ -1319,9 +1522,76 @@ describe('Workspace redesign', () => {
     await screen.findByRole('heading', { name: 'another' });
     fireEvent.click(screen.getByRole('button', { name: 'Delete profile' }));
     await screen.findByRole('heading', {
-      name: 'Connect your first repository',
+      name: 'Create your first profile',
     });
     confirm.mockRestore();
+  });
+
+  it('edits a profile’s Linear label and optional team filter', async () => {
+    window.history.replaceState({}, '', '/profiles');
+    const profile = {
+      id: 'service',
+      remote: 'github.com/acme/service',
+      repos: [
+        { name: 'service', url: 'github.com/acme/service', baseBranch: 'main' },
+      ],
+      workflow: { source: 'export default [];', triggers: [] },
+      grants: { harness: 'opencode' as const, capabilities: [], mcp: [] },
+      prompts: [],
+      rules: [],
+      secretEnv: [],
+      revision: 'profile-revision',
+    };
+    let route = {
+      profileId: 'service',
+      labels: ['service'],
+      teams: [],
+      revision: 'route-one',
+    };
+    const mock = daemon({
+      profiles: () => ({ body: { profiles: [profile] } }),
+      routing: (_path, init) => {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body));
+          route = {
+            profileId: 'service',
+            labels: body.labels,
+            teams: body.teams,
+            revision: 'route-two',
+          };
+        }
+        return { body: route };
+      },
+    });
+    render(<App />);
+    await screen.findByRole('heading', { name: 'service' });
+    expect(
+      (
+        screen.getByLabelText(
+          'Linear labels (one per line)',
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe('service');
+    fireEvent.change(screen.getByLabelText('Linear labels (one per line)'), {
+      target: { value: 'service-work\nservice-bug' },
+    });
+    fireEvent.change(
+      screen.getByLabelText('Allowed Linear teams (optional, one per line)'),
+      { target: { value: 'Engineering\nPlatform\n' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save Linear route' }));
+    await waitFor(() =>
+      expect(route).toEqual({
+        profileId: 'service',
+        labels: ['service-work', 'service-bug'],
+        teams: ['Engineering', 'Platform'],
+        revision: 'route-two',
+      }),
+    );
+    expect(mock).toHaveBeenCalledWith(
+      '/api/profiles/service/routing',
+      expect.objectContaining({ method: 'PUT' }),
+    );
   });
 
   it('keeps results and large raw payloads folded until requested, including steps without transcripts', async () => {

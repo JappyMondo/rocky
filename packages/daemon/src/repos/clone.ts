@@ -24,6 +24,7 @@ import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 
 import type { CloneRef, RepoContext } from './context.js';
 import { GitError, git, gitOk } from './git.js';
+import { canonicalRemote } from '../config/profiles.js';
 
 /** A clone that could not be made or refreshed, phrased for a human. */
 export class CloneError extends Error {
@@ -87,10 +88,17 @@ async function ensureCloneLocked(
     await git(['init', '--quiet', '--bare', dir]);
   }
 
-  // `remote add` sets `+refs/heads/*:refs/remotes/origin/*`; `set-url` keeps
-  // it. Following a hand-edited url matters because the alternative is a clone
-  // that silently keeps fetching from wherever it was first pointed.
+  // Profiles can share clones, but a folder name must never switch projects:
+  // existing branches and parked worktrees still belong to the original remote.
   if (await gitOk(['remote', 'get-url', 'origin'], { cwd: dir })) {
+    const origin = (await git(['remote', 'get-url', 'origin'], { cwd: dir }))
+      .stdout;
+    if (canonicalRemote(origin) !== canonicalRemote(repo.url))
+      throw new CloneError(
+        repo.name,
+        repo.url,
+        `Repository folder "${repo.name}" already belongs to ${canonicalRemote(origin)}. Choose a different folder name for ${canonicalRemote(repo.url)}; existing worktrees were left intact.`,
+      );
     await git(['remote', 'set-url', 'origin', repo.url], { cwd: dir });
   } else {
     await git(['remote', 'add', 'origin', repo.url], { cwd: dir });

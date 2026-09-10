@@ -52,38 +52,112 @@ export function canonicalRemote(remote: string): string {
   }
 }
 
-const profileSchema = z.strictObject({
-  v: z.literal(1),
-  id: segment,
-  /** Canonical remote identity, not a mutable clone path. */
-  remote: nonEmpty.transform(canonicalRemote),
-  workflow: z.strictObject({
-    source: nonEmpty,
-    triggers: z.array(nonEmpty).default([]),
+/** Names are sibling folder names and shared clone identities on this machine. */
+export const profileRepoSchema = z.strictObject({
+  name: segment,
+  url: nonEmpty.transform((value, ctx) => {
+    const url = value.trim();
+    try {
+      if (/^[a-z]+:\/\//i.test(url)) {
+        const parsed = new URL(url);
+        if (
+          parsed.password ||
+          (/^https?:$/.test(parsed.protocol) && parsed.username)
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            message:
+              'Use a remote without embedded credentials; Git uses your SSH agent or credential helper.',
+          });
+          return z.NEVER;
+        }
+      }
+      canonicalRemote(url);
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Use an SSH, HTTPS, or file remote.',
+      });
+      return z.NEVER;
+    }
+    // The UI also accepts the canonical host/owner/repo shorthand.
+    return /^[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/.test(url)
+      ? `https://${url}`
+      : url;
   }),
-  prompts: z.record(segment, z.string()).default({}),
-  schemas: z.string().default(''),
-  rules: z.record(segment, z.string()).default({}),
-  /** Ecosystem MCP declarations, stored locally alongside the pipeline. */
-  mcp: z.unknown().default({ mcpServers: {} }),
-  grants: z
-    .strictObject({
-      harness: z.enum(['claude-code', 'opencode']).default('claude-code'),
-      capabilities: z.array(z.enum(['read', 'edit', 'bash'])).default([]),
-      mcp: z.array(nonEmpty).default([]),
-    })
-    .default({ harness: 'claude-code', capabilities: [], mcp: [] }),
-  settings: z
-    .strictObject({
-      buildCommand: z.string().optional(),
-      testCommand: z.string().optional(),
-      uiCommand: z.string().optional(),
-      env: z.record(nonEmpty, z.string()).default({}),
-      /** Names only. Values belong in credentials.json / environment/keychain. */
-      secretEnv: z.array(nonEmpty).default([]),
-    })
-    .default({ env: {}, secretEnv: [] }),
+  baseBranch: nonEmpty,
 });
+
+export const profileReposSchema = z
+  .array(profileRepoSchema)
+  .min(1)
+  .superRefine((repos, ctx) => {
+    const names = new Set<string>();
+    const remotes = new Set<string>();
+    for (const [index, repo] of repos.entries()) {
+      const name = repo.name.toLowerCase();
+      const remote = canonicalRemote(repo.url);
+      if (names.has(name) || remotes.has(remote))
+        ctx.addIssue({
+          code: 'custom',
+          path: [index],
+          message: 'Each repository needs a unique folder name and remote.',
+        });
+      names.add(name);
+      remotes.add(remote);
+    }
+  });
+
+const profileSchema = z
+  .strictObject({
+    v: z.literal(1),
+    id: segment,
+    /** Canonical remote identity, not a mutable clone path. */
+    remote: nonEmpty.transform(canonicalRemote).optional(),
+    /** The first member is the primary repository for default SCM operations. */
+    repos: profileReposSchema.optional(),
+    workflow: z.strictObject({
+      source: nonEmpty,
+      triggers: z.array(nonEmpty).default([]),
+    }),
+    prompts: z.record(segment, z.string()).default({}),
+    schemas: z.string().default(''),
+    rules: z.record(segment, z.string()).default({}),
+    /** Ecosystem MCP declarations, stored locally alongside the pipeline. */
+    mcp: z.unknown().default({ mcpServers: {} }),
+    grants: z
+      .strictObject({
+        harness: z.enum(['claude-code', 'opencode']).default('claude-code'),
+        capabilities: z.array(z.enum(['read', 'edit', 'bash'])).default([]),
+        mcp: z.array(nonEmpty).default([]),
+      })
+      .default({ harness: 'claude-code', capabilities: [], mcp: [] }),
+    settings: z
+      .strictObject({
+        buildCommand: z.string().optional(),
+        testCommand: z.string().optional(),
+        uiCommand: z.string().optional(),
+        env: z.record(nonEmpty, z.string()).default({}),
+        /** Names only. Values belong in credentials.json / environment/keychain. */
+        secretEnv: z.array(nonEmpty).default([]),
+      })
+      .default({ env: {}, secretEnv: [] }),
+  })
+  .superRefine((profile, ctx) => {
+    if (!profile.repos && !profile.remote)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['repos'],
+        message: 'Add at least one repository.',
+      });
+  })
+  .transform((profile) => ({
+    ...profile,
+    // Preserve the legacy read surface; explicit membership is authoritative.
+    remote: profile.repos
+      ? canonicalRemote(profile.repos[0].url)
+      : (profile.remote as string),
+  }));
 
 export type RepositoryProfile = z.infer<typeof profileSchema>;
 
@@ -102,7 +176,8 @@ export function parseRepositoryProfile(
 
 export function newRepositoryProfile(input: {
   id: string;
-  remote: string;
+  remote?: string;
+  repos?: z.input<typeof profileReposSchema>;
   workflow?: string;
 }): RepositoryProfile {
   return parseRepositoryProfile(
@@ -110,6 +185,7 @@ export function newRepositoryProfile(input: {
       v: 1,
       id: input.id,
       remote: input.remote,
+      repos: input.repos,
       workflow: {
         source: input.workflow ?? 'export default [];',
         triggers: [],
@@ -127,11 +203,26 @@ export function newRepositoryProfile(input: {
  */
 export async function newSeedRepositoryProfile(input: {
   id: string;
-  remote: string;
+  remote?: string;
+  repos?: z.input<typeof profileReposSchema>;
   defaults?: WorkflowDefaults;
 }): Promise<RepositoryProfile> {
-  const content = new URL('../../content/.rocky/', import.meta.url);
-  const directory = fileURLToPath(content);
+  return parseRepositoryProfile(
+    {
+      ...newRepositoryProfile(input),
+      ...(await defaultProfileContent(input.defaults)),
+    },
+    `profiles/${input.id}.json`,
+  );
+}
+
+/** The same complete starting pipeline for CLI creation and the local editor. */
+export async function defaultProfileContent(
+  defaults: WorkflowDefaults = { harness: 'opencode' },
+): Promise<Omit<RepositoryProfile, 'v' | 'id' | 'remote' | 'repos'>> {
+  const directory = fileURLToPath(
+    new URL('../../content/.rocky/', import.meta.url),
+  );
   const [workflow, schemas, mcp, agents, rules] = await Promise.all([
     readFile(join(directory, 'workflow.ts'), 'utf8'),
     readFile(join(directory, 'schemas.ts'), 'utf8'),
@@ -139,28 +230,22 @@ export async function newSeedRepositoryProfile(input: {
     readTextDirectory(join(directory, 'agents')),
     readTextDirectory(join(directory, 'rules')),
   ]);
-  const defaults = input.defaults ?? { harness: 'opencode' as const };
-  return parseRepositoryProfile(
-    {
-      ...newRepositoryProfile(input),
-      workflow: {
-        source: configuredWorkflow(workflow, defaults),
-        triggers: ['linear.onDelegate'],
-      },
-      prompts: agents,
-      schemas,
-      rules,
-      mcp: JSON.parse(mcp) as unknown,
-      grants: { harness: defaults.harness, capabilities: [], mcp: [] },
-      settings: {
-        env: {},
-        // These are references only. Their values are taken from this
-        // machine's credentials.json or environment at Run time.
-        secretEnv: ['GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN'],
-      },
+  return {
+    workflow: {
+      source: configuredWorkflow(workflow, defaults),
+      triggers: ['linear.onDelegate', 'address-pr-conversations'],
     },
-    `profiles/${input.id}.json`,
-  );
+    prompts: agents,
+    schemas,
+    rules,
+    mcp: JSON.parse(mcp) as unknown,
+    grants: { harness: defaults.harness, capabilities: [], mcp: [] },
+    settings: {
+      env: {},
+      // References only; values stay in this machine's credentials/environment.
+      secretEnv: ['GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN'],
+    },
+  };
 }
 
 function configuredWorkflow(
@@ -223,12 +308,13 @@ export async function readRepositoryProfile(
   }
   try {
     const parsed = parseRepositoryProfile(JSON.parse(text), file);
-    const workflow = await readFile(paths.profileWorkflow(parsed.id), 'utf8').catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return undefined;
-        throw error;
-      },
-    );
+    const workflow = await readFile(
+      paths.profileWorkflow(parsed.id),
+      'utf8',
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
     return workflow === undefined
       ? parsed
       : parseRepositoryProfile(
@@ -250,7 +336,11 @@ export async function writeRepositoryProfile(
   const profile = parseRepositoryProfile(value, paths.profile(id));
   await Promise.all([
     writeAtomic(paths.profile(profile.id), serializeJson(profile), PUBLIC_MODE),
-    writeAtomic(paths.profileWorkflow(profile.id), profile.workflow.source, PUBLIC_MODE),
+    writeAtomic(
+      paths.profileWorkflow(profile.id),
+      profile.workflow.source,
+      PUBLIC_MODE,
+    ),
   ]);
   return profile;
 }

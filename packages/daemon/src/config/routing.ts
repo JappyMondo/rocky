@@ -51,7 +51,7 @@ function quoteList(values: readonly string[]): string {
 /** Every label Rocky answers to, repos and groups together. */
 export function routableLabels(config: InstanceConfig): string[] {
   return [
-    ...config.repos.map((repo) => repo.label),
+    ...config.repos.flatMap((repo) => [repo.label, ...(repo.labels ?? [])]),
     ...config.groups.map((group) => group.label),
   ];
 }
@@ -147,7 +147,9 @@ export function route(config: InstanceConfig, delegation: Delegation): Route {
     wanted.has(labelKey(group.label)),
   );
   const byLabel = config.repos.filter((repo) =>
-    wanted.has(labelKey(repo.label)),
+    [repo.label, ...(repo.labels ?? [])].some((label) =>
+      wanted.has(labelKey(label)),
+    ),
   );
 
   // The label matched but the team did not. Worth its own message: the fix is

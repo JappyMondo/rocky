@@ -21,6 +21,7 @@ const config = parseInstanceConfig({
       url: 'a',
       baseBranch: 'main',
       label: 'rocky',
+      labels: ['rocky-bug', 'rocky-maintenance'],
       env: { NIOTIX_ENV: 'ci' },
     },
     { name: 'niota-api', url: 'b', baseBranch: 'main', label: 'rocky-api' },
@@ -66,6 +67,14 @@ describe('a delegation carrying a repo label', () => {
       kind: 'repo',
       repo: { name: 'niotix' },
     });
+  });
+
+  it('routes every configured alias to the same destination', () => {
+    for (const label of ['rocky-bug', 'rocky-maintenance'])
+      expect(route(config, { labels: [label] })).toMatchObject({
+        kind: 'repo',
+        repo: { name: 'niotix' },
+      });
   });
 });
 

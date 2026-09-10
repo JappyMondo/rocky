@@ -101,3 +101,90 @@ accessors, production route registration behind NG-651, shared Checkpoint/Steer
 controls and delivery records, manual admission, MCP status wiring, native
 Transcript/usage registration, and NG-606's exact output-to-annotation renderer.
 Tests of HTTP callback transport do not close those cross-lane gates.
+
+## Profiles with several repositories
+
+**Add profile** loads Rocky's default workflow using the machine's configured
+harness and model. Saving a new profile also stores its default prompts, schemas,
+rules, MCP declaration, and secret references locally. The source is editable
+before saving, and updates preserve existing custom pipeline content.
+`GET /api/profile-defaults` previews the default without creating a profile;
+new `PUT /api/profiles` requests may omit workflow and grants to use those defaults.
+
+In **Profiles**, add each repository with a folder name, Git remote URL, and
+base branch. One profile owns one workflow and its agent configuration. The
+first repository is primary for SCM calls that omit a repository; **Make
+primary** changes that default. It does not select workflow files from Git.
+
+A profile can now store its membership without a separate single `remote`:
+
+```json
+{
+  "v": 1,
+  "id": "product",
+  "repos": [
+    { "name": "web", "url": "git@github.com:acme/web.git", "baseBranch": "main" },
+    { "name": "api", "url": "git@github.com:acme/api.git", "baseBranch": "develop" }
+  ],
+  "workflow": { "source": "...", "triggers": ["implement"] }
+}
+```
+
+The existing workflow, prompts, schemas, grants, MCP declarations, and environment
+fields keep their formats. SSH, HTTPS, file remotes and host/owner/repo shorthand
+are accepted. URLs must not embed credentials. Folder names and canonical remotes
+must be unique within a profile. A clone folder already bound to another remote
+is refused; use another folder name instead of repointing its existing branches.
+
+**New run → Profile** selects a profile explicitly. The local trigger API accepts
+`{trigger, issue, profileId?}`. Omitting `profileId` retains issue-label routing.
+For Linear delegation, an existing repo entry's `profile` selects the whole
+profile, including all its repositories. `rocky repo profile use <repo> <profile>`
+can assign a profile to any configured member. New profiles can also be exported
+and imported through the existing local CLI commands.
+
+Admission freezes the profile and membership before queuing the Run. Every member
+gets a worktree at `~/.rocky/runs/<runId>/workspace/<name>/`, and the agent and shell
+commands receive the shared `workspace/` parent. Workflow input contains all
+members and their relative paths. Each member uses the Run's branch and its own
+base branch. Existing issue branches are adopted without reset. Parked worktrees
+and uncommitted changes survive restart; profile edits affect subsequent Runs.
+
+Old profiles containing only `remote` continue to use configured repository/group
+membership. The editor fills their existing folder name, transport URL and base
+branch from instance configuration. Saving repository rows makes that membership
+explicit in the profile. Existing `/profiles` routes remain valid; navigation now
+calls this section **Profiles**. Run lists, repository filters and Run detail show
+all frozen member repositories.
+
+## Workflow diagrams
+
+The **Workflow** tab starts with an agent-generated Mermaid overview of the
+saved workflow: stages, decisions, parallel work, approval checkpoints and
+outcomes. Charts run from left to right and initially fit every node inside the
+available viewport, including the expanded view. Use the zoom controls to explore
+details and **Fit diagram** to return to the complete overview. The
+editable TypeScript remains below the diagram, with Mermaid source available
+in a disclosure for copying.
+
+The daemon watches saved profile content, including edits to the external
+`.workflow.ts` file, every two seconds. It waits for edits to settle before
+queuing generation through the profile's configured harness. The auxiliary job
+has no tools or MCP servers and does not start a workflow Run. It uses the
+instance's default model when that default matches the profile's harness;
+otherwise the harness selects its usual model. Temporary agent data is removed
+when the job completes or is cancelled.
+
+Diagrams are persisted under `~/.rocky/cache/workflow-diagrams/`, keyed by the
+workflow source, trigger names and generator version. Identical workflows share
+a cached diagram across profiles and daemon restarts. One generation runs at a
+time; superseded queued revisions are skipped, and an older result cannot become
+the current workflow's diagram. Browser drafts are only visualized after saving.
+
+`GET /api/profiles/:id/diagram` returns `queued`, `generating`, `ready` or `failed`
+along with the source hash, and the Mermaid source when ready. The UI polls this
+while the Workflow tab is open. Failed jobs stay cached until the source changes
+or **Retry diagram** is selected. **Regenerate** also replaces a completed chart
+through `POST /api/profiles/:id/diagram/retry`. Generation has a two-minute timeout;
+daemon shutdown cancels its child process. Mermaid renders with strict settings
+and the resulting SVG is displayed as an image.

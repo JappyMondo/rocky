@@ -1181,6 +1181,9 @@
 .profileGeneral > .sectionHeading {
   margin-top: 0;
 }
+.profileGeneral > .fieldGrid {
+  margin-bottom: 28px;
+}
 .profileGeneral > label {
   max-width: 300px;
 }
@@ -1188,12 +1191,118 @@
   font-size: 11px;
   margin-bottom: 0;
 }
+.profileRouting {
+  margin-top: 30px;
+  padding: 20px;
+  border: 1px solid #dce5d2;
+  border-radius: 10px;
+  background: #f7faf3;
+}
+.profileRouting .sectionHeading {
+  margin-top: 0;
+}
+.profileRouting h2 {
+  font-size: 16px;
+}
+.profileRouting > label {
+  display: block;
+  max-width: 460px;
+  margin: 16px 0;
+}
+.profileRouting textarea {
+  min-height: 64px;
+  background: #fff;
+}
 .workflowEditor {
   display: flex;
   justify-content: space-between;
   align-items: start;
   gap: 24px;
   margin-bottom: 25px;
+}
+.workflowDiagram {
+  padding-bottom: 26px;
+  margin-bottom: 26px;
+  border-bottom: 1px solid var(--border);
+}
+.workflowDiagram > .sectionHeading {
+  margin-top: 0;
+  align-items: start;
+  gap: 16px;
+}
+.diagramActions,
+.diagramZoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagramActions {
+  flex-shrink: 0;
+}
+.diagramActions button,
+.diagramZoom button {
+  font-size: 11px;
+}
+.diagramZoom {
+  justify-content: flex-end;
+  padding: 8px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.diagramCanvas {
+  height: clamp(280px, 50vh, 540px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid #e6ebdf;
+  border-radius: 8px;
+  background: #fbfcf9;
+}
+.diagramStage {
+  margin-inline: auto;
+}
+.diagramCanvas img {
+  display: block;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.diagramPlaceholder {
+  padding: 30px 20px;
+  background: #f7f9f3;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.diagramPlaceholder span {
+  display: block;
+  font-size: 11px;
+  margin-top: 8px;
+}
+.diagramNotice {
+  color: #826631;
+  font-size: 12px;
+}
+.diagramSource {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.diagramSource pre {
+  max-height: 250px;
+  overflow: auto;
+  padding: 12px;
+}
+.workflowDiagram .dialog {
+  width: min(1200px, calc(100vw - 48px));
+}
+.workflowDiagram .dialog .diagramCanvas {
+  height: 70vh;
+}
+@media (max-width: 700px) {
+  .workflowDiagram > .sectionHeading {
+    flex-direction: column;
+  }
 }
 .workflowEditor h2 {
   font-size: 17px;
@@ -1693,5 +1802,48 @@
   .toolbar select {
     max-width: 100%;
     width: 100%;
+  }
+}
+.profileRepos {
+  display: grid;
+  gap: 16px;
+}
+
+.profileRepo {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.profileRepo legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.repoFields {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 16px;
+}
+
+.repoActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .repoFields {
+    grid-template-columns: 1fr;
+  }
+  .profileGeneral > .sectionHeading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
 }
