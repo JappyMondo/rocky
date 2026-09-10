@@ -27,6 +27,9 @@ The shipped defaults *are* those files, so customising means editing something a
 
 ## How it runs
 
+See the [source-grounded architecture and dataflow overview](docs/architecture.md)
+for current production wiring, local profile ownership, and trust boundaries.
+
 - **A daemon per developer**, on your machine, as you — using the toolchain and CLI credentials you already have. Its own clone and a worktree per run live under `~/.rocky`, so it never touches your working copies.
 - **One Linear app per developer**, so the thread shows whose machine is working. No coordinator, no claim protocol.
 - **Harnesses**: Rocky ships exactly `claude-code` and `opencode` adapters. A third Harness requires an adapter contribution, not configuration. Rocky drives the official CLIs and never hand-rolls an agent loop. See [Harness configuration and verification](docs/harnesses.md) for session storage, policy limits and live-test gates.
