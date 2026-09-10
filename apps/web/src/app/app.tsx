@@ -13,7 +13,6 @@ import type {
   IntakeFailure,
   RunDetail,
   RunList,
-  RunSummary,
   RepositoryProfileList,
   RepositoryProfileView,
   SettingsView,
@@ -21,6 +20,8 @@ import type {
   Usage,
 } from '@rocky/local-contracts';
 import { DiffViewer } from './diff-view.js';
+import { RunsOverview, type RunsViewState } from './runs-overview.js';
+import { Dialog, Icon, Mark, Status, dateLabel } from './ui.js';
 import styles from './app.module.css';
 
 const VERSION = __ROCKY_VERSION__;
@@ -59,6 +60,7 @@ const go = (path: string) => {
 const typing = (target: EventTarget | null) =>
   target instanceof HTMLInputElement ||
   target instanceof HTMLTextAreaElement ||
+  target instanceof HTMLSelectElement ||
   (target instanceof HTMLElement && target.isContentEditable);
 const active = (status: string) => status === 'running' || status === 'queued';
 const terminal = (status: string) =>
@@ -107,7 +109,7 @@ function usage(value: Usage, missing?: Record<string, number>) {
   const absent = missing
     ? Object.values(missing).reduce((a, b) => a + b, 0)
     : 0;
-  if (absent) pieces.push(`partial (${absent} missing)`);
+  if (absent && pieces.length) pieces.push(`partial (${absent} missing)`);
   return pieces.length ? pieces.join(' · ') : 'Usage not reported';
 }
 
@@ -128,6 +130,18 @@ export function App() {
   const [compose, setCompose] = useState('');
   const [focusedStep, setFocusedStep] = useState<string | null>(null);
   const [triggerIssue, setTriggerIssue] = useState('');
+  const [newRun, setNewRun] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [repository, setRepository] = useState('');
+  const [runsView, setRunsView] = useState<RunsViewState>({
+    filter: 'All runs',
+    query: '',
+    page: 0,
+  });
+  const contentRef = useRef<HTMLElement>(null);
+  const overviewScroll = useRef(0);
+  const closeNewRun = useCallback(() => setNewRun(false), []);
   const [triggerName, setTriggerName] = useState('address-pr-conversations');
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const requestId = useRef<string | null>(null);
@@ -139,7 +153,7 @@ export function App() {
           ? runs?.runs.find(
               (run) => run.issue.identifier === currentRoute.issueIdentifier,
             )?.runId
-          : runs?.runs[0]?.runId));
+          : undefined));
   const selectedDetail = detail?.run.runId === selectedId ? detail : null;
   const selectedRunId = selectedDetail?.run.runId;
   const selectedRevision = selectedDetail?.revision;
@@ -237,7 +251,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentRoute.page]);
   useEffect(() => {
     let stopped = false;
     const poll = async () => {
@@ -376,7 +390,8 @@ export function App() {
         event.ctrlKey ||
         event.altKey ||
         typing(event.target) ||
-        diff
+        diff ||
+        newRun
       )
         return;
       const list = runs?.runs ?? [];
@@ -435,6 +450,7 @@ export function App() {
     return () => window.removeEventListener('keydown', keys);
   }, [
     currentRoute.page,
+    newRun,
     diff,
     focusedStep,
     mutationsAllowed,
@@ -508,184 +524,290 @@ export function App() {
   };
   const fireTrigger = async (event: FormEvent) => {
     event.preventDefault();
-    if (!triggerIssue.trim() || !triggerName.trim() || !mutationsAllowed)
+    if (
+      !triggerIssue.trim() ||
+      !triggerName.trim() ||
+      !mutationsAllowed ||
+      starting
+    )
       return;
-    setError(null);
+    setStarting(true);
+    setTriggerError(null);
     try {
-      await api('/api/triggers', setMismatch, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ trigger: triggerName, issue: triggerIssue }),
-      });
+      const result = await api<{ runId: string }>(
+        '/api/triggers',
+        setMismatch,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            trigger: triggerName.trim(),
+            issue: triggerIssue.trim(),
+          }),
+        },
+      );
       setTriggerIssue('');
+      setNewRun(false);
+      go(`/runs/${encodeURIComponent(result.runId)}`);
     } catch (caught) {
-      setError(await apiError(caught, 'Trigger was not admitted.'));
+      setTriggerError(await apiError(caught, 'Trigger was not admitted.'));
+    } finally {
+      setStarting(false);
     }
   };
-
-  if (unreachable && !runs)
-    return (
-      <main className={styles.empty}>
-        <h1>Rocky</h1>
-        <p>
-          No daemon answering. Run <code>rocky start</code>.
-        </p>
-      </main>
-    );
+  const startRun = () => {
+    setTriggerError(null);
+    setNewRun(true);
+  };
+  const isOverview =
+    currentRoute.page === 'inbox' &&
+    !currentRoute.runId &&
+    !currentRoute.issueIdentifier;
+  useEffect(() => {
+    if (contentRef.current)
+      contentRef.current.scrollTop = isOverview ? overviewScroll.current : 0;
+  }, [isOverview, selectedId, currentRoute.page]);
+  const pageLabel =
+    currentRoute.page === 'profiles'
+      ? 'Repositories'
+      : currentRoute.page === 'settings'
+        ? 'Settings'
+        : 'Runs';
   return (
-    <main className={styles.app}>
-      <aside className={styles.inbox} aria-label="Runs inbox">
-        <header>
+    <div className={styles.app}>
+      <a href="#main-content" className={styles.skipLink}>
+        Skip to content
+      </a>
+      <aside
+        className={styles.sidebar}
+        aria-label="Workspace navigation"
+        inert={newRun || !!diff}
+      >
+        <button
+          className={styles.brand}
+          onClick={() => go('/')}
+          aria-label="Rocky home"
+        >
+          <Mark />
+          <span>
+            rocky<span className={styles.brandPeriod}>.</span>
+          </span>
+        </button>
+        <div className={styles.workspaceLabel}>
+          <span className={styles.workspaceAvatar}>L</span>
           <div>
-            <strong>Rocky</strong>
-            <span>Local workspace</span>
+            <strong>Local workspace</strong>
+            <small>On your machine</small>
           </div>
-          <button onClick={() => go('/profiles')}>Repository</button>
-          <button onClick={() => go('/settings')}>Settings</button>
-        </header>
-        <nav aria-label="Runs">
-          <ul className={styles.runList}>
-            {runs?.runs.map((run) => (
-              <li key={run.runId}>
-                <button
-                  className={run.runId === selectedId ? styles.selected : ''}
-                  onClick={() => go(`/runs/${encodeURIComponent(run.runId)}`)}
-                >
-                  <span className={`${styles.dot} ${styles[run.status]}`} />
-                  <strong>{run.issue.identifier}</strong>
-                  <small>
-                    {run.status === 'parked' ? 'Needs attention' : run.status}
-                  </small>
-                  <b>{run.issue.title}</b>
-                  <em>
-                    {run.repo} · {run.branch}
-                  </em>
-                </button>
-              </li>
-            ))}
-            {!runs?.runs.length && (
-              <li>
-                <p className={styles.muted}>No Runs yet.</p>
-              </li>
-            )}
-          </ul>
-        </nav>
-        <form className={styles.trigger} onSubmit={fireTrigger}>
-          <strong>Start work</strong>
-          <label>
-            Issue
-            <input
-              aria-label="Trigger issue"
-              value={triggerIssue}
-              onChange={(event) => setTriggerIssue(event.target.value)}
-              placeholder="NG-612"
-              disabled={!mutationsAllowed}
-            />
-          </label>
-          <label>
-            Trigger
-            <input
-              aria-label="Trigger name"
-              value={triggerName}
-              onChange={(event) => setTriggerName(event.target.value)}
-              disabled={!mutationsAllowed}
-            />
-          </label>
-          <button
-            disabled={
-              !mutationsAllowed || !triggerIssue.trim() || !triggerName.trim()
-            }
-          >
-            Trigger
-          </button>
-        </form>
-      </aside>
-      <section className={styles.content}>
-        <div className={styles.statusStack} aria-label="Rocky status">
-          {mismatch && (
-            <p className={styles.warning} role="alert">
-              This web UI expects daemon {VERSION}, but reached {mismatch}.
-              Mutating controls are disabled.
-            </p>
-          )}
-          {unreachable && (
-            <p className={styles.warning} role="status">
-              The daemon is temporarily unreachable; showing the last known state.
-            </p>
-          )}
-          {health?.endpoint?.configured && (
-            <p
-              className={
-                health.endpoint.ok ? styles.endpointHealthy : styles.warning
-              }
-              role="status"
-            >
-              <strong>
-                {health.endpoint.ok
-                  ? 'Public endpoint is reachable.'
-                  : 'Linear cannot reach Rocky.'}
-              </strong>{' '}
-              {health.endpoint.checkedAt
-                ? `Last verified ${new Date(health.endpoint.checkedAt).toLocaleString()}.`
-                : 'Checking the public endpoint now.'}{' '}
-              {health.endpoint.ok
-                ? 'Rocky checks it once a minute.'
-                : `${health.endpoint.detail ?? 'The endpoint is not answering'} Restore your tunnel or Tailscale Funnel, then run rocky doctor.`}
-            </p>
-          )}
-          {intakeFailures.length > 0 && (
-            <section
-              className={styles.intakeFailures}
-              aria-label="Linear intake failures"
-              role="alert"
-            >
-              <h2>Linear intake needs attention</h2>
-              {intakeFailures.map((failure) => (
-                <article key={failure.sessionId}>
-                  <p>
-                    <strong>{failure.action} delivery</strong> · session{' '}
-                    <code>{failure.sessionId}</code> ·{' '}
-                    {new Date(failure.occurredAt).toLocaleString()}
-                  </p>
-                  <p>{failure.reason}</p>
-                  <p>{failure.remediation}</p>
-                </article>
-              ))}
-            </section>
-          )}
-          {error && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
         </div>
-        {currentRoute.page === 'settings' ? (
-          <Settings
-            settings={settings}
-            disabled={!mutationsAllowed}
-            mismatch={setMismatch}
-            back={() => go('/')}
-            error={setError}
-          />
-        ) : currentRoute.page === 'profiles' ? (
-          <Profiles
-            disabled={!mutationsAllowed}
-            mismatch={setMismatch}
-            back={() => go('/')}
-            error={setError}
-          />
-        ) : (
-          <>
-            {!currentRoute.runId && !currentRoute.issueIdentifier && (
-              <Workspace
-                profile={profiles[0]}
-                runs={runs?.runs ?? []}
-                openProfile={() => go('/profiles')}
-                openRun={(id) => go(`/runs/${encodeURIComponent(id)}`)}
+        <p className={styles.navLabel}>Workspace</p>
+        <nav className={styles.navigation} aria-label="Main navigation">
+          <button
+            aria-current={currentRoute.page === 'inbox' ? 'page' : undefined}
+            onClick={() => go('/')}
+          >
+            <Icon name="runs" />
+            Runs
+            <span className={styles.navCount}>{runs?.runs.length ?? '—'}</span>
+          </button>
+          <button
+            aria-current={currentRoute.page === 'profiles' ? 'page' : undefined}
+            onClick={() => go('/profiles')}
+          >
+            <Icon name="repo" />
+            Repositories
+          </button>
+          <button
+            aria-current={currentRoute.page === 'settings' ? 'page' : undefined}
+            onClick={() => go('/settings')}
+          >
+            <Icon name="settings" />
+            Settings
+          </button>
+        </nav>
+        {!!runs?.runs.length && (
+          <div className={styles.recentRuns}>
+            <p className={styles.navLabel}>Recent runs</p>
+            {runs.runs.slice(0, 4).map((run) => (
+              <button
+                key={run.runId}
+                aria-current={run.runId === selectedId ? 'page' : undefined}
+                onClick={() => go(`/runs/${encodeURIComponent(run.runId)}`)}
+              >
+                <span className={`${styles.dot} ${styles[run.status]}`} />
+                <span>
+                  <strong>
+                    {run.issue.identifier}
+                    <small>{run.runId}</small>
+                  </strong>
+                  <em>{run.issue.title}</em>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        <footer className={styles.sidebarFooter}>
+          <details className={styles.connection}>
+            <summary>
+              <span
+                className={`${styles.dot} ${unreachable ? styles.failed : health ? styles.finished : ''}`}
               />
+              {unreachable
+                ? 'Disconnected'
+                : health
+                  ? 'Rocky is online'
+                  : 'Connecting…'}
+              <Icon name="chevron" size={13} />
+            </summary>
+            <div>
+              <p>Daemon {health?.version ?? VERSION}</p>
+              {health?.endpoint?.configured && (
+                <>
+                  <strong>
+                    {health.endpoint.ok
+                      ? 'Public endpoint is reachable.'
+                      : 'Linear cannot reach Rocky.'}
+                  </strong>
+                  <p>
+                    {health.endpoint.checkedAt
+                      ? `Last verified ${new Date(health.endpoint.checkedAt).toLocaleString()}.`
+                      : 'Checking the public endpoint now.'}
+                  </p>
+                  <p>Rocky checks it once a minute.</p>
+                </>
+              )}
+            </div>
+          </details>
+          <div className={styles.sidebarFootnote}>
+            <span>Made for focused work</span>
+            <span>v{VERSION}</span>
+          </div>
+        </footer>
+      </aside>
+      <div className={styles.main} inert={newRun || !!diff}>
+        <header className={styles.topbar}>
+          <div>
+            <span>Workspace</span>
+            <Icon name="chevron" size={12} />
+            <button
+              onClick={() =>
+                go(
+                  currentRoute.page === 'profiles'
+                    ? '/profiles'
+                    : currentRoute.page === 'settings'
+                      ? '/settings'
+                      : '/',
+                )
+              }
+            >
+              {pageLabel}
+            </button>
+            {selectedId && (
+              <>
+                <Icon name="chevron" size={12} />
+                <span className={styles.breadcrumbRun}>{selectedId}</span>
+              </>
             )}
+          </div>
+          <span className={styles.localLabel}>
+            <span className={`${styles.dot} ${styles.finished}`} />
+            Local
+          </span>
+        </header>
+        <main
+          id="main-content"
+          className={styles.content}
+          ref={contentRef}
+          onScroll={(event) => {
+            if (isOverview)
+              overviewScroll.current = event.currentTarget.scrollTop;
+          }}
+        >
+          <div className={styles.statusStack} aria-label="Rocky status">
+            {mismatch && (
+              <p className={styles.warning} role="alert">
+                This web UI expects daemon {VERSION}, but reached {mismatch}.
+                Mutating controls are disabled.
+              </p>
+            )}
+            {unreachable && (
+              <p className={styles.warning} role="status">
+                {runs ? (
+                  'The daemon is temporarily unreachable; showing the last known state.'
+                ) : (
+                  <>
+                    No daemon answering. Run <code>rocky start</code> to connect
+                    your workspace.
+                  </>
+                )}
+              </p>
+            )}
+            {health?.endpoint?.configured && !health.endpoint.ok && (
+              <p className={styles.warning} role="status">
+                <strong>Linear cannot reach Rocky.</strong>{' '}
+                {health.endpoint.checkedAt
+                  ? `Last verified ${new Date(health.endpoint.checkedAt).toLocaleString()}.`
+                  : 'Checking the public endpoint now.'}{' '}
+                {health.endpoint.detail ?? 'The endpoint is not answering'}.
+                Restore your tunnel or Tailscale Funnel, then run rocky doctor.
+              </p>
+            )}
+            {intakeFailures.length > 0 && (
+              <details
+                className={styles.intakeFailures}
+                aria-label="Linear intake failures"
+              >
+                <summary>
+                  Linear intake needs attention{' '}
+                  <span>{intakeFailures.length}</span>
+                </summary>
+                {intakeFailures.map((failure) => (
+                  <article key={failure.sessionId}>
+                    <p>
+                      <strong>{failure.action} delivery</strong> ·{' '}
+                      {dateLabel(failure.occurredAt)}
+                    </p>
+                    <p>{failure.reason}</p>
+                    <p>{failure.remediation}</p>
+                    <small>Session {failure.sessionId}</small>
+                  </article>
+                ))}
+              </details>
+            )}
+            {error && (
+              <p className={styles.error} role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+          {currentRoute.page === 'settings' ? (
+            <Settings
+              settings={settings}
+              disabled={!mutationsAllowed}
+              mismatch={setMismatch}
+              error={setError}
+            />
+          ) : currentRoute.page === 'profiles' ? (
+            <Profiles
+              disabled={!mutationsAllowed}
+              mismatch={setMismatch}
+              error={setError}
+            />
+          ) : isOverview ? (
+            <RunsOverview
+              runs={runs?.runs ?? []}
+              loading={!runs && !unreachable}
+              start={startRun}
+              openRun={(id) => go(`/runs/${encodeURIComponent(id)}`)}
+              repository={repository}
+              onRepository={setRepository}
+              view={runsView}
+              setView={setRunsView}
+            />
+          ) : (
             <RunView
               detail={selectedDetail}
+              loading={Boolean(selectedId) || !runs}
               issueIdentifier={currentRoute.issueIdentifier}
               expanded={expanded}
               toggle={setExpanded}
@@ -699,9 +821,75 @@ export function App() {
               recoverSession={recoverSession}
               openDiff={setDiffId}
             />
-          </>
-        )}
-      </section>
+          )}
+        </main>
+      </div>
+      {newRun && (
+        <Dialog title="Start a new run" onClose={closeNewRun}>
+          <p className={styles.dialogIntro}>
+            Choose a Linear issue and the workflow trigger Rocky should run.
+          </p>
+          <form className={styles.trigger} onSubmit={fireTrigger}>
+            <label>
+              Linear issue
+              <input
+                aria-label="Trigger issue"
+                value={triggerIssue}
+                onChange={(event) => setTriggerIssue(event.target.value)}
+                placeholder="e.g. NG-612"
+                disabled={!mutationsAllowed || starting}
+                required
+              />
+              <small>Use the issue identifier from Linear.</small>
+            </label>
+            <label>
+              Workflow trigger
+              <input
+                aria-label="Trigger name"
+                list="workflow-triggers"
+                value={triggerName}
+                onChange={(event) => setTriggerName(event.target.value)}
+                disabled={!mutationsAllowed || starting}
+                required
+              />
+              <datalist id="workflow-triggers">
+                {[
+                  ...new Set(
+                    profiles.flatMap((profile) => profile.workflow.triggers),
+                  ),
+                ].map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+              <small>
+                A manual trigger configured in the issue’s repository.
+              </small>
+            </label>
+            {triggerError && (
+              <p className={styles.error} role="alert">
+                {triggerError}
+              </p>
+            )}
+            <footer className={styles.formActions}>
+              <button type="button" onClick={closeNewRun}>
+                Cancel
+              </button>
+              <button
+                className={styles.primary}
+                disabled={
+                  !mutationsAllowed ||
+                  !triggerIssue.trim() ||
+                  !triggerName.trim() ||
+                  starting
+                }
+              >
+                <Icon name="plus" />
+                {starting ? 'Starting…' : 'Start run'}
+              </button>
+            </footer>
+          </form>
+        </Dialog>
+      )}
       {diff && (
         <DiffViewer
           diff={diff}
@@ -711,27 +899,8 @@ export function App() {
           }}
         />
       )}
-    </main>
-  );
-}
-
-function Workspace(p: {
-  profile?: RepositoryProfileView;
-  runs: RunSummary[];
-  openProfile: () => void;
-  openRun: (id: string) => void;
-}) {
-  const attention = p.runs.find((run) => run.status === 'parked' || run.status === 'failed');
-  const current = p.runs.find((run) => active(run.status));
-  if (!p.profile)
-    return <section className={styles.workspaceEmpty}><p className={styles.eyebrow}>Repository workspace</p><h1>Choose a repository to begin.</h1><p>Rocky keeps its workflow and settings locally, separate from your checked-out copy.</p><button onClick={p.openProfile}>Add repository</button></section>;
-  return <section className={styles.workspace} aria-label="Repository workspace">
-    <header className={styles.workspaceHeader}><div><p className={styles.eyebrow}>Repository workspace</p><h1>{p.profile.id}</h1><p>{p.profile.remote}</p></div><button onClick={p.openProfile}>Repository setup</button></header>
-    <div className={styles.workspaceGrid}>
-      <article className={styles.workflowCard}><header><div><p className={styles.eyebrow}>Current workflow</p><h2>Local workflow</h2></div><button onClick={p.openProfile}>Edit workflow</button></header><p><code>workflow.ts</code> · {p.profile.grants.harness === 'opencode' ? 'OpenCode' : 'Claude Code'} · {p.profile.workflow.triggers.length || 'No'} manual trigger{p.profile.workflow.triggers.length === 1 ? '' : 's'}</p><ol><li>Understand the work</li><li>Plan a safe change</li><li>Implement in an isolated worktree</li><li>Review and deliver</li></ol></article>
-      <article className={styles.attentionCard}><p className={styles.eyebrow}>Your attention</p>{attention ? <><strong>{attention.issue.identifier} needs attention</strong><p>{attention.issue.title}</p><button onClick={() => p.openRun(attention.runId)}>Review Run</button></> : current ? <><strong>{current.issue.identifier} is running</strong><p>{current.issue.title}</p><button onClick={() => p.openRun(current.runId)}>Follow Run</button></> : <><strong>Nothing needs you right now.</strong><p>Start a manual trigger or delegate an issue from Linear.</p></>}</article>
     </div>
-  </section>;
+  );
 }
 
 function TranscriptPanel({ runId, step }: { runId: string; step: StepView }) {
@@ -841,15 +1010,12 @@ function ResultView({ step }: { step: StepView }) {
           <strong>{step.error.name}:</strong> {step.error.message}
         </p>
       )}
-      {rendered &&
-        (rendered.length > 500 ? (
-          <details className={styles.rawResult}>
-            <summary>Raw result</summary>
-            <pre>{rendered}</pre>
-          </details>
-        ) : (
-          <pre className={styles.result}>{rendered}</pre>
-        ))}
+      {rendered && (
+        <details className={styles.rawResult}>
+          <summary>Raw result</summary>
+          <pre>{rendered}</pre>
+        </details>
+      )}
     </div>
   );
 }
@@ -875,11 +1041,16 @@ function Values({ title, value }: { title: string; value: unknown }) {
   );
 }
 function stepName(step: StepView) {
-  return step.label ?? step.step;
+  return (
+    step.label ??
+    { workspace: 'Prepare workspace', $end: 'Finish run' }[step.step] ??
+    step.step
+  );
 }
 
 function RunView(p: {
   detail: RunDetail | null;
+  loading: boolean;
   issueIdentifier?: string;
   expanded: Record<string, boolean>;
   toggle: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
@@ -897,9 +1068,9 @@ function RunView(p: {
   if (!d)
     return (
       <div className={styles.placeholder}>
-        {p.issueIdentifier
+        {p.issueIdentifier && !p.loading
           ? `No Run found for ${p.issueIdentifier}.`
-          : 'Select a Run to read its Journal.'}
+          : 'Loading run…'}
       </div>
     );
   const checkpointOpen = !!d.checkpoint && !d.checkpoint.answer;
@@ -923,19 +1094,91 @@ function RunView(p: {
     <>
       <header className={styles.runHeader}>
         <div>
-          <a href={d.run.issue.url}>{d.run.issue.identifier}</a>
+          <button className={styles.backLink} onClick={() => go('/')}>
+            <Icon name="back" size={16} />
+            All runs
+          </button>
+          <div className={styles.runIdentity}>
+            <a href={d.run.issue.url} target="_blank" rel="noreferrer">
+              {d.run.issue.identifier}
+              <Icon name="external" size={13} />
+            </a>
+            <span>{d.run.runId}</span>
+            <Status value={d.run.status} />
+          </div>
           <h1>{d.run.issue.title}</h1>
-          <p>
-            {d.run.repo} · <code>{d.run.branch}</code> · {d.run.status}
+          <p className={styles.runMeta}>
+            <span>
+              <Icon name="repo" size={15} />
+              {d.run.repo}
+            </span>
+            <span>
+              <Icon name="branch" size={15} />
+              <code>{d.run.branch}</code>
+            </span>
+            <span>
+              <Icon name="clock" size={15} />
+              <time dateTime={d.run.createdAt}>
+                {dateLabel(d.run.createdAt)}
+              </time>
+            </span>
           </p>
         </div>
-        <small>{usage(d.usage.reported, d.usage.missing)}</small>
+        {d.run.pr && (
+          <a
+            className={styles.buttonLink}
+            href={d.run.pr.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Pull request #{d.run.pr.number}
+            <Icon name="external" size={14} />
+          </a>
+        )}
       </header>
+      <div className={styles.runSummary}>
+        <div>
+          <p className={styles.eyebrow}>Progress</p>
+          <strong>
+            {d.steps.filter((step) => step.status === 'done').length} of{' '}
+            {d.steps.length} steps complete
+          </strong>
+          <progress
+            aria-label="Run progress"
+            value={d.steps.filter((step) => step.status === 'done').length}
+            max={Math.max(1, d.steps.length)}
+          />
+        </div>
+        <div>
+          <p className={styles.eyebrow}>Workflow trigger</p>
+          <strong>{d.run.trigger ?? 'Issue delegation'}</strong>
+        </div>
+        <div>
+          <p className={styles.eyebrow}>Usage</p>
+          <span>{usage(d.usage.reported, d.usage.missing)}</span>
+        </div>
+      </div>
+      {d.run.reason && <p className={styles.warning}>{d.run.reason}</p>}
+      {d.diffs.length > 0 && (
+        <section className={styles.diffs}>
+          <div>
+            <Icon name="code" />
+            <h2>Changes ready to inspect</h2>
+          </div>
+          {d.diffs.map((item) => (
+            <button key={item.id} onClick={() => p.openDiff(item.id)}>
+              {item.label}
+              <Icon name="arrow" size={15} />
+            </button>
+          ))}
+        </section>
+      )}
       {d.checkpoint && (
         <section className={styles.checkpoint}>
-          <p>
-            <strong>Checkpoint: {d.checkpoint.title}</strong>
+          <p className={styles.eyebrow}>
+            {d.checkpoint.answer ? 'Review completed' : 'Your review is needed'}
           </p>
+          <h2>{d.checkpoint.title}</h2>
           <p>{d.checkpoint.body}</p>
           {d.checkpoint.answer ? (
             <p>Answered: {d.checkpoint.answer.decision}</p>
@@ -946,6 +1189,7 @@ function RunView(p: {
                   disabled={!canAnswer}
                   onClick={() => void p.answer({ decision: 'approve' })}
                 >
+                  <Icon name="check" size={16} />
                   Approve <kbd>e</kbd>
                 </button>
                 <button
@@ -989,6 +1233,18 @@ function RunView(p: {
         </section>
       )}
       <section className={styles.journal} aria-label="Journal">
+        <header className={styles.sectionHeading}>
+          <div>
+            <h2>Run activity</h2>
+            <p>Follow the work. Expand a step for results and logs.</p>
+          </div>
+          <span>{d.steps.length} steps</span>
+        </header>
+        {!d.steps.length && (
+          <p className={styles.placeholder}>
+            Waiting for the first workflow step…
+          </p>
+        )}
         {d.steps.map((step) => {
           const boot = previousBoot !== step.boot ? step.boot : undefined;
           previousBoot = step.boot;
@@ -996,7 +1252,7 @@ function RunView(p: {
           const expanded = !!p.expanded[id];
           return (
             <section key={step.key}>
-              {boot !== undefined && (
+              {boot !== undefined && d.run.boots > 1 && (
                 <div className={styles.boot}>
                   Boot {boot}
                   {boot === d.run.boots ? ' · current' : ''}
@@ -1011,62 +1267,82 @@ function RunView(p: {
               >
                 <button
                   className={styles.stepToggle}
-                  disabled={
-                    step.transcript === 'unavailable' ||
-                    step.transcript === 'pruned'
-                  }
                   onClick={() =>
                     p.toggle((state) => ({ ...state, [id]: !state[id] }))
                   }
                   aria-expanded={expanded}
                 >
                   <span className={`${styles.dot} ${styles[step.status]}`} />
-                  <strong>{stepName(step)}</strong>
-                  <small>
-                    {step.status}
-                    {step.stage ? ` · Stage: ${step.stage}` : ''} ·{' '}
-                    <time dateTime={step.startedAt}>{step.startedAt}</time>
+                  <span className={styles.stepTitle}>
+                    <strong>{stepName(step)}</strong>
+                    {step.stage && <small>{step.stage}</small>}
+                  </span>
+                  <small className={styles.stepTiming}>
                     {step.ms !== undefined
-                      ? ` · ${Math.round(step.ms / 1000)}s`
-                      : ''}
+                      ? `${Math.round(step.ms / 1000)}s`
+                      : dateLabel(step.startedAt)}
                   </small>
+                  <Status value={step.status} />
+                  <span className={styles.expandIcon} data-open={expanded}>
+                    <Icon name="chevron" size={16} />
+                  </span>
                 </button>
-                <a
-                  className={styles.stepLink}
-                  href={`#${stepFragment(step.key)}`}
-                >
-                  #{step.key}
-                </a>
-                {step.completedBeforeCurrentBoot && (
-                  <p className={styles.prior}>
-                    Completed in Boot {step.boot}; this is recorded history.
-                  </p>
+                {!expanded && step.status === 'running' && step.liveSummary && (
+                  <p className={styles.livePreview}>{step.liveSummary}</p>
                 )}
-                {step.usage && (
-                  <small className={styles.stepUsage}>
-                    {usage(step.usage)}
-                  </small>
-                )}
-                <ResultView step={step} />
-                {step.screenshots.length > 0 && (
-                  <div className={styles.screenshots}>
-                    {step.screenshots.map((shot) => (
-                      <a
-                        key={shot.id}
-                        href={`/api/screenshots/${encodeURIComponent(shot.id)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <img
-                          src={`/api/screenshots/${encodeURIComponent(shot.id)}`}
-                          alt={shot.caption}
-                        />
-                      </a>
-                    ))}
-                  </div>
+                {!expanded && step.error && (
+                  <p className={styles.stepError}>{step.error.message}</p>
                 )}
                 {expanded && (
-                  <TranscriptPanel key={id} runId={d.run.runId} step={step} />
+                  <div className={styles.stepBody}>
+                    <a
+                      className={styles.stepLink}
+                      href={`#${stepFragment(step.key)}`}
+                    >
+                      #{step.key}
+                    </a>
+                    {step.completedBeforeCurrentBoot && (
+                      <p className={styles.prior}>
+                        Completed in Boot {step.boot}; this is recorded history.
+                      </p>
+                    )}
+                    {step.usage && (
+                      <small className={styles.stepUsage}>
+                        {usage(step.usage)}
+                      </small>
+                    )}
+                    <ResultView step={step} />
+                    {step.screenshots.length > 0 && (
+                      <div className={styles.screenshots}>
+                        {step.screenshots.map((shot) => (
+                          <a
+                            key={shot.id}
+                            href={`/api/screenshots/${encodeURIComponent(shot.id)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <img
+                              src={`/api/screenshots/${encodeURIComponent(shot.id)}`}
+                              alt={shot.caption}
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {(step.transcript === 'available' ||
+                      step.transcript === 'pending') && (
+                      <TranscriptPanel
+                        key={id}
+                        runId={d.run.runId}
+                        step={step}
+                      />
+                    )}
+                    {step.transcript === 'pruned' && (
+                      <p className={styles.muted}>
+                        The transcript for this step is no longer retained.
+                      </p>
+                    )}
+                  </div>
                 )}
               </article>
             </section>
@@ -1089,16 +1365,6 @@ function RunView(p: {
                   : 'held for the next Agent conversation.'}
               </p>
             </article>
-          ))}
-        </section>
-      )}
-      {d.diffs.length > 0 && (
-        <section className={styles.diffs}>
-          <h2>Diffs</h2>
-          {d.diffs.map((item) => (
-            <button key={item.id} onClick={() => p.openDiff(item.id)}>
-              {item.label}
-            </button>
           ))}
         </section>
       )}
@@ -1158,11 +1424,11 @@ function Settings(p: {
   settings: SettingsView | null;
   disabled: boolean;
   mismatch: (v: string | null) => void;
-  back: () => void;
   error: (s: string) => void;
 }) {
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [values, setValues] = useState<SettingsView['values'] | null>(null);
+  const [saved, setSaved] = useState(false);
   useEffect(() => {
     setSettings(p.settings);
     setValues(p.settings?.values ?? null);
@@ -1170,6 +1436,7 @@ function Settings(p: {
   if (!settings || !values)
     return <div className={styles.placeholder}>Loading settings…</div>;
   const save = async () => {
+    setSaved(false);
     try {
       const updated = await api<SettingsView>('/api/settings', p.mismatch, {
         method: 'PATCH',
@@ -1185,115 +1452,188 @@ function Settings(p: {
       });
       setSettings(updated);
       setValues(updated.values);
+      setSaved(true);
     } catch (caught) {
       p.error(await apiError(caught, 'Settings were not saved.'));
     }
   };
   return (
-    <section className={styles.settings}>
-      <button onClick={p.back}>← Inbox</button>
-      <h1>Settings</h1>
-      <label>
-        Bind host
-        <input
-          disabled={p.disabled}
-          value={values.server.host}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              server: { ...values.server, host: event.target.value },
-            })
-          }
-        />
-      </label>
-      <label>
-        Bind port
-        <input
-          type="number"
-          disabled={p.disabled}
-          value={values.server.port}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              server: { ...values.server, port: Number(event.target.value) },
-            })
-          }
-        />
-      </label>
-      <label>
-        Retention: terminal Runs
-        <input
-          type="number"
-          disabled={p.disabled}
-          value={values.retention.keepTerminalRuns}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              retention: {
-                ...values.retention,
-                keepTerminalRuns: Number(event.target.value),
-              },
-            })
-          }
-        />
-      </label>
-      <label>
-        Retention: sessions & screenshots
-        <input
-          type="number"
-          disabled={p.disabled}
-          value={values.retention.keepSessionsAndScreenshots}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              retention: {
-                ...values.retention,
-                keepSessionsAndScreenshots: Number(event.target.value),
-              },
-            })
-          }
-        />
-      </label>
-      <label>
-        Maximum concurrent Runs
-        <input
-          type="number"
-          disabled={p.disabled}
-          value={values.concurrency.maxRuns}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              concurrency: { maxRuns: Number(event.target.value) },
-            })
-          }
-        />
-      </label>
-      <button disabled={p.disabled} onClick={save}>
-        Save settings
-      </button>
+    <form
+      className={styles.settings}
+      onChange={() => setSaved(false)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <p className={styles.eyebrow}>Workspace preferences</p>
+          <h1>Settings</h1>
+          <p>Make Rocky fit the way you work.</p>
+        </div>
+      </header>
+      <div className={styles.settingsGroup}>
+        <div className={styles.groupIntro}>
+          <Icon name="settings" />
+          <h2>Local server</h2>
+          <p>
+            Where your Rocky workspace is available. Changes require a restart.
+          </p>
+        </div>
+        <div className={styles.fieldGrid}>
+          <label>
+            Bind host
+            <input
+              disabled={p.disabled}
+              required
+              value={values.server.host}
+              onChange={(event) =>
+                setValues({
+                  ...values,
+                  server: { ...values.server, host: event.target.value },
+                })
+              }
+            />
+          </label>
+          <label>
+            Bind port
+            <input
+              type="number"
+              required
+              min={1}
+              disabled={p.disabled}
+              max={65535}
+              value={values.server.port}
+              onChange={(event) =>
+                setValues({
+                  ...values,
+                  server: {
+                    ...values.server,
+                    port: Number(event.target.value),
+                  },
+                })
+              }
+            />
+          </label>
+        </div>
+      </div>
+      <div className={styles.settingsGroup}>
+        <div className={styles.groupIntro}>
+          <Icon name="clock" />
+          <h2>Run history</h2>
+          <p>Choose how much completed work and its artifacts to keep.</p>
+        </div>
+        <div className={styles.fieldGrid}>
+          <label>
+            Retention: terminal Runs
+            <input
+              type="number"
+              required
+              min={1}
+              disabled={p.disabled}
+              value={values.retention.keepTerminalRuns}
+              onChange={(event) =>
+                setValues({
+                  ...values,
+                  retention: {
+                    ...values.retention,
+                    keepTerminalRuns: Number(event.target.value),
+                  },
+                })
+              }
+            />
+          </label>
+          <label>
+            Retention: sessions & screenshots
+            <input
+              type="number"
+              required
+              min={1}
+              disabled={p.disabled}
+              value={values.retention.keepSessionsAndScreenshots}
+              onChange={(event) =>
+                setValues({
+                  ...values,
+                  retention: {
+                    ...values.retention,
+                    keepSessionsAndScreenshots: Number(event.target.value),
+                  },
+                })
+              }
+            />
+          </label>
+        </div>
+      </div>
+      <div className={styles.settingsGroup}>
+        <div className={styles.groupIntro}>
+          <Icon name="runs" />
+          <h2>Concurrency</h2>
+          <p>Limit how many runs can work at the same time.</p>
+        </div>
+        <div className={styles.fieldGrid}>
+          <label>
+            Maximum concurrent Runs
+            <input
+              type="number"
+              required
+              min={1}
+              disabled={p.disabled}
+              value={values.concurrency.maxRuns}
+              onChange={(event) =>
+                setValues({
+                  ...values,
+                  concurrency: { maxRuns: Number(event.target.value) },
+                })
+              }
+            />
+          </label>
+        </div>
+      </div>
+      <div className={styles.formActions}>
+        {saved && (
+          <span className={styles.saved} role="status">
+            <Icon name="check" size={15} />
+            Settings saved
+          </span>
+        )}
+        <button className={styles.primary} disabled={p.disabled} type="submit">
+          Save settings
+        </button>
+      </div>
       {settings.restartRequired && (
         <p className={styles.warning}>
           Restart Rocky for server settings to take effect.
         </p>
       )}
-      <h2>MCP</h2>
-      {!settings.mcpAvailable ? (
-        <p className={styles.muted}>MCP status is unavailable.</p>
-      ) : (
-        settings.mcp.map((m) => (
-          <p key={m.name}>
-            <strong>{m.name}</strong> · {m.status} <code>{m.loginCommand}</code>
-          </p>
-        ))
-      )}
-    </section>
+      <div className={styles.integrationSection}>
+        <div className={styles.sectionHeading}>
+          <div>
+            <h2>Integrations</h2>
+            <p>Authentication for your connected MCP tools.</p>
+          </div>
+        </div>
+        {!settings.mcpAvailable ? (
+          <p className={styles.muted}>MCP status is unavailable.</p>
+        ) : (
+          settings.mcp.map((m) => (
+            <div key={m.name} className={styles.integration}>
+              <strong>{m.name}</strong>
+              <span className={styles.muted}>{m.status}</span>
+              {m.status !== 'authenticated' && m.status !== 'not-required' && (
+                <code>{m.loginCommand}</code>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </form>
   );
 }
 
 function Profiles(p: {
   disabled: boolean;
   mismatch: (v: string | null) => void;
-  back: () => void;
   error: (s: string) => void;
 }) {
   const [profiles, setProfiles] = useState<RepositoryProfileView[] | null>(
@@ -1302,6 +1642,11 @@ function Profiles(p: {
   const [selected, setSelected] = useState<RepositoryProfileView | null>(null);
   const [draft, setDraft] = useState<RepositoryProfileView | null>(null);
   const [editor, setEditor] = useState('default');
+  const [openingEditor, setOpeningEditor] = useState(false);
+  const [editorOpened, setEditorOpened] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState<'general' | 'workflow'>('general');
   useEffect(() => {
     let stopped = false;
     api<RepositoryProfileList>('/api/profiles', p.mismatch)
@@ -1322,11 +1667,18 @@ function Profiles(p: {
     };
   }, [p.mismatch, p.error]);
   const choose = (id: string) => {
+    setSaved(false);
+    setEditorOpened(false);
+    setEditorError(null);
     const next = profiles?.find((profile) => profile.id === id) ?? null;
     setSelected(next);
     setDraft(next);
   };
   const create = () => {
+    setSaved(false);
+    setEditorOpened(false);
+    setEditorError(null);
+    setTab('general');
     const next: RepositoryProfileView = {
       id: '',
       remote: '',
@@ -1365,6 +1717,7 @@ function Profiles(p: {
       );
       setSelected(saved);
       setDraft(saved);
+      setSaved(true);
     } catch (caught) {
       p.error(await apiError(caught, 'Profile was not saved.'));
     }
@@ -1390,7 +1743,10 @@ function Profiles(p: {
     }
   };
   const openWorkflow = async () => {
-    if (!selected || p.disabled) return;
+    if (!selected || p.disabled || openingEditor) return;
+    setOpeningEditor(true);
+    setEditorOpened(false);
+    setEditorError(null);
     try {
       await api(
         `/api/profiles/${encodeURIComponent(selected.id)}/open-workflow`,
@@ -1401,27 +1757,60 @@ function Profiles(p: {
           body: JSON.stringify({ editor }),
         },
       );
+      setEditorOpened(true);
     } catch (caught) {
-      p.error(await apiError(caught, 'Could not open the local workflow file.'));
+      setEditorError(
+        await apiError(caught, 'Could not open the local workflow file.'),
+      );
+    } finally {
+      setOpeningEditor(false);
     }
   };
-  if (!profiles || !draft)
+  if (!profiles)
     return (
       <div className={styles.placeholder}>Loading repository profiles…</div>
     );
+  if (!draft)
+    return (
+      <section className={styles.profiles} onChange={() => setSaved(false)}>
+        <header className={styles.pageHeader}>
+          <div>
+            <p className={styles.eyebrow}>Repository setup</p>
+            <h1>Repositories</h1>
+            <p>A home for each project’s workflow.</p>
+          </div>
+        </header>
+        <div className={styles.emptyState}>
+          <span className={styles.emptyIcon}>
+            <Icon name="repo" size={28} />
+          </span>
+          <h2>Connect your first repository</h2>
+          <p>Add a repository to configure its workflow and agent.</p>
+          <button
+            className={styles.primary}
+            onClick={create}
+            disabled={p.disabled}
+          >
+            <Icon name="plus" />
+            Add repository
+          </button>
+        </div>
+      </section>
+    );
   return (
-    <section className={styles.profiles}>
-      <button onClick={p.back}>← Workspace</button>
-      <header>
+    <section className={styles.profiles} onChange={() => setSaved(false)}>
+      <header className={styles.pageHeader}>
         <div>
           <p className={styles.eyebrow}>Repository setup</p>
           <h1>{selected?.id ?? 'New repository'}</h1>
           <p>
-            Rocky keeps this configuration locally and runs it in isolated worktrees.
+            Rocky keeps this configuration locally and runs it in isolated
+            worktrees.
           </p>
         </div>
         <button disabled={p.disabled} onClick={create}>
-          New profile
+          <Icon name="plus" />
+          Add repository
         </button>
       </header>
       <label>
@@ -1439,124 +1828,210 @@ function Profiles(p: {
           ))}
         </select>
       </label>
-      <label>
-        Repository id
-        <input
-          value={draft.id}
-          disabled={p.disabled || Boolean(selected)}
-          onChange={(event) => setDraft({ ...draft, id: event.target.value })}
-          placeholder="my-repo"
-        />
-      </label>
-      <label>
-        Repository remote
-        <input
-          value={draft.remote}
-          disabled={p.disabled}
-          onChange={(event) =>
-            setDraft({ ...draft, remote: event.target.value })
-          }
-          placeholder="github.com/acme/service"
-        />
-      </label>
-      <section className={styles.workflowEditor}>
-        <div>
-          <p className={styles.eyebrow}>Workflow source</p>
-          <h2>workflow.ts</h2>
-          <p>Stored on this machine beside the local profile. Edit it in your usual editor, then return here to refresh the configuration.</p>
+      <div
+        className={styles.filters}
+        role="group"
+        aria-label="Repository sections"
+      >
+        <button
+          aria-pressed={tab === 'general'}
+          onClick={() => setTab('general')}
+        >
+          General
+        </button>
+        <button
+          aria-pressed={tab === 'workflow'}
+          onClick={() => setTab('workflow')}
+        >
+          Workflow
+        </button>
+      </div>
+      <div hidden={tab !== 'general'} className={styles.profileGeneral}>
+        <div className={styles.sectionHeading}>
+          <div>
+            <h2>Repository details</h2>
+            <p>Connect the project Rocky should work on.</p>
+          </div>
         </div>
-        <div className={styles.openWorkflow}>
-          <select aria-label="Workflow editor" value={editor} disabled={p.disabled || !selected} onChange={(event) => setEditor(event.target.value)}>
-            <option value="default">Default editor</option>
-            <option value="vscode">Visual Studio Code</option>
-            <option value="zed">Zed</option>
+        <div className={styles.fieldGrid}>
+          <label>
+            Repository id
+            <input
+              value={draft.id}
+              disabled={p.disabled || Boolean(selected)}
+              onChange={(event) =>
+                setDraft({ ...draft, id: event.target.value })
+              }
+              placeholder="my-repo"
+            />
+          </label>
+          <label>
+            Repository remote
+            <input
+              value={draft.remote}
+              disabled={p.disabled}
+              onChange={(event) =>
+                setDraft({ ...draft, remote: event.target.value })
+              }
+              placeholder="github.com/acme/service"
+            />
+          </label>
+        </div>
+      </div>
+      <div hidden={tab !== 'workflow'} className={styles.profileWorkflow}>
+        <section className={styles.workflowEditor}>
+          <div>
+            <p className={styles.eyebrow}>Workflow source</p>
+            <h2>workflow.ts</h2>
+            <p>
+              Stored on this machine beside the local profile. Edit it in your
+              usual editor, then return here to refresh the configuration.
+            </p>
+          </div>
+          <div className={styles.openWorkflow}>
+            <select
+              aria-label="Workflow editor"
+              value={editor}
+              disabled={p.disabled || !selected || openingEditor}
+              onChange={(event) => {
+                setEditor(event.target.value);
+                setEditorOpened(false);
+                setEditorError(null);
+              }}
+            >
+              <option value="default">Default text editor</option>
+              <option value="vscode">Visual Studio Code</option>
+              <option value="zed">Zed</option>
+            </select>
+            <button
+              type="button"
+              disabled={p.disabled || !selected || openingEditor}
+              aria-busy={openingEditor}
+              onClick={() => void openWorkflow()}
+            >
+              {openingEditor ? 'Opening…' : 'Open workflow'}
+            </button>
+            {editorOpened && (
+              <span className={styles.saved} role="status">
+                Workflow sent to your editor.
+              </span>
+            )}
+            {editorError && (
+              <p className={styles.error} role="alert">
+                {editorError}
+              </p>
+            )}
+          </div>
+        </section>
+        <label>
+          Manual triggers (one per line)
+          <textarea
+            value={draft.workflow.triggers.join('\n')}
+            disabled={p.disabled}
+            onChange={(event) =>
+              setDraft({
+                ...draft,
+                workflow: {
+                  ...draft.workflow,
+                  triggers: event.target.value
+                    .split('\n')
+                    .map((name) => name.trim())
+                    .filter(Boolean),
+                },
+              })
+            }
+            placeholder="custom-workflow"
+          />
+        </label>
+        <details className={styles.webEditor}>
+          <summary>Edit workflow in browser</summary>
+          <label>
+            Workflow source
+            <textarea
+              aria-label="workflow.ts"
+              className={styles.workflowSource}
+              value={draft.workflow.source}
+              disabled={p.disabled}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  workflow: { ...draft.workflow, source: event.target.value },
+                })
+              }
+              spellCheck={false}
+            />
+          </label>
+        </details>
+      </div>
+      <div hidden={tab !== 'general'} className={styles.profileGeneral}>
+        <div className={styles.sectionHeading}>
+          <div>
+            <h2>Agent & tools</h2>
+            <p>The coding agent that executes your workflow.</p>
+          </div>
+        </div>
+        <label>
+          Harness
+          <select
+            value={draft.grants.harness}
+            disabled={p.disabled}
+            onChange={(event) =>
+              setDraft({
+                ...draft,
+                grants: {
+                  ...draft.grants,
+                  harness: event.target
+                    .value as RepositoryProfileView['grants']['harness'],
+                },
+              })
+            }
+          >
             <option value="opencode">OpenCode</option>
             <option value="claude-code">Claude Code</option>
           </select>
-          <button type="button" disabled={p.disabled || !selected} onClick={() => void openWorkflow()}>Open workflow</button>
-        </div>
-      </section>
-      <label>
-        Manual triggers (one per line)
-        <textarea
-          value={draft.workflow.triggers.join('\n')}
-          disabled={p.disabled}
-          onChange={(event) =>
-            setDraft({
-              ...draft,
-              workflow: {
-                ...draft.workflow,
-                triggers: event.target.value
-                  .split('\n')
-                  .map((name) => name.trim())
-                  .filter(Boolean),
-              },
-            })
-          }
-          placeholder="custom-workflow"
-        />
-      </label>
-      <label className={styles.webEditor}>
-        Edit here instead
-        <textarea
-          aria-label="workflow.ts"
-          className={styles.workflowSource}
-          value={draft.workflow.source}
-          disabled={p.disabled}
-          onChange={(event) =>
-            setDraft({
-              ...draft,
-              workflow: { ...draft.workflow, source: event.target.value },
-            })
-          }
-          spellCheck={false}
-        />
-      </label>
-      <label>
-        Harness
-        <select
-          value={draft.grants.harness}
-          disabled={p.disabled}
-          onChange={(event) =>
-            setDraft({
-              ...draft,
-              grants: {
-                ...draft.grants,
-                harness: event.target
-                  .value as RepositoryProfileView['grants']['harness'],
-              },
-            })
-          }
-        >
-          <option value="opencode">OpenCode</option>
-          <option value="claude-code">Claude Code</option>
-        </select>
-      </label>
-      <p className={styles.muted}>
-        Prompts: {draft.prompts.join(', ') || 'none'} · Rules:{' '}
-        {draft.rules.join(', ') || 'none'} · Secret references:{' '}
-        {draft.secretEnv.join(', ') || 'none'}
-      </p>
-      <button
-        disabled={
-          p.disabled ||
-          !draft.id ||
-          !draft.remote ||
-          !draft.workflow.source.trim()
-        }
-        onClick={() => void save()}
-      >
-        Save profile
-      </button>
-      {selected && (
+        </label>
+        <details className={styles.rawResult}>
+          <summary>
+            Configuration files · {draft.prompts.length} prompts ·{' '}
+            {draft.rules.length} rules · {draft.secretEnv.length} secret
+            references
+          </summary>
+          <p className={styles.muted}>
+            Prompts: {draft.prompts.join(', ') || 'none'} · Rules:{' '}
+            {draft.rules.join(', ') || 'none'} · Secret references:{' '}
+            {draft.secretEnv.join(', ') || 'none'}
+          </p>
+        </details>
+      </div>
+      <div className={styles.formActions}>
+        {saved && (
+          <span role="status" className={styles.saved}>
+            <Icon name="check" size={15} />
+            Repository saved
+          </span>
+        )}
         <button
-          className={styles.deleteProfile}
-          disabled={p.disabled}
-          onClick={() => void remove()}
+          className={styles.primary}
+          disabled={
+            p.disabled ||
+            !draft.id ||
+            !draft.remote ||
+            !draft.workflow.source.trim()
+          }
+          onClick={() => void save()}
         >
-          Delete profile
+          Save profile
         </button>
-      )}
+        {selected && (
+          <button
+            className={styles.deleteProfile}
+            disabled={p.disabled}
+            onClick={() => void remove()}
+          >
+            Delete profile
+          </button>
+        )}
+      </div>
     </section>
   );
 }

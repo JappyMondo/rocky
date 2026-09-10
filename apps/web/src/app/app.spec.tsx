@@ -4,8 +4,9 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   DiffView,
   RunDetail,
@@ -152,6 +153,7 @@ function daemon(
     intakeFailures?: (count: number) => Reply;
     settings?: (init?: RequestInit) => Reply;
     profiles?: (init?: RequestInit) => Reply;
+    openWorkflow?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
     recovery?: (init?: RequestInit) => Reply;
     diffs?: (path: string) => Reply;
@@ -175,6 +177,8 @@ function daemon(
       return options.settings?.(init) ?? { body: settings() };
     if (path === '/api/profiles')
       return options.profiles?.(init) ?? { body: { profiles: [] } };
+    if (/\/open-workflow$/.test(path))
+      return options.openWorkflow?.(init) ?? { body: { opened: true } };
     if (path === '/api/triggers')
       return options.trigger?.(init) ?? { body: { runId: 'r3' } };
     if (/\/recover-session$/.test(path))
@@ -196,6 +200,9 @@ function daemon(
 async function loaded(name = 'Older Run') {
   expect(await screen.findByRole('heading', { name })).toBeTruthy();
 }
+beforeEach(() => {
+  window.history.replaceState({}, '', '/runs/r1');
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -294,7 +301,10 @@ describe('Inbox behavior', () => {
     daemon({ runs: [] });
     render(<App />);
     expect(await screen.findByText('No Run found for NOPE-404.')).toBeTruthy();
-    expect(screen.getByText('No Runs yet.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Rocky home' }));
+    expect(
+      screen.getByRole('heading', { name: 'Ready when you are.' }),
+    ).toBeTruthy();
   });
 
   it('preserves readable mutation text for HTTP errors and reports an already-won answer', async () => {
@@ -379,6 +389,10 @@ describe('Inbox behavior', () => {
             ? { reject: new TypeError('offline') }
             : { body: { runs: [r1], pollAfterMs: 30000 } },
         );
+      if (path.startsWith('/api/runs/'))
+        return list < 2
+          ? reply({ reject: new TypeError('offline') })
+          : reply({ body: detail() });
       return reply({ body: detail() });
     });
     render(<App />);
@@ -407,8 +421,10 @@ describe('Inbox behavior', () => {
       (screen.getByRole('button', { name: /Approve/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Rocky home' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New run' }));
     expect(
-      (screen.getByRole('button', { name: 'Trigger' }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: 'Start run' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });
@@ -444,8 +460,12 @@ describe('Inbox behavior', () => {
       }),
     });
     render(<App />);
-    expect(await screen.findByText('Linear cannot reach Rocky.')).toBeTruthy();
-    expect(screen.getByText(/Checking the public endpoint now/)).toBeTruthy();
+    expect(
+      (await screen.findAllByText('Linear cannot reach Rocky.')).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Checking the public endpoint now/).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText(/Restore your tunnel or Tailscale Funnel/),
     ).toBeTruthy();
@@ -468,11 +488,9 @@ describe('Inbox behavior', () => {
     });
     render(<App />);
     expect(
-      await screen.findByRole('heading', {
-        name: 'Linear intake needs attention',
-      }),
+      await screen.findByText(/Linear intake needs attention/),
     ).toBeTruthy();
-    expect(screen.getByText('session-1')).toBeTruthy();
+    expect(screen.getByText('Session session-1')).toBeTruthy();
     expect(screen.getByText(/could not admit its Run/)).toBeTruthy();
     expect(screen.getByText(/delegate the issue again/)).toBeTruthy();
   });
@@ -628,12 +646,14 @@ describe('Inbox behavior', () => {
             }
           : { body: { runId: 'r3' } },
     });
+    window.history.replaceState({}, '', '/');
     render(<App />);
-    await loaded();
-    const issue = screen.getByLabelText('Trigger issue');
+    fireEvent.click(await screen.findByRole('button', { name: 'New run' }));
+    let issue = screen.getByLabelText('Trigger issue');
     fireEvent.change(issue, { target: { value: 'NG-612' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Trigger' }));
-    await vi.waitFor(() => expect((issue as HTMLInputElement).value).toBe(''));
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/runs/r3'));
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(mock).toHaveBeenCalledWith(
       '/api/triggers',
       expect.objectContaining({
@@ -644,11 +664,16 @@ describe('Inbox behavior', () => {
       }),
     );
     refused = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Rocky home' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New run' }));
+    issue = screen.getByLabelText('Trigger issue');
+    expect((issue as HTMLInputElement).value).toBe('');
     fireEvent.change(issue, { target: { value: 'NG-612' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Trigger' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
     expect((await screen.findByRole('alert')).textContent).toContain(
       'NG-612 already has Run r1',
     );
+    expect((issue as HTMLInputElement).value).toBe('NG-612');
   });
 
   it('renders run history, result variants, artifacts, usage, terminal controls, and direct step hashes', async () => {
@@ -724,9 +749,11 @@ describe('Inbox behavior', () => {
     await loaded('Older Run');
     expect(screen.getByText(/Answered: reject/)).toBeTruthy();
     expect(screen.getByText(/3 cache read/)).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: /agent/ })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /agent/ })[1]);
     expect(screen.getByText('A plain result')).toBeTruthy();
-    expect(screen.getByText(/Stage: review/)).toBeTruthy();
-    expect(screen.getByText('2026-09-01T12:00:00Z')).toBeTruthy();
+    expect(screen.getByText('review')).toBeTruthy();
+
     expect(screen.getByText(/0s/)).toBeTruthy();
     expect(screen.getByText('Plan')).toBeTruthy();
     expect(screen.getByText('Results')).toBeTruthy();
@@ -740,7 +767,7 @@ describe('Inbox behavior', () => {
     expect(
       (screen.getByRole('button', { name: /No result/ }) as HTMLButtonElement)
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       screen.getByText(/finished; its Steer intake is closed/),
     ).toBeTruthy();
@@ -928,6 +955,9 @@ describe('Inbox behavior', () => {
             },
     });
     render(<App />);
+    await screen.findByRole('button', { name: 'Workflow' });
+    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    fireEvent.click(screen.getByText('Edit workflow in browser'));
     const source = await screen.findByLabelText('workflow.ts');
     fireEvent.change(source, {
       target: { value: 'export default [changed];' },
@@ -956,7 +986,9 @@ describe('Inbox behavior', () => {
               revision: 'old',
               workflow: { source: 'export default [];', triggers: [] },
               grants: { harness: 'opencode', capabilities: [], mcp: [] },
-              prompts: [], rules: [], secretEnv: [],
+              prompts: [],
+              rules: [],
+              secretEnv: [],
             },
           ],
         },
@@ -964,6 +996,13 @@ describe('Inbox behavior', () => {
     });
     render(<App />);
     await screen.findByRole('heading', { name: 'service' });
+    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    expect(
+      Array.from(
+        (screen.getByLabelText('Workflow editor') as HTMLSelectElement).options,
+        (option) => option.value,
+      ),
+    ).toEqual(['default', 'vscode', 'zed']);
     fireEvent.change(screen.getByLabelText('Workflow editor'), {
       target: { value: 'zed' },
     });
@@ -975,5 +1014,357 @@ describe('Inbox behavior', () => {
         body: JSON.stringify({ editor: 'zed' }),
       }),
     );
+    expect(
+      await screen.findByText('Workflow sent to your editor.'),
+    ).toBeTruthy();
+  });
+
+  it('shows editor launch failures beside the action and lets the user choose another editor and retry', async () => {
+    window.history.replaceState({}, '', '/profiles');
+    let failing = true;
+    const mock = daemon({
+      profiles: () => ({
+        body: {
+          profiles: [
+            {
+              id: 'service',
+              remote: 'github.com/acme/service',
+              revision: 'old',
+              workflow: { source: 'export default [];', triggers: [] },
+              grants: { harness: 'opencode', capabilities: [], mcp: [] },
+              prompts: [],
+              rules: [],
+              secretEnv: [],
+            },
+          ],
+        },
+      }),
+      openWorkflow: () =>
+        failing
+          ? {
+              ok: false,
+              status: 503,
+              body: {
+                code: 'editor-unavailable',
+                error: 'The selected editor is not installed.',
+              },
+            }
+          : { body: { opened: true } },
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Workflow' }));
+    const open = screen.getByRole('button', { name: 'Open workflow' });
+    fireEvent.click(open);
+    expect(
+      (screen.getByRole('button', { name: 'Opening…' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(open);
+    expect(
+      mock.mock.calls.filter(([path]) =>
+        String(path).endsWith('/open-workflow'),
+      ),
+    ).toHaveLength(1);
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'The selected editor is not installed.',
+    );
+    expect(screen.queryByText('Workflow sent to your editor.')).toBeNull();
+    failing = false;
+    fireEvent.change(screen.getByLabelText('Workflow editor'), {
+      target: { value: 'vscode' },
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open workflow' }));
+    await screen.findByText('Workflow sent to your editor.');
+    fireEvent.change(screen.getByLabelText('Workflow editor'), {
+      target: { value: 'default' },
+    });
+    expect(screen.queryByText('Workflow sent to your editor.')).toBeNull();
+  });
+});
+
+describe('Workspace redesign', () => {
+  it('opens to a searchable, paginated overview without loading an unselected journal', async () => {
+    window.history.replaceState({}, '', '/');
+    const runs = Array.from({ length: 13 }, (_, index): RunSummary => ({
+      ...r1,
+      runId: `run-${index}`,
+      repo: index % 2 ? 'service' : 'rocky',
+      issue: {
+        ...r1.issue,
+        identifier: `NG-${index}`,
+        title: `Work item ${index}`,
+      },
+      status:
+        index === 0
+          ? 'parked'
+          : index === 1
+            ? 'running'
+            : index === 2
+              ? 'finished'
+              : index === 3
+                ? 'cancelled'
+                : 'failed',
+    }));
+    const mock = daemon({
+      runs,
+      detail: (id) => ({ body: detail(runs.find((run) => run.runId === id)) }),
+    });
+    render(<App />);
+    const table = await screen.findByRole('table', { name: 'Runs' });
+    expect(within(table).getAllByRole('row')).toHaveLength(11);
+    expect(
+      mock.mock.calls.some(([path]) => String(path).startsWith('/api/runs/')),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(4);
+    expect(screen.getByText('11–13 of 13 runs')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+    fireEvent.click(screen.getByRole('button', { name: 'In progress 1' }));
+    expect(within(table).getByText('Work item 1')).toBeTruthy();
+    expect(within(table).queryByText('Work item 0')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Needs review 1' }));
+    expect(within(table).getByText('Work item 0')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Completed 1' }));
+    expect(within(table).getByText('Work item 2')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Failed 9' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(10);
+    fireEvent.change(screen.getByLabelText('Filter by repository'), {
+      target: { value: 'service' },
+    });
+    fireEvent.change(screen.getByLabelText('Search runs'), {
+      target: { value: 'Work item 5' },
+    });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    fireEvent.change(screen.getByLabelText('Search runs'), {
+      target: { value: 'missing' },
+    });
+    expect(
+      screen.getByRole('heading', { name: 'No matching runs' }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByText('1–10 of 13 runs')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open run run-1' }));
+    await loaded('Work item 1');
+    fireEvent.click(screen.getByRole('button', { name: 'All runs' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'NG-0 / run-0 Work item 0' }),
+    );
+    await loaded('Work item 0');
+    fireEvent.click(screen.getByRole('button', { name: 'All runs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    const content = screen.getByRole('main');
+    fireEvent.scroll(content, { target: { scrollTop: 200 } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open run run-12' }));
+    await loaded('Work item 12');
+    expect(content.scrollTop).toBe(0);
+    fireEvent.click(screen.getByRole('button', { name: 'All runs' }));
+    expect(screen.getByText('11–13 of 13 runs')).toBeTruthy();
+    expect(content.scrollTop).toBe(200);
+  });
+
+  it('keeps modal focus contained, restores focus on close, and ignores run shortcuts while composing', async () => {
+    window.history.replaceState({}, '', '/');
+    const mock = daemon();
+    render(<App />);
+    const start = await screen.findByRole('button', { name: 'New run' });
+    start.focus();
+    fireEvent.click(start);
+    const dialog = screen.getByRole('dialog', { name: 'Start a new run' });
+    const issue = within(dialog).getByLabelText('Trigger issue');
+    expect(document.activeElement).toBe(issue);
+    fireEvent.change(issue, { target: { value: 'NG-612' } });
+    fireEvent.change(screen.getByLabelText('Trigger name'), {
+      target: { value: 'custom-workflow' },
+    });
+    const submit = within(dialog).getByRole('button', { name: 'Start run' });
+    submit.focus();
+    fireEvent.keyDown(submit, { key: 'Tab' });
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole('button', { name: 'Close start a new run' }),
+    );
+    fireEvent.keyDown(
+      within(dialog).getByRole('button', { name: 'Close start a new run' }),
+      { key: 'Tab', shiftKey: true },
+    );
+    expect(document.activeElement).toBe(submit);
+    fireEvent.keyDown(window, { key: 'e' });
+    expect(
+      mock.mock.calls.some(([path]) => String(path).endsWith('/answer')),
+    ).toBe(false);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(start);
+    fireEvent.click(start);
+    expect(
+      (screen.getByLabelText('Trigger issue') as HTMLInputElement).value,
+    ).toBe('NG-612');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(start);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Close start a new run' }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens the first-run action from an empty workspace and navigates the main sections', async () => {
+    window.history.replaceState({}, '', '/');
+    daemon({ runs: [] });
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Start your first run' }),
+    );
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Repositories' }));
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Connect your first repository',
+      }),
+    ).toBeTruthy();
+    fireEvent.click(
+      within(
+        screen.getByRole('navigation', { name: 'Main navigation' }),
+      ).getByRole('button', { name: 'Settings' }),
+    );
+    await screen.findByLabelText('Bind host');
+    fireEvent.click(
+      within(
+        screen.getByRole('navigation', { name: 'Main navigation' }),
+      ).getByRole('button', { name: /Runs/ }),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Ready when you are.' }),
+    ).toBeTruthy();
+  });
+
+  it('creates, edits, switches, and removes repository profiles including the last profile', async () => {
+    window.history.replaceState({}, '', '/profiles');
+    let stored: import('@rocky/local-contracts').RepositoryProfileView[] = [];
+    const mock = daemon({
+      profiles: (init) => {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body));
+          const saved = {
+            ...body,
+            revision: 'saved',
+            prompts: [],
+            rules: [],
+            secretEnv: [],
+          };
+          stored = [...stored.filter((p) => p.id !== saved.id), saved];
+          return { body: saved };
+        }
+        if (init?.method === 'DELETE') {
+          const body = JSON.parse(String(init.body));
+          stored = stored.filter((p) => p.id !== body.id);
+          return { body: {} };
+        }
+        return { body: { profiles: stored } };
+      },
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Add repository' }),
+    );
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save profile',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText('Repository id'), {
+      target: { value: 'service' },
+    });
+    fireEvent.change(screen.getByLabelText('Repository remote'), {
+      target: { value: 'github.com/acme/service' },
+    });
+    fireEvent.change(screen.getByLabelText('Harness'), {
+      target: { value: 'claude-code' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    fireEvent.change(screen.getByLabelText('Manual triggers (one per line)'), {
+      target: { value: 'first\nsecond\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'General' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    await screen.findByText('Repository saved');
+    expect(stored[0].workflow.triggers).toEqual(['first', 'second']);
+    expect(stored[0].grants.harness).toBe('claude-code');
+    expect(
+      (screen.getByLabelText('Repository id') as HTMLInputElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));
+    fireEvent.change(screen.getByLabelText('Repository id'), {
+      target: { value: 'another' },
+    });
+    fireEvent.change(screen.getByLabelText('Repository remote'), {
+      target: { value: 'github.com/acme/another' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    await screen.findByText('Repository saved');
+    fireEvent.change(screen.getByLabelText('Repository', { exact: true }), {
+      target: { value: 'service' },
+    });
+    expect(screen.getByRole('heading', { name: 'service' })).toBeTruthy();
+    confirm.mockReturnValueOnce(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete profile' }));
+    expect(mock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete profile' }));
+    await screen.findByRole('heading', { name: 'another' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete profile' }));
+    await screen.findByRole('heading', {
+      name: 'Connect your first repository',
+    });
+    confirm.mockRestore();
+  });
+
+  it('keeps results and large raw payloads folded until requested, including steps without transcripts', async () => {
+    const summary = 'A useful result';
+    daemon({
+      detail: () => ({
+        body: detail(
+          {
+            ...r1,
+            boots: 1,
+            status: 'finished',
+            trigger: 'smoke',
+            reason: 'All work complete',
+            pr: { number: 7, url: 'https://example.com/pr/7', headSha: 'head' },
+          },
+          {
+            checkpoint: undefined,
+            steps: [
+              agent({
+                step: 'workspace',
+                label: 'Prepare files',
+                transcript: 'unavailable',
+                result: { summary, output: 'x'.repeat(600) },
+              }),
+            ],
+          },
+        ),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    expect(screen.queryByText(summary)).toBeNull();
+    expect(
+      screen
+        .getByRole('link', { name: 'Pull request #7' })
+        .getAttribute('href'),
+    ).toBe('https://example.com/pr/7');
+    fireEvent.click(screen.getByRole('button', { name: /Prepare files/ }));
+    expect(screen.getByText(summary)).toBeTruthy();
+    const raw = screen.getByText('Raw result').closest('details');
+    expect(raw?.open).toBe(false);
+    fireEvent.click(screen.getByText('Raw result'));
+    expect(raw?.open).toBe(true);
+    expect(screen.queryByText('Loading transcript…')).toBeNull();
   });
 });

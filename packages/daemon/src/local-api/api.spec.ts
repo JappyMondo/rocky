@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import type { RunDetail, SettingsView } from '@rocky/local-contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 
 import { rockyPaths } from '../config/paths.js';
 import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
@@ -38,6 +38,7 @@ const disposers: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   for (const dispose of disposers.reverse()) await dispose();
   disposers.length = 0;
+  vi.unstubAllEnvs();
 });
 
 async function setup(overrides: Partial<LocalApiOptions> = {}) {
@@ -277,6 +278,73 @@ it('deletes only a current local profile revision', async () => {
   expect((await fixture.app.inject('/api/profiles')).json()).toEqual({
     profiles: [],
   });
+});
+
+async function editorFixture(script: string) {
+  const fixture = await setup();
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  const profile = await fixture.options.profiles.save({
+    id: 'service',
+    remote: 'github.com/acme/service',
+    workflow: { source: 'export default [original];', triggers: [] },
+    grants: { harness: 'opencode', capabilities: [], mcp: [] },
+  });
+  const bin = join(fixture.paths.root, 'bin');
+  await mkdir(bin);
+  for (const name of ['open', 'xdg-open'])
+    await writeFile(join(bin, name), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+  vi.stubEnv('PATH', bin);
+  return { ...fixture, profile };
+}
+
+it('opens legacy JSON-only workflows as real text files without overwriting editor changes', async () => {
+  const fixture = await editorFixture('for file; do :; done\n[ -f "$file" ]');
+  const file = fixture.paths.profileWorkflow('service');
+  await rm(file);
+  const request = {
+    method: 'POST' as const,
+    url: '/api/profiles/service/open-workflow',
+    payload: { editor: 'default' },
+  };
+  const opened = await fixture.app.inject(request);
+  expect(opened.statusCode).toBe(200);
+  expect(await readFile(file, 'utf8')).toBe(fixture.profile.workflow.source);
+  await writeFile(file, 'export default [editedInEditor];');
+  expect((await fixture.app.inject(request)).statusCode).toBe(200);
+  expect(await readFile(file, 'utf8')).toBe('export default [editedInEditor];');
+});
+
+it('reports a launcher that starts successfully but rejects the editor request', async () => {
+  const fixture = await editorFixture('exit 1');
+  const result = await fixture.app.inject({
+    method: 'POST',
+    url: '/api/profiles/service/open-workflow',
+    payload: { editor: 'vscode' },
+  });
+  expect(result.statusCode).toBe(503);
+  expect(result.json()).toMatchObject({ code: 'editor-unavailable' });
+});
+
+it('reports a missing launcher and refuses unsupported editors before launching', async () => {
+  const fixture = await editorFixture('exit 0');
+  const request = {
+    method: 'POST' as const,
+    url: '/api/profiles/service/open-workflow',
+  };
+  for (const editor of ['arbitrary-command', 'opencode', 'claude-code']) {
+    const invalid = await fixture.app.inject({
+      ...request,
+      payload: { editor },
+    });
+    expect(invalid.statusCode).toBe(400);
+  }
+  vi.stubEnv('PATH', join(fixture.paths.root, 'missing-bin'));
+  const missing = await fixture.app.inject({
+    ...request,
+    payload: { editor: 'default' },
+  });
+  expect(missing.statusCode).toBe(503);
+  expect(missing.json()).toMatchObject({ code: 'editor-unavailable' });
 });
 
 it('renders a real three-Boot Journal, nested identities, and native usage without invented zeroes', async () => {

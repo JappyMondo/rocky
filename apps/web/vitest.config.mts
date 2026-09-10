@@ -19,18 +19,12 @@ export default defineConfig({
       // The browser bootstrap: it mounts a real DOM root and renders `App`,
       // which is itself covered.
       exclude: ['src/main.tsx', 'src/**/*.d.ts'],
-      // Pinned to the measured baseline: vitest fails the run on any drop, so
-      // the gate is the same locally as in CI. Raise these when coverage rises.
-      //
-      // Pinned to the real suite reading. The old 100% gate was never
-      // attainable: the unchanged default branch measures 91.41% statements
-      // and fails it too. Keep this at the current reading so any regression
-      // still fails locally and in CI.
+      // Pin the measured redesign suite so coverage cannot silently regress.
       thresholds: {
-        statements: 91.43,
-        branches: 82.13,
-        functions: 91.92,
-        lines: 92.22,
+        statements: 93.55,
+        branches: 85.09,
+        functions: 93.77,
+        lines: 94.51,
       },
     },
   },

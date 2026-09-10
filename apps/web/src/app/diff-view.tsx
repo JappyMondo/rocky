@@ -159,6 +159,27 @@ export function DiffViewer({ diff, onClose }: DiffViewerProps) {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Tab') {
+      const controls = Array.from(
+        viewerRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), select, a[href]',
+        ) ?? [],
+      ).filter((element) => element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          document.activeElement === viewerRef.current)
+      ) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+      return;
+    }
     if (
       event.altKey ||
       event.ctrlKey ||
@@ -184,14 +205,19 @@ export function DiffViewer({ diff, onClose }: DiffViewerProps) {
       tabIndex={0}
       onKeyDownCapture={handleKeyDown}
       aria-label="Diff viewer"
+      role="dialog"
+      aria-modal="true"
     >
       <header className={styles.topbar}>
         <div>
           <p className={styles.eyebrow}>Diff review</p>
           <h2 className={styles.title}>Revision {diff.id}</h2>
         </div>
-        <span className={styles.revisions}>
-          {diff.baseSha} → {diff.headSha}
+        <span
+          className={styles.revisions}
+          title={`${diff.baseSha} → ${diff.headSha}`}
+        >
+          {diff.baseSha.slice(0, 8)} → {diff.headSha.slice(0, 8)}
         </span>
         <div
           className={styles.complaintControls}

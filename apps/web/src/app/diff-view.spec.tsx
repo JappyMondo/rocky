@@ -247,3 +247,30 @@ describe('DiffViewer', () => {
     opener.remove();
   });
 });
+
+it('contains keyboard focus in the diff dialog and skips controls hidden at the current viewport', () => {
+  view();
+  const viewer = screen.getByRole('dialog', { name: 'Diff viewer' });
+  const visible = new Set([
+    screen.getByRole('button', { name: 'Previous Complaint' }),
+    screen.getByRole('button', { name: 'Next Complaint' }),
+    screen.getByRole('button', { name: 'Close diff viewer' }),
+  ]);
+  const rects = vi
+    .spyOn(HTMLElement.prototype, 'getClientRects')
+    .mockImplementation(function (this: HTMLElement) {
+      return { length: visible.has(this) ? 1 : 0 } as DOMRectList;
+    });
+  const first = screen.getByRole('button', { name: 'Previous Complaint' });
+  const last = screen.getByRole('button', { name: 'Close diff viewer' });
+  first.focus();
+  fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(last);
+  fireEvent.keyDown(last, { key: 'Tab' });
+  expect(document.activeElement).toBe(first);
+  viewer.focus();
+  fireEvent.keyDown(viewer, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(last);
+  fireEvent.keyDown(first, { key: 'Tab' });
+  rects.mockRestore();
+});

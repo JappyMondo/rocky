@@ -46,10 +46,7 @@
         "options": {
           "cwd": "{projectRoot}"
         },
-        "cache": true,
-        "inputs": [
-          "{workspaceRoot}/apps/web/dist/**/*"
-        ],
+        "cache": false,
         "outputs": [
           "{projectRoot}/public"
         ]
