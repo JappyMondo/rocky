@@ -601,62 +601,64 @@ export function App() {
         </form>
       </aside>
       <section className={styles.content}>
-        {mismatch && (
-          <p className={styles.warning} role="alert">
-            This web UI expects daemon {VERSION}, but reached {mismatch}.
-            Mutating controls are disabled.
-          </p>
-        )}
-        {unreachable && (
-          <p className={styles.warning} role="status">
-            The daemon is temporarily unreachable; showing the last known state.
-          </p>
-        )}
-        {health?.endpoint?.configured && (
-          <p
-            className={
-              health.endpoint.ok ? styles.endpointHealthy : styles.warning
-            }
-            role="status"
-          >
-            <strong>
+        <div className={styles.statusStack} aria-label="Rocky status">
+          {mismatch && (
+            <p className={styles.warning} role="alert">
+              This web UI expects daemon {VERSION}, but reached {mismatch}.
+              Mutating controls are disabled.
+            </p>
+          )}
+          {unreachable && (
+            <p className={styles.warning} role="status">
+              The daemon is temporarily unreachable; showing the last known state.
+            </p>
+          )}
+          {health?.endpoint?.configured && (
+            <p
+              className={
+                health.endpoint.ok ? styles.endpointHealthy : styles.warning
+              }
+              role="status"
+            >
+              <strong>
+                {health.endpoint.ok
+                  ? 'Public endpoint is reachable.'
+                  : 'Linear cannot reach Rocky.'}
+              </strong>{' '}
+              {health.endpoint.checkedAt
+                ? `Last verified ${new Date(health.endpoint.checkedAt).toLocaleString()}.`
+                : 'Checking the public endpoint now.'}{' '}
               {health.endpoint.ok
-                ? 'Public endpoint is reachable.'
-                : 'Linear cannot reach Rocky.'}
-            </strong>{' '}
-            {health.endpoint.checkedAt
-              ? `Last verified ${new Date(health.endpoint.checkedAt).toLocaleString()}.`
-              : 'Checking the public endpoint now.'}{' '}
-            {health.endpoint.ok
-              ? 'Rocky checks it once a minute.'
-              : `${health.endpoint.detail ?? 'The endpoint is not answering'} Restore your tunnel or Tailscale Funnel, then run rocky doctor.`}
-          </p>
-        )}
-        {intakeFailures.length > 0 && (
-          <section
-            className={styles.intakeFailures}
-            aria-label="Linear intake failures"
-            role="alert"
-          >
-            <h2>Linear intake needs attention</h2>
-            {intakeFailures.map((failure) => (
-              <article key={failure.sessionId}>
-                <p>
-                  <strong>{failure.action} delivery</strong> · session{' '}
-                  <code>{failure.sessionId}</code> ·{' '}
-                  {new Date(failure.occurredAt).toLocaleString()}
-                </p>
-                <p>{failure.reason}</p>
-                <p>{failure.remediation}</p>
-              </article>
-            ))}
-          </section>
-        )}
-        {error && (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        )}
+                ? 'Rocky checks it once a minute.'
+                : `${health.endpoint.detail ?? 'The endpoint is not answering'} Restore your tunnel or Tailscale Funnel, then run rocky doctor.`}
+            </p>
+          )}
+          {intakeFailures.length > 0 && (
+            <section
+              className={styles.intakeFailures}
+              aria-label="Linear intake failures"
+              role="alert"
+            >
+              <h2>Linear intake needs attention</h2>
+              {intakeFailures.map((failure) => (
+                <article key={failure.sessionId}>
+                  <p>
+                    <strong>{failure.action} delivery</strong> · session{' '}
+                    <code>{failure.sessionId}</code> ·{' '}
+                    {new Date(failure.occurredAt).toLocaleString()}
+                  </p>
+                  <p>{failure.reason}</p>
+                  <p>{failure.remediation}</p>
+                </article>
+              ))}
+            </section>
+          )}
+          {error && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+        </div>
         {currentRoute.page === 'settings' ? (
           <Settings
             settings={settings}

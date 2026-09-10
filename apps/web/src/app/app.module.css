@@ -1,13 +1,17 @@
 .app {
-  min-height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
   background: #f5f7fa;
   color: #1d2733;
+  overflow: hidden;
 }
 .inbox {
   background: #fff;
   border-right: 1px solid #dbe1e8;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .inbox header {
   height: 57px;
@@ -35,10 +39,17 @@ em {
   cursor: pointer;
   color: inherit;
 }
+.inbox nav {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 .runList {
   margin: 0;
   padding: 0;
   list-style: none;
+  height: 100%;
+  overflow-y: auto;
 }
 .runList > li > button {
   width: 100%;
@@ -94,8 +105,18 @@ em {
 }
 .content {
   min-width: 0;
+  min-height: 0;
   padding: 28px clamp(20px, 5vw, 72px);
+  overflow-y: auto;
 }
+.statusStack {
+  display: grid;
+  gap: 10px;
+  max-height: min(32vh, 260px);
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+.statusStack:empty { display: none; }
 .workspace,
 .workspaceEmpty {
   max-width: 900px;
@@ -575,10 +596,13 @@ button:disabled {
 .trigger {
   padding: 12px;
   border-top: 1px solid #e5e9ee;
+  flex: 0 0 auto;
 }
 @media (max-width: 760px) {
   .app {
     display: block;
+    height: auto;
+    overflow: visible;
   }
   .inbox {
     border-right: 0;
@@ -586,7 +610,7 @@ button:disabled {
   }
   .runList {
     max-height: 230px;
-    overflow: auto;
+    height: auto;
   }
   .content {
     padding: 16px;
