@@ -186,6 +186,15 @@ export interface RepositoryProfileList {
   profiles: RepositoryProfileView[];
 }
 
+/** A safe diagnostic for webhook work that failed after Linear received 200. */
+export interface IntakeFailure {
+  sessionId: string;
+  action: 'created' | 'prompted';
+  occurredAt: string;
+  reason: string;
+  remediation: string;
+}
+
 export interface ApiError {
   error: string;
   code: string;

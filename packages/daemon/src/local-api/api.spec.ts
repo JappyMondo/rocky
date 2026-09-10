@@ -166,6 +166,34 @@ it('exposes explicit terminal-session recovery without making the API a Run regi
   });
 });
 
+it('exposes only the safe diagnostics for post-acknowledgement intake failures', async () => {
+  const fixture = await setup({
+    intakeFailures: async () => [
+      {
+        sessionId: 'session-1',
+        action: 'created',
+        occurredAt: '2026-09-10T12:00:00.000Z',
+        reason:
+          'Rocky acknowledged this Linear delivery but could not admit its Run.',
+        remediation: 'Open Rocky locally and delegate the issue again.',
+      },
+    ],
+  });
+
+  const response = await fixture.app.inject('/api/intake-failures');
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual([
+    {
+      sessionId: 'session-1',
+      action: 'created',
+      occurredAt: '2026-09-10T12:00:00.000Z',
+      reason:
+        'Rocky acknowledged this Linear delivery but could not admit its Run.',
+      remediation: 'Open Rocky locally and delegate the issue again.',
+    },
+  ]);
+});
+
 it('edits a secret-free local profile with optimistic concurrency', async () => {
   const fixture = await setup();
   fixture.options.profiles = new LocalProfiles(fixture.paths);

@@ -10,6 +10,7 @@ import type {
   Answer,
   ApiError,
   DiffView,
+  IntakeFailure,
   RunDetail,
   RunList,
   RepositoryProfileList,
@@ -114,6 +115,7 @@ export function App() {
   const [runs, setRuns] = useState<RunList | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
+  const [intakeFailures, setIntakeFailures] = useState<IntakeFailure[]>([]);
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [unreachable, setUnreachable] = useState(false);
   const [mismatch, setMismatch] = useState<string | null>(null);
@@ -238,6 +240,27 @@ export function App() {
     const timer = setInterval(() => {
       void poll();
     }, 30_000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, []);
+  useEffect(() => {
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const failures = await api<IntakeFailure[]>(
+          '/api/intake-failures',
+          setMismatch,
+        );
+        if (!stopped) setIntakeFailures(failures);
+      } catch {
+        // A daemon from before this endpoint is still usable; its health
+        // response supplies the version-mismatch warning where applicable.
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 30_000);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -592,6 +615,26 @@ export function App() {
               ? 'Rocky checks it once a minute.'
               : `${health.endpoint.detail ?? 'The endpoint is not answering'} Restore your tunnel or Tailscale Funnel, then run rocky doctor.`}
           </p>
+        )}
+        {intakeFailures.length > 0 && (
+          <section
+            className={styles.intakeFailures}
+            aria-label="Linear intake failures"
+            role="alert"
+          >
+            <h2>Linear intake needs attention</h2>
+            {intakeFailures.map((failure) => (
+              <article key={failure.sessionId}>
+                <p>
+                  <strong>{failure.action} delivery</strong> · session{' '}
+                  <code>{failure.sessionId}</code> ·{' '}
+                  {new Date(failure.occurredAt).toLocaleString()}
+                </p>
+                <p>{failure.reason}</p>
+                <p>{failure.remediation}</p>
+              </article>
+            ))}
+          </section>
         )}
         {error && (
           <p className={styles.error} role="alert">

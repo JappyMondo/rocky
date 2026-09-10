@@ -287,7 +287,7 @@ describe('the response', () => {
 
     expect(response.status).toBe(200);
     expect(logError).toHaveBeenCalledWith(
-      expect.stringContaining('the run engine fell over'),
+      'event=linear_intake_failed session=sess-1 action=prompted remediation="open Rocky locally and recover the session or delegate the issue again"',
     );
   });
 });

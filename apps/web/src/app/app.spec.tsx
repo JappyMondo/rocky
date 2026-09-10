@@ -149,6 +149,7 @@ function daemon(
     runs?: RunSummary[];
     detail?: (id: string, count: number) => Reply;
     health?: (count: number) => Reply;
+    intakeFailures?: (count: number) => Reply;
     settings?: (init?: RequestInit) => Reply;
     profiles?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
@@ -158,6 +159,7 @@ function daemon(
 ) {
   let details = 0;
   let healths = 0;
+  let intakeFailureReads = 0;
   return installFetch((path, init) => {
     if (path === '/api/health')
       return (
@@ -165,6 +167,8 @@ function daemon(
           body: { status: 'ok', version: '0.0.0' },
         }
       );
+    if (path === '/api/intake-failures')
+      return options.intakeFailures?.(++intakeFailureReads) ?? { body: [] };
     if (path === '/api/runs')
       return { body: { runs: options.runs ?? [r1], pollAfterMs: 30000 } };
     if (path === '/api/settings')
@@ -445,6 +449,32 @@ describe('Inbox behavior', () => {
     expect(
       screen.getByText(/Restore your tunnel or Tailscale Funnel/),
     ).toBeTruthy();
+  });
+
+  it('surfaces durable, safe Linear intake failures with their remediation', async () => {
+    daemon({
+      intakeFailures: () => ({
+        body: [
+          {
+            sessionId: 'session-1',
+            action: 'created',
+            occurredAt: '2026-09-10T12:00:00.000Z',
+            reason:
+              'Rocky acknowledged this Linear delivery but could not admit its Run.',
+            remediation: 'Open Rocky locally and delegate the issue again.',
+          },
+        ],
+      }),
+    });
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Linear intake needs attention',
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText('session-1')).toBeTruthy();
+    expect(screen.getByText(/could not admit its Run/)).toBeTruthy();
+    expect(screen.getByText(/delegate the issue again/)).toBeTruthy();
   });
 
   it('polls active detail and refreshes the selected diff on a revision then closes it', async () => {

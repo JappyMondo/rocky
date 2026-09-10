@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type {
   Answer,
   Checkpoint,
+  IntakeFailure,
   RunDetail,
   RunList,
   RunSummary,
@@ -68,15 +69,7 @@ export interface LocalApiOptions {
   ) => Promise<SteerReceipt>;
   steers?: (runId: string) => Promise<SteerReceipt[]>;
   /** Webhook work that failed after Linear received its mandatory 200 response. */
-  intakeFailures?: () => Promise<
-    Array<{
-      sessionId: string;
-      action: 'created' | 'prompted';
-      occurredAt: string;
-      reason: string;
-      remediation: string;
-    }>
-  >;
+  intakeFailures?: () => Promise<IntakeFailure[]>;
   /** Explicitly allow a terminal Linear session to be delegated again. */
   recoverSession?: (runId: string) => Promise<{
     runId: string;

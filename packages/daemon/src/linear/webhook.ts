@@ -122,8 +122,25 @@ export async function registerLinearWebhook(
   app: FastifyInstance,
   options: LinearWebhookOptions,
 ): Promise<void> {
-  const logError =
-    options.logError ?? ((message: string) => app.log.error(message));
+  const logFailure = (event: AgentSessionEvent) => {
+    const remediation =
+      'open Rocky locally and recover the session or delegate the issue again';
+    if (options.logError) {
+      options.logError(
+        `event=linear_intake_failed session=${event.sessionId} action=${event.action} remediation="${remediation}"`,
+      );
+      return;
+    }
+    app.log.error(
+      {
+        event: 'linear_intake_failed',
+        sessionId: event.sessionId,
+        action: event.action,
+        remediation,
+      },
+      'Linear intake failed after acknowledgement',
+    );
+  };
   const logInfo =
     options.logInfo ?? ((message: string) => app.log.info(message));
 
@@ -183,10 +200,8 @@ export async function registerLinearWebhook(
       if (event) {
         void Promise.resolve()
           .then(() => options.onEvent(event))
-          .catch((error: unknown) => {
-            logError(
-              `the Linear webhook for session ${event.sessionId} could not be handled — ${String(error)}. Boot reconciliation will pick it up.`,
-            );
+          .catch(() => {
+            logFailure(event);
           });
       }
 

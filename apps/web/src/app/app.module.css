@@ -401,6 +401,26 @@ button:disabled {
   background: #fff4d9;
   border: 1px solid #e4c16c;
 }
+.intakeFailures {
+  max-width: 900px;
+  padding: 12px 14px;
+  border-radius: 5px;
+  background: #fff0f0;
+  border: 1px solid #e2a1a1;
+  margin-bottom: 16px;
+}
+.intakeFailures h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.intakeFailures article {
+  border-top: 1px solid #edc3c3;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.intakeFailures p {
+  margin: 4px 0;
+}
 .endpointHealthy {
   max-width: 900px;
   padding: 10px 12px;
