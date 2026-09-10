@@ -138,6 +138,11 @@ describe('a stubbed command', () => {
 });
 
 describe('`rocky setup`', () => {
+  const homes: string[] = [];
+  afterEach(() => {
+    for (const home of homes.splice(0))
+      rmSync(home, { recursive: true, force: true });
+  });
   /** A wizard stand-in, so the command's own behaviour is what is asserted. */
   function withSetup(
     result: Promise<{
@@ -147,8 +152,19 @@ describe('`rocky setup`', () => {
     }>,
   ) {
     const close = vi.fn();
+    const home = mkdtempSync(join(tmpdir(), 'rocky-setup-command-'));
+    homes.push(home);
+    const serviceCommands = vi.fn(async () => undefined);
     const { lines, io: cliIo } = io();
     const cli = buildCli(cliIo, {
+      paths: rockyPaths(join(home, '.rocky')),
+      service: {
+        platform: 'darwin',
+        home,
+        entry: '/fixture/rocky/main.js',
+        execPath: '/fixture/node',
+      },
+      runServiceCommands: serviceCommands,
       runSetup: () => result,
       createPrompter: () =>
         ({
@@ -160,11 +176,11 @@ describe('`rocky setup`', () => {
         }) as unknown as ReturnType<typeof createConsolePrompter>,
     });
 
-    return { cli, lines, close };
+    return { cli, lines, close, serviceCommands };
   }
 
   it('succeeds quietly when the wizard finished and the endpoint verified', async () => {
-    const { cli, lines, close } = withSetup(
+    const { cli, lines, close, serviceCommands } = withSetup(
       Promise.resolve({
         ok: true,
         publicUrl: 'https://rocky.example.com',
@@ -177,6 +193,7 @@ describe('`rocky setup`', () => {
     expect(process.exitCode).not.toBe(1);
     expect(lines.err).toEqual([]);
     expect(close).toHaveBeenCalled();
+    expect(serviceCommands).toHaveBeenCalledTimes(4);
   });
 
   it('exits non-zero when the endpoint did not verify', async () => {
