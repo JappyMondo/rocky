@@ -1567,9 +1567,9 @@ describe('Workspace redesign', () => {
     await screen.findByRole('heading', { name: 'service' });
     expect(
       (
-        screen.getByLabelText(
+        (await screen.findByLabelText(
           'Linear labels (one per line)',
-        ) as HTMLTextAreaElement
+        )) as HTMLTextAreaElement
       ).value,
     ).toBe('service');
     fireEvent.change(screen.getByLabelText('Linear labels (one per line)'), {
