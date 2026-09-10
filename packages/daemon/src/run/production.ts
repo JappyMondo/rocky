@@ -251,13 +251,17 @@ export function createProductionRuntime(
       mirrorStep(entry);
     },
     loadWorkflow: async (run, signal) => {
-      if (!run.execution || !run.linear)
+      if (!run.execution)
         throw new Error(
-          `${run.runId}: missing immutable execution/Linear identity; re-delegate through the production admission service`,
+          `${run.runId}: missing immutable execution metadata; re-delegate through the production admission service`,
         );
       signal.throwIfAborted();
       const credentials = await readCredentials(options.paths);
-      servicesEnabled = Boolean(credentials.linear?.accessToken);
+      // A browser-fired manual Run is deliberately not an Agent Session. It
+      // still gets the normal local profile, workspace, and Harness, but it
+      // must not create a mirror, invoke SCM preflight, or pretend it can post
+      // Linear effects without a session-owned identity.
+      servicesEnabled = Boolean(credentials.linear?.accessToken && run.linear);
       activeRun = run;
       env = {
         ...process.env,
@@ -451,16 +455,16 @@ export function createProductionRuntime(
         return;
       const outcome =
         result.status === 'failed'
-            ? {
-                kind: 'failed' as const,
-                stepId: 'Run',
-                reason: result.error.message,
-              }
-            : result.outcome === 'rejected'
-              ? { kind: 'rejected' as const }
-              : result.outcome === 'exhausted'
-                ? { kind: 'giveUp' as const }
-                : { kind: 'completed' as const };
+          ? {
+              kind: 'failed' as const,
+              stepId: 'Run',
+              reason: result.error.message,
+            }
+          : result.outcome === 'rejected'
+            ? { kind: 'rejected' as const }
+            : result.outcome === 'exhausted'
+              ? { kind: 'giveUp' as const }
+              : { kind: 'completed' as const };
       const journal = await readJournal(options.paths.run(run.runId).journal);
       const summaries = journal.entries
         .map((entry) => {
