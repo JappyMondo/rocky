@@ -10,7 +10,11 @@ import type { FastifyInstance } from 'fastify';
 import { updateCredentials } from '../config/store.js';
 import type { ConfigStore } from '../config/watcher.js';
 import { createRepoContext } from '../repos/index.js';
-import { LocalArtifacts, registerLocalApi } from '../local-api/index.js';
+import {
+  LocalArtifacts,
+  LocalProfiles,
+  registerLocalApi,
+} from '../local-api/index.js';
 import { LocalSettings } from '../local-api/settings.js';
 import { RockyLinearClient } from '../linear/client.js';
 import { LinearRunControl } from '../linear/control.js';
@@ -116,6 +120,8 @@ export async function createProductionComposition(options: {
       identity: options.config.current.identity,
     }),
     onRefusal: async (request, message) => {
+      // A browser-fired manual Run has no Agent Session to post into.
+      if (!request.linear) return;
       await client.postActivity({
         sessionId: request.linear.sessionId,
         content: { type: 'error', body: message },
@@ -228,6 +234,7 @@ export async function createProductionComposition(options: {
           paths: options.paths,
           boundServer: options.config.current.server,
         }),
+        profiles: new LocalProfiles(options.paths),
         currentCheckpoint: async (id) =>
           (await controlFor(id))?.currentCheckpoint(),
         answer: async (id, input) => {
@@ -268,6 +275,30 @@ export async function createProductionComposition(options: {
             issueIdentifier: run.issue.identifier,
             sessionId: run.linear.sessionId,
           };
+        },
+        manual: async ({ trigger, issue: identifier }) => {
+          const issue = await client.issue(identifier);
+          const admitted = await execution.manual(trigger, {
+            requestId: randomUUID(),
+            issue: {
+              identifier: issue.identifier,
+              title: issue.title,
+              description: issue.description,
+              labels: issue.labels,
+              url: issue.url,
+            },
+            branch: issue.identifier.toLowerCase(),
+            team: issue.teamId,
+          });
+          if (admitted.kind === 'refused')
+            return { kind: 'refused' as const, reason: admitted.message };
+          if (admitted.kind !== 'started')
+            return {
+              kind: 'refused' as const,
+              reason: `Manual Trigger did not start a new Run (${admitted.kind}).`,
+              runId: admitted.run.runId,
+            };
+          return { kind: 'started' as const, runId: admitted.run.runId };
         },
       });
     },

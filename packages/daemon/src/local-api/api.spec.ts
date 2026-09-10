@@ -27,6 +27,7 @@ import { runBoot } from '../run/replay.js';
 import { RunScheduler } from '../run/scheduler.js';
 import {
   LocalArtifacts,
+  LocalProfiles,
   LocalSettings,
   MAX_TRANSCRIPT_BYTES,
   registerLocalApi,
@@ -163,6 +164,56 @@ it('exposes explicit terminal-session recovery without making the API a Run regi
     issueIdentifier: 'NG-609',
     sessionId: 'stale-session',
   });
+});
+
+it('edits a secret-free local profile with optimistic concurrency', async () => {
+  const fixture = await setup();
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  const create = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'service',
+      remote: 'git@github.com:acme/service.git',
+      workflow: { source: 'export default [];', triggers: ['custom-workflow'] },
+      grants: { harness: 'opencode', capabilities: ['read'], mcp: [] },
+    },
+  });
+  expect(create.statusCode).toBe(200);
+  const profile = create.json<{ revision: string; remote: string }>();
+  expect(profile.remote).toBe('github.com/acme/service');
+  expect(profile).not.toHaveProperty('settings');
+  expect((await fixture.app.inject('/api/profiles')).json()).toMatchObject({
+    profiles: [{ id: 'service', grants: { harness: 'opencode' } }],
+  });
+  const updated = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'service',
+      remote: 'github.com/acme/service',
+      revision: profile.revision,
+      workflow: {
+        source: 'export default [1];',
+        triggers: ['custom-workflow'],
+      },
+      grants: { harness: 'opencode', capabilities: ['read'], mcp: [] },
+    },
+  });
+  expect(updated.statusCode).toBe(200);
+  const stale = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'service',
+      remote: 'github.com/acme/service',
+      revision: profile.revision,
+      workflow: { source: 'export default [2];', triggers: [] },
+      grants: { harness: 'opencode', capabilities: [], mcp: [] },
+    },
+  });
+  expect(stale.statusCode).toBe(409);
+  expect(stale.json()).toMatchObject({ code: 'profile-changed' });
 });
 
 it('renders a real three-Boot Journal, nested identities, and native usage without invented zeroes', async () => {

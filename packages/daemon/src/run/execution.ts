@@ -23,7 +23,8 @@ export interface ExecutionRequest {
   issue: Issue;
   branch: string;
   team?: string;
-  linear: RunLinearIdentity;
+  /** Delegations have a Linear session; locally-fired manual Runs do not. */
+  linear?: RunLinearIdentity;
 }
 
 export interface PreparedExecution {
@@ -278,7 +279,7 @@ export async function openExecution(options: ExecutionOptions) {
             ...(prepared.profile === undefined
               ? {}
               : { profile: prepared.profile }),
-            linear: request.linear,
+            ...(request.linear === undefined ? {} : { linear: request.linear }),
             execution: {
               source,
               sourceCommit: prepared.sourceCommit,

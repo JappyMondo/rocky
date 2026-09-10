@@ -165,6 +165,27 @@ export interface SettingsView {
   mcpAvailable: boolean;
 }
 
+/** Secret-free representation of a machine-local repository profile. */
+export interface RepositoryProfileView {
+  id: string;
+  remote: string;
+  workflow: { source: string; triggers: string[] };
+  grants: {
+    harness: 'claude-code' | 'opencode';
+    capabilities: Array<'read' | 'edit' | 'bash'>;
+    mcp: string[];
+  };
+  /** File names only; prompt bodies and environment values stay local. */
+  prompts: string[];
+  rules: string[];
+  secretEnv: string[];
+  revision: string;
+}
+
+export interface RepositoryProfileList {
+  profiles: RepositoryProfileView[];
+}
+
 export interface ApiError {
   error: string;
   code: string;

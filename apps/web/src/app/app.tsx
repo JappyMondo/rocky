@@ -12,6 +12,8 @@ import type {
   DiffView,
   RunDetail,
   RunList,
+  RepositoryProfileList,
+  RepositoryProfileView,
   SettingsView,
   StepView,
   Usage,
@@ -23,7 +25,8 @@ const VERSION = __ROCKY_VERSION__;
 const TAIL = 40_000;
 type Route =
   | { page: 'inbox'; runId?: string; issueIdentifier?: string }
-  | { page: 'settings' };
+  | { page: 'settings' }
+  | { page: 'profiles' };
 type Health = {
   status: string;
   version: string;
@@ -43,7 +46,9 @@ const route = (): Route => {
     return { page: 'inbox', issueIdentifier: decodeURIComponent(issue[1]) };
   return window.location.pathname === '/settings'
     ? { page: 'settings' }
-    : { page: 'inbox' };
+    : window.location.pathname === '/profiles'
+      ? { page: 'profiles' }
+      : { page: 'inbox' };
 };
 const go = (path: string) => {
   window.history.pushState({}, '', path);
@@ -498,6 +503,7 @@ export function App() {
             <span>Inbox</span>
           </div>
           <button onClick={() => go('/settings')}>Settings</button>
+          <button onClick={() => go('/profiles')}>Profiles</button>
         </header>
         <nav aria-label="Runs">
           <ul className={styles.runList}>
@@ -595,6 +601,13 @@ export function App() {
         {currentRoute.page === 'settings' ? (
           <Settings
             settings={settings}
+            disabled={!mutationsAllowed}
+            mismatch={setMismatch}
+            back={() => go('/')}
+            error={setError}
+          />
+        ) : currentRoute.page === 'profiles' ? (
+          <Profiles
             disabled={!mutationsAllowed}
             mismatch={setMismatch}
             back={() => go('/')}
@@ -1183,6 +1196,212 @@ function Settings(p: {
           </p>
         ))
       )}
+    </section>
+  );
+}
+
+function Profiles(p: {
+  disabled: boolean;
+  mismatch: (v: string | null) => void;
+  back: () => void;
+  error: (s: string) => void;
+}) {
+  const [profiles, setProfiles] = useState<RepositoryProfileView[] | null>(
+    null,
+  );
+  const [selected, setSelected] = useState<RepositoryProfileView | null>(null);
+  const [draft, setDraft] = useState<RepositoryProfileView | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    api<RepositoryProfileList>('/api/profiles', p.mismatch)
+      .then((next) => {
+        if (stopped) return;
+        setProfiles(next.profiles);
+        const first = next.profiles[0] ?? null;
+        setSelected(first);
+        setDraft(first);
+      })
+      .catch(
+        (caught) =>
+          !stopped &&
+          void apiError(caught, 'Could not load profiles.').then(p.error),
+      );
+    return () => {
+      stopped = true;
+    };
+  }, [p.mismatch, p.error]);
+  const choose = (id: string) => {
+    const next = profiles?.find((profile) => profile.id === id) ?? null;
+    setSelected(next);
+    setDraft(next);
+  };
+  const create = () => {
+    const next: RepositoryProfileView = {
+      id: '',
+      remote: '',
+      workflow: { source: 'export default [];', triggers: [] },
+      grants: { harness: 'opencode', capabilities: [], mcp: [] },
+      prompts: [],
+      rules: [],
+      secretEnv: [],
+      revision: '',
+    };
+    setSelected(null);
+    setDraft(next);
+  };
+  const save = async () => {
+    if (!draft || p.disabled) return;
+    try {
+      const saved = await api<RepositoryProfileView>(
+        '/api/profiles',
+        p.mismatch,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            id: draft.id,
+            remote: draft.remote,
+            revision: draft.revision || undefined,
+            workflow: draft.workflow,
+            grants: draft.grants,
+          }),
+        },
+      );
+      setProfiles((current) =>
+        [...(current ?? []).filter((item) => item.id !== saved.id), saved].sort(
+          (a, b) => a.id.localeCompare(b.id),
+        ),
+      );
+      setSelected(saved);
+      setDraft(saved);
+    } catch (caught) {
+      p.error(await apiError(caught, 'Profile was not saved.'));
+    }
+  };
+  if (!profiles || !draft)
+    return (
+      <div className={styles.placeholder}>Loading repository profiles…</div>
+    );
+  return (
+    <section className={styles.profiles}>
+      <button onClick={p.back}>← Inbox</button>
+      <header>
+        <div>
+          <h1>Repository profiles</h1>
+          <p>
+            Local-only workflows. Repository files cannot change these settings.
+          </p>
+        </div>
+        <button disabled={p.disabled} onClick={create}>
+          New profile
+        </button>
+      </header>
+      <label>
+        Profile
+        <select
+          value={selected?.id ?? ''}
+          onChange={(event) => choose(event.target.value)}
+          disabled={p.disabled}
+        >
+          {!selected && <option value="">New profile</option>}
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.id} · {profile.remote}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Profile id
+        <input
+          value={draft.id}
+          disabled={p.disabled || Boolean(selected)}
+          onChange={(event) => setDraft({ ...draft, id: event.target.value })}
+          placeholder="my-repo"
+        />
+      </label>
+      <label>
+        Canonical repository remote
+        <input
+          value={draft.remote}
+          disabled={p.disabled}
+          onChange={(event) =>
+            setDraft({ ...draft, remote: event.target.value })
+          }
+          placeholder="github.com/acme/service"
+        />
+      </label>
+      <label>
+        Harness
+        <select
+          value={draft.grants.harness}
+          disabled={p.disabled}
+          onChange={(event) =>
+            setDraft({
+              ...draft,
+              grants: {
+                ...draft.grants,
+                harness: event.target
+                  .value as RepositoryProfileView['grants']['harness'],
+              },
+            })
+          }
+        >
+          <option value="opencode">OpenCode</option>
+          <option value="claude-code">Claude Code</option>
+        </select>
+      </label>
+      <label>
+        Manual triggers (one per line)
+        <textarea
+          value={draft.workflow.triggers.join('\n')}
+          disabled={p.disabled}
+          onChange={(event) =>
+            setDraft({
+              ...draft,
+              workflow: {
+                ...draft.workflow,
+                triggers: event.target.value
+                  .split('\n')
+                  .map((name) => name.trim())
+                  .filter(Boolean),
+              },
+            })
+          }
+          placeholder="custom-workflow"
+        />
+      </label>
+      <label>
+        workflow.ts
+        <textarea
+          className={styles.workflowSource}
+          value={draft.workflow.source}
+          disabled={p.disabled}
+          onChange={(event) =>
+            setDraft({
+              ...draft,
+              workflow: { ...draft.workflow, source: event.target.value },
+            })
+          }
+          spellCheck={false}
+        />
+      </label>
+      <p className={styles.muted}>
+        Prompts: {draft.prompts.join(', ') || 'none'} · Rules:{' '}
+        {draft.rules.join(', ') || 'none'} · Secret references:{' '}
+        {draft.secretEnv.join(', ') || 'none'}
+      </p>
+      <button
+        disabled={
+          p.disabled ||
+          !draft.id ||
+          !draft.remote ||
+          !draft.workflow.source.trim()
+        }
+        onClick={() => void save()}
+      >
+        Save profile
+      </button>
     </section>
   );
 }

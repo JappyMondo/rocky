@@ -32,6 +32,7 @@ import {
   MAX_TRANSCRIPT_BYTES,
 } from './artifacts.js';
 import { LocalApiError, LocalSettings } from './settings.js';
+import { LocalProfiles } from './profiles.js';
 
 export {
   LocalArtifacts,
@@ -40,6 +41,7 @@ export {
   parseUnifiedDiff,
 } from './artifacts.js';
 export { LocalSettings, LocalApiError } from './settings.js';
+export { LocalProfiles } from './profiles.js';
 
 export interface LocalApiOptions {
   /** The runtime's in-memory index, never a second API-owned Run registry. */
@@ -51,6 +53,7 @@ export interface LocalApiOptions {
   };
   artifacts: LocalArtifacts;
   settings: LocalSettings;
+  profiles?: LocalProfiles;
   currentCheckpoint?: (runId: string) => Promise<Checkpoint | undefined>;
   answer?: (
     runId: string,
@@ -467,6 +470,30 @@ export async function registerLocalApi(
       },
     );
     local.get('/api/settings', () => options.settings.read());
+    local.get('/api/profiles', async () => ({
+      profiles: (await options.profiles?.list()) ?? [],
+    }));
+    local.get<{ Params: { id: string } }>(
+      '/api/profiles/:id',
+      async (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Repository profiles are not connected.',
+          );
+        return options.profiles.read(parse(segment, request.params.id));
+      },
+    );
+    local.put('/api/profiles', async (request) => {
+      if (!options.profiles)
+        throw new LocalApiError(
+          503,
+          'profiles-unavailable',
+          'Repository profiles are not connected.',
+        );
+      return options.profiles.save(request.body);
+    });
     local.get(
       '/api/intake-failures',
       async () => options.intakeFailures?.() ?? [],

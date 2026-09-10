@@ -150,6 +150,7 @@ function daemon(
     detail?: (id: string, count: number) => Reply;
     health?: (count: number) => Reply;
     settings?: (init?: RequestInit) => Reply;
+    profiles?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
     recovery?: (init?: RequestInit) => Reply;
     diffs?: (path: string) => Reply;
@@ -168,6 +169,8 @@ function daemon(
       return { body: { runs: options.runs ?? [r1], pollAfterMs: 30000 } };
     if (path === '/api/settings')
       return options.settings?.(init) ?? { body: settings() };
+    if (path === '/api/profiles')
+      return options.profiles?.(init) ?? { body: { profiles: [] } };
     if (path === '/api/triggers')
       return options.trigger?.(init) ?? { body: { runId: 'r3' } };
     if (/\/recover-session$/.test(path))
@@ -852,5 +855,62 @@ describe('Inbox behavior', () => {
     });
     render(<App />);
     expect(await screen.findByText('MCP status is unavailable.')).toBeTruthy();
+  });
+
+  it('edits and saves a local OpenCode workflow profile', async () => {
+    window.history.replaceState({}, '', '/profiles');
+    const mock = daemon({
+      profiles: (init) =>
+        init?.method === 'PUT'
+          ? {
+              body: {
+                id: 'service',
+                remote: 'github.com/acme/service',
+                revision: 'new',
+                workflow: {
+                  source: 'export default [changed];',
+                  triggers: ['custom-workflow'],
+                },
+                grants: { harness: 'opencode', capabilities: [], mcp: [] },
+                prompts: ['planner'],
+                rules: [],
+                secretEnv: ['TOKEN'],
+              },
+            }
+          : {
+              body: {
+                profiles: [
+                  {
+                    id: 'service',
+                    remote: 'github.com/acme/service',
+                    revision: 'old',
+                    workflow: {
+                      source: 'export default [];',
+                      triggers: ['custom-workflow'],
+                    },
+                    grants: { harness: 'opencode', capabilities: [], mcp: [] },
+                    prompts: ['planner'],
+                    rules: [],
+                    secretEnv: ['TOKEN'],
+                  },
+                ],
+              },
+            },
+    });
+    render(<App />);
+    const source = await screen.findByLabelText('workflow.ts');
+    fireEvent.change(source, {
+      target: { value: 'export default [changed];' },
+    });
+    expect(screen.getByDisplayValue('OpenCode')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    expect(await screen.findByText(/Prompts: planner/)).toBeTruthy();
+    expect(mock).toHaveBeenCalledWith(
+      '/api/profiles',
+      expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"harness":"opencode"'),
+      }),
+    );
   });
 });

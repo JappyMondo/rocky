@@ -261,6 +261,54 @@ em {
   padding: 16px;
   margin: 16px 0;
 }
+.profiles {
+  max-width: 900px;
+  background: #fff;
+  border: 1px solid #dfe5eb;
+  border-radius: 7px;
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+.profiles header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+.profiles h1 {
+  margin: 0;
+}
+.profiles header p {
+  margin: 5px 0 0;
+  color: #667585;
+}
+.profiles label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+.profiles input,
+.profiles select,
+.profiles textarea {
+  font: inherit;
+  border: 1px solid #cbd5df;
+  border-radius: 4px;
+  padding: 8px;
+}
+.profiles textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+.workflowSource {
+  min-height: 360px !important;
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace !important;
+  white-space: pre;
+}
 .checkpoint p {
   margin: 0 0 8px;
 }
