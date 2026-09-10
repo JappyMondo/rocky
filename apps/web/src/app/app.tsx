@@ -692,7 +692,18 @@ function TranscriptPanel({ runId, step }: { runId: string; step: StepView }) {
   return <pre className={styles.transcript}>{text || empty}</pre>;
 }
 function ResultView({ step }: { step: StepView }) {
-  if (step.result === undefined && !step.error) return null;
+  const live =
+    step.status === 'running' && (step.liveOutput || step.liveSummary) ? (
+      <div className={styles.resultWrap} aria-live="polite">
+        {step.liveSummary && (
+          <p className={styles.stepResult}>{step.liveSummary}</p>
+        )}
+        {step.liveOutput && (
+          <pre className={styles.transcript}>{step.liveOutput}</pre>
+        )}
+      </div>
+    ) : null;
+  if (step.result === undefined && !step.error) return live;
   if (typeof step.result === 'string')
     return <p className={styles.stepResult}>{step.result}</p>;
   const record =
@@ -707,6 +718,7 @@ function ResultView({ step }: { step: StepView }) {
   const rendered = JSON.stringify(step.result, null, 2);
   return (
     <div className={styles.resultWrap}>
+      {live}
       {summary && <p className={styles.stepResult}>{summary}</p>}
       {plan && (
         <ol className={styles.plan}>

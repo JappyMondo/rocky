@@ -12,7 +12,7 @@ import {
   type RunHeader,
 } from './header.js';
 import { WorkflowRuntime } from './lifecycle.js';
-import { appendEntry, type RunEnd } from './journal.js';
+import { appendEntry, readJournal, type RunEnd } from './journal.js';
 
 let dir: string;
 let paths: RockyPaths;
@@ -365,6 +365,24 @@ it('merges per-Run environment over the inherited environment', async () => {
   expect(
     (await runtime.boot(header, 'run', new AbortController().signal)).status,
   ).toBe('finished');
+});
+
+it('hands a terminal outcome to the integration before writing $end', async () => {
+  const beforeTerminal = vi.fn(async () => {
+    expect((await readJournal(paths.run(header.runId).journal)).end).toBeUndefined();
+  });
+  runtime = new WorkflowRuntime({
+    paths,
+    loadWorkflow: async () => async () => 'completed',
+    beforeTerminal,
+  });
+  await expect(
+    runtime.boot(header, 'run', new AbortController().signal),
+  ).resolves.toMatchObject({ status: 'finished', outcome: 'completed' });
+  expect(beforeTerminal).toHaveBeenCalledWith(
+    expect.objectContaining({ runId: header.runId }),
+    { status: 'finished', outcome: 'completed' },
+  );
 });
 
 const terminalOutcomes: RunEnd[] = [

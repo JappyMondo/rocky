@@ -83,6 +83,47 @@ it('returns the original schema fields plus summary and replays without a conver
   expect(f.run).toHaveBeenCalledOnce();
 });
 
+it('persists streamed Agent text before the Step settles', async () => {
+  const f = fixture();
+  let complete!: (result: AgentHarnessResult) => void;
+  f.run.mockImplementation(
+    (input) =>
+      new Promise((resolve) => {
+        input.onEvent?.(
+          { kind: 'text', text: 'Inspecting the repository…' },
+          'session-1',
+        );
+        complete = resolve;
+      }),
+  );
+  const boot = runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Inspect.' },
+        { label: 'worker' },
+      );
+      return 'completed';
+    },
+  });
+  await vi.waitFor(async () => {
+    const entry = (await openJournal(join(dir, 'journal.jsonl'))).latest(0);
+    expect(entry?.status).toBe('running');
+    expect(entry?.progress).toMatchObject({
+      live: {
+        output: 'Inspecting the repository…',
+        summary: 'Inspecting the repository…',
+      },
+    });
+  });
+  complete({
+    text: '<result>{"summary":"done"}</result>',
+    sessionId: 'session-1',
+    events: [],
+  });
+  await expect(boot).resolves.toMatchObject({ status: 'finished' });
+});
+
 it('nudges refinements twice in the same session, then burns three attempts with durable metadata', async () => {
   const f = fixture();
   f.run.mockImplementation(async () => ({

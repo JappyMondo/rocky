@@ -358,6 +358,24 @@ export async function registerLocalApi(
               }
               if (run.artifactsPruned && entry.step === 'agent')
                 transcript = 'pruned';
+              const live =
+                entry.progress &&
+                typeof entry.progress === 'object' &&
+                !Array.isArray(entry.progress) &&
+                'live' in entry.progress &&
+                entry.progress.live &&
+                typeof entry.progress.live === 'object' &&
+                !Array.isArray(entry.progress.live)
+                  ? entry.progress.live
+                  : undefined;
+              const liveOutput =
+                live && 'output' in live && typeof live.output === 'string'
+                  ? live.output
+                  : undefined;
+              const liveSummary =
+                live && 'summary' in live && typeof live.summary === 'string'
+                  ? live.summary
+                  : undefined;
               return {
                 key,
                 parentKey,
@@ -372,6 +390,8 @@ export async function registerLocalApi(
                 completedBeforeCurrentBoot:
                   entry.status === 'done' && entry.boot < run.boots,
                 result: entry.result,
+                ...(liveOutput === undefined ? {} : { liveOutput }),
+                ...(liveSummary === undefined ? {} : { liveSummary }),
                 error: entry.error && {
                   name: entry.error.name,
                   message: entry.error.message,

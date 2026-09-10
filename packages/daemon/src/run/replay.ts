@@ -151,6 +151,12 @@ export interface RunBootOptions {
    * reach the three phase boundaries a `kill -9` produces.
    */
   append?: Appender;
+  /**
+   * Runs while the Journal is still writable, immediately before its terminal
+   * `$end` entry. Integrations that use journal-backed idempotency state must
+   * persist it here rather than after terminalization.
+   */
+  beforeEnd?: (end: RunEnd) => Promise<void>;
 }
 
 /**
@@ -887,6 +893,7 @@ export async function runBoot(options: RunBootOptions): Promise<BootResult> {
     throw runner.infra;
   }
   const writeEnd = async (end: RunEnd, status: 'done' | 'failed') => {
+    await options.beforeEnd?.(end);
     await append(
       journalPath,
       {

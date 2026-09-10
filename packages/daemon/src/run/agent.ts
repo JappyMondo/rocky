@@ -27,6 +27,12 @@ const progressSchema = z.object({
     }),
   ),
   delivered: z.array(z.string()),
+  live: z
+    .object({
+      output: z.string(),
+      summary: z.string(),
+    })
+    .optional(),
   continuation: z.enum(['schema', 'steer']).optional(),
   error: z
     .object({
@@ -90,6 +96,22 @@ export type AgentHarnessEvent =
   | { kind: 'tool-call'; name: string }
   | { kind: 'tool-result'; name: string }
   | { kind: 'turn-boundary' };
+
+const LIVE_OUTPUT_LIMIT = 12_000;
+
+/** A compact, transcript-safe description for live status surfaces. */
+export function describeAgentEvent(event: AgentHarnessEvent): string {
+  switch (event.kind) {
+    case 'text':
+      return event.text.trim() || 'Agent is responding…';
+    case 'tool-call':
+      return `Running ${event.name}…`;
+    case 'tool-result':
+      return `Finished ${event.name}.`;
+    case 'turn-boundary':
+      return 'Agent is preparing its next action…';
+  }
+}
 
 export interface AgentHarnessResult {
   text: string;
@@ -312,6 +334,7 @@ export function createAgent(
           usage: {},
           turns: [],
           delivered: [],
+          live: { output: '', summary: 'Starting agent…' },
         };
       };
       let progress =
@@ -337,6 +360,26 @@ export function createAgent(
         }
       >();
       let accepting = true;
+      // Harness callbacks are synchronous, whereas Journal writes are not.
+      // Serialize the latter and join them before settling the Step so a live
+      // preview can never be lost behind the final result.
+      let eventWrites = Promise.resolve();
+      const streamEvent = (event: AgentHarnessEvent, sessionId: string) => {
+        const summary = describeAgentEvent(event);
+        const previous = progress.live?.output ?? '';
+        const output =
+          event.kind === 'text'
+            ? `${previous}${event.text}`.slice(-LIVE_OUTPUT_LIMIT)
+            : previous;
+        progress = { ...progress, live: { output, summary } };
+        eventWrites = eventWrites.then(() => handle.update(progress));
+        void eventWrites.catch(() => undefined);
+        try {
+          runtime.onEvent?.(handle.identity, event, sessionId);
+        } catch {
+          // Presentation must never strand a durable Step.
+        }
+      };
       const acceptTurn = (turn: AgentTurn): Promise<void> => {
         if (!accepting) {
           return Promise.reject(
@@ -577,11 +620,7 @@ export function createAgent(
                 signal: attemptSignal,
                 timeoutMs: Math.max(1, progress.deadline - Date.now()),
                 onEvent: (event, sessionId) => {
-                  try {
-                    runtime.onEvent?.(handle.identity, event, sessionId);
-                  } catch {
-                    // Incremental display output cannot strand a durable Step.
-                  }
+                  streamEvent(event, sessionId);
                   if (
                     event.kind !== 'turn-boundary' ||
                     boundaryRequested ||
@@ -620,6 +659,7 @@ export function createAgent(
                 }
               } catch (error) {
                 await boundaryWrite;
+                await eventWrites;
                 if (boundaryController.signal.reason instanceof SteerBoundary) {
                   if (!progress.sessionId) throw error;
                   if (await continueWithSteers(progress.sessionId)) break;
@@ -627,6 +667,7 @@ export function createAgent(
                 throw error;
               }
               await boundaryWrite;
+              await eventWrites;
               progress = { ...progress, sessionId: result.sessionId };
               for (const [key, value] of Object.entries(result.usage ?? {})) {
                 if (typeof value === 'number') {

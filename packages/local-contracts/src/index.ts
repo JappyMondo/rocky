@@ -62,6 +62,10 @@ export interface StepView {
   /** Recorded prior completion, not a claim about unrecorded replay visits. */
   completedBeforeCurrentBoot: boolean;
   result?: unknown;
+  /** A bounded, durable preview emitted while an Agent Step is still running. */
+  liveOutput?: string;
+  /** The most recent Agent/tool activity, suitable for a compact status line. */
+  liveSummary?: string;
   error?: { name: string; message: string };
   attempts: Array<{
     kind: 'failed' | 'steer';

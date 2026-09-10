@@ -16,8 +16,8 @@ import {
   createScm,
   runPreflight,
 } from '../scm/index.js';
-import { createAgent, type AgentOptions } from './agent.js';
-import { readJournal } from './journal.js';
+import { createAgent, describeAgentEvent, type AgentOptions } from './agent.js';
+import { readJournal, type JournalEntry } from './journal.js';
 import { loadSnapshotWorkflow } from './loading/loader.js';
 import { validateSnapshotTriggers } from './loading/validate.js';
 import { loadMcpRuntime, type McpRuntime } from './mcp-contract.js';
@@ -106,11 +106,17 @@ export function createProductionRuntime(
   options: ProductionRuntimeOptions,
 ): WorkflowRuntime {
   let env: NodeJS.ProcessEnv = {};
+  let activeRun:
+    Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0] | undefined;
   // A direct Runtime construction is useful for isolated Workflow tests. A
   // real admitted Linear Run has an access token (hydration could not happen
   // otherwise), so only those Runs receive network-backed production services.
   let servicesEnabled = false;
   let mcp: Promise<{ runtime: McpRuntime; config: unknown }> | undefined;
+  // A mirror has a small in-memory coalescing buffer. Keep one per Run rather
+  // than constructing one per effect so streamed status is actually flushed.
+  const mirrors = new Map<string, LinearRunMirror>();
+  const mirrorFlushes = new Map<string, ReturnType<typeof setTimeout>>();
   const linearClient = new RockyLinearClient({
     auth: async () => (await readCredentials(options.paths)).linear ?? {},
     save: async () => undefined,
@@ -119,7 +125,9 @@ export function createProductionRuntime(
     run: Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0],
   ) => {
     if (!run.linear) throw new Error(`${run.runId}: missing Linear identity`);
-    return new LinearRunMirror({
+    const existing = mirrors.get(run.runId);
+    if (existing) return existing;
+    const mirror = new LinearRunMirror({
       runId: run.runId,
       issueId: run.linear.issueId,
       sessionId: run.linear.sessionId,
@@ -138,6 +146,72 @@ export function createProductionRuntime(
         },
       },
     });
+    mirrors.set(run.runId, mirror);
+    return mirror;
+  };
+  const flushMirrorSoon = (runId: string, mirror: LinearRunMirror) => {
+    if (mirrorFlushes.has(runId)) return;
+    mirrorFlushes.set(
+      runId,
+      setTimeout(() => {
+        mirrorFlushes.delete(runId);
+        // Linear receives a coalesced current status, never raw Transcript
+        // chunks. The durable UI preview remains the source for full output.
+        void mirror.flushStatus().catch(() => undefined);
+      }, 300),
+    );
+  };
+  const summaryFor = (entry: JournalEntry) => {
+    if (entry.status === 'running') {
+      const live =
+        entry.progress &&
+        typeof entry.progress === 'object' &&
+        !Array.isArray(entry.progress) &&
+        'live' in entry.progress &&
+        entry.progress.live &&
+        typeof entry.progress.live === 'object' &&
+        !Array.isArray(entry.progress.live)
+          ? entry.progress.live
+          : undefined;
+      if (live && 'summary' in live && typeof live.summary === 'string')
+        return live.summary;
+      return 'Running…';
+    }
+    if (entry.status === 'waiting') return 'Waiting for input…';
+    if (entry.status === 'failed') return entry.error?.message ?? 'Failed.';
+    const result = entry.result;
+    if (
+      result &&
+      typeof result === 'object' &&
+      !Array.isArray(result) &&
+      typeof (result as { summary?: unknown }).summary === 'string'
+    )
+      return (result as { summary: string }).summary;
+    return 'Completed.';
+  };
+  const mirrorStep = (entry: JournalEntry) => {
+    // The mirror begins at the durable linear.start Step. Earlier framework
+    // preparation predates the acknowledged Linear session and cannot be
+    // presented there honestly.
+    if (!servicesEnabled || !activeRun?.linear || entry.step === 'linear.start')
+      return;
+    const mirror = mirrorFor(activeRun);
+    const frame = {
+      stepId: String(entry.seq),
+      title: entry.label ?? entry.step,
+      summary: summaryFor(entry),
+    };
+    if (entry.status === 'done' || entry.status === 'failed') {
+      void mirror
+        .settle({
+          ...frame,
+          outcome: entry.status === 'done' ? 'completed' : 'failed',
+        })
+        .catch(() => undefined);
+      return;
+    }
+    mirror.status(frame);
+    flushMirrorSoon(activeRun.runId, mirror);
   };
   const scmFor = (
     run: Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0],
@@ -174,6 +248,7 @@ export function createProductionRuntime(
     read: readJournal,
     append: async (_path, entry, appendOptions) => {
       await options.request({ kind: 'append', entry, options: appendOptions });
+      mirrorStep(entry);
     },
     loadWorkflow: async (run, signal) => {
       if (!run.execution || !run.linear)
@@ -183,6 +258,7 @@ export function createProductionRuntime(
       signal.throwIfAborted();
       const credentials = await readCredentials(options.paths);
       servicesEnabled = Boolean(credentials.linear?.accessToken);
+      activeRun = run;
       env = {
         ...process.env,
         ...profileEnv(run, credentials),
@@ -351,10 +427,61 @@ export function createProductionRuntime(
             });
           },
           adapterFor: options.adapterFor,
-          onEvent: options.onEvent,
+          onEvent: (stepKey, event, sessionId) => {
+            options.onEvent?.(stepKey, event, sessionId);
+            if (!servicesEnabled) return;
+            const mirror = mirrorFor(run);
+            mirror.status({
+              stepId: stepKey,
+              title: 'Agent',
+              summary: describeAgentEvent(event),
+            });
+            flushMirrorSoon(run.runId, mirror);
+          },
           steer: options.steer,
         }),
       };
+    },
+    beforeTerminal: async (run, result) => {
+      if (
+        !servicesEnabled ||
+        !run.linear ||
+        run.execution?.source === 'onboarding'
+      )
+        return;
+      const outcome =
+        result.status === 'failed'
+            ? {
+                kind: 'failed' as const,
+                stepId: 'Run',
+                reason: result.error.message,
+              }
+            : result.outcome === 'rejected'
+              ? { kind: 'rejected' as const }
+              : result.outcome === 'exhausted'
+                ? { kind: 'giveUp' as const }
+                : { kind: 'completed' as const };
+      const journal = await readJournal(options.paths.run(run.runId).journal);
+      const summaries = journal.entries
+        .map((entry) => {
+          const result = entry.result;
+          if (
+            result &&
+            typeof result === 'object' &&
+            !Array.isArray(result) &&
+            typeof (result as { summary?: unknown }).summary === 'string'
+          )
+            return (result as { summary: string }).summary;
+          return undefined;
+        })
+        .filter((summary): summary is string => Boolean(summary));
+      await mirrorFor(run).finish(outcome, {
+        changedSummary:
+          summaries.at(-1) ??
+          (result.status === 'failed'
+            ? result.error.message
+            : `Rocky Run ${result.status}.`),
+      });
     },
   });
 }

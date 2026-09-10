@@ -14,6 +14,7 @@ import {
   type BootResult,
   type RunBootOptions,
 } from './replay.js';
+import type { RunEnd } from './journal.js';
 import { startCommand, type OwnedCommand } from './process.js';
 
 export interface WorkflowRuntimeOptions {
@@ -48,6 +49,14 @@ export interface WorkflowRuntimeOptions {
   execTimeoutMs?: number;
   append?: RunBootOptions['append'];
   read?: RunBootOptions['read'];
+  /**
+   * Runs at the final writable Journal boundary, immediately before `$end`.
+   * Journal-backed integrations use this to persist their terminal state.
+   */
+  beforeTerminal?(
+    run: RunHeader,
+    result: Extract<RunEnd, { status: 'finished' | 'failed' }>,
+  ): Promise<void>;
 }
 
 /** One per daemon. The scheduler owns admission/cancellation; this owns exec children. */
@@ -70,6 +79,10 @@ export class WorkflowRuntime {
         signal,
         append: this.options.append,
         read: this.options.read,
+        beforeEnd: async (end) => {
+          if (end.status === 'finished' || end.status === 'failed')
+            await this.options.beforeTerminal?.(run, end);
+        },
         workflow: async (steps) => {
           run = await readRunHeader(paths, run.runId);
           if (kind === 'run') {
