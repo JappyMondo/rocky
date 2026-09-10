@@ -487,6 +487,16 @@ export async function registerLocalApi(
         );
       return options.profiles.save(request.body);
     });
+    local.delete('/api/profiles', async (request) => {
+      if (!options.profiles)
+        throw new LocalApiError(
+          503,
+          'profiles-unavailable',
+          'Repository profiles are not connected.',
+        );
+      await options.profiles.delete(request.body);
+      return { deleted: true };
+    });
     local.get(
       '/api/intake-failures',
       async () => options.intakeFailures?.() ?? [],

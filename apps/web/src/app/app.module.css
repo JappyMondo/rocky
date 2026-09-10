@@ -309,6 +309,15 @@ em {
     monospace !important;
   white-space: pre;
 }
+.deleteProfile {
+  width: max-content;
+  border: 1px solid #c35c5c;
+  border-radius: 5px;
+  background: #fff;
+  color: #9b3131;
+  padding: 7px 11px;
+  cursor: pointer;
+}
 .checkpoint p {
   margin: 0 0 8px;
 }

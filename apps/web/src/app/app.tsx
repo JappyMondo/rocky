@@ -1321,6 +1321,26 @@ function Profiles(p: {
       p.error(await apiError(caught, 'Profile was not saved.'));
     }
   };
+  const remove = async () => {
+    if (!selected || p.disabled) return;
+    if (!window.confirm(`Delete local profile ${selected.id}?`)) return;
+    try {
+      await api('/api/profiles', p.mismatch, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: selected.id, revision: selected.revision }),
+      });
+      setProfiles((current) => {
+        const next = (current ?? []).filter((item) => item.id !== selected.id);
+        const replacement = next[0] ?? null;
+        setSelected(replacement);
+        setDraft(replacement);
+        return next;
+      });
+    } catch (caught) {
+      p.error(await apiError(caught, 'Profile was not deleted.'));
+    }
+  };
   if (!profiles || !draft)
     return (
       <div className={styles.placeholder}>Loading repository profiles…</div>
@@ -1445,6 +1465,15 @@ function Profiles(p: {
       >
         Save profile
       </button>
+      {selected && (
+        <button
+          className={styles.deleteProfile}
+          disabled={p.disabled}
+          onClick={() => void remove()}
+        >
+          Delete profile
+        </button>
+      )}
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 
 import type { RepositoryProfileView } from '@rocky/local-contracts';
 import { z } from 'zod';
@@ -37,6 +38,7 @@ const editable = z
   .strict();
 
 const updates = new KeyedMutex();
+const deletion = z.object({ id, revision: z.string().min(1) }).strict();
 
 function revision(profile: RepositoryProfile): string {
   return createHash('sha256').update(JSON.stringify(profile)).digest('hex');
@@ -114,6 +116,37 @@ export class LocalProfiles {
         grants: parsed.data.grants,
       });
       return view(saved);
+    });
+  }
+
+  async delete(input: unknown): Promise<void> {
+    const parsed = deletion.safeParse(input);
+    if (!parsed.success)
+      throw new LocalApiError(
+        400,
+        'invalid-profile-delete',
+        'Deleting a profile requires its id and current revision.',
+      );
+    await updates.run(this.paths.profile(parsed.data.id), async () => {
+      let existing: RepositoryProfile;
+      try {
+        existing = await readRepositoryProfile(this.paths, parsed.data.id);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('does not exist'))
+          throw new LocalApiError(
+            404,
+            'profile-not-found',
+            'Profile not found.',
+          );
+        throw error;
+      }
+      if (parsed.data.revision !== revision(existing))
+        throw new LocalApiError(
+          409,
+          'profile-changed',
+          'This profile changed. Reload it before deleting; nothing was removed.',
+        );
+      await rm(this.paths.profile(parsed.data.id));
     });
   }
 }

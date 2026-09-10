@@ -244,6 +244,41 @@ it('edits a secret-free local profile with optimistic concurrency', async () => 
   expect(stale.json()).toMatchObject({ code: 'profile-changed' });
 });
 
+it('deletes only a current local profile revision', async () => {
+  const fixture = await setup();
+  fixture.options.profiles = new LocalProfiles(fixture.paths);
+  const created = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'disposable',
+      remote: 'github.com/acme/disposable',
+      workflow: { source: 'export default [];', triggers: [] },
+      grants: { harness: 'opencode', capabilities: [], mcp: [] },
+    },
+  });
+  const profile = created.json<{ revision: string }>();
+  const stale = await fixture.app.inject({
+    method: 'DELETE',
+    url: '/api/profiles',
+    payload: { id: 'disposable', revision: 'stale' },
+  });
+  expect(stale.statusCode).toBe(409);
+  expect(await fixture.app.inject('/api/profiles/disposable')).toMatchObject({
+    statusCode: 200,
+  });
+  const deleted = await fixture.app.inject({
+    method: 'DELETE',
+    url: '/api/profiles',
+    payload: { id: 'disposable', revision: profile.revision },
+  });
+  expect(deleted.statusCode).toBe(200);
+  expect(deleted.json()).toEqual({ deleted: true });
+  expect((await fixture.app.inject('/api/profiles')).json()).toEqual({
+    profiles: [],
+  });
+});
+
 it('renders a real three-Boot Journal, nested identities, and native usage without invented zeroes', async () => {
   const { app, paths, run, options } = await setup();
   let pass = 0;
