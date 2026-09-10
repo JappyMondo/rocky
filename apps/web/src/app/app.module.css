@@ -96,6 +96,75 @@ em {
   min-width: 0;
   padding: 28px clamp(20px, 5vw, 72px);
 }
+.workspace,
+.workspaceEmpty {
+  max-width: 900px;
+  margin-bottom: 34px;
+}
+.workspaceEmpty {
+  border: 1px dashed #b9c8bd;
+  border-radius: 10px;
+  background: #fff;
+  padding: 30px;
+}
+.workspaceEmpty h1,
+.workspaceHeader h1 {
+  margin: 0;
+  font: 700 38px/1 Georgia, serif;
+  letter-spacing: -0.04em;
+}
+.workspaceEmpty p:not(.eyebrow),
+.workspaceHeader p:not(.eyebrow) {
+  color: #667585;
+}
+.workspaceEmpty button,
+.workspaceHeader > button,
+.attentionCard button,
+.openWorkflow button {
+  border: 1px solid #315f55;
+  border-radius: 6px;
+  background: #315f55;
+  color: #fff;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.workspaceHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+.workspaceHeader p { margin: 7px 0 0; }
+.eyebrow {
+  margin: 0 0 7px;
+  color: #60766e;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.workspaceGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, .8fr);
+  gap: 16px;
+}
+.workflowCard,
+.attentionCard {
+  border: 1px solid #dfe5eb;
+  border-radius: 10px;
+  background: #fff;
+  padding: 20px;
+}
+.workflowCard header { display: flex; justify-content: space-between; gap: 14px; }
+.workflowCard h2 { margin: 0; font-size: 19px; }
+.workflowCard header button { border: 1px solid #c8d4e0; border-radius: 5px; background: #fff; padding: 6px 9px; color: #315f55; font-weight: 700; cursor: pointer; }
+.workflowCard > p { margin: 14px 0; color: #667585; font-size: 13px; }
+.workflowCard ol { margin: 0; padding-left: 21px; color: #425366; font-size: 13px; line-height: 1.9; }
+.attentionCard { background: #fffcf3; border-color: #e5d5a9; }
+.attentionCard strong { display: block; margin-top: 16px; }
+.attentionCard p:not(.eyebrow) { color: #667585; font-size: 13px; line-height: 1.45; }
 .runHeader {
   display: flex;
   justify-content: space-between;
@@ -270,6 +339,22 @@ em {
   display: grid;
   gap: 14px;
 }
+.profiles > header h1 { font: 700 32px/1 Georgia, serif; letter-spacing: -.04em; }
+.workflowEditor {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: start;
+  border: 1px solid #dbe5df;
+  border-radius: 9px;
+  padding: 16px;
+  background: #f8fbf9;
+}
+.workflowEditor h2 { margin: 0; font-size: 18px; }
+.workflowEditor p:not(.eyebrow) { max-width: 530px; margin: 6px 0 0; color: #667585; font-size: 13px; line-height: 1.45; }
+.openWorkflow { display: flex; gap: 8px; align-items: center; }
+.openWorkflow select { border: 1px solid #cbd5df; border-radius: 5px; padding: 7px; background: #fff; }
+.webEditor textarea { margin-top: 3px; }
 .profiles header {
   display: flex;
   justify-content: space-between;
@@ -509,6 +594,9 @@ button:disabled {
   .runHeader {
     display: block;
   }
+  .workspaceGrid { grid-template-columns: 1fr; }
+  .workspaceHeader, .workflowEditor { display: grid; }
+  .openWorkflow { flex-wrap: wrap; }
   .runHeader small {
     display: block;
     margin-top: 10px;

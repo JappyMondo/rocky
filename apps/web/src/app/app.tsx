@@ -13,6 +13,7 @@ import type {
   IntakeFailure,
   RunDetail,
   RunList,
+  RunSummary,
   RepositoryProfileList,
   RepositoryProfileView,
   SettingsView,
@@ -117,6 +118,7 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [intakeFailures, setIntakeFailures] = useState<IntakeFailure[]>([]);
   const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [profiles, setProfiles] = useState<RepositoryProfileView[]>([]);
   const [unreachable, setUnreachable] = useState(false);
   const [mismatch, setMismatch] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -222,6 +224,19 @@ export function App() {
     const listener = () => setRoute(route());
     window.addEventListener('popstate', listener);
     return () => window.removeEventListener('popstate', listener);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    api<RepositoryProfileList>('/api/profiles', setMismatch)
+      .then((next) => {
+        if (!cancelled && next.profiles) setProfiles(next.profiles);
+      })
+      .catch(() => {
+        // The workspace remains useful with a daemon from before profiles.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   useEffect(() => {
     let stopped = false;
@@ -523,10 +538,10 @@ export function App() {
         <header>
           <div>
             <strong>Rocky</strong>
-            <span>Inbox</span>
+            <span>Local workspace</span>
           </div>
+          <button onClick={() => go('/profiles')}>Repository</button>
           <button onClick={() => go('/settings')}>Settings</button>
-          <button onClick={() => go('/profiles')}>Profiles</button>
         </header>
         <nav aria-label="Runs">
           <ul className={styles.runList}>
@@ -556,6 +571,7 @@ export function App() {
           </ul>
         </nav>
         <form className={styles.trigger} onSubmit={fireTrigger}>
+          <strong>Start work</strong>
           <label>
             Issue
             <input
@@ -657,21 +673,31 @@ export function App() {
             error={setError}
           />
         ) : (
-          <RunView
-            detail={selectedDetail}
-            issueIdentifier={currentRoute.issueIdentifier}
-            expanded={expanded}
-            toggle={setExpanded}
-            focus={setFocusedStep}
-            compose={compose}
-            setCompose={changeCompose}
-            composeRef={composeRef}
-            submitSteer={submitSteer}
-            allowed={mutationsAllowed}
-            answer={submitAnswer}
-            recoverSession={recoverSession}
-            openDiff={setDiffId}
-          />
+          <>
+            {!currentRoute.runId && !currentRoute.issueIdentifier && (
+              <Workspace
+                profile={profiles[0]}
+                runs={runs?.runs ?? []}
+                openProfile={() => go('/profiles')}
+                openRun={(id) => go(`/runs/${encodeURIComponent(id)}`)}
+              />
+            )}
+            <RunView
+              detail={selectedDetail}
+              issueIdentifier={currentRoute.issueIdentifier}
+              expanded={expanded}
+              toggle={setExpanded}
+              focus={setFocusedStep}
+              compose={compose}
+              setCompose={changeCompose}
+              composeRef={composeRef}
+              submitSteer={submitSteer}
+              allowed={mutationsAllowed}
+              answer={submitAnswer}
+              recoverSession={recoverSession}
+              openDiff={setDiffId}
+            />
+          </>
         )}
       </section>
       {diff && (
@@ -685,6 +711,25 @@ export function App() {
       )}
     </main>
   );
+}
+
+function Workspace(p: {
+  profile?: RepositoryProfileView;
+  runs: RunSummary[];
+  openProfile: () => void;
+  openRun: (id: string) => void;
+}) {
+  const attention = p.runs.find((run) => run.status === 'parked' || run.status === 'failed');
+  const current = p.runs.find((run) => active(run.status));
+  if (!p.profile)
+    return <section className={styles.workspaceEmpty}><p className={styles.eyebrow}>Repository workspace</p><h1>Choose a repository to begin.</h1><p>Rocky keeps its workflow and settings locally, separate from your checked-out copy.</p><button onClick={p.openProfile}>Add repository</button></section>;
+  return <section className={styles.workspace} aria-label="Repository workspace">
+    <header className={styles.workspaceHeader}><div><p className={styles.eyebrow}>Repository workspace</p><h1>{p.profile.id}</h1><p>{p.profile.remote}</p></div><button onClick={p.openProfile}>Repository setup</button></header>
+    <div className={styles.workspaceGrid}>
+      <article className={styles.workflowCard}><header><div><p className={styles.eyebrow}>Current workflow</p><h2>Local workflow</h2></div><button onClick={p.openProfile}>Edit workflow</button></header><p><code>workflow.ts</code> · {p.profile.grants.harness === 'opencode' ? 'OpenCode' : 'Claude Code'} · {p.profile.workflow.triggers.length || 'No'} manual trigger{p.profile.workflow.triggers.length === 1 ? '' : 's'}</p><ol><li>Understand the work</li><li>Plan a safe change</li><li>Implement in an isolated worktree</li><li>Review and deliver</li></ol></article>
+      <article className={styles.attentionCard}><p className={styles.eyebrow}>Your attention</p>{attention ? <><strong>{attention.issue.identifier} needs attention</strong><p>{attention.issue.title}</p><button onClick={() => p.openRun(attention.runId)}>Review Run</button></> : current ? <><strong>{current.issue.identifier} is running</strong><p>{current.issue.title}</p><button onClick={() => p.openRun(current.runId)}>Follow Run</button></> : <><strong>Nothing needs you right now.</strong><p>Start a manual trigger or delegate an issue from Linear.</p></>}</article>
+    </div>
+  </section>;
 }
 
 function TranscriptPanel({ runId, step }: { runId: string; step: StepView }) {
@@ -1254,6 +1299,7 @@ function Profiles(p: {
   );
   const [selected, setSelected] = useState<RepositoryProfileView | null>(null);
   const [draft, setDraft] = useState<RepositoryProfileView | null>(null);
+  const [editor, setEditor] = useState('default');
   useEffect(() => {
     let stopped = false;
     api<RepositoryProfileList>('/api/profiles', p.mismatch)
@@ -1341,18 +1387,35 @@ function Profiles(p: {
       p.error(await apiError(caught, 'Profile was not deleted.'));
     }
   };
+  const openWorkflow = async () => {
+    if (!selected || p.disabled) return;
+    try {
+      await api(
+        `/api/profiles/${encodeURIComponent(selected.id)}/open-workflow`,
+        p.mismatch,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ editor }),
+        },
+      );
+    } catch (caught) {
+      p.error(await apiError(caught, 'Could not open the local workflow file.'));
+    }
+  };
   if (!profiles || !draft)
     return (
       <div className={styles.placeholder}>Loading repository profiles…</div>
     );
   return (
     <section className={styles.profiles}>
-      <button onClick={p.back}>← Inbox</button>
+      <button onClick={p.back}>← Workspace</button>
       <header>
         <div>
-          <h1>Repository profiles</h1>
+          <p className={styles.eyebrow}>Repository setup</p>
+          <h1>{selected?.id ?? 'New repository'}</h1>
           <p>
-            Local-only workflows. Repository files cannot change these settings.
+            Rocky keeps this configuration locally and runs it in isolated worktrees.
           </p>
         </div>
         <button disabled={p.disabled} onClick={create}>
@@ -1360,7 +1423,7 @@ function Profiles(p: {
         </button>
       </header>
       <label>
-        Profile
+        Repository
         <select
           value={selected?.id ?? ''}
           onChange={(event) => choose(event.target.value)}
@@ -1375,7 +1438,7 @@ function Profiles(p: {
         </select>
       </label>
       <label>
-        Profile id
+        Repository id
         <input
           value={draft.id}
           disabled={p.disabled || Boolean(selected)}
@@ -1384,7 +1447,7 @@ function Profiles(p: {
         />
       </label>
       <label>
-        Canonical repository remote
+        Repository remote
         <input
           value={draft.remote}
           disabled={p.disabled}
@@ -1392,6 +1455,59 @@ function Profiles(p: {
             setDraft({ ...draft, remote: event.target.value })
           }
           placeholder="github.com/acme/service"
+        />
+      </label>
+      <section className={styles.workflowEditor}>
+        <div>
+          <p className={styles.eyebrow}>Workflow source</p>
+          <h2>workflow.ts</h2>
+          <p>Stored on this machine beside the local profile. Edit it in your usual editor, then return here to refresh the configuration.</p>
+        </div>
+        <div className={styles.openWorkflow}>
+          <select aria-label="Workflow editor" value={editor} disabled={p.disabled || !selected} onChange={(event) => setEditor(event.target.value)}>
+            <option value="default">Default editor</option>
+            <option value="vscode">Visual Studio Code</option>
+            <option value="zed">Zed</option>
+            <option value="opencode">OpenCode</option>
+            <option value="claude-code">Claude Code</option>
+          </select>
+          <button type="button" disabled={p.disabled || !selected} onClick={() => void openWorkflow()}>Open workflow</button>
+        </div>
+      </section>
+      <label>
+        Manual triggers (one per line)
+        <textarea
+          value={draft.workflow.triggers.join('\n')}
+          disabled={p.disabled}
+          onChange={(event) =>
+            setDraft({
+              ...draft,
+              workflow: {
+                ...draft.workflow,
+                triggers: event.target.value
+                  .split('\n')
+                  .map((name) => name.trim())
+                  .filter(Boolean),
+              },
+            })
+          }
+          placeholder="custom-workflow"
+        />
+      </label>
+      <label className={styles.webEditor}>
+        Edit here instead
+        <textarea
+          aria-label="workflow.ts"
+          className={styles.workflowSource}
+          value={draft.workflow.source}
+          disabled={p.disabled}
+          onChange={(event) =>
+            setDraft({
+              ...draft,
+              workflow: { ...draft.workflow, source: event.target.value },
+            })
+          }
+          spellCheck={false}
         />
       </label>
       <label>
@@ -1413,41 +1529,6 @@ function Profiles(p: {
           <option value="opencode">OpenCode</option>
           <option value="claude-code">Claude Code</option>
         </select>
-      </label>
-      <label>
-        Manual triggers (one per line)
-        <textarea
-          value={draft.workflow.triggers.join('\n')}
-          disabled={p.disabled}
-          onChange={(event) =>
-            setDraft({
-              ...draft,
-              workflow: {
-                ...draft.workflow,
-                triggers: event.target.value
-                  .split('\n')
-                  .map((name) => name.trim())
-                  .filter(Boolean),
-              },
-            })
-          }
-          placeholder="custom-workflow"
-        />
-      </label>
-      <label>
-        workflow.ts
-        <textarea
-          className={styles.workflowSource}
-          value={draft.workflow.source}
-          disabled={p.disabled}
-          onChange={(event) =>
-            setDraft({
-              ...draft,
-              workflow: { ...draft.workflow, source: event.target.value },
-            })
-          }
-          spellCheck={false}
-        />
       </label>
       <p className={styles.muted}>
         Prompts: {draft.prompts.join(', ') || 'none'} · Rules:{' '}

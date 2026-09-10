@@ -440,6 +440,18 @@ export async function registerLocalApi(
         };
       },
     );
+    local.post<{ Params: { id: string }; Body: { editor?: unknown } }>(
+      '/api/profiles/:id/open-workflow',
+      async (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(503, 'profiles-unavailable', 'Repository profiles are not connected.');
+        await options.profiles.openWorkflow(
+          parse(segment, request.params.id),
+          request.body?.editor ?? 'default',
+        );
+        return { opened: true };
+      },
+    );
     local.get<{ Params: { id: string; diffId: string } }>(
       '/api/runs/:id/diffs/:diffId',
       async (request) => {

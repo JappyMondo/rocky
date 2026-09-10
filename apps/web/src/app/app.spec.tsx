@@ -943,4 +943,37 @@ describe('Inbox behavior', () => {
       }),
     );
   });
+
+  it('opens only the selected repository workflow in a chosen local editor', async () => {
+    window.history.replaceState({}, '', '/profiles');
+    const mock = daemon({
+      profiles: () => ({
+        body: {
+          profiles: [
+            {
+              id: 'service',
+              remote: 'github.com/acme/service',
+              revision: 'old',
+              workflow: { source: 'export default [];', triggers: [] },
+              grants: { harness: 'opencode', capabilities: [], mcp: [] },
+              prompts: [], rules: [], secretEnv: [],
+            },
+          ],
+        },
+      }),
+    });
+    render(<App />);
+    await screen.findByRole('heading', { name: 'service' });
+    fireEvent.change(screen.getByLabelText('Workflow editor'), {
+      target: { value: 'zed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Open workflow' }));
+    expect(mock).toHaveBeenCalledWith(
+      '/api/profiles/service/open-workflow',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ editor: 'zed' }),
+      }),
+    );
+  });
 });

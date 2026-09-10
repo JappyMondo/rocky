@@ -78,6 +78,8 @@ export interface RockyPaths {
   profilesDir: string;
   /** A profile is local data, never a directory in the target repository. */
   profile(profileId: string): string;
+  /** The editable workflow source beside its local profile metadata. */
+  profileWorkflow(profileId: string): string;
   reposDir: string;
   /** Rocky's own clone of one repo. */
   repo(repoName: string): string;
@@ -102,6 +104,8 @@ export function rockyPaths(root: string = defaultRockyHome()): RockyPaths {
     profilesDir,
     profile: (profileId) =>
       join(profilesDir, `${assertSegment('profile id', profileId)}.json`),
+    profileWorkflow: (profileId) =>
+      join(profilesDir, `${assertSegment('profile id', profileId)}.workflow.ts`),
     reposDir,
     repo: (repoName) => join(reposDir, assertSegment('repo name', repoName)),
     runsDir,

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { platform } from 'node:os';
 
 import type { RepositoryProfileView } from '@rocky/local-contracts';
 import { z } from 'zod';
@@ -39,6 +41,7 @@ const editable = z
 
 const updates = new KeyedMutex();
 const deletion = z.object({ id, revision: z.string().min(1) }).strict();
+const editor = z.enum(['default', 'vscode', 'zed', 'opencode', 'claude-code']);
 
 function revision(profile: RepositoryProfile): string {
   return createHash('sha256').update(JSON.stringify(profile)).digest('hex');
@@ -146,7 +149,43 @@ export class LocalProfiles {
           'profile-changed',
           'This profile changed. Reload it before deleting; nothing was removed.',
         );
-      await rm(this.paths.profile(parsed.data.id));
+      await Promise.all([
+        rm(this.paths.profile(parsed.data.id)),
+        rm(this.paths.profileWorkflow(parsed.data.id), { force: true }),
+      ]);
+    });
+  }
+
+  /** Opens only the known workflow file for an existing local profile. */
+  async openWorkflow(profileId: string, requested: unknown): Promise<void> {
+    const selected = editor.safeParse(requested);
+    if (!selected.success)
+      throw new LocalApiError(400, 'invalid-editor', 'Choose a supported local editor.');
+    await this.read(profileId);
+    const file = this.paths.profileWorkflow(profileId);
+    const apps = {
+      vscode: 'Visual Studio Code',
+      zed: 'Zed',
+      opencode: 'OpenCode',
+      'claude-code': 'Claude Code',
+    } as const;
+    const app = selected.data === 'default' ? undefined : apps[selected.data];
+    const command = platform() === 'darwin' ? 'open' : 'xdg-open';
+    const args =
+      platform() === 'darwin' && app ? ['-a', app, file] : [file];
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, { stdio: 'ignore', detached: true });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.unref();
+        resolve();
+      });
+    }).catch(() => {
+      throw new LocalApiError(
+        503,
+        'editor-unavailable',
+        'Rocky could not open that local editor. Choose another app or open the workflow path yourself.',
+      );
     });
   }
 }

@@ -222,7 +222,19 @@ export async function readRepositoryProfile(
     throw new ConfigError(file, 'cannot be read.');
   }
   try {
-    return parseRepositoryProfile(JSON.parse(text), file);
+    const parsed = parseRepositoryProfile(JSON.parse(text), file);
+    const workflow = await readFile(paths.profileWorkflow(parsed.id), 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      },
+    );
+    return workflow === undefined
+      ? parsed
+      : parseRepositoryProfile(
+          { ...parsed, workflow: { ...parsed.workflow, source: workflow } },
+          file,
+        );
   } catch (error) {
     if (error instanceof ConfigError) throw error;
     throw new ConfigError(file, 'is not valid JSON.');
@@ -236,11 +248,10 @@ export async function writeRepositoryProfile(
   const candidate = value as { id?: string };
   const id = typeof candidate.id === 'string' ? candidate.id : 'unknown';
   const profile = parseRepositoryProfile(value, paths.profile(id));
-  await writeAtomic(
-    paths.profile(profile.id),
-    serializeJson(profile),
-    PUBLIC_MODE,
-  );
+  await Promise.all([
+    writeAtomic(paths.profile(profile.id), serializeJson(profile), PUBLIC_MODE),
+    writeAtomic(paths.profileWorkflow(profile.id), profile.workflow.source, PUBLIC_MODE),
+  ]);
   return profile;
 }
 
