@@ -133,6 +133,11 @@ export async function createProductionComposition(options: {
     },
     onboarding: (_lead, signal) =>
       prepareOnboardingSnapshot(options.paths, signal),
+    checkpoint: async (runId, stepKey, request) => {
+      const control = await controlFor(runId);
+      if (!control) throw new Error(`Run ${runId} has no Linear control`);
+      return control.checkpoint(stepKey, request);
+    },
     agentSteer: {
       open: async (runId, conversation) =>
         (await controlFor(runId))?.openConversation({
@@ -236,7 +241,36 @@ export async function createProductionComposition(options: {
       await registerLocalApi(app, {
         runs: {
           list: () => execution.scheduler.list(),
-          get: (id) => execution.scheduler.get(id),
+          get: async (id) => {
+            const run = await execution.scheduler.get(id);
+            if (!run || run.status !== 'failed') return run;
+            const terminal = await (
+              await execution.journal(id)
+            ).get(`linear-mirror:${id}:terminal`);
+            if (
+              terminal &&
+              typeof terminal === 'object' &&
+              'content' in terminal &&
+              terminal.content &&
+              typeof terminal.content === 'object' &&
+              'body' in terminal.content &&
+              typeof terminal.content.body === 'string'
+            ) {
+              const original = terminal.content.body.split('\n\n')[0];
+              if (
+                original.startsWith('Rocky Run failed at Step ') &&
+                !original.includes(run.error?.message ?? '\0')
+              )
+                return {
+                  ...run,
+                  error: {
+                    name: run.error?.name ?? 'Error',
+                    message: `${original}\n\nReporting error: ${run.error?.message ?? 'Not recorded'}`,
+                  },
+                };
+            }
+            return run;
+          },
           journal: async (id) =>
             (await (await execution.journal(id)).read()).entries,
         },

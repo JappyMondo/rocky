@@ -1,5 +1,13 @@
+import { DatabaseSync } from 'node:sqlite';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+  realpath,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
@@ -144,6 +152,7 @@ it.runIf(process.env.ROCKY_OPENCODE_POLICY_TESTS === '1')(
         transcriptPath: join(root, 'sessions', 'one.jsonl'),
         timeoutMs: 45_000,
         env: {
+          PWD: '/deliberately/wrong/daemon/checkout',
           PATH: process.env.PATH,
           HOME: root,
           XDG_DATA_HOME: join(root, 'data'),
@@ -156,6 +165,19 @@ it.runIf(process.env.ROCKY_OPENCODE_POLICY_TESTS === '1')(
       };
       const result = await opencode.run(input);
       expect(result.text).toBe('fixture response');
+      const db = new DatabaseSync(join(root, 'sessions', 'opencode.db'), {
+        readOnly: true,
+      });
+      try {
+        const session = db
+          .prepare('SELECT directory FROM session WHERE id = ?')
+          .get(result.sessionId);
+        expect(await realpath(String(session?.directory))).toBe(
+          await realpath(root),
+        );
+      } finally {
+        db.close();
+      }
       expect(result.events).toContainEqual({
         kind: 'tool-result',
         name: 'api_ping',

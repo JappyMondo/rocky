@@ -68,7 +68,7 @@ export async function runProcess(input: {
     return await new Promise((resolve, reject) => {
       const child = spawn(input.command, input.args, {
         cwd: input.cwd,
-        env: input.env,
+        env: { ...input.env, ...(input.cwd ? { PWD: input.cwd } : {}) },
         shell: false,
         detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],

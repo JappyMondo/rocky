@@ -38,6 +38,8 @@ export type {
   Issue,
   LinearOps,
   ParallelOptions,
+  Question,
+  QuestionAnswer,
   Pr,
   ReviewThread,
   RunOutcome,

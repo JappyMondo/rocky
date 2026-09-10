@@ -1054,3 +1054,177 @@ it('closes idle live SSE readers before Fastify shutdown waits on their sockets'
   await app.close();
   await body;
 });
+
+it('exposes a terminal failure even when every visible Step completed', async () => {
+  const { app, paths, run } = await setup();
+  await updateRunHeader(paths, run.runId, {
+    status: 'failed',
+    error: {
+      name: 'Error',
+      message: 'ctx.checkpoint requires an adapter',
+      stack: 'private stack',
+    },
+  });
+  const response = await app.inject(`/api/runs/${run.runId}`);
+  expect(response.json().run.error).toEqual({
+    name: 'Error',
+    message: 'ctx.checkpoint requires an adapter',
+  });
+});
+
+it('serves immutable visual reports from run summaries and refuses unknown report IDs', async () => {
+  const { app, run, artifacts } = await setup();
+  const report = {
+    id: `r_${'a'.repeat(32)}`,
+    runId: run.runId,
+    createdAt: '2026-09-10T10:00:00Z',
+    title: 'Processing changes',
+    summary: 'Clarification comes before editing.',
+    pr: {
+      repo: run.repo,
+      number: 42,
+      url: 'https://github.com/example/app/pull/42',
+      headSha: 'a'.repeat(40),
+      baseSha: 'b'.repeat(40),
+    },
+    problems: [{ problem: 'Ambiguous tickets', solution: 'Ask first.' }],
+    diagrams: [
+      {
+        title: 'Flow',
+        description: 'A question loop',
+        mermaid: 'flowchart LR\n Ticket --> Questions --> Work',
+      },
+    ],
+    verification: ['Question loop tested'],
+    limitations: [],
+    visuallyReviewable: false,
+    visuals: [],
+  };
+  await artifacts.saveReport(run.runId, report);
+  const detail = (await app.inject(`/api/runs/${run.runId}`)).json();
+  expect(detail.reports).toEqual([
+    {
+      id: report.id,
+      title: report.title,
+      createdAt: report.createdAt,
+      pr: report.pr,
+    },
+  ]);
+  const response = await app.inject(
+    `/api/runs/${run.runId}/reports/${report.id}`,
+  );
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual(report);
+  expect(
+    (await app.inject(`/api/runs/${run.runId}/reports/r_${'b'.repeat(32)}`))
+      .statusCode,
+  ).toBe(404);
+  expect(
+    (await app.inject(`/api/runs/${run.runId}/reports/invalid`)).statusCode,
+  ).toBe(400);
+  await expect(
+    artifacts.saveReport(run.runId, { ...report, summary: 'Changed' }),
+  ).rejects.toThrow('cannot be overwritten');
+});
+
+it('exposes live agent settings, execution timing, profile and the PR from durable steps', async () => {
+  const { app, paths, run, artifacts } = await setup();
+  const profile = newRepositoryProfile({
+    id: 'product',
+    remote: 'https://github.com/example/app.git',
+  });
+  run.profile = profile;
+  run.execution = {
+    source: 'repository',
+    sourceCommit: 'frozen',
+    trigger: { kind: 'linear.onDelegate' },
+    members: [
+      {
+        name: 'rocky',
+        path: 'rocky',
+        lead: true,
+        url: profile.remote,
+        baseBranch: 'main',
+      },
+    ],
+  };
+  run.status = 'running';
+  await writeRunHeader(paths, run);
+  const configuration = {
+    harness: 'opencode',
+    model: 'vendor/model',
+    variant: 'high',
+    tools: ['read'],
+    mcp: [],
+    timeoutMs: 60000,
+  };
+  const entry: JournalEntry = {
+    v: 1,
+    seq: 0,
+    step: 'agent',
+    status: 'running',
+    boot: 1,
+    startedAt: '2026-09-10T10:00:00Z',
+    progress: {
+      configuration,
+      live: {
+        output: 'Inspecting the ticket',
+        summary: 'Reading requirements',
+      },
+      usage: { inputTokens: 42 },
+    },
+  };
+  await appendEntry(paths.run(run.runId).journal, entry);
+  let detail = (await app.inject(`/api/runs/${run.runId}`)).json<RunDetail>();
+  expect(detail.run).toMatchObject({ profileId: 'product', repos: ['rocky'] });
+  expect(detail.steps[0]).toMatchObject({
+    agent: configuration,
+    startedAt: entry.startedAt,
+    liveOutput: 'Inspecting the ticket',
+    liveSummary: 'Reading requirements',
+    transcript: 'pending',
+    usage: { inputTokens: 42 },
+  });
+  await mkdir(paths.run(run.runId).sessionsDir, { recursive: true });
+  await writeFile(
+    join(paths.run(run.runId).sessionsDir, '0.jsonl'),
+    'native transcript',
+  );
+  await artifacts.registerTranscript(run.runId, '0', '0.jsonl');
+  await appendEntry(paths.run(run.runId).journal, {
+    ...entry,
+    status: 'failed',
+    ms: 2400,
+    error: {
+      name: 'Error',
+      message: 'The harness failed',
+      stack: 'private stack',
+    },
+  });
+  const pr = {
+    number: 42,
+    url: 'https://github.com/example/app/pull/42',
+    headSha: 'a'.repeat(40),
+  };
+  await appendEntry(paths.run(run.runId).journal, {
+    ...entry,
+    seq: 1,
+    step: 'scm.openPr',
+    status: 'done',
+    ms: 200,
+    result: pr,
+  });
+  detail = (await app.inject(`/api/runs/${run.runId}`)).json<RunDetail>();
+  expect(detail.run.pr).toEqual(pr);
+  expect(detail.steps[0]).toMatchObject({
+    ms: 2400,
+    transcript: 'available',
+    error: { name: 'Error', message: 'The harness failed' },
+  });
+  expect(detail.steps[0].error).not.toHaveProperty('stack');
+  await updateRunHeader(paths, run.runId, { artifactsPruned: true });
+  expect(
+    (await app.inject(`/api/runs/${run.runId}`)).json<RunDetail>().steps[0]
+      .transcript,
+  ).toBe('pruned');
+});

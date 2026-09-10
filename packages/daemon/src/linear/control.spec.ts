@@ -1132,3 +1132,41 @@ describe('Steer delivery', () => {
     expect(await control.pendingSteers()).toEqual(['check this too']);
   });
 });
+
+it('offers a free-text Question and accepts the same durable answer from Linear or the UI', async () => {
+  const f = fixture();
+  let control = f.open();
+  const request = {
+    ...question,
+    kind: 'question' as const,
+    options: ['App only', 'All repositories'],
+  };
+  expect(await control.checkpoint('0', request)).toEqual({ status: 'waiting' });
+  const waiting = await control.currentCheckpoint();
+  expect(waiting?.kind).toBe('question');
+  expect(f.activities[0].signal).toBeUndefined();
+  if (!waiting) throw new Error('Expected question');
+  await expect(
+    control.answer({
+      ...waiting,
+      requestId: 'bad',
+      answer: { decision: 'approve' },
+    }),
+  ).rejects.toThrow('written answer');
+  await control.intake({ source: 'linear', id: 'prompt', body: 'App only' });
+  control = f.open();
+  expect(await control.checkpoint('0', request)).toEqual({
+    status: 'done',
+    result: { decision: 'steer', message: 'App only' },
+  });
+  expect(
+    await control.answer({
+      ...waiting,
+      requestId: 'duplicate',
+      answer: { decision: 'steer', message: 'All repositories' },
+    }),
+  ).toEqual({
+    kind: 'already-answered',
+    answer: { decision: 'steer', message: 'App only' },
+  });
+});

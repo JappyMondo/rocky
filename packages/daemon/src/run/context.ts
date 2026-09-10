@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   ApprovedCheckpoint,
+  Question,
   BackgroundExecResult,
   CheckpointAnswer,
   ExecResult,
@@ -21,13 +22,18 @@ export type CheckpointApprovalVerifier = (
 
 export type ExternalContext = Pick<
   WorkflowContext,
-  'agent' | 'post' | 'scm' | 'linear'
+  'agent' | 'post' | 'scm' | 'linear' | 'comment'
 >;
 export type ExternalServices = Partial<ExternalContext> & {
-  checkpoint?: (opts: {
-    title: string;
-    body: string;
-  }) => Promise<StepOutcome<RawCheckpointAnswer>>;
+  checkpoint?: (
+    opts: {
+      title: string;
+      body: string;
+      kind?: 'question';
+      options?: string[];
+    },
+    stepKey: string,
+  ) => Promise<StepOutcome<RawCheckpointAnswer>>;
 };
 
 export interface ContextServices {
@@ -138,8 +144,10 @@ export function createWorkflowContext(
         // Checkpoints are ctx calls, so the daemon—not an arbitrary adapter—
         // owns their one journal Step. This also makes a completed raw answer
         // replay before its Boot-local approval capability is minted.
-        const answer = await current().step('checkpoint', {}, () =>
-          checkpoint(opts),
+        const answer = await current().step(
+          'checkpoint',
+          { label: opts.title },
+          (handle) => checkpoint(opts, handle.identity),
         );
         if (answer.decision !== 'approve') return answer;
         const approved = Object.freeze({
@@ -148,6 +156,31 @@ export function createWorkflowContext(
         approvedCheckpoints.set(approved, current());
         return approved;
       };
+    },
+    async question(opts: Question) {
+      if (
+        !opts.title.trim() ||
+        !opts.body.trim() ||
+        opts.options?.some((option) => !option.trim())
+      )
+        throw new Error(
+          'A Question requires a title, body, and nonempty options',
+        );
+      const checkpoint = services.external?.(current(), approvals).checkpoint;
+      if (!checkpoint)
+        throw new Error('ctx.question requires a checkpoint adapter');
+      const answer = await current().step(
+        'question',
+        { label: opts.title },
+        (handle) => checkpoint({ ...opts, kind: 'question' }, handle.identity),
+      );
+      if (answer.decision === 'reject') return { cancelled: true as const };
+      if (answer.decision !== 'steer' || !answer.message.trim())
+        throw new Error('A Question requires a written answer');
+      return { answer: answer.message };
+    },
+    get comment() {
+      return external('comment');
     },
     get post() {
       return external('post');

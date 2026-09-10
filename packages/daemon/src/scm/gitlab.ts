@@ -343,6 +343,24 @@ export function createGitLabScm(options: ScmAdapterOptions) {
     repo: options.repo,
     signal: options.signal,
     probe: (signal: AbortSignal) => probeGitLab(options, http, root, signal),
+    async postReviewReport(pr: Pr, body: string, key: string): Promise<void> {
+      await read(pr);
+      const marker = `<!-- rocky-review:${key} -->`;
+      const payload = `${marker}\n${body}`;
+      const path = `${root}/merge_requests/${pr.number}/notes`;
+      const notes = await http.list(
+        path,
+        z.object({ id: z.number(), body: z.string() }),
+      );
+      const existing = notes.find((note) => note.body.startsWith(marker));
+      if (existing?.body === payload) return;
+      await http.request(
+        existing ? 'PUT' : 'POST',
+        existing ? `${path}/${existing.id}` : path,
+        z.object({ id: z.number() }),
+        { body: payload },
+      );
+    },
     async openPr(input: OpenPrOptions): Promise<Pr> {
       const query = new URLSearchParams({
         state: 'all',

@@ -410,3 +410,44 @@ it('refuses unknown frozen members and parks a rate-limited SCM Step', async () 
   expect(rate).toMatchObject({ status: 'parked' });
   expect(attempts).toBe(1);
 });
+
+it('generates a journaled report before a ready flip and does not regenerate on replay', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-ready-report-'));
+  dirs.push(dir);
+  const signal = new AbortController().signal;
+  const adapter = stubAdapter(signal);
+  let reports = 0;
+  let ready = 0;
+  adapter.markDraft = async (pr) => {
+    ready++;
+    return { ...pr, draft: false };
+  };
+  const boot = () =>
+    runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      workflow: async (steps) => {
+        const scm = createScm(steps, {
+          runId: 'TEST-1-1',
+          lead: 'lead',
+          members: [adapter],
+          signal,
+          approvals: () => false,
+          onRefusal: async () => undefined,
+          onReady: async () => {
+            await steps.step('report', {}, async () => {
+              expect(ready).toBe(0);
+              reports++;
+              return { status: 'done', result: null };
+            });
+          },
+        });
+        const pr = await adapter.openPr({ title: 'Test', body: 'Test' });
+        await scm.markDraft(pr, false);
+        return 'completed';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(reports).toBe(1);
+  expect(ready).toBe(1);
+});

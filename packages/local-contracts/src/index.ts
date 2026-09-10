@@ -5,6 +5,8 @@ export type Answer =
   | { decision: 'steer'; message: string };
 
 export interface Checkpoint {
+  kind?: 'question';
+  options?: string[];
   /** Full hierarchical Journal identity, not a label or root sequence alone. */
   stepKey: string;
   generation: string;
@@ -39,6 +41,7 @@ export interface RunSummary {
   status: 'queued' | 'running' | 'parked' | 'finished' | 'failed' | 'cancelled';
   outcome?: 'merged' | 'rejected' | 'exhausted' | 'completed';
   reason?: string;
+  error?: { name: string; message: string };
   boots: number;
   createdAt: string;
   endedAt?: string;
@@ -51,7 +54,17 @@ export interface RunList {
   pollAfterMs: 2000 | 30000;
 }
 
+export interface AgentConfiguration {
+  harness: string;
+  model?: string;
+  variant?: string;
+  tools: string[];
+  mcp: string[];
+  timeoutMs: number;
+}
+
 export interface StepView {
+  agent?: AgentConfiguration;
   key: string;
   parentKey?: string;
   seq: number;
@@ -92,6 +105,7 @@ export interface SteerReceipt {
 }
 
 export interface RunDetail {
+  reports?: Array<Pick<ReviewReport, 'id' | 'title' | 'createdAt' | 'pr'>>;
   run: RunSummary;
   /** Hash of recorded Step state; raw Transcript growth does not change it. */
   revision: string;
@@ -227,4 +241,32 @@ export interface ApiError {
   code: string;
   answer?: Answer;
   runId?: string;
+}
+
+export interface ReviewReport {
+  id: string;
+  runId: string;
+  createdAt: string;
+  pr: {
+    repo: string;
+    number: number;
+    url: string;
+    headSha: string;
+    baseSha: string;
+  };
+  title: string;
+  summary: string;
+  problems: Array<{ problem: string; solution: string }>;
+  diagrams: Array<{ title: string; description: string; mermaid: string }>;
+  verification: string[];
+  limitations: string[];
+  visuallyReviewable: boolean;
+  visuals: Array<{
+    group: string;
+    variant: string;
+    description: string;
+    status: 'captured' | 'unavailable';
+    reason: string;
+    screenshots: Screenshot[];
+  }>;
 }

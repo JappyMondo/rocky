@@ -190,6 +190,9 @@ function summary(run: RunHeader): RunSummary {
       ? { repos: run.execution.members.map((member) => member.name) }
       : {}),
     ...(run.profile ? { profileId: run.profile.id } : {}),
+    ...(run.error
+      ? { error: { name: run.error.name, message: run.error.message } }
+      : {}),
   };
 }
 
@@ -381,6 +384,12 @@ export async function registerLocalApi(
                   : undefined;
               return {
                 key,
+                ...(entry.step === 'agent' &&
+                entry.progress &&
+                typeof entry.progress === 'object' &&
+                'configuration' in entry.progress
+                  ? { agent: entry.progress.configuration as StepView['agent'] }
+                  : {}),
                 parentKey,
                 seq: entry.seq,
                 step: entry.step,
@@ -418,23 +427,63 @@ export async function registerLocalApi(
                       },
                 ),
                 transcript,
-                usage: presentation?.usage,
+                usage:
+                  presentation?.usage ??
+                  (entry.step === 'agent' &&
+                  entry.progress &&
+                  typeof entry.progress === 'object' &&
+                  'usage' in entry.progress
+                    ? (entry.progress.usage as Usage)
+                    : undefined),
                 screenshots: presentation?.screenshots ?? [],
               };
             },
           ),
         );
+        const pullRequest = steps
+          .map((step) => step.result)
+          .findLast(
+            (
+              value,
+            ): value is { number: number; url: string; headSha: string } =>
+              !!value &&
+              typeof value === 'object' &&
+              'number' in value &&
+              typeof value.number === 'number' &&
+              'url' in value &&
+              typeof value.url === 'string' &&
+              /^https?:\/\//.test(value.url) &&
+              'headSha' in value &&
+              typeof value.headSha === 'string',
+          );
         const checkpoint = await options.currentCheckpoint?.(run.runId);
         const diffs = await options.artifacts.listDiffs(run.runId);
+        const reports = (await options.artifacts.listReports(run.runId)).map(
+          ({ id, title, createdAt, pr }) => ({ id, title, createdAt, pr }),
+        );
         const steers = (await options.steers?.(run.runId)) ?? [];
         const revision = createHash('sha256')
-          .update(JSON.stringify({ entries, diffs, checkpoint, steers }))
+          .update(
+            JSON.stringify({ entries, diffs, reports, checkpoint, steers }),
+          )
           .digest('hex');
         return {
-          run: summary(run),
+          run: {
+            ...summary(run),
+            ...(pullRequest
+              ? {
+                  pr: {
+                    number: pullRequest.number,
+                    url: pullRequest.url,
+                    headSha: pullRequest.headSha,
+                  },
+                }
+              : {}),
+          },
           revision,
           steps,
           checkpoint,
+          reports,
           steers,
           usage: sumUsage(steps),
           diffs,
@@ -483,6 +532,16 @@ export async function registerLocalApi(
           .header('content-security-policy', "default-src 'none'; sandbox")
           .type(artifact.contentType)
           .send(artifact.bytes);
+      },
+    );
+    local.get<{ Params: { id: string; reportId: string } }>(
+      '/api/runs/:id/reports/:reportId',
+      async (request) => {
+        await getRun(request.params.id);
+        return options.artifacts.readReport(
+          request.params.id,
+          request.params.reportId,
+        );
       },
     );
     local.get('/api/settings', () => options.settings.read());

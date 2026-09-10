@@ -225,3 +225,35 @@ it('rejects aborted, unknown, incomplete, and unconfigured requests', async () =
     f.handler(f.run.runId, { kind: 'workspace' }, new AbortController().signal),
   ).rejects.toThrow('missing frozen repo membership');
 });
+
+it('routes a durable question identity and answer through the parent checkpoint control', async () => {
+  const f = await fixture();
+  const root = await mkdtemp(join(tmpdir(), 'rocky-question-request-'));
+  roots.push(root);
+  const checkpoint = vi.fn(async () => ({
+    status: 'done',
+    result: { decision: 'steer', message: 'Keep the existing behavior.' },
+  }));
+  const handler = createExecutionRequestHandler(
+    { paths: rockyPaths(root), repos: f.repos, checkpoint },
+    f.getRun,
+    JournalWriter.open,
+  );
+  const request = {
+    title: 'Which behavior?',
+    body: 'Choose the scope.',
+    kind: 'question' as const,
+    digest: { diffStat: '', ci: '', unresolved: 0 },
+  };
+  await expect(
+    handler(
+      f.run.runId,
+      { kind: 'checkpoint', stepKey: '2/0/1', request },
+      new AbortController().signal,
+    ),
+  ).resolves.toEqual({
+    status: 'done',
+    result: { decision: 'steer', message: 'Keep the existing behavior.' },
+  });
+  expect(checkpoint).toHaveBeenCalledWith(f.run.runId, '2/0/1', request);
+});

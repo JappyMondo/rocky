@@ -867,3 +867,39 @@ describe('LinearRunMirror', () => {
     expect(f.comments).toHaveLength(2);
   });
 });
+
+it('posts scope and report comments once, survives an ambiguous response and preserves the terminal comment budget', async () => {
+  const f = fixture();
+  const mirror = new LinearRunMirror(f.options);
+  await mirror.start();
+  const ensure = f.options.client.ensureComment;
+  f.options.client.ensureComment = async (input) => {
+    await ensure(input);
+    return { id: input.id, success: false };
+  };
+  await expect(
+    mirror.comment('scope', '## Agreed scope\n\nKeep existing behavior.'),
+  ).rejects.toThrow('did not confirm');
+  f.options.client.ensureComment = ensure;
+  const restarted = new LinearRunMirror(f.options);
+  await restarted.comment(
+    'scope',
+    '## Agreed scope\n\nKeep existing behavior.',
+  );
+  await restarted.comment(
+    'scope',
+    '## Agreed scope\n\nKeep existing behavior.',
+  );
+  await restarted.comment(
+    'report',
+    '## Visual report\n\nThe behavior is unchanged.',
+  );
+  expect(
+    f.comments.filter((c) => c.body.includes('Agreed scope')),
+  ).toHaveLength(1);
+  await restarted.finish(
+    { kind: 'completed' },
+    { changedSummary: 'Preserved behavior.' },
+  );
+  expect(f.comments).toHaveLength(4);
+});

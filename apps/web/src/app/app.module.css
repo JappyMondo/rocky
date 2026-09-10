@@ -807,6 +807,9 @@
   font-size: 11px;
 }
 .stepTiming {
+  display: grid;
+  gap: 3px;
+  text-align: right;
   font-size: 11px;
   color: #6d7365;
 }
@@ -1846,4 +1849,111 @@
     align-items: flex-start;
     gap: 12px;
   }
+}
+
+.runFailure {
+  border: 1px solid #d98b79;
+  border-left: 5px solid #b5442b;
+  border-radius: 12px;
+  background: #fff2ee;
+  padding: 20px 24px;
+  margin: 20px 0;
+  color: #752b1d;
+}
+.runFailure p,
+.checkpoint > p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stepMetadata {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  padding: 18px;
+  background: #f6f7f2;
+  border-radius: 10px;
+}
+.stepMetadata dt {
+  font-size: 12px;
+  color: #6d7568;
+  margin-bottom: 4px;
+}
+.stepMetadata dd {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.reportLinks {
+  margin: 24px 0;
+  padding: 24px;
+  background: #f2f6e9;
+  border: 1px solid #d0dbc2;
+  border-radius: 16px;
+}
+.reportLinks button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px;
+  margin-top: 12px;
+  text-align: left;
+}
+.reportLinks span {
+  color: #617056;
+  font-size: 12px;
+}
+.reviewReport {
+  max-width: 1100px;
+  width: 100%;
+}
+.reviewReport header {
+  border-bottom: 1px solid #dce2d5;
+  padding-bottom: 20px;
+}
+.reviewReport p {
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.reviewReport section {
+  margin: 28px 0;
+}
+.reviewReport h1 {
+  font-size: 30px;
+  line-height: 1.2;
+}
+.reviewReport pre {
+  overflow: auto;
+  max-width: 100%;
+}
+.visualGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 18px;
+}
+.visualGrid article {
+  border: 1px solid #dce2d5;
+  border-radius: 12px;
+  padding: 16px;
+}
+.visualGrid figure {
+  margin: 12px 0 0;
+}
+.visualGrid img {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #dce2d5;
+}
+.visualGrid figcaption {
+  font-size: 12px;
+  margin-top: 8px;
+  color: #617056;
+}
+.reportModal .dialog {
+  width: min(1180px, 100%);
+}
+.reviewReport .diagramCanvas {
+  height: min(360px, 50vh);
 }

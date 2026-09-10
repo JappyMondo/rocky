@@ -1093,3 +1093,43 @@ it('cancels retry backoff through the active Run signal', async () => {
   expect(outcome).toMatchObject({ status: 'cancelled' });
   expect(f.run).toHaveBeenCalledOnce();
 });
+
+it('persists harness-reported model and variant alongside the requested settings', async () => {
+  const f = fixture();
+  f.run.mockImplementation(async (input) => {
+    input.onConfiguration?.({ model: 'vendor/resolved', variant: 'high' });
+    return {
+      text: '<result>{"summary":"checked"}</result>',
+      sessionId: 'model-session',
+      events: [],
+      model: 'vendor/resolved',
+      variant: 'high',
+    };
+  });
+  const path = join(dir, 'journal.jsonl');
+  const result = await runBoot({
+    journalPath: path,
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Inspect.' },
+        {
+          label: 'inspector',
+          tools: ['read'],
+          model: 'vendor/alias',
+          effort: 'high',
+        },
+      );
+      return 'completed';
+    },
+  });
+  expect(result).toMatchObject({ status: 'finished' });
+  expect((await openJournal(path)).latest(0)?.progress).toMatchObject({
+    configuration: {
+      harness: 'opencode',
+      model: 'vendor/resolved',
+      variant: 'high',
+      tools: ['read'],
+      mcp: [],
+    },
+  });
+});

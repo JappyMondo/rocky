@@ -89,6 +89,7 @@ export interface RunLinearIdentity {
 }
 
 export interface RunExecution {
+  reviewReports?: boolean;
   source: 'repository' | 'onboarding';
   sourceCommit: string;
   trigger: { kind: 'linear.onDelegate' } | { kind: 'manual'; name: string };
@@ -132,6 +133,7 @@ const executionMemberSchema = z.object({
 });
 
 const executionSchema = z.object({
+  reviewReports: z.boolean().optional(),
   source: z.enum(['repository', 'onboarding']),
   sourceCommit: z.string().min(1),
   trigger: z.discriminatedUnion('kind', [

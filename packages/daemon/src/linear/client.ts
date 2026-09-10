@@ -15,6 +15,7 @@ import {
   type Comment,
 } from '@linear/sdk';
 import { z } from 'zod';
+import { sameActivityContent, sameMarkdown } from './markdown.js';
 
 import { isExpired, refreshTokens, type OAuthTokens } from './oauth.js';
 
@@ -704,7 +705,7 @@ export class RockyLinearClient {
     if (
       row.id !== options.id ||
       row.sessionId !== options.sessionId ||
-      !isDeepStrictEqual(row.content, content) ||
+      !sameActivityContent(row.content, content) ||
       row.ephemeral !== (options.ephemeral ?? false) ||
       row.signal !== options.signal ||
       !isDeepStrictEqual(row.signalMetadata, signalMetadata)
@@ -819,7 +820,7 @@ export class RockyLinearClient {
     if (
       row.id !== options.id ||
       row.issueId !== options.issueId ||
-      row.body !== options.body ||
+      !sameMarkdown(row.body, options.body) ||
       row.parentId !== null
     ) {
       throw new Error(

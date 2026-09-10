@@ -263,6 +263,25 @@ export function createGitHubScm(options: ScmAdapterOptions) {
     repo: options.repo,
     signal: options.signal,
     probe: (signal: AbortSignal) => probeGitHub(options, http, root, signal),
+    async postReviewReport(pr: Pr, body: string, key: string): Promise<void> {
+      await read(pr);
+      const marker = `<!-- rocky-review:${key} -->`;
+      const payload = `${marker}\n${body}`;
+      const notes = await http.list(
+        `${root}/issues/${pr.number}/comments`,
+        z.object({ id: z.number(), body: z.string() }),
+      );
+      const existing = notes.find((note) => note.body.startsWith(marker));
+      if (existing?.body === payload) return;
+      await http.request(
+        existing ? 'PATCH' : 'POST',
+        existing
+          ? `${root}/issues/comments/${existing.id}`
+          : `${root}/issues/${pr.number}/comments`,
+        z.object({ id: z.number() }),
+        { body: payload },
+      );
+    },
     async openPr(input: OpenPrOptions): Promise<Pr> {
       const existing = await findOpenPr();
       if (existing) {

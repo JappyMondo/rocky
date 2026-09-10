@@ -5,10 +5,12 @@ import {
   type Pr,
   type ScmRefusal,
   type AgentCallOpts,
+  type WorkflowInput,
 } from '@rocky/sdk';
 import { readdir, readFile } from 'node:fs/promises';
 import {
   Plan,
+  Refinement,
   ReviewFor,
   FixReportFor,
   UiTriage,
@@ -89,16 +91,61 @@ type ReviewState = {
 
 export async function main(
   ctx: WorkflowContext,
+  workspace: WorkflowInput = { members: [] },
 ): Promise<'merged' | 'rejected' | 'exhausted'> {
   const read: AgentCallOpts = { ...agent, tools: ['read'] };
   const edit: AgentCallOpts = { ...agent, tools: ['read', 'edit', 'bash'] };
-  const ticket = `${ctx.issue.title}\n${ctx.issue.description}`;
+  ctx.stage('Clarify');
+  const conversation: { questions: string[]; answer: string }[] = [];
+  let scope;
+  for (;;) {
+    const refinement = await ctx.agent('refiner', {
+      ...fastAgent,
+      tools: ['read'],
+      label: `Clarify scope ${conversation.length + 1}`,
+      input: { issue: ctx.issue, workspace, conversation },
+      schema: Refinement,
+    });
+    if (refinement.status === 'clear') {
+      scope = refinement;
+      break;
+    }
+    const questions = refinement.questions;
+    const response = await ctx.question({
+      title: 'Clarify the ticket before implementation',
+      body: `${refinement.reason}\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`,
+    });
+    if ('cancelled' in response) return 'rejected';
+    conversation.push({ questions, answer: response.answer });
+  }
+  const decisions = `## Scope decision record — ${ctx.issue.identifier}
+
+### Agreed scope
+${scope.scope}
+
+### Decisions and rationale
+${scope.decisions.map((decision) => `- ${decision}`).join('\n')}
+
+### Acceptance criteria
+${scope.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}
+
+### Out of scope
+${scope.outOfScope.map((item) => `- ${item}`).join('\n') || 'None.'}
+
+### Clarifications
+${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.answer}`).join('\n\n') || 'The ticket was clear without additional questions.'}`;
+  await ctx.comment(decisions);
+  const issue = {
+    ...ctx.issue,
+    description: `${ctx.issue.description}\n\n${decisions}`,
+  };
+  const ticket = `${issue.title}\n${issue.description}`;
   const diff = () => shell(ctx, 'git diff origin/HEAD...HEAD');
   ctx.stage('Plan');
   await ctx.linear.setState(states.started);
   const plan = await ctx.agent('planner', {
     ...read,
-    input: { issue: ctx.issue, diff: await diff() },
+    input: { issue: issue, diff: await diff() },
     schema: Plan,
   });
   await ctx.post(
@@ -107,13 +154,13 @@ export async function main(
   ctx.stage('Implement');
   const implementation = await ctx.agent('implementer', {
     ...edit,
-    input: { issue: ctx.issue, plan, commands },
+    input: { issue: issue, plan, commands },
   });
   await shell(ctx, 'git push origin HEAD');
-  const description = `${ctx.issue.url}\n\n${plan.summary}`;
+  const description = `${issue.url}\n\n${plan.summary}`;
   let pr = requireScm(
     await ctx.scm.openPr({
-      title: `${ctx.issue.identifier}: ${ctx.issue.title}`,
+      title: `${issue.identifier}: ${issue.title}`,
       body: description,
       draft: true,
     }),
@@ -149,7 +196,7 @@ export async function main(
       ...read,
       label: `${name} ${revision}/${reviewCap}`,
       input: {
-        issue: ctx.issue,
+        issue: issue,
         diff: await diff(),
         namespace,
         disagreements,
@@ -166,7 +213,7 @@ export async function main(
     const fixed = await ctx.agent('fixer', {
       ...edit,
       label: `${name} fixer ${revision}/${reviewCap}`,
-      input: { issue: ctx.issue, complaints, commands },
+      input: { issue: issue, complaints, commands },
       schema: FixReportFor(complaints),
     });
     changes.push(fixed.summary);
@@ -188,7 +235,7 @@ export async function main(
       const fix = await ctx.agent('ci-fixer', {
         ...edit,
         label: `ci-fixer ${ciAttempts}/${ciCap}`,
-        input: { issue: ctx.issue, failedJobs: ci.failedJobs, commands },
+        input: { issue: issue, failedJobs: ci.failedJobs, commands },
         schema: CiFix,
       });
       changes.push(fix.summary);
@@ -227,7 +274,7 @@ export async function main(
       checks = (
         await ctx.agent('ui-planner', {
           ...read,
-          input: { issue: ctx.issue, diff: await diff(), rules },
+          input: { issue: issue, diff: await diff(), rules },
           schema: Checks,
         })
       ).checks;
@@ -332,7 +379,7 @@ export async function main(
     const fixed = await ctx.agent('fixer', {
       ...edit,
       label: `UI fixer ${revision}/${reviewCap}`,
-      input: { issue: ctx.issue, complaints, commands },
+      input: { issue: issue, complaints, commands },
       schema: FixReportFor(complaints),
     });
     changes.push(fixed.summary);
@@ -427,7 +474,7 @@ export async function main(
       pr = requireScm(await ctx.scm.markDraft(pr, true));
       const fix = await ctx.agent('fixer', {
         ...edit,
-        input: { issue: ctx.issue, steer: answer.message, commands },
+        input: { issue: issue, steer: answer.message, commands },
       });
       changes.push(fix.summary);
       continue;
@@ -450,7 +497,7 @@ export async function main(
       if (update.status === 'conflict' || conflicts) {
         const fixed = await ctx.agent('merger', {
           ...edit,
-          input: { issue: ctx.issue, update, conflicts, commands },
+          input: { issue: issue, update, conflicts, commands },
         });
         changes.push(fixed.summary);
       } else if (merge.exitCode !== 0) {
@@ -461,7 +508,7 @@ export async function main(
       await push();
       continue;
     }
-    const result = await ctx.scm.armAutoMerge(pr);
+    const result = await ctx.scm.armAutoMerge(pr, answer);
     if ('refused' in result) {
       await ctx.post(`${result.message}\n${result.fix}`);
       if (

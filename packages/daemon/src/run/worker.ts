@@ -58,6 +58,11 @@ process.on('message', message => {
 export type BootRequest =
   | { kind: 'append'; entry: JournalEntry; options?: AppendOptions }
   | { kind: 'workspace' }
+  | {
+      kind: 'checkpoint';
+      stepKey: string;
+      request: import('../linear/control.js').CheckpointRequest;
+    }
   | { kind: 'control-get'; key: string }
   | { kind: 'control-put'; key: string; value: unknown }
   | { kind: 'agent-steer-open'; stepKey: string; label: string; group?: string }

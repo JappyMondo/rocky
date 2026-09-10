@@ -105,7 +105,10 @@ export function rockyPaths(root: string = defaultRockyHome()): RockyPaths {
     profile: (profileId) =>
       join(profilesDir, `${assertSegment('profile id', profileId)}.json`),
     profileWorkflow: (profileId) =>
-      join(profilesDir, `${assertSegment('profile id', profileId)}.workflow.ts`),
+      join(
+        profilesDir,
+        `${assertSegment('profile id', profileId)}.workflow.ts`,
+      ),
     reposDir,
     repo: (repoName) => join(reposDir, assertSegment('repo name', repoName)),
     runsDir,

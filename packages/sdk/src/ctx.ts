@@ -48,6 +48,13 @@ export type CheckpointAnswer =
   | { decision: 'reject'; reason?: string }
   | { decision: 'steer'; message: string };
 
+export interface Question {
+  title: string;
+  body: string;
+  options?: string[];
+}
+export type QuestionAnswer = { answer: string } | { cancelled: true };
+
 export type RunOutcome = 'merged' | 'rejected' | 'exhausted' | 'completed';
 
 // ── The Linear seam (NG-578) ───────────────────────────────────────────────
@@ -148,6 +155,12 @@ export interface WorkflowContext {
    * blocking; Linear's own gate is advisory.
    */
   checkpoint(opts: { title: string; body: string }): Promise<CheckpointAnswer>;
+
+  /** Ask for clarification and park durably until the human replies. */
+  question(opts: Question): Promise<QuestionAnswer>;
+
+  /** Post an explicit, durable comment on the Linear issue. */
+  comment(markdown: string): Promise<void>;
 
   /** Post markdown into the Run's Linear thread. One journaled Step. */
   post(markdown: string): Promise<void>;

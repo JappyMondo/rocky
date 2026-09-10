@@ -384,33 +384,32 @@ export async function probeGitLab(
         (grant.access_level ?? 0) > 0 &&
         role >= (grant.access_level ?? Infinity)),
   );
-  const sourcePush =
-    !scopes.includes('api')
-      ? unknown('Ordinary source push is not verified.')
-      : source?.can_push === true
-        ? ability(
-            'allowed',
-            'API scope and native source branch can_push=true.',
-          )
-        : source?.can_push === false
-          ? denied('Native source branch can_push=false.')
-          : missingBranches.has(options.branch) && !sourcePolicies?.length
+  const sourcePush = !scopes.includes('api')
+    ? unknown('Ordinary source push is not verified.')
+    : source?.can_push === true
+      ? ability('allowed', 'API scope and native source branch can_push=true.')
+      : source?.can_push === false
+        ? denied('Native source branch can_push=false.')
+        : missingBranches.has(options.branch) && !sourcePolicies?.length
+          ? ability(
+              'allowed',
+              'API scope and Developer membership permit creating an unprotected source branch.',
+            )
+          : missingBranches.has(options.branch) && policyAllowsSourcePush
             ? ability(
                 'allowed',
-                'API scope and Developer membership permit creating an unprotected source branch.',
+                'API scope and visible protected-branch policy permit creating the source branch.',
               )
-            : missingBranches.has(options.branch) && policyAllowsSourcePush
-              ? ability(
-                  'allowed',
-                  'API scope and visible protected-branch policy permit creating the source branch.',
+            : missingBranches.has(options.branch) &&
+                sourceGrants?.some((grant) => grant.group_id)
+              ? unknown(
+                  'Source-branch creation requires group membership not proven by the project role.',
                 )
-              : missingBranches.has(options.branch) && sourceGrants?.some((grant) => grant.group_id)
-                ? unknown(
-                    'Source-branch creation requires group membership not proven by the project role.',
+              : missingBranches.has(options.branch)
+                ? denied(
+                    'Source-branch creation is not allowed by the visible protected-branch policy.',
                   )
-                : missingBranches.has(options.branch)
-                  ? denied('Source-branch creation is not allowed by the visible protected-branch policy.')
-                  : unknown('Ordinary source push is not verified.');
+                : unknown('Ordinary source push is not verified.');
   const rebase =
     sourcePush.status !== 'allowed'
       ? sourcePush

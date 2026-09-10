@@ -334,3 +334,44 @@ it('keeps every nested Journal snapshot unchanged when Workflow code mutates ret
   expect(stepValues).toEqual([[], [], []]);
   expect(parallelValues).toEqual([[], [], []]);
 });
+
+it('parks Questions and replays the human answer without minting merge approval', async () => {
+  let reply: { decision: 'steer'; message: string } | undefined = undefined;
+  let calls = 0;
+  const boot = () =>
+    runBoot({
+      journalPath: join(dir, 'question.jsonl'),
+      workflow: async (runner) => {
+        let verifier: CheckpointApprovalVerifier = () => false;
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+          external: (_steps, approval) => {
+            verifier = approval;
+            return {
+              checkpoint: async (request, stepKey) => {
+                calls++;
+                expect(request.kind).toBe('question');
+                expect(stepKey).toBe('0');
+                return reply
+                  ? { status: 'done', result: reply }
+                  : { status: 'waiting' };
+              },
+            };
+          },
+        });
+        const answer = await ctx.question({
+          title: 'Scope?',
+          body: 'Which repository should change?',
+        });
+        expect(answer).toEqual({ answer: 'Only the app repository.' });
+        expect(verifier(answer as unknown as ApprovedCheckpoint)).toBe(false);
+        return 'completed';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'parked', reason: 'question' });
+  reply = { decision: 'steer', message: 'Only the app repository.' };
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(calls).toBe(2);
+});

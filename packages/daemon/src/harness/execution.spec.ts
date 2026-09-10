@@ -242,6 +242,8 @@ it('spawns OpenCode headlessly and persists a private raw Transcript', async () 
   expect(JSON.parse(result.text)).toMatchObject({
     args: [
       'run',
+      '--dir',
+      input.cwd,
       '--format',
       'json',
       '--agent',
@@ -407,4 +409,18 @@ it('reports the Claude organization restriction with a named fix, never successf
     message: expect.stringContaining('oauth_org_not_allowed'),
     fix: expect.stringContaining('claude login'),
   });
+});
+
+it('passes model variant to OpenCode and publishes the resolved configuration', async () => {
+  const input = await invocation();
+  const configurations: unknown[] = [];
+  const result = await opencode.run({
+    ...input,
+    effort: 'high',
+    onConfiguration: (value) => configurations.push(value),
+  });
+  expect(JSON.parse(result.text).args).toContain('--variant');
+  expect(JSON.parse(result.text).args).toContain('high');
+  expect(result).toMatchObject({ model: input.model, variant: 'high' });
+  expect(configurations).toEqual([{ model: input.model, variant: 'high' }]);
 });

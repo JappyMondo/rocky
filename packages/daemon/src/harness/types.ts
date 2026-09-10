@@ -10,6 +10,7 @@ export interface HarnessInvocation {
   prompt: string;
   sessionStorage: 'rocky' | 'opencode';
   model?: string;
+  effort?: string;
   capabilities: readonly Capability[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
@@ -18,6 +19,10 @@ export interface HarnessInvocation {
   signal?: AbortSignal;
   timeoutMs?: number;
   /** Emitted while the child is running, after the raw record is persisted. */
+  onConfiguration?: (configuration: {
+    model?: string;
+    variant?: string;
+  }) => void;
   onEvent?: (event: HarnessEvent, sessionId: string) => void;
 }
 
@@ -37,6 +42,8 @@ export interface HarnessUsage {
 
 export interface HarnessResult {
   text: string;
+  model?: string;
+  variant?: string;
   events: HarnessEvent[];
   sessionId: string;
   usage?: HarnessUsage;

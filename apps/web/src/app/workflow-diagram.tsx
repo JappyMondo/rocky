@@ -6,7 +6,7 @@ import styles from './app.module.css';
 
 let sequence = 0;
 
-function Chart({ source }: { source: string }) {
+export function Chart({ source }: { source: string }) {
   const [image, setImage] = useState<string>();
   const [error, setError] = useState(false);
   const [zoom, setZoom] = useState(100);

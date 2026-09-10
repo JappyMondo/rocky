@@ -28,6 +28,8 @@ export interface CheckpointDigest {
 }
 
 export interface CheckpointRequest {
+  kind?: 'question';
+  options?: string[];
   title: string;
   body: string;
   label?: string;
@@ -42,6 +44,8 @@ export interface CheckpointIdentity {
 
 /** Read-only Checkpoint state for the local product and conflict responses. */
 export interface CheckpointSnapshot extends CheckpointIdentity {
+  kind?: 'question';
+  options?: string[];
   title: string;
   body: string;
   answer?: RawCheckpointAnswer;
@@ -82,6 +86,8 @@ const answerSchema = z.discriminatedUnion('decision', [
 ]);
 const checkpointSchema = z
   .object({
+    kind: z.literal('question').optional(),
+    options: z.array(z.string()).optional(),
     stepKey: z.string(),
     generation: z.string(),
     activityId: z.string(),
@@ -205,6 +211,9 @@ function pending(note: ControlState['notes'][number]): boolean {
 
 function checkpointSnapshot(checkpoint: WaitingCheckpoint): CheckpointSnapshot {
   return structuredClone({
+    ...(checkpoint.kind
+      ? { kind: checkpoint.kind, options: checkpoint.options }
+      : {}),
     stepKey: checkpoint.stepKey,
     generation: checkpoint.generation,
     title: checkpoint.title,
@@ -342,12 +351,18 @@ export class LinearRunControl {
           ? `\n\nPending Steers (not yet heard by every intended Agent):\n\n${notes.map((note) => note.note).join('\n\n')}`
           : '';
         checkpoint = {
+          ...(request.kind
+            ? { kind: request.kind, options: request.options }
+            : {}),
           stepKey,
           generation,
           activityId: randomUUID(),
           at: new Date(this.now()).toISOString(),
           title: request.title,
-          body: `## ${request.title}\n\n${request.body}\n\nPR: ${digest.prUrl ?? 'none'}\nDiff: ${digest.diffStat}\nCI: ${digest.ci}; unresolved Complaints: ${digest.unresolved}\n\n[Open Rocky](${this.options.runUrl})${held}`,
+          body:
+            request.kind === 'question'
+              ? `## ${request.title}\n\n${request.body}\n\n${request.options?.map((option, i) => `${i + 1}. ${option}`).join('\n') ?? ''}\n\nReply with your answer, or [open Rocky](${this.options.runUrl}).`
+              : `## ${request.title}\n\n${request.body}\n\nPR: ${digest.prUrl ?? 'none'}\nDiff: ${digest.diffStat}\nCI: ${digest.ci}; unresolved Complaints: ${digest.unresolved}\n\n[Open Rocky](${this.options.runUrl})${held}`,
           approveValue: `rocky:${generation}:approve`,
           rejectValue: `rocky:${generation}:reject`,
           emitted: false,
@@ -364,13 +379,17 @@ export class LinearRunControl {
           id: checkpoint.activityId,
           sessionId: this.options.sessionId,
           content: { type: 'elicitation', body: checkpoint.body },
-          signal: 'select',
-          signalMetadata: {
-            options: [
-              { label: 'Approve', value: checkpoint.approveValue },
-              { label: 'Reject', value: checkpoint.rejectValue },
-            ],
-          },
+          ...(checkpoint.kind === 'question'
+            ? {}
+            : {
+                signal: 'select' as const,
+                signalMetadata: {
+                  options: [
+                    { label: 'Approve', value: checkpoint.approveValue },
+                    { label: 'Reject', value: checkpoint.rejectValue },
+                  ],
+                },
+              }),
         });
         if (!result.success || result.id !== checkpoint.activityId)
           throw new Error('Linear did not confirm the Checkpoint elicitation');
@@ -522,6 +541,12 @@ export class LinearRunControl {
             : input.body === checkpoint.rejectValue || input.signal === 'stop'
               ? { decision: 'reject' as const }
               : { decision: 'steer' as const, message: input.body ?? '' });
+      if (
+        checkpoint.kind === 'question' &&
+        (answer.decision === 'approve' ||
+          (answer.decision === 'steer' && !answer.message.trim()))
+      )
+        throw new Error('A Question requires a written answer');
       checkpoint.answer = answerSchema.parse(answer);
       checkpoint.answeredAt = new Date(this.now()).toISOString();
       state.inputs[id] = 'accepted';

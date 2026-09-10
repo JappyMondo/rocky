@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -22,6 +22,25 @@ it('lets an owned child flush after its SIGINT group leader exits', async () => 
       }),
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(await readFile(marker, 'utf8')).toBe('flushed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('aligns PWD with the Run workspace even when the daemon was started elsewhere', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-cwd-'));
+  try {
+    const result = await runProcess({
+      command: process.execPath,
+      args: [
+        '-e',
+        'console.log(JSON.stringify({cwd:process.cwd(),pwd:process.env.PWD}))',
+      ],
+      cwd: root,
+      env: { ...process.env, PWD: '/wrong/developer/checkout' },
+    });
+    const observed = JSON.parse(result.stdout);
+    expect(await realpath(observed.pwd)).toBe(observed.cwd);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -369,7 +369,9 @@ it('merges per-Run environment over the inherited environment', async () => {
 
 it('hands a terminal outcome to the integration before writing $end', async () => {
   const beforeTerminal = vi.fn(async () => {
-    expect((await readJournal(paths.run(header.runId).journal)).end).toBeUndefined();
+    expect(
+      (await readJournal(paths.run(header.runId).journal)).end,
+    ).toBeUndefined();
   });
   runtime = new WorkflowRuntime({
     paths,
@@ -423,3 +425,37 @@ it.each(terminalOutcomes)(
     expect(await readFile(journalPath, 'utf8')).toBe(journalBefore);
   },
 );
+
+it('preserves the original workflow failure when reporting it also fails', async () => {
+  runtime = new WorkflowRuntime({
+    paths,
+    loadWorkflow: async () => async () => {
+      throw new Error('Required checkpoint adapter is missing');
+    },
+    beforeTerminal: async () => {
+      throw new Error('Linear payload mismatch');
+    },
+  });
+  const result = await runtime.boot(
+    header,
+    'run',
+    new AbortController().signal,
+  );
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: {
+      message:
+        'Required checkpoint adapter is missing\n\nReporting this failure also failed: Linear payload mismatch',
+    },
+  });
+  expect(
+    (await readJournal(paths.run(header.runId).journal)).end,
+  ).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'Required checkpoint adapter is missing',
+      ),
+    },
+  });
+});

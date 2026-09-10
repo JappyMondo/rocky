@@ -24,7 +24,7 @@ const POSIX = process.platform !== 'win32';
 
 export async function writeAtomic(
   path: string,
-  contents: string,
+  contents: string | Uint8Array,
   mode: number,
   signal?: AbortSignal,
 ): Promise<void> {

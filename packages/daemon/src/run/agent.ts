@@ -11,6 +11,16 @@ import type { BootContext } from './replay.js';
 
 const progressSchema = z.object({
   kind: z.literal('agent'),
+  configuration: z
+    .object({
+      harness: z.string(),
+      model: z.string().optional(),
+      variant: z.string().optional(),
+      tools: z.array(z.string()),
+      mcp: z.array(z.string()),
+      timeoutMs: z.number(),
+    })
+    .optional(),
   attempt: z.number().int().min(1).max(3),
   startedAt: z.number(),
   deadline: z.number(),
@@ -88,6 +98,10 @@ export interface AgentHarnessInvocation {
   transcriptPath: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  onConfiguration?: (configuration: {
+    model?: string;
+    variant?: string;
+  }) => void;
   onEvent?: (event: AgentHarnessEvent, sessionId: string) => void;
 }
 
@@ -115,6 +129,8 @@ export function describeAgentEvent(event: AgentHarnessEvent): string {
 
 export interface AgentHarnessResult {
   text: string;
+  model?: string;
+  variant?: string;
   events: AgentHarnessEvent[];
   sessionId: string;
   usage?: {
@@ -273,6 +289,7 @@ export function createAgent(
         prompt = source.prompt;
       }
 
+      prompt = `Run workspace: ${runtime.cwd}\nWork only in this workspace and its repository members. Verify the current directory and branch before modifying files. Never substitute the daemon checkout or another repository for the assigned workspace.\n\n${prompt}`;
       const summary = z.object({ summary: z.string() });
       const schema = opts.schema;
       const jsonSchema = z.toJSONSchema(schema ?? summary, {
@@ -326,6 +343,14 @@ export function createAgent(
         const startedAt = Date.now();
         return {
           kind: 'agent',
+          configuration: {
+            harness,
+            ...(opts.model ? { model: opts.model } : {}),
+            ...(opts.effort ? { variant: opts.effort } : {}),
+            tools: opts.tools ?? [],
+            mcp: opts.mcp ?? [],
+            timeoutMs: timeout,
+          },
           attempt,
           startedAt,
           deadline: startedAt + timeout,
@@ -619,6 +644,21 @@ export function createAgent(
                 ),
                 signal: attemptSignal,
                 timeoutMs: Math.max(1, progress.deadline - Date.now()),
+                onConfiguration: (configuration) => {
+                  progress = {
+                    ...progress,
+                    configuration: {
+                      harness,
+                      tools: opts.tools ?? [],
+                      mcp: opts.mcp ?? [],
+                      timeoutMs: timeout,
+                      ...progress.configuration,
+                      ...configuration,
+                    },
+                  };
+                  eventWrites = eventWrites.then(() => handle.update(progress));
+                  void eventWrites.catch(() => undefined);
+                },
                 onEvent: (event, sessionId) => {
                   streamEvent(event, sessionId);
                   if (
@@ -668,7 +708,19 @@ export function createAgent(
               }
               await boundaryWrite;
               await eventWrites;
-              progress = { ...progress, sessionId: result.sessionId };
+              progress = {
+                ...progress,
+                sessionId: result.sessionId,
+                configuration: {
+                  harness,
+                  tools: opts.tools ?? [],
+                  mcp: opts.mcp ?? [],
+                  timeoutMs: timeout,
+                  ...progress.configuration,
+                  ...(result.model ? { model: result.model } : {}),
+                  ...(result.variant ? { variant: result.variant } : {}),
+                },
+              };
               for (const [key, value] of Object.entries(result.usage ?? {})) {
                 if (typeof value === 'number') {
                   progress.usage[key] = (progress.usage[key] ?? 0) + value;

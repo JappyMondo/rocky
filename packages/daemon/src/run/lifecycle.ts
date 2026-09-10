@@ -80,8 +80,14 @@ export class WorkflowRuntime {
         append: this.options.append,
         read: this.options.read,
         beforeEnd: async (end) => {
-          if (end.status === 'finished' || end.status === 'failed')
-            await this.options.beforeTerminal?.(run, end);
+          if (end.status === 'finished' || end.status === 'failed') {
+            try {
+              await this.options.beforeTerminal?.(run, end);
+            } catch (error) {
+              if (end.status !== 'failed') throw error;
+              end.error.message += `\n\nReporting this failure also failed: ${error instanceof Error ? error.message : String(error)}`;
+            }
+          }
         },
         workflow: async (steps) => {
           run = await readRunHeader(paths, run.runId);

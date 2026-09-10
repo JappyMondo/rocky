@@ -1506,3 +1506,32 @@ it('selects the newest current-head GitLab pipeline and keeps polling while it r
   ).resolves.toEqual({ status: 'waiting' });
   transport.done();
 });
+
+it('posts one revision report note and recovers its existing marker on retry', async () => {
+  const body = '<!-- rocky-review:run:revision -->\nA visual report';
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: mr,
+    },
+    { path: `${root}/merge_requests/7/notes?per_page=100&page=1`, value: [] },
+    {
+      path: `${root}/merge_requests/7/notes`,
+      method: 'POST',
+      body: { body },
+      value: { id: 99 },
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: mr,
+    },
+    {
+      path: `${root}/merge_requests/7/notes?per_page=100&page=1`,
+      value: [{ id: 99, body }],
+    },
+  ]);
+  const adapter = createGitLabScm({ ...options, fetch: transport.fetch });
+  await adapter.postReviewReport(pr, 'A visual report', 'run:revision');
+  await adapter.postReviewReport(pr, 'A visual report', 'run:revision');
+  transport.done();
+});

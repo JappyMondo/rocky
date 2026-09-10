@@ -124,8 +124,13 @@ async function executeClaude(
     if (input.sessionId) args.push('--resume', input.sessionId);
     else args.push('--session-id', sessionId);
     if (input.model) args.push('--model', input.model);
+    if (input.effort) args.push('--effort', input.effort);
     args.push('--', input.prompt);
-    const parser = createClaudeStream(input.onEvent, input.mcpServers);
+    const parser = createClaudeStream(
+      input.onEvent,
+      input.mcpServers,
+      input.onConfiguration,
+    );
     await runProcess({
       ...input,
       args,
@@ -178,10 +183,12 @@ export function parseClaudeStream(
 function createClaudeStream(
   onEvent?: HarnessInvocation['onEvent'],
   servers: readonly ResolvedMcpServer[] = [],
+  onConfiguration?: HarnessInvocation['onConfiguration'],
 ) {
   const events: HarnessEvent[] = [];
   const tools = new Map<string, string>();
   let sessionId: string | undefined;
+  let model: string | undefined;
   let text = '';
   let finished = false;
   let streaming = false;
@@ -219,6 +226,10 @@ function createClaudeStream(
           boundary();
         }
       } else if (record.type === 'system' && record.subtype === 'init') {
+        if (typeof record.model === 'string') {
+          model = record.model;
+          onConfiguration?.({ model });
+        }
         const statuses = Array.isArray(record.mcp_servers)
           ? record.mcp_servers
           : [];
@@ -321,7 +332,13 @@ function createClaudeStream(
         throw new HarnessError(
           'claude-code stream has no final result/session ID',
         );
-      return { sessionId, text, events, ...(usage ? { usage } : {}) };
+      return {
+        sessionId,
+        text,
+        events,
+        ...(model ? { model } : {}),
+        ...(usage ? { usage } : {}),
+      };
     },
   };
 }

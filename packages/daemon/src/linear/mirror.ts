@@ -1,3 +1,4 @@
+import { sameMarkdown } from './markdown.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
@@ -345,6 +346,30 @@ export class LinearRunMirror {
     });
   }
 
+  comment(commentId: string, body: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.allowed('working');
+      const payload = await this.frozen(
+        `comment:${commentId}`,
+        startSchema,
+        () => ({ id: randomUUID(), issueId: this.options.issueId, body }),
+      );
+      const key = this.key('explicit-comments');
+      const ids = z
+        .array(z.string())
+        .parse((await this.options.store.get(key)) ?? []);
+      if (!ids.includes(payload.id))
+        await this.options.store.put(key, [...ids, payload.id]);
+      await this.once(`comment:${commentId}`, async () => {
+        const result = await this.network(() =>
+          this.options.client.ensureComment(payload),
+        );
+        if (!result.success || result.id !== payload.id)
+          throw new Error('Linear did not confirm the ticket comment.');
+      });
+    });
+  }
+
   post(postId: string, summary: string): Promise<void> {
     return this.serialize(() =>
       this.action(`post:${postId}`, {
@@ -419,9 +444,15 @@ export class LinearRunMirror {
     // associate one with a later session, but neither must consume this run's
     // comment budget. Without public association, new comments are still
     // conservatively unclassified.
+    const explicit = z
+      .array(z.string())
+      .parse(
+        (await this.options.store.get(this.key('explicit-comments'))) ?? [],
+      );
     const relevant = comments.filter(
       (comment) =>
         !baseline.includes(comment.id) &&
+        !explicit.includes(comment.id) &&
         (comment.id === start.id ||
           comment.sessionId === this.options.sessionId ||
           !comment.sessionId),
@@ -429,7 +460,10 @@ export class LinearRunMirror {
     const extras = relevant.filter((comment) => comment.id !== start.id);
     if (
       extras.length > 1 ||
-      extras.some((comment) => comment.body !== finalBody)
+      extras.some(
+        (comment) =>
+          finalBody === undefined || !sameMarkdown(comment.body, finalBody),
+      )
     ) {
       await this.options.store.put(this.key('comment-budget-gate'), true);
       throw new LinearMirroringGateError(

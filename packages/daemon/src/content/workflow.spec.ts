@@ -58,6 +58,7 @@ it('ships the complete editable default tree without default Rules', async () =>
     'implementer.md',
     'merger.md',
     'planner.md',
+    'refiner.md',
     'reviewer.md',
     'ui-complaint-writer.md',
     'ui-inspector.md',
@@ -155,13 +156,21 @@ function fixture(
                       input,
                       calls.filter((call) => call.name === n).length,
                     ) ??
-                    (n === 'planner'
-                      ? { steps: ['Handle empty input.'] }
-                      : n === 'ui-triage'
-                        ? { isFrontend: false }
-                        : n.includes('reviewer')
-                          ? { complaints: [] }
-                          : {});
+                    (n === 'refiner'
+                      ? {
+                          status: 'clear',
+                          scope: 'Handle empty input.',
+                          decisions: ['Return an empty list as requested.'],
+                          acceptanceCriteria: ['Return an empty list.'],
+                          outOfScope: [],
+                        }
+                      : n === 'planner'
+                        ? { steps: ['Handle empty input.'] }
+                        : n === 'ui-triage'
+                          ? { isFrontend: false }
+                          : n.includes('reviewer')
+                            ? { complaints: [] }
+                            : {});
                   return {
                     status: 'done',
                     result: Object.assign(opts?.schema?.parse(data) ?? data, {
@@ -176,6 +185,11 @@ function fixture(
                   ? { status: 'done', result: answer }
                   : { status: 'waiting', detail: checkpoint };
               },
+              comment: (body) =>
+                steps.step('linear.comment', {}, async () => {
+                  trace.push(`comment:${body}`);
+                  return { status: 'done', result: undefined };
+                }),
               post: (body) =>
                 steps
                   .step('post', {}, async () => {
@@ -693,4 +707,50 @@ it('addresses unresolved PR conversations once each without prior Run hand-over 
     { id: 'a', body: 'Fixed in abc. Added a guard.' },
     { id: 'b', body: 'It is needed for callers.' },
   ]);
+});
+
+it('clarifies repeatedly before planning and carries the complete decision record downstream', async () => {
+  const f = fixture({
+    agent: (name, _input, count) =>
+      name === 'refiner'
+        ? count < 3
+          ? {
+              status: 'questions',
+              reason: 'Repository scope is ambiguous.',
+              questions: [
+                count === 1
+                  ? 'Which repository?'
+                  : 'What should empty input return?',
+              ],
+            }
+          : {
+              status: 'clear',
+              scope: 'App only. Empty input returns an empty list.',
+              decisions: ['User chose app only.', 'User chose an empty list.'],
+              acceptanceCriteria: [
+                'An empty list is returned for empty input.',
+              ],
+              outOfScope: ['Other repositories.'],
+            }
+        : undefined,
+  });
+  expect(await f.boot()).toMatchObject({ status: 'parked' });
+  expect(f.calls.some((call) => call.name === 'planner')).toBe(false);
+  f.answer({ decision: 'steer', message: 'App only.' });
+  expect(await f.boot()).toMatchObject({ status: 'parked' });
+  expect(f.calls.some((call) => call.name === 'implementer')).toBe(false);
+  f.answer({ decision: 'steer', message: 'An empty list.' });
+  expect(await f.boot()).toMatchObject({ status: 'parked' });
+  const planner = f.calls.find((call) => call.name === 'planner');
+  expect(JSON.stringify(planner?.input)).toContain(
+    'App only. Empty input returns an empty list.',
+  );
+  expect(f.trace.find((line) => line.startsWith('comment:'))).toContain(
+    'Scope decision record',
+  );
+  expect(
+    JSON.stringify(
+      f.calls.filter((call) => call.name === 'refiner').at(-1)?.input,
+    ),
+  ).toContain('An empty list.');
 });

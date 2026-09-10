@@ -785,7 +785,7 @@ describe('Inbox behavior', () => {
     expect(screen.getByText('A plain result')).toBeTruthy();
     expect(screen.getByText('review')).toBeTruthy();
 
-    expect(screen.getByText(/0s/)).toBeTruthy();
+    expect(screen.getAllByText(/0s/)[0]).toBeTruthy();
     expect(screen.getByText('Plan')).toBeTruthy();
     expect(screen.getByText('Results')).toBeTruthy();
     expect(screen.getByText(/Boom:/)).toBeTruthy();
@@ -1637,4 +1637,70 @@ describe('Workspace redesign', () => {
     expect(raw?.open).toBe(true);
     expect(screen.queryByText('Loading transcript…')).toBeNull();
   });
+});
+
+it('puts a terminal failure above the journal and shows the processing profile and Agent configuration', async () => {
+  const run = {
+    ...r1,
+    status: 'failed' as const,
+    profileId: 'product-team',
+    error: { name: 'Error', message: 'Checkpoint adapter was not connected.' },
+  };
+  daemon({
+    runs: [run],
+    detail: () => ({
+      body: detail(run, {
+        checkpoint: undefined,
+        steps: [
+          agent({
+            status: 'done',
+            ms: 60000,
+            agent: {
+              harness: 'opencode',
+              model: 'openai/example',
+              variant: 'high',
+              tools: ['read'],
+              mcp: ['playwright'],
+              timeoutMs: 120000,
+            },
+          }),
+        ],
+      }),
+    }),
+  });
+  window.history.replaceState({}, '', '/runs/r1');
+  render(<App />);
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('Checkpoint adapter was not connected.');
+  expect(screen.getByText('product-team')).toBeTruthy();
+  fireEvent.click(
+    screen.getByRole('button', { name: /opencode.*openai\/example/ }),
+  );
+  expect(await screen.findByText('Model variant / effort')).toBeTruthy();
+  expect(screen.getByText('Started')).toBeTruthy();
+});
+it('shows a clarification answer form without an approval shortcut', async () => {
+  const d = detail(r1, {
+    checkpoint: {
+      stepKey: '0',
+      generation: 'q',
+      kind: 'question',
+      title: 'Which repository?',
+      body: 'Name the repository to change.',
+      options: ['App only', 'All repositories'],
+    },
+  });
+  const fetch = daemon({ detail: () => ({ body: d }) });
+  window.history.replaceState({}, '', '/runs/r1');
+  render(<App />);
+  expect(await screen.findByLabelText('Your answer')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Approve/ })).toBeNull();
+  fireEvent.keyDown(window, { key: 'e' });
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'App only' }));
+  expect(
+    (screen.getByLabelText('Your answer') as HTMLTextAreaElement).value,
+  ).toBe('App only');
 });

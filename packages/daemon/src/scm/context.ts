@@ -19,6 +19,7 @@ export interface ScmAdapter {
   repo: ScmRepository;
   signal: AbortSignal | undefined;
   openPr(input: OpenPrOptions): Promise<Pr>;
+  postReviewReport?(pr: Pr, body: string, key: string): Promise<void>;
   markDraft(pr: Pr, draft: boolean, input?: { body?: string }): Promise<Pr>;
   waitForCi(
     pr: Pr,
@@ -42,6 +43,8 @@ export interface ScmContextOptions {
   signal: AbortSignal;
   /** Bound by createWorkflowContext to this branch-local Boot. */
   approvals: CheckpointApprovalVerifier;
+  validateWork?(repo: string): Promise<void>;
+  onReady?(pr: Pr): Promise<void>;
   /** Idempotent upsert/activity in the existing Linear thread, never a new PR comment. */
   onRefusal(
     notice: { key: string; refusal: ScmRefusal },
@@ -123,13 +126,23 @@ export function createScm(
     );
   };
   return {
-    openPr: (input) =>
-      call('openPr', input.repo ?? options.lead, input, async (adapter) => ({
-        status: 'done',
-        result: await adapter.openPr(input),
-      })),
-    markDraft: (pr, draft, input) =>
-      call(
+    openPr: async (input) => {
+      const result = await call(
+        'openPr',
+        input.repo ?? options.lead,
+        input,
+        async (adapter) => {
+          await options.validateWork?.(adapter.repo.id);
+          return { status: 'done', result: await adapter.openPr(input) };
+        },
+      );
+      if (!('refused' in result) && !result.draft && result.state === 'open')
+        await options.onReady?.(result);
+      return result;
+    },
+    markDraft: async (pr, draft, input) => {
+      if (!draft) await options.onReady?.(pr);
+      return call(
         'markDraft',
         pr.repo,
         [pr, draft, input ?? null],
@@ -137,7 +150,8 @@ export function createScm(
           status: 'done',
           result: await adapter.markDraft(pr, draft, input),
         }),
-      ),
+      );
+    },
     waitForCi: (pr, input) =>
       call('waitForCi', pr.repo, [pr, input], (adapter) =>
         adapter.waitForCi(pr, input),

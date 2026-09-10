@@ -1,6 +1,17 @@
+import type { ScmPr } from '@rocky/sdk';
+import type { Answer } from '@rocky/local-contracts';
+import type { StepOutcome } from './replay.js';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { LocalArtifacts } from '../local-api/artifacts.js';
+import {
+  generateReport,
+  reportId,
+  reportMarkdown,
+} from '../review-report/reporter.js';
+import { reviewRevision } from '../review-report/workspace.js';
 import { fileURLToPath } from 'node:url';
 
 import { expandHarness } from '../config/expand.js';
@@ -106,6 +117,7 @@ export function createProductionRuntime(
   options: ProductionRuntimeOptions,
 ): WorkflowRuntime {
   let env: NodeJS.ProcessEnv = {};
+  const registeredTranscripts = new Set<string>();
   let credentials: Awaited<ReturnType<typeof readCredentials>>;
   let activeRun:
     Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0] | undefined;
@@ -254,6 +266,34 @@ export function createProductionRuntime(
     append: async (_path, entry, appendOptions) => {
       await options.request({ kind: 'append', entry, options: appendOptions });
       mirrorStep(entry);
+      if (activeRun) {
+        const register = async (
+          item: JournalEntry,
+          prefix = '',
+        ): Promise<void> => {
+          const key = `${prefix}${item.seq}`;
+          const identity = `${activeRun?.runId}:${key}`;
+          if (item.step === 'agent' && !registeredTranscripts.has(identity)) {
+            try {
+              if (!activeRun) return;
+              await new LocalArtifacts(options.paths).registerTranscript(
+                activeRun.runId,
+                key,
+                `${key.replaceAll('/', '-')}.jsonl`,
+              );
+              registeredTranscripts.add(identity);
+            } catch {
+              /* Before the first event, the Transcript does not exist yet. */
+            }
+          }
+          for (const [index, branch] of (
+            item.parallel?.branches ?? []
+          ).entries())
+            for (const child of branch)
+              await register(child, `${key}/${index}/`);
+        };
+        await register(entry);
+      }
     },
     loadWorkflow: async (run, signal) => {
       if (!run.execution)
@@ -375,10 +415,201 @@ export function createProductionRuntime(
               : ('rocky' as const),
         };
       };
+      const runAgent = createAgent(steps, {
+        snapshotDir: options.paths.run(run.runId).snapshotDir,
+        cwd: options.paths.run(run.runId).workspaceDir,
+        sessionDir: options.paths.run(run.runId).sessionsDir,
+        harness: 'claude-code',
+        harnesses: {
+          get 'claude-code'() {
+            return resolveHarness('claude-code');
+          },
+          get opencode() {
+            return resolveHarness('opencode');
+          },
+        },
+        resolveServers: async (names, attemptSignal) => {
+          const prepared = await (mcp ??= (async () => {
+            const runtime = await loadMcpRuntime();
+            const declarations = await runtime.readMcpConfig(
+              join(options.paths.run(run.runId).snapshotDir, 'mcp.json'),
+            );
+            return {
+              runtime,
+              config: runtime.expandMcpConfig(declarations, {
+                env,
+                run: {
+                  runDir: options.paths.run(run.runId).dir,
+                  screenshotDir: options.paths.run(run.runId).screenshotsDir,
+                  port: run.ports[0] ?? 0,
+                },
+              }),
+            };
+          })());
+          return prepared.runtime.resolveMcpServers(prepared.config, names, {
+            paths: options.paths,
+            signal: attemptSignal,
+          });
+        },
+        adapterFor: options.adapterFor,
+        onEvent: (stepKey, event, sessionId) => {
+          options.onEvent?.(stepKey, event, sessionId);
+          if (!servicesEnabled) return;
+          const mirror = mirrorFor(run);
+          mirror.status({
+            stepId: stepKey,
+            title: 'Agent',
+            summary: describeAgentEvent(event),
+          });
+          flushMirrorSoon(run.runId, mirror);
+        },
+        steer: options.steer,
+      });
+      const artifacts = new LocalArtifacts(options.paths);
+      const revisionFor = async (repo: string, head?: string) => {
+        const member = run.execution?.members.find(
+          (member) => member.name === repo,
+        );
+        if (!member) throw new Error(`Unknown Run repository ${repo}`);
+        return reviewRevision(
+          join(options.paths.run(run.runId).workspaceDir, member.path),
+          run.branch,
+          member.baseBranch,
+          head,
+        );
+      };
+      const onReady = async (pr: ScmPr) => {
+        const publishedKey = `review-report:${reportId(pr)}:published`;
+        const revision = await steps.step(
+          'reviewReport.revision',
+          { label: 'Verify pushed PR changes' },
+          async () => ({
+            status: 'done',
+            result: await revisionFor(pr.repo, pr.headSha),
+          }),
+        );
+        const published = await steps.step(
+          'reviewReport.published',
+          { label: 'Check report publication' },
+          async () => ({
+            status: 'done',
+            result:
+              (await options.request({
+                kind: 'control-get',
+                key: publishedKey,
+              })) === true,
+          }),
+        );
+        if (published) return;
+        await mkdir(options.paths.run(run.runId).screenshotsDir, {
+          recursive: true,
+        });
+        const journal = await readJournal(options.paths.run(run.runId).journal);
+        const scope = journal.entries
+          .filter((entry) => entry.step === 'agent' && entry.status === 'done')
+          .map((entry) => entry.result)
+          .findLast(
+            (result) =>
+              result &&
+              typeof result === 'object' &&
+              'status' in result &&
+              result.status === 'clear' &&
+              'scope' in result,
+          );
+        const report = await generateReport({
+          steps,
+          agent: runAgent,
+          artifacts,
+          runId: run.runId,
+          pr,
+          ...revision,
+          issue: run.issue,
+          screenshotDir: options.paths.run(run.runId).screenshotsDir,
+          workspace: run.execution?.members,
+          workflow: run.profile?.workflow.source,
+          scope,
+          port: run.ports[0],
+          agentOptions: {
+            harness: run.profile?.grants.harness ?? 'opencode',
+            tools: ['read', 'bash'],
+            mcp: run.profile?.grants.mcp ?? [],
+          },
+        });
+        const images: Record<string, string> = {};
+        for (const shot of report.visuals.flatMap(
+          (visual) => visual.screenshots,
+        )) {
+          images[shot.id] = await steps.step(
+            'reviewReport.upload',
+            { label: `Upload ${shot.caption}` },
+            async () => {
+              const { bytes, contentType } = await artifacts.readScreenshot(
+                shot.id,
+              );
+              const uploaded = await linearClient.uploadFile({
+                filename: `${shot.id}.${contentType.split('/')[1]}`,
+                contentType,
+                data: new Uint8Array(bytes),
+              });
+              return { status: 'done', result: uploaded.assetUrl };
+            },
+          );
+        }
+        const markdown = reportMarkdown(
+          report,
+          `http://localhost:${options.config().server.port}`,
+          images,
+        );
+        await steps.step(
+          'reviewReport.publish',
+          { label: 'Post review report to Linear and PR' },
+          async () => {
+            // Re-check after a potentially long visual sweep: stale evidence must never mark another head ready.
+            await revisionFor(pr.repo, pr.headSha);
+            const adapter = scmFor(run, signal).find(
+              (adapter) => adapter.repo.id === pr.repo,
+            );
+            if (!adapter) throw new Error(`Unknown SCM repository ${pr.repo}`);
+            await adapter.postReviewReport(
+              pr,
+              markdown,
+              `${run.runId}:${report.id}`,
+            );
+            await mirrorFor(run).comment(`report:${report.id}`, markdown);
+            await options.request({
+              kind: 'control-put',
+              key: publishedKey,
+              value: true,
+            });
+            return {
+              status: 'done',
+              result: { reportId: report.id, headSha: pr.headSha },
+            };
+          },
+        );
+      };
       return {
         ...options.external?.(run, steps, signal, approvals),
         ...(servicesEnabled
           ? {
+              checkpoint: async (request, stepKey) =>
+                options.request({
+                  kind: 'checkpoint',
+                  stepKey,
+                  request: {
+                    ...request,
+                    digest: {
+                      diffStat: 'See run report',
+                      ci: 'See run activity',
+                      unresolved: 0,
+                    },
+                  },
+                }) as Promise<StepOutcome<Answer>>,
+              comment: (markdown: string) =>
+                steps.step('linear.comment', {}, async () => {
+                  await mirrorFor(run).comment(effectId(markdown), markdown);
+                  return { status: 'done', result: undefined };
+                }),
               post: async (markdown: string) =>
                 mirrorFor(run).post(effectId(`post:${markdown}`), markdown),
               linear: {
@@ -391,6 +622,14 @@ export function createProductionRuntime(
                 members: scmFor(run, signal),
                 signal,
                 approvals,
+                ...(run.execution?.reviewReports
+                  ? {
+                      validateWork: async (repo: string) => {
+                        await revisionFor(repo);
+                      },
+                      onReady,
+                    }
+                  : {}),
                 onRefusal: async ({ key, refusal }) =>
                   mirrorFor(run).post(
                     key,
@@ -399,56 +638,7 @@ export function createProductionRuntime(
               }),
             }
           : {}),
-        agent: createAgent(steps, {
-          snapshotDir: options.paths.run(run.runId).snapshotDir,
-          cwd: options.paths.run(run.runId).workspaceDir,
-          sessionDir: options.paths.run(run.runId).sessionsDir,
-          harness: 'claude-code',
-          harnesses: {
-            get 'claude-code'() {
-              return resolveHarness('claude-code');
-            },
-            get opencode() {
-              return resolveHarness('opencode');
-            },
-          },
-          resolveServers: async (names, attemptSignal) => {
-            const prepared = await (mcp ??= (async () => {
-              const runtime = await loadMcpRuntime();
-              const declarations = await runtime.readMcpConfig(
-                join(options.paths.run(run.runId).snapshotDir, 'mcp.json'),
-              );
-              return {
-                runtime,
-                config: runtime.expandMcpConfig(declarations, {
-                  env,
-                  run: {
-                    runDir: options.paths.run(run.runId).dir,
-                    screenshotDir: options.paths.run(run.runId).screenshotsDir,
-                    port: run.ports[0] ?? 0,
-                  },
-                }),
-              };
-            })());
-            return prepared.runtime.resolveMcpServers(prepared.config, names, {
-              paths: options.paths,
-              signal: attemptSignal,
-            });
-          },
-          adapterFor: options.adapterFor,
-          onEvent: (stepKey, event, sessionId) => {
-            options.onEvent?.(stepKey, event, sessionId);
-            if (!servicesEnabled) return;
-            const mirror = mirrorFor(run);
-            mirror.status({
-              stepId: stepKey,
-              title: 'Agent',
-              summary: describeAgentEvent(event),
-            });
-            flushMirrorSoon(run.runId, mirror);
-          },
-          steer: options.steer,
-        }),
+        agent: runAgent,
       };
     },
     beforeTerminal: async (run, result) => {

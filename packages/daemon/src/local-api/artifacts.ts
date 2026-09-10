@@ -2,9 +2,15 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { DiffFile, DiffView, Screenshot } from '@rocky/local-contracts';
+import type {
+  DiffFile,
+  DiffView,
+  Screenshot,
+  ReviewReport,
+} from '@rocky/local-contracts';
 import type { RockyPaths } from '../config/paths.js';
 import { PUBLIC_MODE, writeAtomic } from '../atomic-write.js';
+import { StoredReport } from '../review-report/schema.js';
 import { KeyedMutex } from '../repos/mutex.js';
 
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -33,6 +39,7 @@ interface Manifest {
   screenshots: Record<string, { relativePath: string; caption: string }>;
   transcripts: Record<string, string>;
   diffs: Record<string, DiffView>;
+  reports: Record<string, ReviewReport>;
 }
 
 const emptyManifest = (): Manifest => ({
@@ -40,6 +47,7 @@ const emptyManifest = (): Manifest => ({
   screenshots: Object.create(null),
   transcripts: Object.create(null),
   diffs: Object.create(null),
+  reports: Object.create(null),
 });
 
 function fail(
@@ -346,6 +354,51 @@ function assertDiff(diff: DiffView): void {
 /** Local, durable artifacts. It never accepts a filesystem path from a reader. */
 export class LocalArtifacts {
   constructor(private readonly paths: RockyPaths) {}
+
+  async saveReport(runId: string, report: ReviewReport): Promise<void> {
+    const checked = StoredReport.parse(report);
+    if (checked.runId !== runId)
+      fail('invalid_report', 'Report belongs to another Run');
+    await this.update(runId, (manifest) => {
+      for (const visual of checked.visuals)
+        for (const screenshot of visual.screenshots)
+          if (!own(manifest.screenshots, screenshot.id))
+            fail(
+              'unknown_screenshot',
+              'Report references an unregistered screenshot',
+            );
+      const previous = own(manifest.reports, checked.id);
+      if (previous && stable(previous) !== stable(checked))
+        fail('immutable_report', 'A report revision cannot be overwritten');
+      manifest.reports[checked.id] = checked;
+    });
+  }
+
+  async listReports(runId: string): Promise<ReviewReport[]> {
+    return Object.values((await this.load(runId)).reports);
+  }
+
+  async readReport(runId: string, id: string): Promise<ReviewReport> {
+    if (!/^r_[0-9a-f]{32}$/.test(id))
+      fail('invalid_report', 'Report ID is malformed');
+    const report = own((await this.load(runId)).reports, id);
+    if (!report) fail('report_not_found', 'Report was not found', 404);
+    return report;
+  }
+
+  async snapshotScreenshot(
+    runId: string,
+    relativePath: string,
+    caption: string,
+  ): Promise<Screenshot> {
+    const source = await this.registerScreenshot(runId, relativePath, caption);
+    const { bytes, contentType } = await this.readScreenshot(source.id);
+    const filename = `review-${createHash('sha256').update(bytes).digest('hex')}.${contentType.split('/')[1]}`;
+    // Source registration has already verified that the screenshot root is confined.
+    const root = await realpath(this.paths.run(runId).screenshotsDir);
+    await writeAtomic(resolve(root, filename), bytes, PUBLIC_MODE);
+    return this.registerScreenshot(runId, filename, caption);
+  }
 
   async registerScreenshot(
     runId: string,
@@ -668,6 +721,16 @@ export class LocalArtifacts {
     )
       fail('invalid_manifest', 'Artifact manifest is invalid');
     const checked = manifest as Manifest;
+    if (checked.reports !== undefined && !plainRecord(checked.reports))
+      fail('invalid_manifest', 'Invalid report manifest');
+    for (const [id, report] of Object.entries(checked.reports ?? {})) {
+      if (
+        id !== report.id ||
+        report.runId !== runId ||
+        !StoredReport.safeParse(report).success
+      )
+        fail('invalid_manifest', 'Invalid report');
+    }
     if (
       Object.keys(checked.screenshots).length > 100_000 ||
       Object.keys(checked.transcripts).length > 100_000 ||
@@ -695,6 +758,7 @@ export class LocalArtifacts {
       screenshots: Object.assign(Object.create(null), checked.screenshots),
       transcripts: Object.assign(Object.create(null), checked.transcripts),
       diffs: Object.assign(Object.create(null), checked.diffs),
+      reports: Object.assign(Object.create(null), checked.reports ?? {}),
     };
   }
 

@@ -22,6 +22,7 @@ import type {
   Usage,
 } from '@rocky/local-contracts';
 import { api, apiError } from './api.js';
+import { ReviewReports } from './review-report.js';
 import { WorkflowDiagram } from './workflow-diagram.js';
 import { DiffViewer } from './diff-view.js';
 import { RunsOverview, type RunsViewState } from './runs-overview.js';
@@ -408,6 +409,7 @@ export function App() {
       } else if (
         event.key === 'e' &&
         selectedDetail?.checkpoint &&
+        selectedDetail.checkpoint.kind !== 'question' &&
         !selectedDetail.checkpoint.answer &&
         selectedDetail.controls.answer &&
         mutationsAllowed
@@ -1081,6 +1083,9 @@ function RunView(p: {
       </div>
     );
   const checkpointOpen = !!d.checkpoint && !d.checkpoint.answer;
+  const isQuestion = d.checkpoint?.kind === 'question';
+  const failedStep = d.steps.findLast((step) => step.status === 'failed');
+  const failure = d.run.error?.message ?? failedStep?.error?.message;
   const canAnswer = checkpointOpen && d.controls.answer && p.allowed;
   const canSteer = d.controls.steer && p.allowed && !terminal(d.run.status);
   const submitOnModifierEnter = (
@@ -1143,6 +1148,31 @@ function RunView(p: {
           </a>
         )}
       </header>
+      {d.run.status === 'failed' && (
+        <section role="alert" className={styles.runFailure}>
+          <h2>Run failed{failedStep ? ` · ${stepName(failedStep)}` : ''}</h2>
+          <p>
+            {failure ??
+              d.run.reason ??
+              'No failure details were recorded. Check the daemon log.'}
+          </p>
+          {failedStep && (
+            <button
+              onClick={() => {
+                p.toggle((state) => ({
+                  ...state,
+                  [stepId(d.run.runId, failedStep.key)]: true,
+                }));
+                document
+                  .getElementById(`step=${failedStep.key}`)
+                  ?.scrollIntoView({ block: 'center' });
+              }}
+            >
+              Show failed step
+            </button>
+          )}
+        </section>
+      )}
       <div className={styles.runSummary}>
         <div>
           <p className={styles.eyebrow}>Progress</p>
@@ -1157,6 +1187,12 @@ function RunView(p: {
           />
         </div>
         <div>
+          <p className={styles.eyebrow}>Profile</p>
+          <strong>
+            {d.run.profileId ?? 'Legacy run — no profile recorded'}
+          </strong>
+        </div>
+        <div>
           <p className={styles.eyebrow}>Workflow trigger</p>
           <strong>{d.run.trigger ?? 'Issue delegation'}</strong>
         </div>
@@ -1165,6 +1201,7 @@ function RunView(p: {
           <span>{usage(d.usage.reported, d.usage.missing)}</span>
         </div>
       </div>
+      <ReviewReports key={d.run.runId} detail={d} />
       {d.run.reason && <p className={styles.warning}>{d.run.reason}</p>}
       {d.diffs.length > 0 && (
         <section className={styles.diffs}>
@@ -1183,7 +1220,11 @@ function RunView(p: {
       {d.checkpoint && (
         <section className={styles.checkpoint}>
           <p className={styles.eyebrow}>
-            {d.checkpoint.answer ? 'Review completed' : 'Your review is needed'}
+            {isQuestion
+              ? 'Clarification needed'
+              : d.checkpoint.answer
+                ? 'Review completed'
+                : 'Your review is needed'}
           </p>
           <h2>{d.checkpoint.title}</h2>
           <p>{d.checkpoint.body}</p>
@@ -1191,21 +1232,33 @@ function RunView(p: {
             <p>Answered: {d.checkpoint.answer.decision}</p>
           ) : (
             <>
-              <div className={styles.answer}>
-                <button
-                  disabled={!canAnswer}
-                  onClick={() => void p.answer({ decision: 'approve' })}
-                >
-                  <Icon name="check" size={16} />
-                  Approve <kbd>e</kbd>
-                </button>
-                <button
-                  disabled={!canAnswer}
-                  onClick={() => void p.answer({ decision: 'reject' })}
-                >
-                  Reject <kbd>r</kbd>
-                </button>
-              </div>
+              {!isQuestion && (
+                <div className={styles.answer}>
+                  <button
+                    disabled={!canAnswer}
+                    onClick={() => void p.answer({ decision: 'approve' })}
+                  >
+                    <Icon name="check" size={16} />
+                    Approve <kbd>e</kbd>
+                  </button>
+                  <button
+                    disabled={!canAnswer}
+                    onClick={() => void p.answer({ decision: 'reject' })}
+                  >
+                    Reject <kbd>r</kbd>
+                  </button>
+                </div>
+              )}
+              {isQuestion &&
+                d.checkpoint.options?.map((option) => (
+                  <button
+                    key={option}
+                    disabled={!canAnswer}
+                    onClick={() => p.setCompose(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
               <form
                 className={styles.checkpointCompose}
                 onSubmit={(event) => {
@@ -1213,7 +1266,9 @@ function RunView(p: {
                   submitCheckpointSteer();
                 }}
               >
-                <label htmlFor="checkpoint-steer">Steer this checkpoint</label>
+                <label htmlFor="checkpoint-steer">
+                  {isQuestion ? 'Your answer' : 'Steer this checkpoint'}
+                </label>
                 <textarea
                   id="checkpoint-steer"
                   ref={p.composeRef}
@@ -1223,10 +1278,14 @@ function RunView(p: {
                     submitOnModifierEnter(event, submitCheckpointSteer)
                   }
                   disabled={!canAnswer}
-                  placeholder="Give the Agent direction…"
+                  placeholder={
+                    isQuestion
+                      ? 'Answer the questions above…'
+                      : 'Give the Agent direction…'
+                  }
                 />
                 <button disabled={!canAnswer || !p.compose.trim()}>
-                  Send steer
+                  {isQuestion ? 'Send answer' : 'Send steer'}
                 </button>
                 <small>Press Command+Enter or Control+Enter to send.</small>
                 {!d.controls.answer && (
@@ -1283,11 +1342,28 @@ function RunView(p: {
                   <span className={styles.stepTitle}>
                     <strong>{stepName(step)}</strong>
                     {step.stage && <small>{step.stage}</small>}
+                    {step.agent && (
+                      <small>
+                        {step.agent.harness} ·{' '}
+                        {step.agent.model ?? 'Harness default model'} ·{' '}
+                        {step.agent.variant ?? 'Default variant'}
+                      </small>
+                    )}
                   </span>
                   <small className={styles.stepTiming}>
-                    {step.ms !== undefined
-                      ? `${Math.round(step.ms / 1000)}s`
-                      : dateLabel(step.startedAt)}
+                    <time
+                      dateTime={step.startedAt}
+                      title={new Date(step.startedAt).toLocaleString()}
+                    >
+                      {new Date(step.startedAt).toLocaleTimeString()}
+                    </time>
+                    <span>
+                      {step.ms !== undefined
+                        ? duration(step.ms)
+                        : step.status === 'running' && !terminal(d.run.status)
+                          ? duration(Date.now() - Date.parse(step.startedAt))
+                          : '—'}
+                    </span>
                   </small>
                   <Status value={step.status} />
                   <span className={styles.expandIcon} data-open={expanded}>
@@ -1308,6 +1384,10 @@ function RunView(p: {
                     >
                       #{step.key}
                     </a>
+                    <StepMetadata
+                      step={step}
+                      terminal={terminal(d.run.status)}
+                    />
                     {step.completedBeforeCurrentBoot && (
                       <p className={styles.prior}>
                         Completed in Boot {step.boot}; this is recorded history.
@@ -2308,3 +2388,101 @@ function Profiles(p: {
   );
 }
 export default App;
+
+function duration(ms: number) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60
+    ? `${minutes}m ${seconds % 60}s`
+    : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function StepMetadata({
+  step,
+  terminal,
+}: {
+  step: StepView;
+  terminal: boolean;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (terminal || step.status !== 'running') return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [terminal, step.status]);
+  const elapsed =
+    step.ms ?? (!terminal ? now - Date.parse(step.startedAt) : undefined);
+  return (
+    <dl className={styles.stepMetadata}>
+      <div>
+        <dt>Started</dt>
+        <dd>
+          <time dateTime={step.startedAt}>
+            {new Date(step.startedAt).toLocaleString()}
+          </time>
+        </dd>
+      </div>
+      <div>
+        <dt>Duration</dt>
+        <dd>
+          {elapsed === undefined ? 'Not recorded' : duration(elapsed)}
+          {step.status === 'running' && !terminal ? ' · running' : ''}
+        </dd>
+      </div>
+      {step.ms !== undefined && (
+        <div>
+          <dt>{step.status === 'waiting' ? 'Parked at' : 'Finished'}</dt>
+          <dd>
+            {new Date(Date.parse(step.startedAt) + step.ms).toLocaleString()}
+          </dd>
+        </div>
+      )}
+      <div>
+        <dt>Boot / attempts</dt>
+        <dd>
+          {step.boot} / {step.attempts.length + 1}
+        </dd>
+      </div>
+      {step.step === 'agent' && (
+        <>
+          <div>
+            <dt>Harness</dt>
+            <dd>{step.agent?.harness ?? 'Not recorded'}</dd>
+          </div>
+          <div>
+            <dt>Model</dt>
+            <dd>
+              {step.agent?.model ??
+                (step.agent
+                  ? 'Harness default (not reported)'
+                  : 'Not recorded')}
+            </dd>
+          </div>
+          <div>
+            <dt>Model variant / effort</dt>
+            <dd>
+              {step.agent?.variant ?? (step.agent ? 'Default' : 'Not recorded')}
+            </dd>
+          </div>
+          {step.agent && (
+            <>
+              <div>
+                <dt>Tools</dt>
+                <dd>{step.agent.tools.join(', ') || 'None'}</dd>
+              </div>
+              <div>
+                <dt>MCP servers</dt>
+                <dd>{step.agent.mcp.join(', ') || 'None'}</dd>
+              </div>
+              <div>
+                <dt>Timeout</dt>
+                <dd>{duration(step.agent.timeoutMs)}</dd>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </dl>
+  );
+}

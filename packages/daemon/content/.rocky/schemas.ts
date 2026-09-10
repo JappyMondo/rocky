@@ -183,3 +183,19 @@ export const UiTriage = z.object({ isFrontend: z.boolean() });
 export const CiFix = z.object({
   action: z.enum(['fixed', 'retry', 'unresolved']),
 });
+
+/** No path from an ambiguous ticket to implementation without a human answer. */
+export const Refinement = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('questions'),
+    reason: z.string().min(1),
+    questions: z.array(z.string().min(1)).min(1).max(3),
+  }),
+  z.object({
+    status: z.literal('clear'),
+    scope: z.string().min(1),
+    decisions: z.array(z.string().min(1)).min(1),
+    acceptanceCriteria: z.array(z.string().min(1)).min(1),
+    outOfScope: z.array(z.string().min(1)),
+  }),
+]);

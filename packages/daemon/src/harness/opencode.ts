@@ -39,11 +39,20 @@ async function executeOpencode(
     );
   const scoped = await createScopedOpencodeConfig(input);
   try {
-    const args = ['run', '--format', 'json', '--agent', 'rocky'];
+    const args = [
+      'run',
+      '--dir',
+      input.cwd,
+      '--format',
+      'json',
+      '--agent',
+      'rocky',
+    ];
     if (input.mcpServers.length)
       args.push('--print-logs', '--log-level', 'INFO');
     if (input.sessionId) args.push('--session', input.sessionId);
     if (input.model) args.push('--model', input.model);
+    if (input.effort) args.push('--variant', input.effort);
     args.push('--', input.prompt);
     const env = { ...scoped.env };
     if (input.sessionStorage !== 'opencode') {
@@ -71,6 +80,14 @@ async function executeOpencode(
         false,
       );
     }
+    input.onConfiguration?.({
+      ...(typeof effective.model === 'string'
+        ? { model: input.model ?? effective.model }
+        : input.model
+          ? { model: input.model }
+          : {}),
+      ...(input.effort ? { variant: input.effort } : {}),
+    });
     const active = (effective.agent as Record<string, JsonObject>)?.rocky;
     const conflicts = [
       resolved.code !== 0 && 'CLI config probe',
@@ -164,7 +181,15 @@ async function executeOpencode(
     }
     if (input.sessionId && result.sessionId !== input.sessionId)
       throw new HarnessError('opencode resumed a different session', false);
-    return result;
+    return {
+      ...result,
+      ...(typeof effective.model === 'string'
+        ? { model: input.model ?? effective.model }
+        : input.model
+          ? { model: input.model }
+          : {}),
+      ...(input.effort ? { variant: input.effort } : {}),
+    };
   } catch (error) {
     if (
       error instanceof HarnessError &&

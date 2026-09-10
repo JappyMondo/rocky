@@ -18,6 +18,7 @@ import {
 } from './scheduler.js';
 import { JournalWriter } from './writer.js';
 import type { RunWorkersOptions } from './worker.js';
+import type { CheckpointRequest } from '../linear/control.js';
 
 export interface ExecutionRequest {
   requestId: string;
@@ -70,6 +71,11 @@ export interface ExecutionOptions {
   onError?(error: unknown): void;
   onAgentEvent?(runId: string, stepKey: string, event: unknown): void;
   agentSteer?: AgentSteerControl;
+  checkpoint?(
+    runId: string,
+    stepKey: string,
+    request: CheckpointRequest,
+  ): Promise<unknown>;
   runtime?: {
     boot: SchedulerBoot;
     kill(run: RunHeader): Promise<void>;
@@ -89,7 +95,10 @@ type ExecutionRequestHandler = NonNullable<RunWorkersOptions['onRequest']>;
 
 /** Parent-side request handler used by an owned Boot process. */
 export function createExecutionRequestHandler(
-  options: Pick<ExecutionOptions, 'paths' | 'repos' | 'agentSteer'>,
+  options: Pick<
+    ExecutionOptions,
+    'paths' | 'repos' | 'agentSteer' | 'checkpoint'
+  >,
   getRun: (runId: string) => Promise<RunHeader | undefined>,
   writer: (path: string) => Promise<JournalWriter>,
 ): ExecutionRequestHandler {
@@ -99,6 +108,10 @@ export function createExecutionRequestHandler(
     if (!run) throw new Error(`Unknown Run ${runId}`);
     const journal = await writer(options.paths.run(runId).journal);
     switch (request.kind) {
+      case 'checkpoint':
+        if (!options.checkpoint)
+          throw new Error('Checkpoint control is unavailable');
+        return options.checkpoint(runId, request.stepKey, request.request);
       case 'append':
         return journal.append(request.entry, request.options);
       case 'control-get':
@@ -326,6 +339,7 @@ export async function openExecution(options: ExecutionOptions) {
               : { profile: prepared.profile }),
             ...(request.linear === undefined ? {} : { linear: request.linear }),
             execution: {
+              reviewReports: true,
               source,
               sourceCommit: prepared.sourceCommit,
               trigger: prepared.trigger,

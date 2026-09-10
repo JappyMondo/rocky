@@ -1296,3 +1296,29 @@ it('refuses GitHub review pagination without a forward cursor', async () => {
     ),
   ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
 });
+
+it('posts one revision report comment and recovers its existing marker on retry', async () => {
+  const body = '<!-- rocky-review:run:revision -->\nA visual report';
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/issues/7/comments?per_page=100&page=1',
+      value: [],
+    },
+    {
+      path: '/repos/team/repo/issues/7/comments',
+      method: 'POST',
+      body: { body },
+      value: { id: 99 },
+    },
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/issues/7/comments?per_page=100&page=1',
+      value: [{ id: 99, body }],
+    },
+  ]);
+  const adapter = createGitHubScm({ ...githubOptions, fetch: transport.fetch });
+  await adapter.postReviewReport(githubPr(), 'A visual report', 'run:revision');
+  await adapter.postReviewReport(githubPr(), 'A visual report', 'run:revision');
+  transport.done();
+});

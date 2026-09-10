@@ -84,7 +84,7 @@ export interface Cancellation {
 }
 
 export function nextPoll(reason: string, attempts: number): number {
-  return reason === 'checkpoint'
+  return reason === 'checkpoint' || reason === 'question'
     ? 300_000
     : Math.min(10_000 * 2 ** attempts, 60_000);
 }
@@ -624,7 +624,10 @@ export class RunScheduler {
       const run = this.runs.get(runId);
       if (!run) throw new Error(`Unknown Run ${runId}`);
       if (isTerminal(run)) return undefined;
-      if (run.status === 'parked' && run.reason === 'checkpoint')
+      if (
+        run.status === 'parked' &&
+        (run.reason === 'checkpoint' || run.reason === 'question')
+      )
         throw new Error(
           `${runId}: stop at a Checkpoint is an Answer; use the Checkpoint Answer intake`,
         );
