@@ -7,7 +7,6 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 
-import { updateCredentials } from '../config/store.js';
 import type { ConfigStore } from '../config/watcher.js';
 import { createRepoContext } from '../repos/index.js';
 import {
@@ -16,7 +15,11 @@ import {
   registerLocalApi,
 } from '../local-api/index.js';
 import { LocalSettings } from '../local-api/settings.js';
-import { RockyLinearClient } from '../linear/client.js';
+import { LocalConnections } from '../local-api/connections.js';
+import type { OAuthCallbackBroker } from '../linear/callback.js';
+import { createInstanceLinearClient } from '../linear/instance-client.js';
+import { LinearOAuthError } from '../linear/oauth.js';
+import { LinearNotConfiguredError } from '../linear/client.js';
 import { LinearRunControl } from '../linear/control.js';
 import { IntakeFailures } from '../linear/intake-failures.js';
 import type { AgentSessionEventHandler } from '../linear/events.js';
@@ -60,7 +63,10 @@ async function prepareOnboardingSnapshot(
 export interface ProductionComposition {
   execution: ExecutionIntegration;
   onAgentSessionEvent: AgentSessionEventHandler;
-  registerLocalApi(app: FastifyInstance): Promise<void>;
+  registerLocalApi(
+    app: FastifyInstance,
+    oauth?: OAuthCallbackBroker,
+  ): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -77,15 +83,7 @@ export async function createProductionComposition(options: {
   /** The eventual bound address is only presentation metadata; all controls stay loopback. */
   localOrigin?: string;
 }): Promise<ProductionComposition> {
-  const client = new RockyLinearClient({
-    auth: async () => (await options.config.readCredentials()).linear ?? {},
-    save: async (tokens) => {
-      await updateCredentials(options.paths, async (current) => ({
-        ...current,
-        linear: { ...current.linear, ...tokens },
-      }));
-    },
-  });
+  const client = createInstanceLinearClient(options.paths);
   const controls = new Map<string, LinearRunControl>();
   const intakeFailures = new IntakeFailures(options.paths);
 
@@ -222,7 +220,13 @@ export async function createProductionComposition(options: {
         );
       await control.prompted(event);
     } catch (error) {
-      await intakeFailures.record(event);
+      await intakeFailures.record(
+        event,
+        error instanceof LinearOAuthError ||
+          error instanceof LinearNotConfiguredError
+          ? 'linear-auth'
+          : undefined,
+      );
       throw error;
     }
   };
@@ -230,7 +234,9 @@ export async function createProductionComposition(options: {
   return {
     execution,
     onAgentSessionEvent: handler,
-    registerLocalApi: async (app) => {
+    registerLocalApi: async (app, oauth) => {
+      const connections = new LocalConnections(options.paths, { oauth });
+      app.addHook('preClose', () => connections.close());
       const diagrams = new WorkflowDiagrams({
         paths: options.paths,
         generate: agentDiagramGenerator(options.paths, options.config),
@@ -280,6 +286,7 @@ export async function createProductionComposition(options: {
           boundServer: options.config.current.server,
         }),
         profiles: new LocalProfiles(options.paths),
+        connections,
         diagrams,
         currentCheckpoint: async (id) =>
           (await controlFor(id))?.currentCheckpoint(),

@@ -166,6 +166,13 @@ function daemon(
   let healths = 0;
   let intakeFailureReads = 0;
   return installFetch((path, init) => {
+    if (path === '/api/connections')
+      return {
+        body: {
+          profiles: [],
+          linear: { state: 'connected', message: 'Linear connected' },
+        },
+      };
     if (path === '/api/health')
       return (
         options.health?.(++healths) ?? {
@@ -935,14 +942,16 @@ describe('Inbox behavior', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(
       'Settings were not saved. write denied',
     );
-    expect(screen.getByText('linear')).toBeTruthy();
+    expect(await screen.findByText('Linear connected')).toBeTruthy();
     cleanup();
     window.history.replaceState({}, '', '/settings');
     daemon({
       settings: () => ({ body: settings({ mcpAvailable: false, mcp: [] }) }),
     });
     render(<App />);
-    expect(await screen.findByText('MCP status is unavailable.')).toBeTruthy();
+    expect(
+      await screen.findByText('Create a profile before adding MCP servers.'),
+    ).toBeTruthy();
   });
 
   it('edits and saves a local OpenCode workflow profile', async () => {

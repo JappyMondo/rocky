@@ -40,7 +40,8 @@ const fakes = vi.hoisted(() => ({
   postActivity: vi.fn(async () => ({ id: 'activity', success: true })),
 }));
 
-vi.mock('../linear/client.js', () => ({
+vi.mock('../linear/client.js', async (original) => ({
+  ...(await original<typeof import('../linear/client.js')>()),
   RockyLinearClient: class {
     issue = fakes.issue;
     acknowledgeSession = fakes.acknowledge;

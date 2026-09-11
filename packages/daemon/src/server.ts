@@ -61,7 +61,10 @@ export interface DaemonOptions {
   /** The Run router. See `linear/events.ts` for why this is a seam. */
   onAgentSessionEvent?: AgentSessionEventHandler;
   /** Local-product registration, on this private listener only. */
-  registerLocalApi?(app: FastifyInstance): Promise<void>;
+  registerLocalApi?(
+    app: FastifyInstance,
+    oauth: OAuthCallbackBroker,
+  ): Promise<void>;
   /** Off in tests that drive the monitor themselves. */
   selfPing?: boolean;
   /** Injected for tests; the self-ping leaves the machine in production. */
@@ -167,25 +170,29 @@ export async function createDaemon(
     onEvent: options.onAgentSessionEvent ?? (() => undefined),
   });
 
-  app.get(OAUTH_CALLBACK_PATH, async (request, reply) => {
-    const query = request.query as {
-      code?: string;
-      state?: string;
-      error?: string;
-    };
-    const delivered = oauth.deliver(query);
+  app.get(
+    OAUTH_CALLBACK_PATH,
+    { logLevel: 'silent' },
+    async (request, reply) => {
+      const query = request.query as {
+        code?: string;
+        state?: string;
+        error?: string;
+      };
+      const delivered = oauth.deliver(query);
 
-    return reply
-      .status(delivered ? 200 : 400)
-      .type('text/html; charset=utf-8')
-      .send(
-        callbackPage(
-          delivered
-            ? 'Rocky is authorized. You can close this tab and go back to the terminal.'
-            : 'Rocky was not waiting for this authorization. Start again with <code>rocky setup</code>.',
-        ),
-      );
-  });
+      return reply
+        .status(delivered ? 200 : 400)
+        .type('text/html; charset=utf-8')
+        .send(
+          callbackPage(
+            delivered
+              ? 'Authorization response received. Return to Rocky to check whether the connection was saved.'
+              : 'Rocky was not waiting for this authorization. Start a new login in Settings → Connections or run <code>rocky setup</code>.',
+          ),
+        );
+    },
+  );
 
   // `rocky stop` talks to the daemon over the local API rather than signalling
   // it, so that stopping is one code path whether the caller is the developer,
@@ -230,7 +237,7 @@ export async function createDaemon(
     });
   }
 
-  await options.registerLocalApi?.(app);
+  await options.registerLocalApi?.(app, oauth);
 
   return { app, instanceId, endpoint, oauth };
 }

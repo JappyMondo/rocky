@@ -244,17 +244,30 @@ export interface StoredLinearAuth {
   expiresAt?: number;
 }
 
-export interface RockyLinearClientOptions {
-  /** Re-read on demand, never cached — `credentials.json` is hot (NG-578). */
-  auth(): Promise<StoredLinearAuth>;
-  /** Atomically merge the rotated pair into current credentials, preserving MCP and other sections. */
-  save(tokens: OAuthTokens): Promise<void>;
+interface LinearClientTransport {
   createSdk?: (accessToken: string) => LinearSdkLike;
   fetch?: typeof fetch;
   now?: () => number;
   /** Aborts this client's HTTP requests and throttling waits, including writes. */
   signal?: AbortSignal;
 }
+
+export type RockyLinearClientOptions = LinearClientTransport &
+  (
+    | {
+        /** Re-read on demand, never cached — `credentials.json` is hot (NG-578). */
+        auth(): Promise<StoredLinearAuth>;
+        /** Atomically merge the rotated pair into current credentials, preserving MCP and other sections. */
+        save(tokens: OAuthTokens): Promise<void>;
+        accessToken?: never;
+      }
+    | {
+        /** Instance clients serialize refresh and persistence across all processes. */
+        accessToken(): Promise<string>;
+        auth?: never;
+        save?: never;
+      }
+  );
 
 export class LinearNotConfiguredError extends Error {
   constructor(what: string) {
@@ -584,6 +597,7 @@ export class RockyLinearClient {
   }
 
   private async readAccessToken(): Promise<string> {
+    if (this.options.accessToken) return this.options.accessToken();
     const auth = await this.options.auth();
 
     if (!auth.accessToken) {

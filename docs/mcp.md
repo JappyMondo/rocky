@@ -5,6 +5,47 @@ primitives. It does **not** wire a production `ctx.agent` or Preflight Run.
 Native Harness configuration and child lifetime belong to NG-530/NG-643;
 Agent execution to NG-544; journaled Preflight to NG-605.
 
+## Manage connections in the UI
+
+Open **Settings → Connections** in the local Rocky UI. Select a profile to add,
+edit or remove its MCP servers, configure HTTP/SSE URLs or local stdio commands,
+and change the profile's MCP grants. Workflow agent calls still select their
+tools explicitly; allowing a server sets the permission ceiling. Changes apply
+to future run snapshots. Existing runs keep their captured configuration.
+
+Header and environment values already saved are hidden. Leaving a saved value
+untouched preserves it; entering a replacement changes it, and removing its
+entry deletes it. Environment references such as `${API_TOKEN}` are supported.
+Concurrent profile edits fail with a reload prompt rather than overwriting the
+other edit.
+
+**Test** opens a short MCP session and lists tools without executing them. A
+stdio test starts the configured local command. Tests use the profile's
+environment and bound repository secrets; run-only placeholders require a run
+and cannot be resolved by this standalone check.
+
+For a remote server, choose **Login** or **Reauthenticate**, then **Continue to
+authorization**. Rocky handles discovery, PKCE, callback validation and token
+storage. Advanced settings support registered OAuth clients and fixed callback
+ports. Complete authorization in a browser on the same machine as Rocky for
+the loopback MCP callback. Login can be cancelled and times out after two
+minutes; restarting Rocky also cancels pending logins. **Forget login** removes
+the OAuth credential shared by all declarations with that exact URL, without
+removing the server definition. Explicit Authorization headers take precedence
+over saved OAuth credentials.
+
+The separate **Linear** card tests Rocky's app/API access, independently of
+webhook/tunnel connectivity and any Linear MCP server. **Reauthenticate Linear**
+uses the app configured during setup and its public callback. A revoked refresh
+token requires this browser authorization once; automatic refresh cannot revive
+it. Afterward, daemon intake, onboarding and run workers all read, refresh and
+save the rotating token pair under the same cross-process credential lock.
+
+Connection management APIs are local-only, origin checked and version checked.
+They never return saved access tokens, refresh tokens, client secrets or literal
+header/environment values. Pending authorization URLs are transient; OAuth
+callbacks are excluded from request logging.
+
 ## Declaration
 
 `.rocky/mcp.json` is JSON, not executable code. No `oauth`, tool policy or

@@ -8,6 +8,7 @@ import type {
   RepositoryProfileView,
   RepositoryProfileDefaults,
   ProfileRoutingView,
+  McpProfileView,
 } from '@rocky/local-contracts';
 import { z } from 'zod';
 
@@ -27,6 +28,7 @@ import { LocalApiError } from './settings.js';
 import { PUBLIC_MODE } from '../atomic-write.js';
 import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
 import { ConfigError } from '../config/schema.js';
+import { parseMcpConfig } from '../mcp/config.js';
 
 const id = z.string().regex(/^[A-Za-z0-9._-]+$/);
 const editable = z
@@ -85,6 +87,154 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
 /** The profile editor deliberately exposes workflow settings, never env values. */
 export class LocalProfiles {
   constructor(private readonly paths: RockyPaths) {}
+
+  async mcp(profileId: string): Promise<McpProfileView> {
+    const profile = await readRepositoryProfile(this.paths, profileId);
+    const config = parseMcpConfig(profile.mcp);
+    const hide = (fields: Record<string, string> | undefined) =>
+      fields &&
+      Object.fromEntries(
+        Object.entries(fields).map(([key, value]) => [
+          key,
+          /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(value) ? value : null,
+        ]),
+      );
+    return {
+      id: profile.id,
+      revision: revision(profile),
+      servers: Object.entries(config.mcpServers).map(([name, server]) => ({
+        name,
+        allowed: profile.grants.mcp.includes(name),
+        definition:
+          server.type === 'stdio'
+            ? { ...server, env: hide(server.env) }
+            : { ...server, headers: hide(server.headers) },
+        auth: {
+          state: 'not-configured',
+          message:
+            server.type === 'stdio'
+              ? 'Local process'
+              : 'No saved OAuth credentials',
+        },
+      })),
+    };
+  }
+
+  async saveMcp(
+    profileId: string,
+    name: string,
+    input: unknown,
+    remove = false,
+  ): Promise<McpProfileView> {
+    const parsed = z
+      .object({
+        revision: z.string(),
+        definition: z.unknown().optional(),
+        allowed: z.boolean().optional(),
+      })
+      .strict()
+      .safeParse(input);
+    if (
+      !parsed.success ||
+      !/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name) ||
+      ['__proto__', 'constructor', 'prototype'].includes(name)
+    )
+      throw new LocalApiError(
+        400,
+        'invalid-mcp',
+        'Enter a valid server name and definition.',
+      );
+    await updates.run(this.paths.profile(profileId), async () => {
+      const profile = await readRepositoryProfile(this.paths, profileId);
+      if (revision(profile) !== parsed.data.revision)
+        throw new LocalApiError(
+          409,
+          'profile-changed',
+          'This profile changed. Reload before saving MCP settings.',
+        );
+      const config = parseMcpConfig(profile.mcp);
+      if (remove) {
+        delete config.mcpServers[name];
+        profile.grants.mcp = profile.grants.mcp.filter(
+          (value) => value !== name,
+        );
+      } else {
+        const raw = z
+          .record(z.string(), z.unknown())
+          .safeParse(parsed.data.definition);
+        if (!raw.success)
+          throw new LocalApiError(
+            400,
+            'invalid-mcp',
+            'Enter a server definition.',
+          );
+        const definition = { ...raw.data };
+        const old = config.mcpServers[name];
+        for (const field of ['env', 'headers'] as const) {
+          if (definition[field] === undefined) continue;
+          const values = z
+            .record(z.string(), z.string().nullable())
+            .safeParse(definition[field]);
+          if (!values.success)
+            throw new LocalApiError(
+              400,
+              'invalid-mcp',
+              'Environment and header values must be strings.',
+            );
+          definition[field] = Object.fromEntries(
+            Object.entries(values.data).map(([key, value]) => {
+              const previous =
+                old && field in old
+                  ? (
+                      old as {
+                        env?: Record<string, string>;
+                        headers?: Record<string, string>;
+                      }
+                    )[field]?.[key]
+                  : undefined;
+              if (value === null && previous === undefined)
+                throw new LocalApiError(
+                  400,
+                  'invalid-mcp',
+                  'A new header or environment entry needs a value.',
+                );
+              return [key, value ?? previous];
+            }),
+          );
+        }
+        try {
+          if (
+            typeof definition.url === 'string' &&
+            !definition.url.includes('${')
+          ) {
+            const url = new URL(definition.url);
+            if (!['http:', 'https:'].includes(url.protocol))
+              throw new Error('Invalid MCP URL');
+          }
+          config.mcpServers[name] = parseMcpConfig({
+            mcpServers: { [name]: definition },
+          }).mcpServers[name];
+        } catch {
+          throw new LocalApiError(
+            400,
+            'invalid-mcp',
+            'Use a stdio command or an HTTP/SSE URL with valid arguments, headers and environment values.',
+          );
+        }
+        if (parsed.data.allowed === true && !profile.grants.mcp.includes(name))
+          profile.grants.mcp.push(name);
+        if (parsed.data.allowed === false)
+          profile.grants.mcp = profile.grants.mcp.filter(
+            (value) => value !== name,
+          );
+      }
+      await writeRepositoryProfile(this.paths, {
+        ...profile,
+        mcp: { mcpServers: config.mcpServers },
+      });
+    });
+    return this.mcp(profileId);
+  }
 
   async defaults(): Promise<RepositoryProfileDefaults> {
     const config = await readInstanceConfig(this.paths);

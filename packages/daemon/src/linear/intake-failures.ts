@@ -36,16 +36,23 @@ export class IntakeFailures {
     }
   }
 
-  async record(event: AgentSessionEvent): Promise<void> {
+  async record(
+    event: AgentSessionEvent,
+    category?: 'linear-auth',
+  ): Promise<void> {
     const current = await this.list();
     const failure: IntakeFailure = {
       sessionId: event.sessionId,
       action: event.action,
       occurredAt: new Date().toISOString(),
       reason:
-        'Rocky acknowledged this Linear delivery but could not admit or control its Run.',
+        category === 'linear-auth'
+          ? 'Linear reached Rocky, but Rocky could not authenticate back to Linear.'
+          : 'Rocky acknowledged this Linear delivery but could not admit or control its Run.',
       remediation:
-        'Open Rocky locally, inspect this intake failure, then recover the session or delegate the issue again.',
+        category === 'linear-auth'
+          ? 'Open Settings → Connections → Reauthenticate Linear, then delegate the issue again.'
+          : 'Open Rocky locally, inspect this intake failure, then recover the session or delegate the issue again.',
     };
     await writeAtomic(
       this.paths.intakeFailuresFile,

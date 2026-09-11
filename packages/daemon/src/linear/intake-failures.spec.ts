@@ -32,6 +32,11 @@ describe('post-acknowledgement intake failures', () => {
         reason: expect.stringContaining('could not admit'),
       },
     ]);
+    await failures.record(event, 'linear-auth');
+    expect((await failures.list())[0]).toMatchObject({
+      reason: expect.stringContaining('authenticate back'),
+      remediation: expect.stringContaining('Reauthenticate Linear'),
+    });
     expect(await readFile(paths.intakeFailuresFile, 'utf8')).not.toContain(
       'never persist this',
     );

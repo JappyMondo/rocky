@@ -35,6 +35,7 @@ import {
 import { LocalApiError, LocalSettings } from './settings.js';
 import { LocalProfiles } from './profiles.js';
 import type { WorkflowDiagrams } from '../workflow-diagrams.js';
+import type { LocalConnections } from './connections.js';
 
 export {
   LocalArtifacts,
@@ -56,6 +57,7 @@ export interface LocalApiOptions {
   artifacts: LocalArtifacts;
   settings: LocalSettings;
   profiles?: LocalProfiles;
+  connections?: LocalConnections;
   diagrams?: Pick<WorkflowDiagrams, 'read' | 'retry'>;
   currentCheckpoint?: (runId: string) => Promise<Checkpoint | undefined>;
   answer?: (
@@ -311,6 +313,55 @@ export async function registerLocalApi(
             : 'Local service failed. See the daemon log.',
       });
     });
+
+    if (options.connections) {
+      const connections = options.connections;
+      const target = (params: { profile: string; name: string }) => {
+        if (
+          !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(params.profile) ||
+          !/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(params.name)
+        )
+          throw new LocalApiError(
+            400,
+            'invalid-mcp',
+            'Invalid profile or server name.',
+          );
+        return [params.profile, params.name] as const;
+      };
+      local.get('/api/connections', () => connections.read());
+      local.post('/api/connections/linear/check', () =>
+        connections.checkLinear(true),
+      );
+      local.post('/api/connections/linear/login', () =>
+        connections.startLinear(),
+      );
+      local.get<{ Params: { id: string } }>(
+        '/api/connections/logins/:id',
+        (request) => connections.login(request.params.id),
+      );
+      local.delete<{ Params: { id: string } }>(
+        '/api/connections/logins/:id',
+        (request) => connections.cancel(request.params.id),
+      );
+      type McpParams = { Params: { profile: string; name: string } };
+      const path = '/api/connections/profiles/:profile/mcp/:name';
+      local.put<McpParams>(path, (request) =>
+        connections.save(...target(request.params), request.body),
+      );
+      local.delete<McpParams>(path, (request) =>
+        connections.save(...target(request.params), request.body, true),
+      );
+      local.post<McpParams>(`${path}/login`, (request) =>
+        connections.startMcp(...target(request.params), request.body),
+      );
+      local.post<McpParams>(`${path}/check`, (request) =>
+        connections.check(...target(request.params)),
+      );
+      local.delete<McpParams>(`${path}/credentials`, async (request) => {
+        await connections.forget(...target(request.params));
+        return { ok: true };
+      });
+    }
 
     const getRun = async (id: unknown) => {
       const runId = parse(segment, id);

@@ -19,7 +19,7 @@ import type { RockyPaths } from '../config/paths.js';
 import type { InstanceConfig } from '../config/schema.js';
 import { readCredentials } from '../config/store.js';
 import { LinearRunMirror } from '../linear/mirror.js';
-import { RockyLinearClient } from '../linear/client.js';
+import { createInstanceLinearClient } from '../linear/instance-client.js';
 import { preflightMcp, readMcpConfig, type McpConfig } from '../mcp/index.js';
 import {
   createGitHubScm,
@@ -130,10 +130,7 @@ export function createProductionRuntime(
   // than constructing one per effect so streamed status is actually flushed.
   const mirrors = new Map<string, LinearRunMirror>();
   const mirrorFlushes = new Map<string, ReturnType<typeof setTimeout>>();
-  const linearClient = new RockyLinearClient({
-    auth: async () => (await readCredentials(options.paths)).linear ?? {},
-    save: async () => undefined,
-  });
+  const linearClient = createInstanceLinearClient(options.paths);
   const mirrorFor = (
     run: Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0],
   ) => {
@@ -339,11 +336,8 @@ export function createProductionRuntime(
           repo: join(options.paths.run(run.runId).workspaceDir, lead.path),
           shippedDir,
           teamStates: async () => {
-            const { RockyLinearClient } = await import('../linear/client.js');
-            const client = new RockyLinearClient({
-              auth: async () =>
-                (await readCredentials(options.paths)).linear ?? {},
-              save: async () => undefined,
+            const client = createInstanceLinearClient(options.paths, {
+              signal,
             });
             return client.workflowStates(linear.teamId);
           },

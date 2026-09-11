@@ -182,6 +182,46 @@ export interface SettingsView {
   mcpAvailable: boolean;
 }
 
+export type McpDefinition =
+  | {
+      type: 'stdio';
+      command: string;
+      args?: string[];
+      env?: Record<string, string | null>;
+    }
+  | {
+      type: 'http' | 'sse';
+      url: string;
+      headers?: Record<string, string | null>;
+    };
+export interface ConnectionStatus {
+  state: 'not-configured' | 'saved' | 'connected' | 'login-required' | 'error';
+  message: string;
+}
+export interface McpProfileView {
+  id: string;
+  revision: string;
+  servers: Array<{
+    name: string;
+    definition: McpDefinition;
+    allowed: boolean;
+    auth: ConnectionStatus;
+  }>;
+}
+export interface ConnectionsView {
+  linear: ConnectionStatus;
+  profiles: McpProfileView[];
+}
+export interface ConnectionLogin {
+  id: string;
+  status: 'starting' | 'waiting' | 'success' | 'failed' | 'cancelled';
+  authorizationUrl?: string;
+  message?: string;
+}
+export interface ConnectionCheck extends ConnectionStatus {
+  tools?: string[];
+}
+
 /** Secret-free representation of a machine-local repository profile. */
 export interface RepositoryProfileView {
   id: string;

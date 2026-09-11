@@ -28,6 +28,7 @@ import { DiffViewer } from './diff-view.js';
 import { RunsOverview, type RunsViewState } from './runs-overview.js';
 import { Dialog, Icon, Mark, Status, dateLabel } from './ui.js';
 import styles from './app.module.css';
+import { Connections } from './connections.js';
 
 const VERSION = __ROCKY_VERSION__;
 const TAIL = 40_000;
@@ -1545,176 +1546,163 @@ function Settings(p: {
     }
   };
   return (
-    <form
-      className={styles.settings}
-      onChange={() => setSaved(false)}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <header className={styles.pageHeader}>
-        <div>
-          <p className={styles.eyebrow}>Workspace preferences</p>
-          <h1>Settings</h1>
-          <p>Make Rocky fit the way you work.</p>
-        </div>
-      </header>
-      <div className={styles.settingsGroup}>
-        <div className={styles.groupIntro}>
-          <Icon name="settings" />
-          <h2>Local server</h2>
-          <p>
-            Where your Rocky workspace is available. Changes require a restart.
-          </p>
-        </div>
-        <div className={styles.fieldGrid}>
-          <label>
-            Bind host
-            <input
-              disabled={p.disabled}
-              required
-              value={values.server.host}
-              onChange={(event) =>
-                setValues({
-                  ...values,
-                  server: { ...values.server, host: event.target.value },
-                })
-              }
-            />
-          </label>
-          <label>
-            Bind port
-            <input
-              type="number"
-              required
-              min={1}
-              disabled={p.disabled}
-              max={65535}
-              value={values.server.port}
-              onChange={(event) =>
-                setValues({
-                  ...values,
-                  server: {
-                    ...values.server,
-                    port: Number(event.target.value),
-                  },
-                })
-              }
-            />
-          </label>
-        </div>
-      </div>
-      <div className={styles.settingsGroup}>
-        <div className={styles.groupIntro}>
-          <Icon name="clock" />
-          <h2>Run history</h2>
-          <p>Choose how much completed work and its artifacts to keep.</p>
-        </div>
-        <div className={styles.fieldGrid}>
-          <label>
-            Retention: terminal Runs
-            <input
-              type="number"
-              required
-              min={1}
-              disabled={p.disabled}
-              value={values.retention.keepTerminalRuns}
-              onChange={(event) =>
-                setValues({
-                  ...values,
-                  retention: {
-                    ...values.retention,
-                    keepTerminalRuns: Number(event.target.value),
-                  },
-                })
-              }
-            />
-          </label>
-          <label>
-            Retention: sessions & screenshots
-            <input
-              type="number"
-              required
-              min={1}
-              disabled={p.disabled}
-              value={values.retention.keepSessionsAndScreenshots}
-              onChange={(event) =>
-                setValues({
-                  ...values,
-                  retention: {
-                    ...values.retention,
-                    keepSessionsAndScreenshots: Number(event.target.value),
-                  },
-                })
-              }
-            />
-          </label>
-        </div>
-      </div>
-      <div className={styles.settingsGroup}>
-        <div className={styles.groupIntro}>
-          <Icon name="runs" />
-          <h2>Concurrency</h2>
-          <p>Limit how many runs can work at the same time.</p>
-        </div>
-        <div className={styles.fieldGrid}>
-          <label>
-            Maximum concurrent Runs
-            <input
-              type="number"
-              required
-              min={1}
-              disabled={p.disabled}
-              value={values.concurrency.maxRuns}
-              onChange={(event) =>
-                setValues({
-                  ...values,
-                  concurrency: { maxRuns: Number(event.target.value) },
-                })
-              }
-            />
-          </label>
-        </div>
-      </div>
-      <div className={styles.formActions}>
-        {saved && (
-          <span className={styles.saved} role="status">
-            <Icon name="check" size={15} />
-            Settings saved
-          </span>
-        )}
-        <button className={styles.primary} disabled={p.disabled} type="submit">
-          Save settings
-        </button>
-      </div>
-      {settings.restartRequired && (
-        <p className={styles.warning}>
-          Restart Rocky for server settings to take effect.
-        </p>
-      )}
-      <div className={styles.integrationSection}>
-        <div className={styles.sectionHeading}>
+    <>
+      <form
+        className={styles.settings}
+        onChange={() => setSaved(false)}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <header className={styles.pageHeader}>
           <div>
-            <h2>Integrations</h2>
-            <p>Authentication for your connected MCP tools.</p>
+            <p className={styles.eyebrow}>Workspace preferences</p>
+            <h1>Settings</h1>
+            <p>Make Rocky fit the way you work.</p>
+          </div>
+        </header>
+        <div className={styles.settingsGroup}>
+          <div className={styles.groupIntro}>
+            <Icon name="settings" />
+            <h2>Local server</h2>
+            <p>
+              Where your Rocky workspace is available. Changes require a
+              restart.
+            </p>
+          </div>
+          <div className={styles.fieldGrid}>
+            <label>
+              Bind host
+              <input
+                disabled={p.disabled}
+                required
+                value={values.server.host}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    server: { ...values.server, host: event.target.value },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Bind port
+              <input
+                type="number"
+                required
+                min={1}
+                disabled={p.disabled}
+                max={65535}
+                value={values.server.port}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    server: {
+                      ...values.server,
+                      port: Number(event.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
           </div>
         </div>
-        {!settings.mcpAvailable ? (
-          <p className={styles.muted}>MCP status is unavailable.</p>
-        ) : (
-          settings.mcp.map((m) => (
-            <div key={m.name} className={styles.integration}>
-              <strong>{m.name}</strong>
-              <span className={styles.muted}>{m.status}</span>
-              {m.status !== 'authenticated' && m.status !== 'not-required' && (
-                <code>{m.loginCommand}</code>
-              )}
-            </div>
-          ))
+        <div className={styles.settingsGroup}>
+          <div className={styles.groupIntro}>
+            <Icon name="clock" />
+            <h2>Run history</h2>
+            <p>Choose how much completed work and its artifacts to keep.</p>
+          </div>
+          <div className={styles.fieldGrid}>
+            <label>
+              Retention: terminal Runs
+              <input
+                type="number"
+                required
+                min={1}
+                disabled={p.disabled}
+                value={values.retention.keepTerminalRuns}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    retention: {
+                      ...values.retention,
+                      keepTerminalRuns: Number(event.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Retention: sessions & screenshots
+              <input
+                type="number"
+                required
+                min={1}
+                disabled={p.disabled}
+                value={values.retention.keepSessionsAndScreenshots}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    retention: {
+                      ...values.retention,
+                      keepSessionsAndScreenshots: Number(event.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+          </div>
+        </div>
+        <div className={styles.settingsGroup}>
+          <div className={styles.groupIntro}>
+            <Icon name="runs" />
+            <h2>Concurrency</h2>
+            <p>Limit how many runs can work at the same time.</p>
+          </div>
+          <div className={styles.fieldGrid}>
+            <label>
+              Maximum concurrent Runs
+              <input
+                type="number"
+                required
+                min={1}
+                disabled={p.disabled}
+                value={values.concurrency.maxRuns}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    concurrency: { maxRuns: Number(event.target.value) },
+                  })
+                }
+              />
+            </label>
+          </div>
+        </div>
+        <div className={styles.formActions}>
+          {saved && (
+            <span className={styles.saved} role="status">
+              <Icon name="check" size={15} />
+              Settings saved
+            </span>
+          )}
+          <button
+            className={styles.primary}
+            disabled={p.disabled}
+            type="submit"
+          >
+            Save settings
+          </button>
+        </div>
+        {settings.restartRequired && (
+          <p className={styles.warning}>
+            Restart Rocky for server settings to take effect.
+          </p>
         )}
-      </div>
-    </form>
+      </form>
+      <Connections disabled={p.disabled} mismatch={p.mismatch} />
+    </>
   );
 }
 
