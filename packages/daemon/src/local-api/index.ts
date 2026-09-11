@@ -518,9 +518,29 @@ export async function registerLocalApi(
           ({ id, title, createdAt, pr }) => ({ id, title, createdAt, pr }),
         );
         const steers = (await options.steers?.(run.runId)) ?? [];
+        const controls: RunDetail['controls'] = {
+          answer:
+            options.answer !== undefined &&
+            options.currentCheckpoint !== undefined,
+          steer: options.steer !== undefined,
+        };
+        if (
+          options.recoverSession &&
+          run.linear &&
+          (run.status === 'failed' || run.status === 'cancelled')
+        ) {
+          controls.linearDelegation = run.admissionId ? 'available' : 'enabled';
+        }
         const revision = createHash('sha256')
           .update(
-            JSON.stringify({ entries, diffs, reports, checkpoint, steers }),
+            JSON.stringify({
+              entries,
+              diffs,
+              reports,
+              checkpoint,
+              steers,
+              controls,
+            }),
           )
           .digest('hex');
         return {
@@ -543,12 +563,7 @@ export async function registerLocalApi(
           steers,
           usage: sumUsage(steps),
           diffs,
-          controls: {
-            answer:
-              options.answer !== undefined &&
-              options.currentCheckpoint !== undefined,
-            steer: options.steer !== undefined,
-          },
+          controls,
         };
       },
     );
@@ -706,6 +721,18 @@ export async function registerLocalApi(
             503,
             'session-recovery-unavailable',
             'Linear session recovery is not connected.',
+          );
+        if (!['failed', 'cancelled', 'finished'].includes(run.status))
+          throw new LocalApiError(
+            409,
+            'run-still-live',
+            'This Run is still live. Only a finished Run can release its Linear session.',
+          );
+        if (!run.linear)
+          throw new LocalApiError(
+            409,
+            'no-linear-session',
+            'This Run has no Linear session to release.',
           );
         return options.recoverSession(run.runId);
       },

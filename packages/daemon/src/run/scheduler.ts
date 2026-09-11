@@ -232,10 +232,13 @@ export class RunScheduler {
         throw new Error(
           `${runId} is still live; only a terminal Run can release its Linear session for re-delegation`,
         );
-      if (!run.linear || !run.admissionId)
+      if (!run.linear)
         throw new Error(
           `${runId} has no recoverable Linear session association`,
         );
+      // A retried click (or lost HTTP response) must preserve the successful
+      // release. The Linear identity remains on the historical Run for audit.
+      if (!run.admissionId) return structuredClone(run);
       const { admissionId: _released, ...recovered } = run;
       await this.options.writeHeader(this.options.paths, recovered);
       this.runs.set(runId, recovered);

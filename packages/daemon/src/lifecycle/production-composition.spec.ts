@@ -301,6 +301,7 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
     },
   });
   expect(steer.json()).toMatchObject({ state: 'held' });
+  run.status = 'failed';
   const recovery = await app.inject({
     method: 'POST',
     url: '/api/runs/NG-700-1/recover-session',

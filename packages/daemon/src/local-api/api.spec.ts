@@ -273,25 +273,93 @@ it('reflects real scheduler admission and park without maintaining a second API 
   expect(detail.controls).toEqual({ answer: false, steer: false });
 });
 
-it('exposes explicit terminal-session recovery without making the API a Run registry', async () => {
-  const fixture = await setup({
-    recoverSession: async (runId) => ({
-      runId,
+it.each(['failed', 'cancelled'] as const)(
+  'repeated session recovery succeeds for a %s Run through the real scheduler and stays enabled after restart',
+  async (status) => {
+    const fixture = await setup();
+    await writeRunHeader(fixture.paths, {
+      ...fixture.run,
+      status,
+      endedAt: '2026-09-07T12:01:00.000Z',
+      admissionId: 'stale-session',
+      linear: {
+        issueId: 'issue',
+        teamId: 'team',
+        organizationId: 'org',
+        appUserId: 'app',
+        sessionId: 'stale-session',
+      },
+    });
+    const boot = vi.fn(async () => {
+      throw new Error('Recovery must not start work');
+    });
+    let scheduler = await RunScheduler.open({ paths: fixture.paths, boot });
+    disposers.push(() => scheduler.close());
+    fixture.options.runs.get = (id) => scheduler.get(id);
+    fixture.options.recoverSession = async (id) => {
+      const run = await scheduler.recoverSession(id);
+      if (!run.linear) throw new Error('Missing Linear identity');
+      return {
+        runId: run.runId,
+        issueIdentifier: run.issue.identifier,
+        sessionId: run.linear.sessionId,
+      };
+    };
+    const request = () =>
+      fixture.app.inject({
+        method: 'POST',
+        url: '/api/runs/NG-609-1/recover-session',
+      });
+    const before = (
+      await fixture.app.inject('/api/runs/NG-609-1')
+    ).json<RunDetail>();
+    const first = await request();
+    expect(first.statusCode).toBe(200);
+    expect((await request()).statusCode).toBe(200);
+    expect(first.json()).toEqual({
+      runId: 'NG-609-1',
       issueIdentifier: 'NG-609',
       sessionId: 'stale-session',
-    }),
-  });
-  const response = await fixture.app.inject({
-    method: 'POST',
-    url: '/api/runs/NG-609-1/recover-session',
-  });
-  expect(response.statusCode).toBe(200);
-  expect(response.json()).toEqual({
-    runId: 'NG-609-1',
-    issueIdentifier: 'NG-609',
-    sessionId: 'stale-session',
-  });
-});
+    });
+    await scheduler.close();
+    scheduler = await RunScheduler.open({ paths: fixture.paths, boot });
+    expect((await request()).statusCode).toBe(200);
+    const after = (
+      await fixture.app.inject('/api/runs/NG-609-1')
+    ).json<RunDetail>();
+    expect(before.controls).toMatchObject({ linearDelegation: 'available' });
+    expect(after.controls).toMatchObject({ linearDelegation: 'enabled' });
+    expect(after.revision).not.toBe(before.revision);
+    expect(await readRunHeader(fixture.paths, 'NG-609-1')).toMatchObject({
+      status,
+      linear: { sessionId: 'stale-session' },
+    });
+    expect(boot).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  { status: 'running' as const, code: 'run-still-live' },
+  { status: 'failed' as const, code: 'no-linear-session' },
+])(
+  'explains why session recovery is unavailable instead of returning 500: $code',
+  async ({ status, code }) => {
+    const recoverSession = vi.fn();
+    const fixture = await setup({ recoverSession });
+    await writeRunHeader(fixture.paths, { ...fixture.run, status });
+    const response = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/runs/NG-609-1/recover-session',
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code });
+    expect(recoverSession).not.toHaveBeenCalled();
+    const view = (
+      await fixture.app.inject('/api/runs/NG-609-1')
+    ).json<RunDetail>();
+    expect(view.controls.linearDelegation).toBeUndefined();
+  },
+);
 
 it('exposes only the safe diagnostics for post-acknowledgement intake failures', async () => {
   const fixture = await setup({

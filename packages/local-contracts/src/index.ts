@@ -114,7 +114,12 @@ export interface RunDetail {
   steers: SteerReceipt[];
   usage: UsageTotal;
   diffs: Array<{ id: string; label: string; baseSha: string; headSha: string }>;
-  controls: { answer: boolean; steer: boolean };
+  controls: {
+    answer: boolean;
+    steer: boolean;
+    /** Omitted when this Run has no supported Linear session recovery. */
+    linearDelegation?: 'available' | 'enabled';
+  };
 }
 
 export interface Screenshot {

@@ -483,16 +483,10 @@ export function App() {
   const recoverSession = async (runId: string) => {
     setError(null);
     try {
-      const result = await api<{
-        issueIdentifier: string;
-        sessionId: string;
-      }>(
+      await api(
         `/api/runs/${encodeURIComponent(runId)}/recover-session`,
         setMismatch,
         { method: 'POST' },
-      );
-      setError(
-        `Released the stale Linear session for ${result.issueIdentifier}. Delegate Rocky again in Linear to start a fresh Run.`,
       );
       await refreshDetail(runId);
     } catch (caught) {
@@ -1482,7 +1476,13 @@ function RunView(p: {
             <p className={styles.muted}>
               This Run is finished; its Steer intake is closed.
             </p>
-            {(d.run.status === 'failed' || d.run.status === 'cancelled') && (
+            {d.controls.linearDelegation === 'enabled' && (
+              <p role="status">
+                Fresh Linear delegation is enabled. Delegate Rocky again on{' '}
+                {d.run.issue.identifier} in Linear to start a fresh Run.
+              </p>
+            )}
+            {d.controls.linearDelegation === 'available' && (
               <>
                 <button
                   disabled={!p.allowed}

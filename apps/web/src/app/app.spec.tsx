@@ -251,14 +251,25 @@ afterEach(() => {
 describe('Inbox behavior', () => {
   it('releases a failed Linear session only on the explicit recovery action', async () => {
     const failed = { ...r1, status: 'failed' as const };
+    let enabled = false;
     const mock = daemon({
       runs: [failed],
       detail: () => ({
         body: detail(failed, {
           checkpoint: undefined,
-          controls: { answer: false, steer: false },
+          controls: {
+            answer: false,
+            steer: false,
+            linearDelegation: enabled ? 'enabled' : 'available',
+          },
         }),
       }),
+      recovery: () => {
+        enabled = true;
+        return {
+          body: { issueIdentifier: 'NG-612', sessionId: 'stale-session' },
+        };
+      },
     });
     render(<App />);
     await loaded();
@@ -267,9 +278,12 @@ describe('Inbox behavior', () => {
     );
     expect(
       await screen.findByText(
-        'Released the stale Linear session for NG-612. Delegate Rocky again in Linear to start a fresh Run.',
+        'Fresh Linear delegation is enabled. Delegate Rocky again on NG-612 in Linear to start a fresh Run.',
       ),
     ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'Enable fresh Linear delegation' }),
+    ).toBeNull();
     expect(mock).toHaveBeenCalledWith(
       '/api/runs/r1/recover-session',
       expect.objectContaining({ method: 'POST' }),
@@ -283,7 +297,11 @@ describe('Inbox behavior', () => {
       detail: () => ({
         body: detail(failed, {
           checkpoint: undefined,
-          controls: { answer: false, steer: false },
+          controls: {
+            answer: false,
+            steer: false,
+            linearDelegation: 'available',
+          },
         }),
       }),
       recovery: () => ({
@@ -314,7 +332,11 @@ describe('Inbox behavior', () => {
       detail: () => ({
         body: detail(cancelled, {
           checkpoint: undefined,
-          controls: { answer: false, steer: false },
+          controls: {
+            answer: false,
+            steer: false,
+            linearDelegation: 'available',
+          },
         }),
       }),
     });
@@ -323,6 +345,55 @@ describe('Inbox behavior', () => {
     expect(
       screen.getByRole('button', { name: 'Enable fresh Linear delegation' }),
     ).toBeTruthy();
+  });
+
+  it('shows an already released session after reloading without offering another release', async () => {
+    const failed = { ...r1, status: 'failed' as const };
+    const mock = daemon({
+      runs: [failed],
+      detail: () => ({
+        body: detail(failed, {
+          checkpoint: undefined,
+          controls: {
+            answer: false,
+            steer: false,
+            linearDelegation: 'enabled',
+          },
+        }),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'Fresh Linear delegation is enabled.',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Enable fresh Linear delegation' }),
+    ).toBeNull();
+    expect(
+      mock.mock.calls.some(([path]) =>
+        String(path).endsWith('/recover-session'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not offer session recovery for a Run without a recoverable Linear session', async () => {
+    const failed = { ...r1, status: 'failed' as const };
+    daemon({
+      runs: [failed],
+      detail: () => ({
+        body: detail(failed, {
+          checkpoint: undefined,
+          controls: { answer: false, steer: false },
+        }),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    expect(
+      screen.queryByRole('button', { name: 'Enable fresh Linear delegation' }),
+    ).toBeNull();
+    expect(screen.queryByText(/Fresh Linear delegation is enabled/)).toBeNull();
   });
 
   it('routes direct Runs and issue hashes, and tells a missing issue apart from an empty inbox', async () => {

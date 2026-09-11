@@ -76,6 +76,13 @@ headers, never flat fallback lists.
 
 ## Settings And Security
 
+Failed or cancelled Runs with a Linear session expose **Enable fresh Linear
+delegation** until that session has been released. Recovery is idempotent:
+repeated requests, including after a restart, succeed without changing the old
+Run or starting work. The Run view then shows that fresh delegation is enabled
+and asks the user to delegate Rocky again in Linear. Runs without a Linear
+session do not offer this action; live Runs cannot release their session.
+
 Settings only exposes bind/port, retention, concurrency and redacted MCP status.
 It preserves unrelated config keys, serializes API writes and rejects stale
 revisions. Config watchers in production own hot retention/cap application;

@@ -209,6 +209,14 @@ it('requires an explicit recovery before a terminal Linear session can delegate 
         prepare: async () => prepared,
       }),
     ).resolves.toMatchObject({ kind: 'started', run: { runId: 'NG-598-2' } });
+    await expect(recovered.recoverSession('NG-598-1')).resolves.toMatchObject({
+      runId: 'NG-598-1',
+      status: 'failed',
+    });
+    expect((await recovered.get('NG-598-2'))?.admissionId).toBe('session-1');
+    await expect(recovered.recoverSession('NG-598-2')).rejects.toThrow(
+      'is still live',
+    );
   } finally {
     await recovered.close();
   }
