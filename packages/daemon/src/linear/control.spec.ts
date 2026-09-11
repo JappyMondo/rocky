@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { JournalWriter } from '../run/writer.js';
 import {
   LinearRunControl,
+  inspectLinearControl,
   type LinearControlStore,
   type LinearRunControlOptions,
 } from './control.js';
@@ -1170,3 +1175,53 @@ it('offers a free-text Question and accepts the same durable answer from Linear 
     answer: { decision: 'steer', message: 'App only' },
   });
 });
+
+it.each([undefined, ['App only', 'All repositories']])(
+  'persists a Question with optional choices in the real journal and resumes its answer (%j)',
+  async (options) => {
+    const root = await mkdtemp(join(tmpdir(), 'rocky-question-journal-'));
+    try {
+      const path = join(root, 'journal.jsonl');
+      const store = await JournalWriter.open(path);
+      const f = fixture();
+      const control = f.open({ store });
+      const request = { ...question, kind: 'question' as const, options };
+      await expect(control.checkpoint('4', request)).resolves.toEqual({
+        status: 'waiting',
+      });
+      const checkpoint = must(await control.currentCheckpoint());
+      expect(checkpoint.options).toEqual(options);
+      expect(inspectLinearControl(await store.get('linear:control'))).toEqual({
+        checkpoint,
+        steers: [],
+      });
+      const reopened = f.open({ store: await JournalWriter.open(path) });
+      expect(await reopened.currentCheckpoint()).toEqual(checkpoint);
+      await reopened.answer({
+        ...checkpoint,
+        requestId: 'answer',
+        answer: { decision: 'steer', message: 'Document all repositories.' },
+      });
+      await expect(
+        f
+          .open({ store: await JournalWriter.open(path) })
+          .checkpoint('4', request),
+      ).resolves.toEqual({
+        status: 'done',
+        result: { decision: 'steer', message: 'Document all repositories.' },
+      });
+      expect(inspectLinearControl(await store.get('linear:control'))).toEqual({
+        steers: [],
+      });
+      await reopened.steer({
+        requestId: 'follow-up',
+        message: 'Include deployment.',
+      });
+      expect(
+        inspectLinearControl(await store.get('linear:control')).steers,
+      ).toEqual(await reopened.steers());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

@@ -20,11 +20,12 @@ import type { OAuthCallbackBroker } from '../linear/callback.js';
 import { createInstanceLinearClient } from '../linear/instance-client.js';
 import { LinearOAuthError } from '../linear/oauth.js';
 import { LinearNotConfiguredError } from '../linear/client.js';
-import { LinearRunControl } from '../linear/control.js';
+import { LinearRunControl, inspectLinearControl } from '../linear/control.js';
 import { IntakeFailures } from '../linear/intake-failures.js';
 import type { AgentSessionEventHandler } from '../linear/events.js';
 import { openExecution, type ExecutionIntegration } from '../run/execution.js';
 import type { RunHeader } from '../run/header.js';
+import { readJournal } from '../run/journal.js';
 import type { RockyPaths } from '../config/paths.js';
 import {
   agentDiagramGenerator,
@@ -235,6 +236,14 @@ export async function createProductionComposition(options: {
     execution,
     onAgentSessionEvent: handler,
     registerLocalApi: async (app, oauth) => {
+      // A failed writer must remain closed to writes, but its durable prefix
+      // still needs to be inspectable. Never repair or reopen it from the UI.
+      const runJournal = (id: string) =>
+        readJournal(options.paths.run(id).journal);
+      const controlView = async (id: string) =>
+        inspectLinearControl(
+          (await runJournal(id)).getControl('linear:control'),
+        );
       const connections = new LocalConnections(options.paths, { oauth });
       app.addHook('preClose', () => connections.close());
       const diagrams = new WorkflowDiagrams({
@@ -250,9 +259,9 @@ export async function createProductionComposition(options: {
           get: async (id) => {
             const run = await execution.scheduler.get(id);
             if (!run || run.status !== 'failed') return run;
-            const terminal = await (
-              await execution.journal(id)
-            ).get(`linear-mirror:${id}:terminal`);
+            const terminal = (await runJournal(id)).getControl(
+              `linear-mirror:${id}:terminal`,
+            );
             if (
               terminal &&
               typeof terminal === 'object' &&
@@ -277,8 +286,7 @@ export async function createProductionComposition(options: {
             }
             return run;
           },
-          journal: async (id) =>
-            (await (await execution.journal(id)).read()).entries,
+          journal: async (id) => (await runJournal(id)).entries,
         },
         artifacts: new LocalArtifacts(options.paths),
         settings: new LocalSettings({
@@ -288,8 +296,7 @@ export async function createProductionComposition(options: {
         profiles: new LocalProfiles(options.paths),
         connections,
         diagrams,
-        currentCheckpoint: async (id) =>
-          (await controlFor(id))?.currentCheckpoint(),
+        currentCheckpoint: async (id) => (await controlView(id)).checkpoint,
         answer: async (id, input) => {
           const control = await controlFor(id);
           if (!control) throw new Error(`Run ${id} has no Linear control`);
@@ -308,8 +315,7 @@ export async function createProductionComposition(options: {
           };
         },
         steers: async (id) => {
-          const control = await controlFor(id);
-          const receipts = control ? await control.steers() : [];
+          const receipts = (await controlView(id)).steers;
           return receipts.map((receipt) => ({
             requestId: receipt.requestId,
             message: receipt.message,

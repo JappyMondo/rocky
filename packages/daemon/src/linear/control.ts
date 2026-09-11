@@ -211,9 +211,10 @@ function pending(note: ControlState['notes'][number]): boolean {
 
 function checkpointSnapshot(checkpoint: WaitingCheckpoint): CheckpointSnapshot {
   return structuredClone({
-    ...(checkpoint.kind
-      ? { kind: checkpoint.kind, options: checkpoint.options }
-      : {}),
+    ...(checkpoint.kind ? { kind: checkpoint.kind } : {}),
+    ...(checkpoint.options === undefined
+      ? {}
+      : { options: checkpoint.options }),
     stepKey: checkpoint.stepKey,
     generation: checkpoint.generation,
     title: checkpoint.title,
@@ -238,6 +239,20 @@ function steerSnapshot(note: ControlState['notes'][number]): SteerSnapshot {
       delivered,
     })),
   });
+}
+
+/** Read-only presentation from durable state, independent of a failed writer. */
+export function inspectLinearControl(value: unknown): {
+  checkpoint?: CheckpointSnapshot;
+  steers: SteerSnapshot[];
+} {
+  if (value === undefined) return { steers: [] };
+  const state = stateSchema.parse(value);
+  const checkpoint = state.checkpoints.find((item) => !item.answer);
+  return {
+    ...(checkpoint ? { checkpoint: checkpointSnapshot(checkpoint) } : {}),
+    steers: state.notes.map(steerSnapshot),
+  };
 }
 
 function sharedConversationGroup(
@@ -351,8 +366,9 @@ export class LinearRunControl {
           ? `\n\nPending Steers (not yet heard by every intended Agent):\n\n${notes.map((note) => note.note).join('\n\n')}`
           : '';
         checkpoint = {
-          ...(request.kind
-            ? { kind: request.kind, options: request.options }
+          ...(request.kind ? { kind: request.kind } : {}),
+          ...(request.kind && request.options !== undefined
+            ? { options: request.options }
             : {}),
           stepKey,
           generation,

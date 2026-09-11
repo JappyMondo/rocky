@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,6 +9,7 @@ import type { ConfigStore } from '../config/watcher.js';
 import { rockyPaths } from '../config/paths.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { newRunHeader } from '../run/header.js';
+import { JournalWriter } from '../run/writer.js';
 import type { ExecutionIntegration } from '../run/execution.js';
 import type { AgentSessionEvent } from '../linear/events.js';
 
@@ -48,7 +49,8 @@ vi.mock('../linear/client.js', async (original) => ({
     postActivity = fakes.postActivity;
   },
 }));
-vi.mock('../linear/control.js', () => ({
+vi.mock('../linear/control.js', async (original) => ({
+  ...(await original<typeof import('../linear/control.js')>()),
   LinearRunControl: class {
     options: {
       ended(): Promise<boolean>;
@@ -297,4 +299,73 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
   );
   await app.close();
   await composition.close();
+});
+
+it('loads the failed Run and its durable Steps after the journal writer has latched an error', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-failed-run-view-'));
+  roots.push(root);
+  const paths = rockyPaths(root);
+  const run = newRunHeader({
+    runId: 'NG-692-4',
+    issue: {
+      identifier: 'NG-692',
+      title: 'Clarify scope',
+      description: '',
+      labels: [],
+      url: 'https://linear.app/issue/NG-692',
+    },
+    branch: 'ng-692',
+    repo: 'rocky',
+    trigger: 'linear.onDelegate',
+    now: '2026-09-11T09:00:00Z',
+  });
+  run.status = 'failed';
+  run.error = { name: 'Error', message: 'Question could not be saved' };
+  run.linear = {
+    issueId: 'issue',
+    teamId: 'team',
+    organizationId: 'org',
+    appUserId: 'app',
+    sessionId: 'session',
+  };
+  const path = paths.run(run.runId).journal;
+  const writer = await JournalWriter.open(path);
+  await writer.append({
+    v: 1,
+    seq: 0,
+    step: 'question',
+    label: 'Clarify scope',
+    status: 'running',
+    boot: 1,
+    startedAt: '2026-09-11T09:00:00Z',
+  });
+  await expect(
+    writer.put('linear:control', { checkpoints: [{ options: undefined }] }),
+  ).rejects.toThrow();
+  const before = await readFile(path, 'utf8');
+  const execution = {
+    scheduler: { get: async () => run, list: async () => [run] },
+    journal: async () => writer,
+  };
+  fakes.openExecution.mockResolvedValue(
+    execution as unknown as ExecutionIntegration,
+  );
+  const config = { current: parseInstanceConfig({}) } as ConfigStore;
+  const composition = await createProductionComposition({ paths, config });
+  const app = fastify();
+  try {
+    await composition.registerLocalApi(app);
+    const response = await app.inject('/api/runs/NG-692-4');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      run: { runId: 'NG-692-4', status: 'failed', error: run.error },
+      steps: [{ step: 'question', label: 'Clarify scope' }],
+      steers: [],
+    });
+    await expect(writer.put('later', true)).rejects.toThrow();
+    expect(await readFile(path, 'utf8')).toBe(before);
+  } finally {
+    await app.close();
+    await composition.close();
+  }
 });
