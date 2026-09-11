@@ -1085,7 +1085,13 @@ function RunView(p: {
     );
   const checkpointOpen = !!d.checkpoint && !d.checkpoint.answer;
   const isQuestion = d.checkpoint?.kind === 'question';
-  const failedStep = d.steps.findLast((step) => step.status === 'failed');
+  const failedStep =
+    d.steps.findLast((step) => step.status === 'failed') ??
+    (d.run.status === 'failed'
+      ? d.steps.findLast((step) => step.status === 'running')
+      : undefined);
+  const validationFailure =
+    (d.run.error?.name ?? failedStep?.error?.name) === 'ZodError';
   const failure = d.run.error?.message ?? failedStep?.error?.message;
   const canAnswer = checkpointOpen && d.controls.answer && p.allowed;
   const canSteer = d.controls.steer && p.allowed && !terminal(d.run.status);
@@ -1153,10 +1159,20 @@ function RunView(p: {
         <section role="alert" className={styles.runFailure}>
           <h2>Run failed{failedStep ? ` · ${stepName(failedStep)}` : ''}</h2>
           <p>
-            {failure ??
-              d.run.reason ??
-              'No failure details were recorded. Check the daemon log.'}
+            {validationFailure
+              ? failedStep?.step === 'question'
+                ? 'Rocky could not save this question because its data failed validation.'
+                : 'Rocky rejected invalid data while processing this step.'
+              : (failure ??
+                d.run.reason ??
+                'No failure details were recorded. Check the daemon log.')}
           </p>
+          {validationFailure && failure && (
+            <details className={styles.failureDetails}>
+              <summary>Technical error details</summary>
+              <pre>{failure}</pre>
+            </details>
+          )}
           {failedStep && (
             <button
               onClick={() => {
@@ -1317,6 +1333,10 @@ function RunView(p: {
           previousBoot = step.boot;
           const id = stepId(d.run.runId, step.key);
           const expanded = !!p.expanded[id];
+          const status =
+            step.status === 'running' && terminal(d.run.status)
+              ? 'interrupted'
+              : step.status;
           return (
             <section key={step.key}>
               {boot !== undefined && d.run.boots > 1 && (
@@ -1339,7 +1359,7 @@ function RunView(p: {
                   }
                   aria-expanded={expanded}
                 >
-                  <span className={`${styles.dot} ${styles[step.status]}`} />
+                  <span className={`${styles.dot} ${styles[status]}`} />
                   <span className={styles.stepTitle}>
                     <strong>{stepName(step)}</strong>
                     {step.stage && <small>{step.stage}</small>}
@@ -1366,7 +1386,7 @@ function RunView(p: {
                           : '—'}
                     </span>
                   </small>
-                  <Status value={step.status} />
+                  <Status value={status} />
                   <span className={styles.expandIcon} data-open={expanded}>
                     <Icon name="chevron" size={16} />
                   </span>

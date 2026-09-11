@@ -1713,3 +1713,48 @@ it('shows a clarification answer form without an approval shortcut', async () =>
     (screen.getByLabelText('Your answer') as HTMLTextAreaElement).value,
   ).toBe('App only');
 });
+
+it.each(['question', 'agent'])(
+  'summarizes validation failures at the interrupted %s and folds technical details',
+  async (step) => {
+    const raw =
+      '[{"code":"invalid_union","path":["value","checkpoints",0,"options"]}]';
+    const run: RunSummary = {
+      ...r1,
+      status: 'failed',
+      error: { name: 'ZodError', message: raw },
+    };
+    const d = detail(run, {
+      checkpoint: undefined,
+      steps: [agent({ step, label: 'Clarify scope', status: 'running' })],
+    });
+    daemon({ detail: () => ({ body: d }) });
+    window.history.replaceState({}, '', '/runs/r1');
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Run failed · Clarify scope' });
+    expect(
+      screen.getByText(
+        step === 'question'
+          ? 'Rocky could not save this question because its data failed validation.'
+          : 'Rocky rejected invalid data while processing this step.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('Interrupted')).toBeTruthy();
+    const details = screen
+      .getByText('Technical error details')
+      .closest('details');
+    expect(details?.open).toBe(false);
+    expect(within(details as HTMLDetailsElement).getByText(raw)).toBeTruthy();
+    const scroll = vi.fn();
+    Object.defineProperty(document.getElementById('step=0'), 'scrollIntoView', {
+      value: scroll,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Show failed step' }));
+    expect(
+      screen
+        .getByRole('button', { name: /Clarify scope/ })
+        .getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(scroll).toHaveBeenCalledWith({ block: 'center' });
+  },
+);

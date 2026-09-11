@@ -73,6 +73,7 @@ const labels: Record<string, string> = {
   cancelled: 'Cancelled',
   done: 'Completed',
   waiting: 'Waiting',
+  interrupted: 'Interrupted',
 };
 export function Status({ value }: { value: string }) {
   return (

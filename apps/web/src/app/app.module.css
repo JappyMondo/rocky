@@ -1957,3 +1957,20 @@
 .reviewReport .diagramCanvas {
   height: min(360px, 50vh);
 }
+
+.failureDetails {
+  margin: 12px 0 18px;
+}
+.failureDetails summary {
+  cursor: pointer;
+}
+.failureDetails pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.interrupted {
+  background: #a66a26;
+}
