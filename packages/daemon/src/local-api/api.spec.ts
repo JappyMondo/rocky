@@ -725,6 +725,99 @@ it.each([
   },
 );
 
+it('allows reads and same-origin edits through private Tailscale while retaining localhost and allowing revocation', async () => {
+  let origin: string | undefined = 'https://rocky.tail123.ts.net:7625';
+  const { app } = await setup({ tailscaleOrigin: () => origin });
+  const headers = {
+    host: 'rocky.tail123.ts.net:7625',
+    origin,
+    'sec-fetch-site': 'same-origin',
+  };
+  const initial = await app.inject({ url: '/api/settings', headers });
+  expect(initial.statusCode).toBe(200);
+  expect(
+    (
+      await app.inject({
+        method: 'PATCH',
+        url: '/api/settings',
+        headers,
+        payload: {
+          revision: initial.json<SettingsView>().revision,
+          patch: { concurrency: { maxRuns: 4 } },
+        },
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await app.inject('/api/runs')).statusCode).toBe(200);
+  expect(
+    (await app.inject({ url: '/api/runs', headers: { host: headers.host } }))
+      .statusCode,
+  ).toBe(200);
+  origin = undefined;
+  expect((await app.inject({ url: '/api/runs', headers })).statusCode).toBe(
+    403,
+  );
+});
+
+it.each([
+  { headers: { host: 'other.tail123.ts.net:7625' } },
+  { headers: { host: 'rocky.tail123.ts.net:443' } },
+  {
+    headers: {
+      host: 'rocky.tail123.ts.net:7625',
+      origin: 'http://rocky.tail123.ts.net:7625',
+    },
+  },
+  {
+    headers: {
+      host: 'rocky.tail123.ts.net:7625',
+      origin: 'https://attacker.example',
+    },
+  },
+  {
+    headers: {
+      host: 'localhost:7625',
+      origin: 'https://rocky.tail123.ts.net:7625',
+    },
+  },
+  {
+    headers: {
+      host: 'rocky.tail123.ts.net:7625',
+      'x-forwarded-for': '100.64.0.1',
+    },
+  },
+  {
+    headers: { host: 'rocky.tail123.ts.net:7625', forwarded: 'for=127.0.0.1' },
+  },
+  {
+    headers: {
+      host: 'rocky.tail123.ts.net:7625',
+      'sec-fetch-site': 'cross-site',
+    },
+  },
+  {
+    headers: { host: 'rocky.tail123.ts.net:7625' },
+    remoteAddress: '100.64.0.1',
+  },
+  {
+    headers: { host: 'rocky.tail123.ts.net:7625' },
+    remoteAddress: '198.51.100.1',
+  },
+])(
+  'Tailscale access still refuses other hosts, origins, forwarders and non-loopback peers: %j',
+  async (attack) => {
+    const { app } = await setup({
+      tailscaleOrigin: () => 'https://rocky.tail123.ts.net:7625',
+    });
+    for (const method of ['GET', 'PATCH'] as const) {
+      expect(
+        (await app.inject({ method, url: '/api/settings', ...attack }))
+          .statusCode,
+      ).toBe(403);
+    }
+  },
+);
+
 it('merges validated settings atomically, preserves unknown fields and detects concurrent/stale edits', async () => {
   const { app, paths, settings } = await setup();
   const initial = (await app.inject('/api/settings')).json<SettingsView>();

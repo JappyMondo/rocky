@@ -105,6 +105,14 @@ export const identitySchema = z.looseObject({
 export const serverSchema = z.looseObject({
   host: nonEmpty.default(DEFAULT_HOST),
   port: z.number().int().min(0).max(65535).default(DEFAULT_PORT),
+  /** Exact private browser origin served by Tailscale's TLS TCP forwarder. */
+  tailscaleOrigin: z
+    .url({ protocol: /^https$/, hostname: /\.ts\.net$/ })
+    .regex(
+      /^https:\/\/[^/?#@]+$/,
+      'must be an HTTPS Tailscale origin without a path',
+    )
+    .optional(),
 });
 
 /** Count-based, two-tier, and editable from the web UI (NG-574). */

@@ -37,10 +37,10 @@ no authentication under any binding, and it controls every Run on your machine �
 putting it on the internet behind a guessable URL is exactly what
 [NG-576](https://linear.app/digimondo/issue/NG-576) §4 ruled out. A Checkpoint's
 button points at `http://localhost:<port>`, which is a live link when you are at
-the machine and a dead one when you are not. That is the accepted trade: when
-you are away, you answer in Linear.
+the machine. Away from it, answer in Linear or open the same Run path using the
+optional private Tailscale UI address below.
 
-Every supported recipe below **must** target the `rocky-ingress` filter, never
+Every public-endpoint recipe below **must** target the `rocky-ingress` filter, never
 the daemon port. Path-only tunnel rules are insufficient: they may admit other
 methods, prefixes or normalized paths. Direct tunnelling of the daemon, including
 the old `ngrok http 7625` recipe and Tailscale `--set-path` recipes, is unsupported.
@@ -140,6 +140,53 @@ Your public URL is `https://<machine>.<tailnet>.ts.net`.
 Inspect `tailscale funnel status` for old mappings before enabling this. Remove
 any mapping to the daemon using Tailscale's own controls. The filter, not
 `--set-path` prefix behavior, is the security boundary.
+
+## Private UI access with Tailscale
+
+To use the UI from another device on your tailnet, keep the daemon on
+`127.0.0.1:7625` and add an exact private browser origin to the existing `server`
+object in `~/.rocky/config.json`:
+
+```json
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 7625,
+    "tailscaleOrigin": "https://<machine>.<tailnet>.ts.net:7625"
+  }
+}
+```
+
+Use this machine's actual DNS name from `tailscale status --json` → `Self.DNSName`
+(without its trailing dot). The origin has no trailing slash, path or query.
+The running daemon reloads it when the config changes.
+
+Inspect existing Serve/Funnel mappings, then add a separate private port:
+
+```sh
+tailscale serve status
+tailscale serve --bg --tls-terminated-tcp=7625 tcp://127.0.0.1:7625
+tailscale serve status
+```
+
+Open `https://<machine>.<tailnet>.ts.net:7625` on a device connected to the
+tailnet. Local access stays at `http://localhost:7625`. Tailscale terminates TLS
+and forwards the HTTP bytes over loopback; Rocky checks the exact Host, port and
+HTTPS Origin and continues rejecting forwarded headers and cross-origin
+requests. Use TLS-terminated TCP forwarding, not an HTTP reverse proxy that adds
+forwarded headers. [Tailscale Serve documentation](https://tailscale.com/docs/reference/tailscale-cli/serve)
+describes this mode and the persistent `--bg` option.
+
+This grants the tailnet devices allowed to reach this port access to Rocky's
+UI and controls. Keep this mapping private with **Serve**, never Funnel; public
+webhook tunnels still target the filter on port 7626. An existing Funnel on
+443 can coexist with private Serve on 7625. Do not reset all Serve mappings.
+
+To remove access, turn off only this mapping and remove `server.tailscaleOrigin`:
+
+```sh
+tailscale serve --tls-terminated-tcp=7625 off
+```
 
 ## Checking it
 

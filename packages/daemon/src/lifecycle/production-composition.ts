@@ -254,6 +254,7 @@ export async function createProductionComposition(options: {
       });
       app.addHook('onClose', () => diagrams.close());
       await registerLocalApi(app, {
+        tailscaleOrigin: () => options.config.current.server.tailscaleOrigin,
         runs: {
           list: () => execution.scheduler.list(),
           get: async (id) => {

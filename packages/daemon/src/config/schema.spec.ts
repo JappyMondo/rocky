@@ -44,6 +44,34 @@ describe('an empty config', () => {
   });
 });
 
+describe('private Tailscale access', () => {
+  it('accepts an explicit HTTPS browser origin', () => {
+    const tailscaleOrigin = 'https://rocky.tail123.ts.net:7625';
+    expect(parseInstanceConfig({ server: { tailscaleOrigin } }).server).toEqual(
+      {
+        host: '127.0.0.1',
+        port: 7625,
+        tailscaleOrigin,
+      },
+    );
+  });
+
+  it.each([
+    'http://rocky.tail123.ts.net:7625',
+    'https://attacker.example:7625',
+    'https://rocky.tail123.ts.net.attacker.example',
+    'https://rocky.tail123.ts.net:7625/',
+    'https://rocky.tail123.ts.net:7625/path',
+    'https://rocky.tail123.ts.net:7625?query',
+    'https://rocky.tail123.ts.net:7625#fragment',
+    'https://user:secret@rocky.tail123.ts.net:7625',
+  ])('refuses a non-origin or non-Tailscale URL: %s', (tailscaleOrigin) => {
+    expect(() => parseInstanceConfig({ server: { tailscaleOrigin } })).toThrow(
+      ConfigError,
+    );
+  });
+});
+
 /**
  * NG-580 asks for worktree-local `user.name`/`user.email` = "the configured
  * Rocky identity" without saying where it is configured, and NG-578's

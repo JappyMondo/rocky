@@ -264,6 +264,24 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
 
   const app = fastify();
   await composition.registerLocalApi(app);
+  const tailnetHeaders = {
+    host: 'rocky.tail123.ts.net:7625',
+    origin: 'https://rocky.tail123.ts.net:7625',
+  };
+  expect(
+    (await app.inject({ url: '/api/runs', headers: tailnetHeaders }))
+      .statusCode,
+  ).toBe(403);
+  config.current.server.tailscaleOrigin = tailnetHeaders.origin;
+  expect(
+    (await app.inject({ url: '/api/runs', headers: tailnetHeaders }))
+      .statusCode,
+  ).toBe(200);
+  delete config.current.server.tailscaleOrigin;
+  expect(
+    (await app.inject({ url: '/api/runs', headers: tailnetHeaders }))
+      .statusCode,
+  ).toBe(403);
   const answer = await app.inject({
     method: 'POST',
     url: '/api/runs/NG-700-1/answer',

@@ -47,6 +47,8 @@ export { LocalSettings, LocalApiError } from './settings.js';
 export { LocalProfiles } from './profiles.js';
 
 export interface LocalApiOptions {
+  /** Opt-in origin for a private Tailscale TLS TCP forwarder on loopback. */
+  tailscaleOrigin?: () => string | undefined;
   /** The runtime's in-memory index, never a second API-owned Run registry. */
   runs: {
     list(): Promise<RunHeader[]>;
@@ -252,9 +254,12 @@ export async function registerLocalApi(
         .header('cache-control', 'no-store')
         .header('x-content-type-options', 'nosniff');
       const host = request.headers.host ?? '';
+      // Tailscale terminates TLS and forwards raw TCP to loopback. Only the
+      // configured browser origin selects HTTPS; proxy headers grant no trust.
+      const tailscale = `https://${host}` === options.tailscaleOrigin?.();
       let url: URL;
       try {
-        url = new URL(`http://${host}`);
+        url = new URL(`${tailscale ? 'https' : 'http'}://${host}`);
       } catch {
         return reply
           .code(403)
@@ -262,7 +267,7 @@ export async function registerLocalApi(
       }
       if (
         !loopback(request.raw.socket.remoteAddress ?? '') ||
-        !loopback(url.hostname) ||
+        (!loopback(url.hostname) && !tailscale) ||
         request.headers.forwarded !== undefined ||
         Object.keys(request.headers).some((key) =>
           key.startsWith('x-forwarded-'),
@@ -274,7 +279,7 @@ export async function registerLocalApi(
         return reply.code(403).send({
           code: 'local-only',
           error:
-            'This API is machine-local; cross-origin and proxied requests are refused.',
+            'This API requires localhost or the configured private Tailscale origin; cross-origin and forwarded requests are refused.',
         });
       }
       const clientVersion = request.headers[CLIENT_VERSION_HEADER];
