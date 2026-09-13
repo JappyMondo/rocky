@@ -1,5 +1,6 @@
 import { isFlowSource } from '@rocky/local-contracts';
 import { FlowEditor } from './flow-editor.js';
+import { ModularFlowPrototype } from './modular-flow.prototype.js';
 import { SourceControlFields } from './source-control.js';
 import { RetryStep } from './retry-step.js';
 import { TranscriptPanel } from './transcript-view.js';
@@ -2324,7 +2325,7 @@ function Profiles(p: {
       >
         {isFlowSource(draft.workflow.source) ? (
           tab === 'workflow' && (
-            <FlowEditor
+            import.meta.env.DEV && new URLSearchParams(location.search).get('prototype') === 'ai' ? <ModularFlowPrototype /> : <FlowEditor
               key={selected?.id ?? 'new'}
               source={draft.workflow.source}
               disabled={p.disabled || resetting}
