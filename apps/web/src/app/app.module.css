@@ -2139,12 +2139,30 @@
 .modelChoices h3 {
   margin-top: 0;
 }
-.modelReuse {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 18px 0;
+.modelChoices > section + section {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 4px;
 }
-.modelReuse input {
-  width: auto;
+.modelChoices h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.modelChoices h4 code {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.modelChoices .fieldGrid {
+  grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr) minmax(
+      110px,
+      0.65fr
+    );
+}
+@media (max-width: 800px) {
+  .modelChoices .fieldGrid {
+    grid-template-columns: 1fr;
+  }
 }

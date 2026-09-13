@@ -3,6 +3,7 @@ import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { ensureClone } from '../repos/clone.js';
+import { validateWorkflowModels } from '../config/workflow-models.js';
 import type { RepoContext, RepoRef } from '../repos/context.js';
 import { canonicalRemote, type RepositoryProfile } from '../config/profiles.js';
 import { WorkflowLoadError, type TriggerSelector } from './loading/loader.js';
@@ -45,6 +46,16 @@ export async function prepareProfileSnapshot(
       `profiles/${profile.id}.json`,
       `belongs to ${profile.remote}, not ${canonicalRemote(lead.url)}`,
       'Assign a local profile for this exact remote with `rocky repo profile import`, then re-delegate.',
+    );
+  }
+  try {
+    validateWorkflowModels(profile.workflow.source, profile.models);
+  } catch (error) {
+    throw new WorkflowLoadError(
+      'invalid-workflow',
+      `profiles/${profile.id}.json`,
+      error instanceof Error ? error.message : String(error),
+      'Declare named model slots and configure every slot in the profile UI, then start a new run. Existing run snapshots are unchanged.',
     );
   }
   const clone = await ensureClone(context, lead);

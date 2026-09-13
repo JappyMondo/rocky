@@ -17,6 +17,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 
 const workspace = resolve(import.meta.dirname, '..');
+const port = Number(process.env.ROCKY_DISTRIBUTION_PORT ?? 7625);
+const origin = `http://127.0.0.1:${port}`;
 
 test(
   'packed Rocky installs outside the workspace and carries its daemon, UI, ingress and version',
@@ -40,6 +42,13 @@ test(
     };
     await writeFile(env.npm_config_userconfig, '');
     await writeFile(env.npm_config_globalconfig, '');
+    if (process.env.ROCKY_DISTRIBUTION_PORT) {
+      await mkdir(env.ROCKY_HOME, { recursive: true });
+      await writeFile(
+        join(env.ROCKY_HOME, 'config.json'),
+        JSON.stringify({ server: { host: '127.0.0.1', port } }),
+      );
+    }
     const run = (command, args, cwd = consumer, extra = {}) =>
       execFileSync(command, args, {
         cwd,
@@ -51,7 +60,7 @@ test(
     const binary = join(consumer, 'node_modules/.bin/rocky');
     const cli = (...args) => run(binary, args);
     const local = (path) =>
-      fetch(`http://127.0.0.1:7625${path}`, {
+      fetch(`${origin}${path}`, {
         headers: { connection: 'close' },
         signal: AbortSignal.timeout(3000),
       });
@@ -74,11 +83,11 @@ test(
       }
       await rm(root, { recursive: true, force: true });
     });
-    // Refuse an occupied default port. Never stop an existing developer daemon.
+    // Refuse an occupied test port. Never stop an existing developer daemon.
     const reservation = createServer();
     await new Promise((resolve, reject) => {
       reservation.once('error', reject);
-      reservation.listen(7625, '127.0.0.1', resolve);
+      reservation.listen(port, '127.0.0.1', resolve);
     });
     await new Promise((resolve) => reservation.close(resolve));
 
@@ -187,9 +196,31 @@ test(
       join(seedHome, 'profiles/fixture.workflow.ts'),
       'utf8',
     );
-    assert.match(pinnedWorkflow, /model: 'provider\/main-model'/);
-    assert.match(pinnedWorkflow, /model: 'claude-helper-model'/);
-    assert.match(pinnedWorkflow, /effort: 'low'/);
+    assert.match(pinnedWorkflow, /export const models =/);
+    assert.doesNotMatch(
+      pinnedWorkflow,
+      /provider\/main-model|claude-helper-model/,
+    );
+    const seeded = JSON.parse(
+      await readFile(join(seedHome, 'profiles/fixture.json'), 'utf8'),
+    );
+    assert.deepEqual(seeded.models, {
+      review: {
+        harness: 'opencode',
+        model: 'provider/main-model',
+        effort: 'high',
+      },
+      implementation: {
+        harness: 'opencode',
+        model: 'provider/main-model',
+        effort: 'high',
+      },
+      planner: {
+        harness: 'claude-code',
+        model: 'claude-helper-model',
+        effort: 'low',
+      },
+    });
     const seedSnapshot = join(root, 'seed-snapshot');
     await cp(join(installed, 'content', '.rocky'), seedSnapshot, {
       recursive: true,
@@ -208,7 +239,15 @@ test(
           /(?:from\s*|import\s*\(|require\s*\()['"]@rocky\//,
         );
     }
-    assert.match(cli('start', '-d'), /127\.0\.0\.1:7625/);
+    assert.ok(
+      cli(
+        'start',
+        '-d',
+        ...(process.env.ROCKY_DISTRIBUTION_PORT
+          ? ['--port', String(port)]
+          : []),
+      ).includes(origin),
+    );
     const firstPid = JSON.parse(await readFile(pidFile, 'utf8')).pid;
     const health = await local('/api/health');
     assert.equal(health.headers.get('x-rocky-version'), manifest.version);
@@ -234,7 +273,7 @@ test(
       const browser = (...args) =>
         run('agent-browser', ['--session', session, ...args]);
       try {
-        browser('open', 'http://127.0.0.1:7625');
+        browser('open', origin);
         browser('wait', '--text', `Daemon v${manifest.version} is ok.`);
         assert.match(browser('snapshot'), /heading "Rocky"/);
         browser('set', 'viewport', '390', '844');
@@ -273,7 +312,7 @@ test(
       ),
     );
     assert.equal(JSON.parse(await readFile(pidFile, 'utf8')).pid, firstPid);
-    assert.match(cli('restart'), /127\.0\.0\.1:7625/);
+    assert.ok(cli('restart').includes(origin));
     assert.equal(
       (await (await local('/api/health')).json()).version,
       nextVersion,
@@ -281,7 +320,7 @@ test(
     assert.match(cli('stop'), /stopped/i);
     await assert.rejects(readFile(pidFile), { code: 'ENOENT' });
     console.log(
-      `Clean install passed: ${archive}; Node ${process.version}; 127.0.0.1:7625; UI asset, ingress bin, version/restart and stop.`,
+      `Clean install passed: ${archive}; Node ${process.version}; ${origin}; UI asset, ingress bin, version/restart and stop.`,
     );
 
     const sdkConsumer = join(root, 'sdk-consumer');
@@ -318,10 +357,11 @@ test(
     await mkdir(join(sdkConsumer, '.rocky'));
     await writeFile(
       join(sdkConsumer, '.rocky/workflow.ts'),
-      `import { linear, manual, z, type Workflow } from '@rocky/sdk';
+      `import { linear, manual, z, type Workflow, type WorkflowModelSlots } from '@rocky/sdk';
+export const models = { planner: { name: 'Planner' } } satisfies WorkflowModelSlots;
 const workflow: Workflow = async (ctx) => {
   ctx.stage('checking');
-  const plan = await ctx.agent('planner', { schema: z.object({ steps: z.array(z.string()) }) });
+  const plan = await ctx.agent('planner', { ...ctx.models.planner, schema: z.object({ steps: z.array(z.string()) }) });
   const checks = await ctx.parallel(
     ['git status --short'],
     (command, index) => ctx.exec(command, { label: \`check \${index + 1}\` }),
@@ -358,11 +398,21 @@ export default [linear.onDelegate(workflow), manual('review', workflow)];
         `
 import assert from 'node:assert/strict';
 import { z } from '@rocky/sdk';
-import table from './.rocky/workflow.ts';
+import table, { models } from './.rocky/workflow.ts';
 assert.equal(z.string().parse('ok'), 'ok');
 assert.deepEqual(table.map((trigger) => trigger.kind), ['linear.onDelegate', 'manual']);
 assert.equal(table[1].name, 'review');
 assert.ok(table.every(Object.isFrozen));
+assert.deepEqual(models, { planner: { name: 'Planner' } });
+const choice = { harness: 'opencode', model: 'provider/planner', effort: 'high' };
+const outcome = await table[0].workflow({
+  models: { planner: choice }, ports: [1234], stage() {},
+  async agent(name, opts) { assert.equal(name, 'planner'); for (const key of Object.keys(choice)) assert.equal(opts[key], choice[key]); return { steps: ['plan'], summary: 'done' }; },
+  async parallel(items, fn) { return Promise.all(items.map(fn)); },
+  async exec(command, opts) { return opts?.background ? { pid: 1 } : { exitCode: 0, stdout: '', stderr: '' }; },
+  async step(label, fn) { return fn(); },
+}, { members: [] });
+assert.equal(outcome, 'merged');
 `,
       ],
       sdkConsumer,

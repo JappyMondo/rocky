@@ -8,6 +8,7 @@ files are not execution configuration.
 
 - [Installation and distribution](distribution.md): local and global tarball installs, packaging and release boundaries.
 - [CLI and Workflow context](cli-and-ctx.md): implemented commands, remaining stubs and runtime services.
+- [Named workflow models](workflow-models.md): declare roles, configure harnesses and models in the UI, and preserve run selections.
 - [Local product](local-product.md): profiles, model selection, run controls, streams, retries and diagrams.
 - [Public endpoint and private UI access](public-endpoint.md): managed ingress and optional Tailscale access.
 - [Harnesses](harnesses.md): native CLI configuration, tool policy and live verification gates.

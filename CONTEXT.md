@@ -14,7 +14,9 @@ captures the selected profile; repository files do not choose the pipeline.
 chooses the agents, validation, deliverable and human decision points.
 
 **Config block**: The marked portion of a workflow containing its editable
-commands, model selections, state names and loop limits.
+commands, state names and loop limits. Model selections are stored separately in the Profile.
+
+**Model slot**: A named role exported as literal Workflow metadata. The Profile selects its harness, model and effort; a Run exposes the captured selection through `ctx.models`.
 
 **Trigger**: A binding from Linear delegation or a named manual request to a
 Workflow. _Avoid_: entry point.

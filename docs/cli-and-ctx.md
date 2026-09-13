@@ -32,12 +32,12 @@ Installing Rocky does not install or authenticate a harness.
 ### Repository and model setup
 
 In a terminal, `rocky repo add <url>` and `rocky repo profile seed <repo>` ask for
-main and helper harness, model and variant/effort. Setup choices are suggestions.
+a review/implementation selection and a planning selection. Each includes harness, model and variant/effort. Setup choices are suggestions.
 Noninteractive callers must provide `--harness`, `--model` and `--variant` together.
-Helpers reuse them unless all three `--fast-harness`, `--fast-model` and
+Planning reuses them unless all three `--fast-harness`, `--fast-model` and
 `--fast-variant` options are supplied. Missing or partial choices fail before
 cloning or writing. The model and variant are passed to the selected native CLI;
-Rocky does not maintain a provider model catalog.
+Rocky does not maintain a provider model catalog. These choices initialize the default’s named slots. The UI can change review, implementation and planner independently without rewriting source; see [named models](workflow-models.md).
 
 `repo add` also accepts `--name`, `--label` and `--base-branch`. It creates local
 profile content, never a target-repository `.rocky/`. Edit commands, prompts and
@@ -64,6 +64,7 @@ call this API yet and exits nonzero.
 | Surface                              | Runtime behavior                                                                                                                             |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `issue`, `branch`, `ports`           | Run/Boot data; new issue snapshots include paginated comment history                                                                         |
+| `models`                             | Immutable named harness/model/effort selections captured in the Run profile; spread `ctx.models.<slot>` into agent options                   |
 | `agent`                              | Named frozen prompt or inline prompt; harness/tools/MCP/model/effort chosen at the call site; validates structured output and adds `summary` |
 | `exec`, `step`, `changedFiles`       | Journaled shell work, arbitrary JSON-returning effects and Git changes                                                                       |
 | `parallel`                           | One parent entry and index-keyed branch journals, with ordered results                                                                       |
@@ -91,7 +92,7 @@ const results = await ctx.parallel(
 );
 ```
 
-`ports` and `stage` are not Steps. Background `exec` respawns on working Boots;
+`models`, `ports` and `stage` are not Steps. Background `exec` respawns on working Boots;
 polls do not start new Steps or background commands. Ordinary code between Steps
 runs again from the top on each Boot. Effectful Steps are at-least-once, so use
 idempotent operations and journal outcomes that must survive restart. Eligible

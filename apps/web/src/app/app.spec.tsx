@@ -17,6 +17,23 @@ import type {
 } from '@rocky/local-contracts';
 import { App } from './app.js';
 
+const defaultSlots = {
+  review: { name: 'Review' },
+  implementation: { name: 'Implementation' },
+  planner: { name: 'Planner' },
+};
+const defaultSource = `export const models = ${JSON.stringify(defaultSlots)}; export default [defaultWorkflow];`;
+function fillOtherModels() {
+  for (const name of ['Implementation', 'Planner']) {
+    fireEvent.change(screen.getByLabelText(`${name} model`), {
+      target: { value: 'openai/test-model' },
+    });
+    fireEvent.change(screen.getByLabelText(`${name} variant`), {
+      target: { value: 'high' },
+    });
+  }
+}
+
 const r1: RunSummary = {
   runId: 'r1',
   issue: { identifier: 'NG-612', title: 'Older Run', url: '/issues/NG-612' },
@@ -156,6 +173,7 @@ function daemon(
     profiles?: (init?: RequestInit) => Reply;
     routing?: (path: string, init?: RequestInit) => Reply;
     profileDefaults?: () => Reply;
+    modelSlots?: (init?: RequestInit) => Reply;
     openWorkflow?: (init?: RequestInit) => Reply;
     resetWorkflow?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
@@ -190,15 +208,18 @@ function daemon(
       return options.settings?.(init) ?? { body: settings() };
     if (path === '/api/profiles')
       return options.profiles?.(init) ?? { body: { profiles: [] } };
+    if (path === '/api/workflow-model-slots')
+      return options.modelSlots?.(init) ?? { body: { modelSlots: {} } };
     if (path === '/api/profile-defaults')
       return (
         options.profileDefaults?.() ?? {
           body: {
             workflow: {
-              source: 'export default [defaultWorkflow];',
+              source: defaultSource,
               triggers: ['linear.onDelegate', 'address-pr-conversations'],
             },
             grants: { harness: 'opencode', capabilities: [], mcp: [] },
+            modelSlots: defaultSlots,
             prompts: ['planner', 'implementer'],
             rules: [],
             secretEnv: ['GITHUB_TOKEN'],
@@ -1163,9 +1184,18 @@ describe('Inbox behavior', () => {
     fireEvent.click(screen.getByText('Edit workflow in browser'));
     const source = await screen.findByLabelText('workflow.ts');
     fireEvent.change(source, {
-      target: { value: 'export default [changed];' },
+      target: { value: 'export const models = {}; export default [changed];' },
     });
     expect(screen.getByDisplayValue('OpenCode')).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Save profile',
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
     expect(await screen.findByText(/Prompts: planner/)).toBeTruthy();
     expect(mock).toHaveBeenCalledWith(
@@ -1534,10 +1564,11 @@ describe('Workspace redesign', () => {
               body: {
                 workflow: {
                   source:
-                    "const agent = { harness: 'claude-code', model: 'configured-model' }; export default [workflow];",
+                    "export const models = {review: {name: 'Review'}, implementation: {name: 'Implementation'}, planner: {name: 'Planner'}}; export default [workflow]; // configured-model",
                   triggers: ['linear.onDelegate', 'address-pr-conversations'],
                 },
                 grants: { harness: 'claude-code', capabilities: [], mcp: [] },
+                modelSlots: defaultSlots,
                 prompts: ['planner', 'implementer'],
                 rules: [],
                 secretEnv: ['GITHUB_TOKEN'],
@@ -1559,7 +1590,7 @@ describe('Workspace redesign', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
     await screen.findByRole('heading', { name: 'New profile' });
     expect(
-      (screen.getByLabelText('Main agent harness') as HTMLSelectElement).value,
+      (screen.getByLabelText('Review harness') as HTMLSelectElement).value,
     ).toBe('claude-code');
     fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
     expect(
@@ -1604,12 +1635,13 @@ describe('Workspace redesign', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }));
     await screen.findByRole('heading', { name: 'New profile' });
-    fireEvent.change(screen.getByLabelText('Main agent model'), {
+    fireEvent.change(screen.getByLabelText('Review model'), {
       target: { value: 'openai/test-model' },
     });
-    fireEvent.change(screen.getByLabelText('Main agent variant'), {
+    fireEvent.change(screen.getByLabelText('Review variant'), {
       target: { value: 'high' },
     });
+    fillOtherModels();
     expect(
       (
         screen.getByRole('button', {
@@ -1651,13 +1683,13 @@ describe('Workspace redesign', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Remove repository 3' }),
     );
-    fireEvent.change(screen.getByLabelText('Main agent harness'), {
+    fireEvent.change(screen.getByLabelText('Review harness'), {
       target: { value: 'claude-code' },
     });
-    fireEvent.change(screen.getByLabelText('Main agent model'), {
+    fireEvent.change(screen.getByLabelText('Review model'), {
       target: { value: 'claude-selected-model' },
     });
-    fireEvent.change(screen.getByLabelText('Main agent effort'), {
+    fireEvent.change(screen.getByLabelText('Review effort'), {
       target: { value: 'high' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
@@ -1676,18 +1708,19 @@ describe('Workspace redesign', () => {
       },
       { name: 'service', url: 'github.com/acme/service', baseBranch: 'main' },
     ]);
-    expect(stored[0].grants.harness).toBe('claude-code');
+    expect(stored[0].models?.review.harness).toBe('claude-code');
     expect(
       (screen.getByLabelText('Profile id') as HTMLInputElement).disabled,
     ).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
     await screen.findByRole('heading', { name: 'New profile' });
-    fireEvent.change(screen.getByLabelText('Main agent model'), {
+    fireEvent.change(screen.getByLabelText('Review model'), {
       target: { value: 'openai/test-model' },
     });
-    fireEvent.change(screen.getByLabelText('Main agent variant'), {
+    fireEvent.change(screen.getByLabelText('Review variant'), {
       target: { value: 'high' },
     });
+    fillOtherModels();
     fireEvent.change(screen.getByLabelText('Profile id'), {
       target: { value: 'another' },
     });
@@ -1940,7 +1973,7 @@ it.each(['question', 'agent'])(
   },
 );
 
-it('requires complete model selections for creation and sends distinct helper settings', async () => {
+it('requires every declared slot and saves distinct harnesses without changing workflow source', async () => {
   window.history.replaceState({}, '', '/profiles');
   const mock = daemon({
     profiles: (init) =>
@@ -1971,27 +2004,24 @@ it('requires complete model selections for creation and sends distinct helper se
     name: 'Save profile',
   }) as HTMLButtonElement;
   expect(save.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Main agent model'), {
+  fireEvent.change(screen.getByLabelText('Review model'), {
     target: { value: 'provider/main' },
   });
   expect(save.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Main agent variant'), {
+  fireEvent.change(screen.getByLabelText('Review variant'), {
     target: { value: 'high' },
   });
+  expect(save.disabled).toBe(true);
+  fillOtherModels();
   expect(save.disabled).toBe(false);
-  fireEvent.click(
-    screen.getByLabelText(
-      'Use the same model and variant/effort for helper agents',
-    ),
-  );
-  fireEvent.change(screen.getByLabelText('Helper agent harness'), {
+  fireEvent.change(screen.getByLabelText('Planner harness'), {
     target: { value: 'claude-code' },
   });
   expect(save.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Helper agent model'), {
+  fireEvent.change(screen.getByLabelText('Planner model'), {
     target: { value: 'claude-helper' },
   });
-  fireEvent.change(screen.getByLabelText('Helper agent effort'), {
+  fireEvent.change(screen.getByLabelText('Planner effort'), {
     target: { value: 'low' },
   });
   fireEvent.click(save);
@@ -1999,9 +2029,17 @@ it('requires complete model selections for creation and sends distinct helper se
   const request = mock.mock.calls.find(
     ([path, init]) => path === '/api/profiles' && init?.method === 'PUT',
   );
+  expect(JSON.parse(String(request?.[1]?.body)).workflow.source).toBe(
+    defaultSource,
+  );
   expect(JSON.parse(String(request?.[1]?.body)).models).toEqual({
-    agent: { harness: 'opencode', model: 'provider/main', effort: 'high' },
-    fastAgent: {
+    review: { harness: 'opencode', model: 'provider/main', effort: 'high' },
+    implementation: {
+      harness: 'opencode',
+      model: 'openai/test-model',
+      effort: 'high',
+    },
+    planner: {
       harness: 'claude-code',
       model: 'claude-helper',
       effort: 'low',
@@ -2043,12 +2081,13 @@ it('confirms resetting an existing workflow, sends its revision and displays the
   ).toBe(false);
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel reset' }));
   fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
-  fireEvent.change(await screen.findByLabelText('Main agent model'), {
+  fireEvent.change(await screen.findByLabelText('Review model'), {
     target: { value: 'openai/test-model' },
   });
-  fireEvent.change(screen.getByLabelText('Main agent variant'), {
+  fireEvent.change(screen.getByLabelText('Review variant'), {
     target: { value: 'high' },
   });
+  fillOtherModels();
   fireEvent.click(
     screen.getByRole('button', { name: 'Reset workflow with these models' }),
   );
@@ -2064,12 +2103,17 @@ it('confirms resetting an existing workflow, sends its revision and displays the
       body: JSON.stringify({
         revision: 'old',
         models: {
-          agent: {
+          review: {
             harness: 'opencode',
             model: 'openai/test-model',
             effort: 'high',
           },
-          fastAgent: {
+          implementation: {
+            harness: 'opencode',
+            model: 'openai/test-model',
+            effort: 'high',
+          },
+          planner: {
             harness: 'opencode',
             model: 'openai/test-model',
             effort: 'high',
@@ -2088,4 +2132,106 @@ it('confirms resetting an existing workflow, sends its revision and displays the
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
+});
+
+it('edits custom model slots on an existing profile and discovers added slots before saving source', async () => {
+  window.history.replaceState({}, '', '/profiles');
+  const slots = {
+    QA: { name: 'Quality check', description: 'Review without editing' },
+  };
+  const source = `export const models = ${JSON.stringify(slots)}; export default [];`;
+  let profile = {
+    id: 'custom',
+    remote: 'github.com/acme/custom',
+    revision: 'old',
+    workflow: { source, triggers: [] },
+    modelSlots: slots,
+    models: {
+      QA: { harness: 'opencode', model: 'provider/review', effort: 'high' },
+    },
+    grants: { harness: 'opencode', capabilities: [], mcp: [] },
+    prompts: [],
+    rules: [],
+    secretEnv: [],
+  };
+  const expanded = { ...slots, build: { name: 'Build' } };
+  const nextSource = `export const models = ${JSON.stringify(expanded)}; export default [];`;
+  const mock = daemon({
+    modelSlots: () => ({ body: { modelSlots: expanded } }),
+    profiles: (init) => {
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body));
+        profile = {
+          ...profile,
+          ...body,
+          modelSlots: body.workflow.source === nextSource ? expanded : slots,
+          revision: 'next',
+        };
+        return { body: profile };
+      }
+      return { body: { profiles: [profile] } };
+    },
+  });
+  render(<App />);
+  const harness = await screen.findByLabelText('Quality check harness');
+  fireEvent.change(harness, { target: { value: 'claude-code' } });
+  expect(
+    (screen.getByLabelText('Quality check model') as HTMLInputElement).value,
+  ).toBe('');
+  expect(
+    (screen.getByRole('button', { name: 'Save profile' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.change(screen.getByLabelText('Quality check model'), {
+    target: { value: 'claude-review' },
+  });
+  fireEvent.change(screen.getByLabelText('Quality check effort'), {
+    target: { value: 'low' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  await screen.findByText('Profile saved');
+  expect(profile.workflow.source).toBe(source);
+  expect(profile.models.QA).toEqual({
+    harness: 'claude-code',
+    model: 'claude-review',
+    effort: 'low',
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+  fireEvent.change(screen.getByLabelText('workflow.ts'), {
+    target: { value: nextSource },
+  });
+  expect(
+    (screen.getByRole('button', { name: 'Save profile' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  await screen.findByLabelText('Build model');
+  fireEvent.click(screen.getByRole('button', { name: 'General' }));
+  expect(
+    (screen.getByLabelText('Quality check model') as HTMLInputElement).value,
+  ).toBe('claude-review');
+  fireEvent.change(screen.getByLabelText('Build model'), {
+    target: { value: 'provider/build' },
+  });
+  fireEvent.change(screen.getByLabelText('Build variant'), {
+    target: { value: 'high' },
+  });
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Save profile',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  await waitFor(() => expect(profile.workflow.source).toBe(nextSource));
+  expect(profile.models).toMatchObject({
+    build: { harness: 'opencode', model: 'provider/build', effort: 'high' },
+  });
+  expect(
+    mock.mock.calls.filter(
+      ([path, init]) => path === '/api/profiles' && init?.method === 'PUT',
+    ),
+  ).toHaveLength(2);
 });

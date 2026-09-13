@@ -20,6 +20,7 @@ import type {
   WorkflowContext,
 } from '@rocky/sdk';
 import { z } from '@rocky/sdk';
+import { newRepositoryProfile } from '../config/profiles.js';
 import { createWorkflowContext } from '../run/context.js';
 import { runBoot } from '../run/replay.js';
 
@@ -134,6 +135,29 @@ function fixture(
               url: 'https://example.test/issue/1',
               labels: [],
               ...(options.comments ? { comments: options.comments } : {}),
+            },
+            profile: {
+              ...newRepositoryProfile({
+                id: 'fixture',
+                remote: 'github.com/acme/app',
+              }),
+              models: {
+                review: {
+                  harness: 'opencode',
+                  model: 'review-model',
+                  effort: 'high',
+                },
+                implementation: {
+                  harness: 'claude-code',
+                  model: 'implementation-model',
+                  effort: 'high',
+                },
+                planner: {
+                  harness: 'opencode',
+                  model: 'planning-model',
+                  effort: 'low',
+                },
+              },
             },
             branch: 'test-1',
             ports: [12345],
@@ -314,6 +338,26 @@ it('opens a draft before reviews, parks at the final Checkpoint, and records Don
     f.trace.indexOf('compliance-reviewer'),
   );
   expect(f.trace).not.toContain('armAutoMerge');
+  for (const name of ['refiner', 'planner'])
+    expect(f.calls.find((call) => call.name === name)?.options).toMatchObject({
+      harness: 'opencode',
+      model: 'planning-model',
+      effort: 'low',
+    });
+  expect(
+    f.calls.find((call) => call.name === 'implementer')?.options,
+  ).toMatchObject({
+    harness: 'claude-code',
+    model: 'implementation-model',
+    effort: 'high',
+  });
+  expect(
+    f.calls.find((call) => call.name === 'reviewer')?.options,
+  ).toMatchObject({
+    harness: 'opencode',
+    model: 'review-model',
+    effort: 'high',
+  });
   const agentsBefore = f.calls.length;
   f.approve();
   expect((await f.boot()).status).toBe('parked');
@@ -713,6 +757,14 @@ it('addresses unresolved PR conversations once each without prior Run hand-over 
     url: 'https://rocky.test/recap',
   }));
   const result = await addressPrConversations({
+    models: {
+      review: { harness: 'opencode', model: 'review-model', effort: 'high' },
+      implementation: {
+        harness: 'claude-code',
+        model: 'implementation-model',
+        effort: 'high',
+      },
+    },
     visualRecap: recap,
     stage: () => undefined,
     issue: {

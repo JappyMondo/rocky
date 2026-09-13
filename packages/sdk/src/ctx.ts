@@ -127,7 +127,27 @@ export interface VisualRecapResult {
  *
  * Arbitrary code that must not re-execute goes through `ctx.step`.
  */
+/** Literal metadata exported as `models` by a workflow module. */
+export type WorkflowModelSlots = Readonly<
+  Record<
+    string,
+    {
+      name: string;
+      description?: string;
+    }
+  >
+>;
+
+/** Selected in the profile UI; immutable for the lifetime of a run. */
+export interface AgentModelSelection {
+  readonly harness: 'opencode' | 'claude-code';
+  readonly model: string;
+  readonly effort: string;
+}
+
 export interface WorkflowContext {
+  /** Spread a named selection into agent options: `...ctx.models.review`. */
+  readonly models: Readonly<Record<string, AgentModelSelection>>;
   readonly issue: Issue;
   /** Linear's own `gitBranchName`; the Run's worktree is checked out on it. */
   readonly branch: string;

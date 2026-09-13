@@ -357,3 +357,48 @@ it('uses the workflow helper model and effort even after instance defaults chang
     }),
   );
 });
+
+it('uses the first declared named slot and invalidates the diagram when its configuration changes', async () => {
+  const { paths, profile } = await fixture();
+  const configured = {
+    ...profile,
+    workflow: {
+      source:
+        'export const models = { explain: { name: "Explain" }, edit: { name: "Edit" } }; export default [];',
+      triggers: [],
+    },
+    models: {
+      edit: {
+        harness: 'opencode' as const,
+        model: 'edit-model',
+        effort: 'high',
+      },
+      explain: {
+        harness: 'claude-code' as const,
+        model: 'explain-model',
+        effort: 'low',
+      },
+    },
+  };
+  harness.run.mockResolvedValue({ text: chart });
+  await agentDiagramGenerator(paths, {
+    current: parseInstanceConfig({}),
+    readCredentials: async () => ({}),
+  } as unknown as ConfigStore)(configured, new AbortController().signal);
+  expect(harness.run).toHaveBeenCalledWith(
+    expect.objectContaining({
+      command: 'claude',
+      model: 'explain-model',
+      effort: 'low',
+    }),
+  );
+  expect(workflowHash(configured)).not.toBe(
+    workflowHash({
+      ...configured,
+      models: {
+        ...configured.models,
+        explain: { ...configured.models.explain, model: 'other-model' },
+      },
+    }),
+  );
+});
