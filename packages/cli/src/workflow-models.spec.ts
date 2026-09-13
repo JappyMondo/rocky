@@ -31,8 +31,17 @@ it('asks even with saved suggestions and preserves distinct helper choices', asy
       p.create,
     ),
   ).toEqual({
-    agent: { harness: 'opencode', model: 'openai/fixed-model', effort: 'high' },
-    fastAgent: {
+    review: {
+      harness: 'opencode',
+      model: 'openai/fixed-model',
+      effort: 'high',
+    },
+    implementation: {
+      harness: 'opencode',
+      model: 'openai/fixed-model',
+      effort: 'high',
+    },
+    planner: {
       harness: 'claude-code',
       model: 'claude-fixed-model',
       effort: 'low',
@@ -51,8 +60,8 @@ it('rejects incomplete flags and validates interactive omissions instead of taki
     { harness: 'opencode' },
     p.create,
   );
-  expect(result.agent.model).toBe('openai/selected');
-  expect(result.fastAgent).toEqual(result.agent);
+  expect(result.review.model).toBe('openai/selected');
+  expect(result.planner).toEqual(result.review);
   expect(p.value.say).toHaveBeenCalledWith(
     expect.stringContaining('harness defaults are not used'),
   );
@@ -64,11 +73,11 @@ it('uses explicit automation flags without prompting or inheriting saved default
     { harness: 'claude-code', model: 'different' },
     p.create,
   );
-  expect(result.agent).toEqual({
+  expect(result.review).toEqual({
     harness: 'opencode',
     model: 'openai/fixed',
     effort: 'high',
   });
-  expect(result.fastAgent).toEqual(result.agent);
+  expect(result.planner).toEqual(result.review);
   expect(p.value.ask).not.toHaveBeenCalled();
 });

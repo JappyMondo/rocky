@@ -2,6 +2,7 @@ import {
   linear,
   manual,
   type WorkflowContext,
+  type WorkflowModelSlots,
   type ScmPr,
   type ScmRefusal,
   type AgentCallOpts,
@@ -27,16 +28,28 @@ import {
   type Resolution,
 } from './schemas.js';
 
+/** Named roles; choose their harness, model and effort in the profile UI. */
+export const models = {
+  review: {
+    name: 'Review',
+    description: 'Read-only inspections, reviews and visual recaps.',
+  },
+  implementation: {
+    name: 'Implementation',
+    description: 'Implementation, fixes and merge conflict resolution.',
+  },
+  planner: {
+    name: 'Planner',
+    description: 'Scope clarification, planning and UI triage.',
+  },
+} satisfies WorkflowModelSlots;
+
 // BEGIN ROCKY CONFIG
 const commands = { install: '', test: '', lint: '', build: '' };
 const ui: { start: string; url: string } | null = null;
 const states = { started: 'In Progress', review: 'In Review', done: 'Done' };
 const reviewCap = 5;
 const ciCap = 3;
-// OpenCode owns provider and model selection. Its configured OpenAI model is
-// therefore used without baking a Claude model name into local profiles.
-const agent = { harness: 'opencode' };
-const fastAgent = { harness: 'opencode' };
 const readiness = { attempts: 30, intervalMs: 1000 };
 const ciLogLines = 200;
 // END ROCKY CONFIG
@@ -123,14 +136,17 @@ export async function main(
   ctx: WorkflowContext,
   workspace: WorkflowInput = { members: [] },
 ): Promise<'merged' | 'completed' | 'rejected' | 'exhausted'> {
-  const read: AgentCallOpts = { ...agent, tools: ['read'] };
-  const edit: AgentCallOpts = { ...agent, tools: ['read', 'edit', 'bash'] };
+  const read: AgentCallOpts = { ...ctx.models.review, tools: ['read'] };
+  const edit: AgentCallOpts = {
+    ...ctx.models.implementation,
+    tools: ['read', 'edit', 'bash'],
+  };
   ctx.stage('Clarify');
   const conversation: { questions: string[]; answer: string }[] = [];
   let scope;
   for (;;) {
     const refinement = await ctx.agent('refiner', {
-      ...fastAgent,
+      ...ctx.models.planner,
       tools: ['read'],
       label: `Clarify scope ${conversation.length + 1}`,
       input: { issue: ctx.issue, workspace, conversation },
@@ -234,7 +250,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           deliverable: draft.body,
           title: issue.title,
           scope,
-          agent,
+          agent: ctx.models.review,
         });
         ctx.stage('Deliver');
         // Publishing belongs to the Workflow, not an Agent's tools or summary.
@@ -254,6 +270,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
   ctx.stage('Plan');
   const plan = await ctx.agent('planner', {
     ...read,
+    ...ctx.models.planner,
     input: { issue, workspace, delivery, diff: await diff() },
     schema: Plan,
   });
@@ -386,6 +403,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       checks = (
         await ctx.agent('ui-planner', {
           ...read,
+          ...ctx.models.planner,
           input: { issue, delivery, diff: await diff(), rules },
           schema: Checks,
         })
@@ -461,7 +479,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             'The UI stage requires ROCKY_SCREENSHOT_DIR from the Run runtime.',
           );
         const result = await ctx.agent('ui-inspector', {
-          ...agent,
+          ...ctx.models.review,
           tools: ['read'],
           mcp: ['playwright'],
           label: `ui-inspector ${revision}/${reviewCap}`,
@@ -552,7 +570,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     complianceState = { complaints: [], resolutions: [] };
     ctx.stage('UI');
     const triage = await ctx.agent('ui-triage', {
-      ...fastAgent,
+      ...ctx.models.planner,
       tools: ['read'],
       input: { changedFiles: await ctx.changedFiles(), diff: await diff() },
       schema: UiTriage,
@@ -599,7 +617,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     const recap = await ctx.visualRecap({
       pr,
       scope: { issue, validationSummary, uiSummary },
-      agent: { ...agent, ...(ui ? { mcp: ['playwright'] } : {}) },
+      agent: { ...ctx.models.review, ...(ui ? { mcp: ['playwright'] } : {}) },
     });
     const validatedHead = pr.headSha;
     pr = requireScm(
@@ -725,7 +743,7 @@ export async function addressPrConversations(
   );
   if (!complaints.length) return 'completed';
   const report = await ctx.agent('fixer', {
-    ...agent,
+    ...ctx.models.implementation,
     tools: ['read', 'edit', 'bash'],
     input: { issue: ctx.issue, complaints, commands },
     schema: FixReportFor(complaints),
@@ -752,7 +770,7 @@ export async function addressPrConversations(
   await ctx.visualRecap({
     pr: { ...pr, headSha: sha },
     scope: { issue: ctx.issue, resolutions: report.resolutions },
-    agent: { ...agent, ...(ui ? { mcp: ['playwright'] } : {}) },
+    agent: { ...ctx.models.review, ...(ui ? { mcp: ['playwright'] } : {}) },
   });
   return 'completed';
 }

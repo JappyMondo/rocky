@@ -150,13 +150,19 @@ proving live account behavior.
 
 ## Profiles with several repositories
 
-**Add profile** loads Rocky's default workflow and asks for a harness, explicit model ID,
-and variant/effort for the main and helper agents. Helpers can use the same selection.
-Setup values are visible suggestions; blank model or variant/effort values cannot be saved. Saving a new profile also stores its default prompts, schemas,
-rules, MCP declaration, and secret references locally. The source is editable
-before saving, and updates preserve existing custom pipeline content.
-`GET /api/profile-defaults` previews the default without creating a profile;
-new `PUT /api/profiles` requests require `models: { agent: { harness, model, effort }, fastAgent: { harness, model, effort } }`. Workflow and grants may be omitted to seed the defaults. Models are written into the workflow declarations, and `models` in profile responses is derived from those declarations without executing the source. Existing profiles with dynamic or incomplete declarations are identified in the UI; they are not automatically rewritten.
+**Add profile** loads Rocky's default workflow and its named model slots: Review,
+Implementation and Planner. Each slot has independent harness, model and
+variant/effort controls under **General**. Setup values are visible suggestions;
+blank selections cannot be saved. Saving stores prompts, schemas, rules, MCP
+configuration and secret references locally alongside the workflow.
+
+A workflow must export a literal `models` object naming its slots. The profile
+stores `models: { [slot]: { harness, model, effort } }` separately from source.
+Responses include `modelSlots` parsed without executing workflow code. Saving
+selections leaves the source unchanged. Editing source refreshes the form to show
+added slots; configure them before saving. New runs require every declared slot.
+Older profiles remain editable and show migration guidance. See [named workflow
+models](workflow-models.md) for the authoring contract, API and migration steps.
 
 In **Profiles**, add each repository with a folder name, Git remote URL, and
 base branch. One profile owns one workflow and its agent configuration. The
@@ -235,12 +241,12 @@ The daemon watches saved profile content, including edits to the external
 `.workflow.ts` file, every two seconds. It waits for edits to settle before
 queuing generation through the profile's configured harness. The auxiliary job
 has no tools or MCP servers and does not start a workflow Run. It uses the
-helper model and effort declared in the workflow. Legacy workflows without literal
+selection for the first declared model slot. Workflows declaring no slots use the profile/instance fallback for this auxiliary job. Legacy workflows without literal
 model declarations retain their existing instance/harness fallback until explicitly updated. Temporary agent data is removed
 when the job completes or is cancelled.
 
 Diagrams are persisted under `~/.rocky/cache/workflow-diagrams/`, keyed by the
-workflow source, trigger names and generator version. Identical workflows share
+workflow source, trigger names, configured model selections and generator version. Identically configured workflows share
 a cached diagram across profiles and daemon restarts. One generation runs at a
 time; superseded queued revisions are skipped, and an older result cannot become
 the current workflow's diagram. Browser drafts are only visualized after saving.

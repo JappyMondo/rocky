@@ -57,7 +57,7 @@ it('freezes profile membership, creates sibling worktrees and gives each Agent t
     ...newRepositoryProfile({ id: 'product', repos: members }),
     workflow: {
       source:
-        "import { manual, linear } from '@rocky/sdk'; const work = async (ctx) => { await ctx.agent('worker', { harness: 'opencode', tools: ['read', 'edit'] }); await ctx.checkpoint({ title: 'Inspect', body: 'Keep workspace' }); return 'completed'; }; export default [manual('edit', work), linear.onDelegate(work)];",
+        "import { manual, linear } from '@rocky/sdk'; export const models = {}; const work = async (ctx) => { await ctx.agent('worker', { harness: 'opencode', tools: ['read', 'edit'] }); await ctx.checkpoint({ title: 'Inspect', body: 'Keep workspace' }); return 'completed'; }; export default [manual('edit', work), linear.onDelegate(work)];",
       triggers: ['edit', 'linear.onDelegate'],
     },
     prompts: { worker: 'Edit every repository in the workspace.' },

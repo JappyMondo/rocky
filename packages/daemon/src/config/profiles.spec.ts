@@ -76,7 +76,7 @@ describe('local repository profiles', () => {
       'address-pr-conversations',
     ]);
     expect(profile.workflow.source).toContain('linear.onDelegate(main)');
-    expect(profile.workflow.source).toContain("harness: 'opencode'");
+    expect(profile.models?.review.harness).toBe('opencode');
     expect(profile.grants.harness).toBe('opencode');
     expect(profile.prompts.planner).toBeTruthy();
     expect(profile.schemas).toContain('export');
@@ -92,8 +92,9 @@ describe('local repository profiles', () => {
     });
 
     expect(profile.grants.harness).toBe('opencode');
-    expect(profile.workflow.source).toContain("model: 'openai/test-model'");
-    expect(profile.workflow.source).toContain("effort: 'high'");
+    expect(profile.models?.implementation.model).toBe('openai/test-model');
+    expect(profile.models?.planner.effort).toBe('high');
+    expect(profile.workflow.source).not.toContain('openai/test-model');
   });
 
   it('stores a pipeline locally and never needs a checkout path', async () => {

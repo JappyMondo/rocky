@@ -24,6 +24,7 @@ import type {
   StepView,
   Usage,
   WorkflowModels,
+  WorkflowModelSlots,
 } from '@rocky/local-contracts';
 import { api, apiError } from './api.js';
 import { ReviewReports } from './review-report.js';
@@ -36,6 +37,7 @@ import { Connections } from './connections.js';
 import {
   ModelChoices,
   modelsComplete,
+  modelsForSlots,
   suggestedModels,
 } from './model-choices.js';
 
@@ -1668,7 +1670,16 @@ function Profiles(p: {
   const [selected, setSelected] = useState<RepositoryProfileView | null>(null);
   const [draft, setDraft] = useState<RepositoryProfileView | null>(null);
   const [resetting, setResetting] = useState(false);
-  const [models, setModels] = useState<WorkflowModels | null>(null);
+  const [resetSlots, setResetSlots] = useState<WorkflowModelSlots>({});
+  const [slotError, setSlotError] = useState<string | null>(null);
+  const [readingSlots, setReadingSlots] = useState(false);
+  const [slotSource, setSlotSource] = useState<string | null>(null);
+  const loadDraft = (next: RepositoryProfileView | null) => {
+    setDraft(next);
+    setSlotSource(next?.workflow.source ?? null);
+    setSlotError(null);
+    setReadingSlots(false);
+  };
   const [resetModels, setResetModels] = useState<WorkflowModels | null>(null);
   const [creating, setCreating] = useState(false);
   const [editor, setEditor] = useState('default');
@@ -1688,7 +1699,7 @@ function Profiles(p: {
         setProfiles(next.profiles);
         const first = next.profiles[0] ?? null;
         setSelected(first);
-        setDraft(first);
+        loadDraft(first);
       })
       .catch(
         (caught) =>
@@ -1701,13 +1712,13 @@ function Profiles(p: {
   }, [p.mismatch, p.error]);
   const choose = (id: string) => {
     setResetModels(null);
-    setModels(null);
+    setSlotError(null);
     setSaved(false);
     setEditorOpened(false);
     setEditorError(null);
     const next = profiles?.find((profile) => profile.id === id) ?? null;
     setSelected(next);
-    setDraft(next);
+    loadDraft(next);
   };
   useEffect(() => {
     if (!selected) {
@@ -1736,6 +1747,54 @@ function Profiles(p: {
       stopped = true;
     };
   }, [selected?.id, p.mismatch, p.error]);
+  const draftSource = draft?.workflow.source;
+  useEffect(() => {
+    if (draftSource === undefined || draftSource === slotSource) {
+      setSlotError(null);
+      setReadingSlots(false);
+      return;
+    }
+    let stopped = false;
+    setReadingSlots(true);
+    const timer = setTimeout(() => {
+      api<{ modelSlots: WorkflowModelSlots }>(
+        '/api/workflow-model-slots',
+        p.mismatch,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ source: draftSource }),
+        },
+      )
+        .then(({ modelSlots }) => {
+          if (stopped) return;
+          setDraft(
+            (current) =>
+              current && {
+                ...current,
+                modelSlots,
+                modelError: undefined,
+                models: modelsForSlots(modelSlots, current.models),
+              },
+          );
+          setSlotError(null);
+          setSlotSource(draftSource);
+          setReadingSlots(false);
+        })
+        .catch(async (caught) => {
+          const message = await apiError(caught, 'Could not read model slots.');
+          if (!stopped) setSlotError(message);
+        })
+        .finally(() => {
+          if (!stopped) setReadingSlots(false);
+        });
+    }, 350);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [draftSource, slotSource, p.mismatch]);
+
   const create = async () => {
     if (p.disabled || creating) return;
     setCreating(true);
@@ -1748,17 +1807,18 @@ function Profiles(p: {
       setEditorOpened(false);
       setEditorError(null);
       setTab('general');
-      setModels(suggestedModels(defaults));
+
       setResetModels(null);
       const next: RepositoryProfileView = {
         ...defaults,
+        models: suggestedModels(defaults),
         id: '',
         remote: '',
         repos: [{ name: '', url: '', baseBranch: 'main' }],
         revision: '',
       };
       setSelected(null);
-      setDraft(next);
+      loadDraft(next);
     } catch (caught) {
       p.error(
         await apiError(
@@ -1772,7 +1832,13 @@ function Profiles(p: {
   };
   const save = async () => {
     if (!draft || p.disabled) return;
-    if (!selected && !modelsComplete(models)) return;
+    if (
+      draft.workflow.source !== slotSource ||
+      readingSlots ||
+      slotError ||
+      (draft.modelSlots && !modelsComplete(draft.models, draft.modelSlots))
+    )
+      return;
     try {
       const saved = await api<RepositoryProfileView>(
         '/api/profiles',
@@ -1788,7 +1854,7 @@ function Profiles(p: {
             revision: draft.revision || undefined,
             workflow: draft.workflow,
             grants: draft.grants,
-            ...(!selected ? { models } : {}),
+            ...(draft.modelSlots ? { models: draft.models } : {}),
           }),
         },
       );
@@ -1798,7 +1864,7 @@ function Profiles(p: {
         ),
       );
       setSelected(saved);
-      setDraft(saved);
+      loadDraft(saved);
       setSaved(true);
     } catch (caught) {
       p.error(await apiError(caught, 'Profile was not saved.'));
@@ -1852,7 +1918,7 @@ function Profiles(p: {
         const next = (current ?? []).filter((item) => item.id !== selected.id);
         const replacement = next[0] ?? null;
         setSelected(replacement);
-        setDraft(replacement);
+        loadDraft(replacement);
         return next;
       });
     } catch (caught) {
@@ -1887,7 +1953,7 @@ function Profiles(p: {
         (current ?? []).map((item) => (item.id === next.id ? next : item)),
       );
       setSelected(next);
-      setDraft(next);
+      loadDraft(next);
       setSaved(true);
       setEditorOpened(false);
       setEditorError(null);
@@ -2009,17 +2075,22 @@ function Profiles(p: {
         </button>
       </div>
       <div hidden={tab !== 'general'} className={styles.profileGeneral}>
-        {!selected && models && (
+        {draft.modelSlots && (
           <ModelChoices
-            value={models}
-            onChange={(next) => {
-              setModels(next);
-              setDraft({
-                ...draft,
-                grants: { ...draft.grants, harness: next.agent.harness },
-              });
+            slots={draft.modelSlots}
+            value={draft.models ?? {}}
+            disabled={p.disabled}
+            onChange={(models) => {
+              setDraft({ ...draft, models });
+              setSaved(false);
             }}
           />
+        )}
+        {draft.modelError && (
+          <p role="alert">
+            {draft.modelError} Reset to the current default or add the models
+            export in your editor.
+          </p>
         )}
         <div className={styles.sectionHeading}>
           <div>
@@ -2211,30 +2282,6 @@ function Profiles(p: {
         </section>
       </div>
       <div hidden={tab !== 'workflow'} className={styles.profileWorkflow}>
-        {selected && (
-          <section className={styles.workflowEditor}>
-            <div>
-              <h2>Workflow models</h2>
-              {selected.models ? (
-                <p>
-                  Main: {selected.models.agent.harness} ·{' '}
-                  {selected.models.agent.model} · {selected.models.agent.effort}
-                  <br />
-                  Helper: {selected.models.fastAgent.harness} ·{' '}
-                  {selected.models.fastAgent.model} ·{' '}
-                  {selected.models.fastAgent.effort}
-                </p>
-              ) : (
-                <p>
-                  This workflow has no complete literal model selection. Check
-                  its source for per-step choices; omitted settings can follow
-                  harness defaults. Reset to choose explicit models for the
-                  default workflow.
-                </p>
-              )}
-            </div>
-          </section>
-        )}
         {tab === 'workflow' && (
           <WorkflowDiagram
             key={selected?.id ?? 'new'}
@@ -2321,7 +2368,14 @@ function Profiles(p: {
                   '/api/profile-defaults',
                   p.mismatch,
                 );
-                setResetModels(selected?.models ?? suggestedModels(defaults));
+                setResetSlots(defaults.modelSlots ?? {});
+                setResetModels(
+                  modelsForSlots(
+                    defaults.modelSlots ?? {},
+                    selected?.models,
+                    defaults,
+                  ),
+                );
               } catch (caught) {
                 p.error(
                   await apiError(caught, 'Could not load model choices.'),
@@ -2334,7 +2388,12 @@ function Profiles(p: {
         </section>
         {resetModels && (
           <section aria-label="Reset workflow" className={styles.modelChoices}>
-            <ModelChoices value={resetModels} onChange={setResetModels} />
+            <ModelChoices
+              slots={resetSlots}
+              value={resetModels}
+              onChange={setResetModels}
+              disabled={p.disabled || resetting}
+            />
             <p>
               Reset replaces custom workflow code, triggers, prompts, schemas
               and agent model settings. Other Config values, repositories,
@@ -2393,6 +2452,12 @@ function Profiles(p: {
               spellCheck={false}
             />
           </label>
+          {readingSlots && <p role="status">Reading model slots…</p>}
+          {slotError && <p role="alert">{slotError}</p>}
+          <p>
+            Export a literal <code>models</code> object with a name for each
+            slot. Configure new slots on the General tab before saving.
+          </p>
         </details>
       </div>
       <div hidden={tab !== 'general'} className={styles.profileGeneral}>
@@ -2402,9 +2467,9 @@ function Profiles(p: {
             <p>Tools and configuration available to the workflow.</p>
           </div>
         </div>
-        {selected && (
+        {selected && !draft.modelSlots && (
           <label>
-            Harness
+            Legacy fallback harness
             <select
               value={draft.grants.harness}
               disabled={p.disabled}
@@ -2449,7 +2514,11 @@ function Profiles(p: {
           disabled={
             p.disabled ||
             !draft.id ||
-            (!selected && !modelsComplete(models)) ||
+            draft.workflow.source !== slotSource ||
+            readingSlots ||
+            !!slotError ||
+            (!!draft.modelSlots &&
+              !modelsComplete(draft.models, draft.modelSlots)) ||
             (draft.repos
               ? draft.repos.length === 0 ||
                 draft.repos.some(

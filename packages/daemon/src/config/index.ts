@@ -42,6 +42,9 @@ export {
   workflowModelsSchema,
   configureWorkflowModels,
   readWorkflowModels,
+  readWorkflowModelSlots,
+  validateWorkflowModels,
+  defaultWorkflowModels,
 } from './workflow-models.js';
 export type {
   AgentModelSelection,

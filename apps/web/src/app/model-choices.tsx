@@ -1,130 +1,151 @@
-import { useState } from 'react';
 import type {
   AgentModelSelection,
   RepositoryProfileDefaults,
   WorkflowModels,
+  WorkflowModelSlots,
 } from '@rocky/local-contracts';
 import styles from './app.module.css';
 
-export function suggestedModels(
+export function modelsForSlots(
+  slots: WorkflowModelSlots,
+  previous: WorkflowModels = {},
   defaults?: RepositoryProfileDefaults,
 ): WorkflowModels {
-  const empty: AgentModelSelection = {
-    harness: defaults?.grants.harness ?? 'opencode',
-    model: '',
-    effort: '',
-  };
-  return {
-    agent: { ...empty, ...defaults?.modelSuggestions?.agent },
-    fastAgent: { ...empty, ...defaults?.modelSuggestions?.fastAgent },
-  };
+  return Object.fromEntries(
+    Object.keys(slots).map((key) => [
+      key,
+      previous[key] ?? {
+        harness: defaults?.grants.harness ?? 'opencode',
+        model: '',
+        effort: '',
+        ...defaults?.modelSuggestions?.[key],
+      },
+    ]),
+  );
 }
-export function modelsComplete(models: WorkflowModels | null): boolean {
+
+export function suggestedModels(
+  defaults: RepositoryProfileDefaults,
+): WorkflowModels {
+  return modelsForSlots(defaults.modelSlots ?? {}, {}, defaults);
+}
+
+export function modelsComplete(
+  models: WorkflowModels | null | undefined,
+  slots?: WorkflowModelSlots,
+): boolean {
   return (
     !!models &&
-    [models.agent, models.fastAgent].every((agent) =>
-      [agent.model, agent.effort].every(
-        (value) =>
-          !!value.trim() &&
-          !/\s/.test(value.trim()) &&
-          !/^(auto|default)$/i.test(value.trim()),
-      ),
-    )
+    Object.keys(slots ?? models).every((key) => {
+      const agent = models[key];
+      return (
+        !!agent &&
+        [agent.model, agent.effort].every(
+          (value) =>
+            !!value.trim() &&
+            !/\s/.test(value.trim()) &&
+            !/^(auto|default)$/i.test(value.trim()),
+        )
+      );
+    })
   );
 }
 
 export function ModelChoices({
+  slots,
   value,
   onChange,
+  disabled = false,
 }: {
+  slots: WorkflowModelSlots;
   value: WorkflowModels;
   onChange: (value: WorkflowModels) => void;
+  disabled?: boolean;
 }) {
-  const [same, setSame] = useState(
-    JSON.stringify(value.agent) === JSON.stringify(value.fastAgent),
-  );
-  const fields = (name: 'agent' | 'fastAgent', title: string) => {
-    const selected = value[name];
-    const update = (change: Partial<AgentModelSelection>) => {
-      const next = { ...selected, ...change };
-      onChange({
-        ...value,
-        [name]: next,
-        ...(name === 'agent' && same ? { fastAgent: { ...next } } : {}),
-      });
-    };
-    return (
-      <div className={styles.fieldGrid}>
-        <label>
-          {title} harness
-          <select
-            value={selected.harness}
-            onChange={(e) =>
-              update({
-                harness: e.target.value as AgentModelSelection['harness'],
-                model: '',
-                effort: '',
-              })
-            }
-          >
-            <option value="opencode">OpenCode</option>
-            <option value="claude-code">Claude Code</option>
-          </select>
-        </label>
-        <label>
-          {title} model
-          <input
-            required
-            value={selected.model}
-            placeholder={
-              selected.harness === 'opencode'
-                ? 'provider/model-id'
-                : 'Full Claude model ID'
-            }
-            onChange={(e) => update({ model: e.target.value })}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-        <label>
-          {title} {selected.harness === 'opencode' ? 'variant' : 'effort'}
-          <input
-            required
-            value={selected.effort}
-            placeholder="e.g. high"
-            onChange={(e) => update({ effort: e.target.value })}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-      </div>
-    );
-  };
   return (
     <section className={styles.modelChoices} aria-label="Workflow models">
-      <h3>Choose the models for this workflow</h3>
+      <h3>Workflow models</h3>
       <p>
-        These choices are saved with the workflow and copied into each run. Use
-        full model IDs and a variant or effort supported by the model.
+        Choose a harness, model and variant/effort for each role. Saved
+        selections apply to new runs. Existing runs and retries keep their
+        captured settings.
       </p>
-      {fields('agent', 'Main agent')}
-      <label className={styles.modelReuse}>
-        <input
-          type="checkbox"
-          checked={same}
-          onChange={(e) => {
-            setSame(e.target.checked);
-            if (e.target.checked)
-              onChange({ ...value, fastAgent: { ...value.agent } });
-          }}
-        />
-        Use the same model and variant/effort for helper agents
-      </label>
-      {!same && fields('fastAgent', 'Helper agent')}
-      <p className={styles.muted}>
-        OpenCode model IDs are listed by <code>opencode models</code>. Blank
-        values never fall back to harness defaults.
-      </p>
+      {Object.entries(slots).map(([key, slot]) => {
+        const selected = value[key] ?? {
+          harness: 'opencode',
+          model: '',
+          effort: '',
+        };
+        const update = (change: Partial<AgentModelSelection>) =>
+          onChange({ ...value, [key]: { ...selected, ...change } });
+        return (
+          <section key={key} aria-label={slot.name}>
+            <h4>
+              {slot.name} <code>{key}</code>
+            </h4>
+            {slot.description && (
+              <p className={styles.muted}>{slot.description}</p>
+            )}
+            <div className={styles.fieldGrid}>
+              <label>
+                {slot.name} harness
+                <select
+                  disabled={disabled}
+                  value={selected.harness}
+                  onChange={(e) =>
+                    update({
+                      harness: e.target.value as AgentModelSelection['harness'],
+                      model: '',
+                      effort: '',
+                    })
+                  }
+                >
+                  <option value="opencode">OpenCode</option>
+                  <option value="claude-code">Claude Code</option>
+                </select>
+              </label>
+              <label>
+                {slot.name} model
+                <input
+                  required
+                  disabled={disabled}
+                  value={selected.model}
+                  placeholder={
+                    selected.harness === 'opencode'
+                      ? 'provider/model-id'
+                      : 'Full Claude model ID'
+                  }
+                  onChange={(e) => update({ model: e.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                {slot.name}{' '}
+                {selected.harness === 'opencode' ? 'variant' : 'effort'}
+                <input
+                  required
+                  disabled={disabled}
+                  value={selected.effort}
+                  placeholder="e.g. high"
+                  onChange={(e) => update({ effort: e.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+          </section>
+        );
+      })}
+      {Object.keys(slots).length === 0 ? (
+        <p>This workflow declares no model slots.</p>
+      ) : (
+        <p className={styles.muted}>
+          Use full model IDs and a variant or effort supported by that model.
+          OpenCode lists IDs with <code>opencode models</code>. Choices are
+          stored in the profile; saving them leaves workflow code unchanged.
+        </p>
+      )}
     </section>
   );
 }

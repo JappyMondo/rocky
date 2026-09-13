@@ -54,9 +54,25 @@ const approvedCheckpoints = new WeakMap<object, BootContext>();
 
 export function createWorkflowContext(
   runner: BootContext,
-  header: Pick<RunHeader, 'issue' | 'branch' | 'ports'>,
+  header: Pick<RunHeader, 'issue' | 'branch' | 'ports'> &
+    Partial<Pick<RunHeader, 'profile'>>,
   services: ContextServices,
 ): WorkflowContext {
+  const selections = Object.fromEntries(
+    Object.entries(header.profile?.models ?? {}).map(([key, value]) => [
+      key,
+      Object.freeze({ ...value }),
+    ]),
+  );
+  const models = new Proxy(Object.freeze(selections), {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && !Object.hasOwn(target, key))
+        throw new Error(
+          `Model slot "${key}" is not configured in this run. Declare it in the workflow and choose its settings in the profile UI before starting a new run.`,
+        );
+      return Reflect.get(target, key, receiver);
+    },
+  });
   const branch = new AsyncLocalStorage<BootContext>();
   const current = () => branch.getStore() ?? runner;
   const approvals: CheckpointApprovalVerifier = (approval) =>
@@ -101,6 +117,7 @@ export function createWorkflowContext(
     );
   }
   return Object.freeze({
+    models,
     issue,
     branch: header.branch,
     ports: [...header.ports],

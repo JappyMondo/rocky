@@ -98,6 +98,10 @@ await cp(
   { recursive: true },
 );
 await cp(join(root, 'docs/mcp.md'), join(output, 'docs/mcp.md'));
+await cp(
+  join(root, 'docs/workflow-models.md'),
+  join(output, 'docs/workflow-models.md'),
+);
 await writeFile(
   join(output, 'package.json'),
   `${JSON.stringify(

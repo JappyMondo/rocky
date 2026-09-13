@@ -99,6 +99,8 @@ Use the repository's pinned pnpm and Node versions:
 pnpm install --frozen-lockfile
 pnpm --dir packages/cli pack --pack-destination /existing/output/directory
 pnpm test:distribution
+# If a daemon already occupies 7625, choose a free test port:
+ROCKY_DISTRIBUTION_PORT=47625 pnpm test:distribution
 ```
 
 `prepack` builds the CLI/daemon/SDK and web app via Nx, then esbuild bundles

@@ -19,7 +19,8 @@ import { ConfigError } from './schema.js';
 import type { WorkflowDefaults } from './schema.js';
 import type { WorkflowModels } from '@rocky/local-contracts';
 import {
-  configureWorkflowModels,
+  defaultWorkflowModels,
+  validateWorkflowModels,
   workflowModelsSchema,
 } from './workflow-models.js';
 
@@ -126,6 +127,7 @@ const profileSchema = z
       source: nonEmpty,
       triggers: z.array(nonEmpty).default([]),
     }),
+    models: workflowModelsSchema.optional(),
     prompts: z.record(segment, z.string()).default({}),
     schemas: z.string().default(''),
     rules: z.record(segment, z.string()).default({}),
@@ -193,7 +195,8 @@ export function newRepositoryProfile(input: {
       remote: input.remote,
       repos: input.repos,
       workflow: {
-        source: input.workflow ?? 'export default [];',
+        source:
+          input.workflow ?? 'export const models = {};\nexport default [];',
         triggers: [],
       },
     },
@@ -213,16 +216,16 @@ export async function newSeedRepositoryProfile(input: {
   repos?: z.input<typeof profileReposSchema>;
   models: WorkflowModels;
 }): Promise<RepositoryProfile> {
-  const models = workflowModelsSchema.parse(input.models);
-  const content = await defaultProfileContent(models.agent);
-  content.workflow.source = configureWorkflowModels(
-    content.workflow.source,
-    models,
+  const models = defaultWorkflowModels(
+    workflowModelsSchema.parse(input.models),
   );
+  const content = await defaultProfileContent({ ...Object.values(models)[0] });
+  validateWorkflowModels(content.workflow.source, models);
   return parseRepositoryProfile(
     {
       ...newRepositoryProfile(input),
       ...content,
+      models,
     },
     `profiles/${input.id}.json`,
   );
@@ -248,7 +251,7 @@ export async function defaultProfileContent(
   ]);
   return {
     workflow: {
-      source: configuredWorkflow(workflow, defaults),
+      source: workflow,
       triggers: ['linear.onDelegate', 'address-pr-conversations'],
     },
     prompts: agents,
@@ -262,23 +265,6 @@ export async function defaultProfileContent(
       secretEnv: ['GITHUB_TOKEN', 'GH_TOKEN', 'GITLAB_TOKEN'],
     },
   };
-}
-
-function configuredWorkflow(
-  source: string,
-  defaults: WorkflowDefaults,
-): string {
-  const setting = (name: string) =>
-    `const ${name} = ${JSON.stringify({ harness: defaults.harness, ...(defaults.model ? { model: defaults.model } : {}), ...(defaults.effort ? { effort: defaults.effort } : {}) })};`;
-  if (
-    !/^const agent = .*;$/m.test(source) ||
-    !/^const fastAgent = .*;$/m.test(source)
-  )
-    throw new Error('Shipped workflow is missing its harness configuration.');
-  const configured = source
-    .replace(/^const agent = .*;$/m, setting('agent'))
-    .replace(/^const fastAgent = .*;$/m, setting('fastAgent'));
-  return configured;
 }
 
 async function readTextDirectory(

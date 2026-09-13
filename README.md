@@ -17,8 +17,8 @@ this project's `rocky` package on npm.
   rules, MCP configuration and repository membership. Profiles can span several
   repositories, with the first member serving as the default SCM target.
 - **Two harness adapters:** `opencode` and `claude-code` drive the installed
-  native CLIs. New profiles require explicit model and variant/effort choices
-  for main and helper agents.
+  native CLIs. Workflows declare named model slots; the web UI configures each
+  slot’s harness, model and variant/effort independently.
 - **Shipped workflows:** clarify the issue, then deliver either a reviewed
   Linear comment or a PR/MR. The PR path implements validation, review/fix and CI
   loops, visual recaps, and an approval checkpoint before platform-controlled
@@ -82,7 +82,7 @@ rocky status
 selection, and installs managed daemon and ingress user services. `repo add`
 clones the repository and asks which models and variant/effort to save in its
 local profile. Review the profile's commands, Linear states and tool/MCP grants
-in **Profiles** before delegating a matching labeled issue. For automation,
+in **Profiles** before delegating a matching labeled issue. The default workflow exposes **Review**, **Implementation** and **Planner** model slots; each can use its own harness, model and effort without editing workflow code. See [named workflow models](docs/workflow-models.md). For automation,
 `repo add` requires `--harness`, `--model` and `--variant`; see [CLI details](docs/cli-and-ctx.md).
 
 To open the local UI before connecting Linear, run `rocky start -d` and visit

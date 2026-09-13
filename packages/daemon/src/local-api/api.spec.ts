@@ -1,11 +1,17 @@
 const models = {
-  agent: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
-  fastAgent: {
+  review: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
+  implementation: {
+    harness: 'opencode',
+    model: 'openai/test-model',
+    effort: 'high',
+  },
+  planner: {
     harness: 'opencode',
     model: 'openai/test-model',
     effort: 'high',
   },
 } as const;
+const modelSource = `export const models = { review: { name: 'Review' }, implementation: { name: 'Implementation' }, planner: { name: 'Planner' } };\n`;
 import {
   appendFile,
   mkdir,
@@ -411,7 +417,7 @@ it('previews the configured default and creates its complete local pipeline for 
   expect(preview.statusCode).toBe(200);
   expect(preview.json()).toMatchObject({
     workflow: {
-      source: expect.stringContaining('openai/test-model'),
+      source: expect.stringContaining('export const models'),
       triggers: ['linear.onDelegate', 'address-pr-conversations'],
     },
     grants: { harness: 'opencode' },
@@ -432,8 +438,8 @@ it('previews the configured default and creates its complete local pipeline for 
   });
   expect(created.statusCode).toBe(200);
   const stored = await readRepositoryProfile(fixture.paths, 'product');
-  expect(stored.workflow.source).toContain("model: 'openai/test-model'");
-  expect(stored.workflow.source).toContain("effort: 'high'");
+  expect(stored.models).toEqual(models);
+  expect(stored.workflow.source).not.toContain('openai/test-model');
   expect(stored.repos).toEqual(repos);
   expect(stored.prompts.planner).toBeTruthy();
   expect(stored.schemas).toContain('export');
@@ -447,13 +453,13 @@ it('previews the configured default and creates its complete local pipeline for 
       id: 'product',
       repos,
       revision: created.json().revision,
-      workflow: { source: 'export default [];', triggers: [] },
+      workflow: { source: modelSource + 'export default [];', triggers: [] },
     },
   });
   expect(updated.statusCode).toBe(200);
   expect(
     (await readRepositoryProfile(fixture.paths, 'product')).workflow.source,
-  ).toBe('export default [];');
+  ).toBe(modelSource + 'export default [];');
 });
 
 it('requires model choices on creation and reset, and replaces old models without resetting other Config values', async () => {
@@ -473,14 +479,16 @@ it('requires model choices on creation and reset, and replaces old models withou
     ...input,
     models,
     workflow: {
-      source: `// BEGIN ROCKY CONFIG\nconst reviewCap = 9;\nconst agent = { harness: 'opencode' };\nconst fastAgent = { harness: 'opencode' };\n// END ROCKY CONFIG\nexport default [];`,
+      source:
+        modelSource +
+        `// BEGIN ROCKY CONFIG\nconst reviewCap = 9;\nconst agent = { harness: 'opencode' };\nconst fastAgent = { harness: 'opencode' };\n// END ROCKY CONFIG\nexport default [];`,
       triggers: [],
     },
   });
   expect(created.models).toEqual(models);
   for (const bad of [
     undefined,
-    { ...models, agent: { ...models.agent, effort: '' } },
+    { ...models, review: { ...models.review, effort: '' } },
   ]) {
     const reset = await f.app.inject({
       method: 'POST',
@@ -498,12 +506,13 @@ it('requires model choices on creation and reset, and replaces old models withou
     },
   });
   const selected = {
-    agent: {
+    ...models,
+    review: {
       harness: 'claude-code',
       model: 'claude-chosen-model',
       effort: 'high',
     },
-    fastAgent: { ...models.fastAgent, effort: 'low' },
+    planner: { ...models.planner, effort: 'low' },
   };
   const reset = await profiles.resetWorkflow(created.id, {
     revision: created.revision,
@@ -525,7 +534,10 @@ it('edits a secret-free local profile with optimistic concurrency', async () => 
       id: 'service',
       models,
       remote: 'git@github.com:acme/service.git',
-      workflow: { source: 'export default [];', triggers: ['custom-workflow'] },
+      workflow: {
+        source: modelSource + 'export default [];',
+        triggers: ['custom-workflow'],
+      },
       grants: { harness: 'opencode', capabilities: ['read'], mcp: [] },
     },
   });
@@ -544,7 +556,7 @@ it('edits a secret-free local profile with optimistic concurrency', async () => 
       remote: 'github.com/acme/service',
       revision: profile.revision,
       workflow: {
-        source: 'export default [1];',
+        source: modelSource + 'export default [1];',
         triggers: ['custom-workflow'],
       },
       grants: { harness: 'opencode', capabilities: ['read'], mcp: [] },
@@ -581,7 +593,7 @@ it('edits complete multi-repository membership and rejects ambiguous or unsafe m
     models,
     id: 'product',
     repos,
-    workflow: { source: 'export default [];', triggers: [] },
+    workflow: { source: modelSource + 'export default [];', triggers: [] },
     grants: { harness: 'opencode', capabilities: [], mcp: [] },
   };
   const create = await fixture.app.inject({
@@ -633,7 +645,7 @@ it('keeps a legacy profile’s configured folder, SSH remote and base branch whe
     models,
     id: 'pipeline',
     remote: 'github.com/acme/api',
-    workflow: { source: 'export default [];', triggers: [] },
+    workflow: { source: modelSource + 'export default [];', triggers: [] },
     grants: { harness: 'opencode', capabilities: [], mcp: [] },
   });
   const member = {
@@ -688,7 +700,7 @@ it('deletes only a current local profile revision', async () => {
       id: 'disposable',
       models,
       remote: 'github.com/acme/disposable',
-      workflow: { source: 'export default [];', triggers: [] },
+      workflow: { source: modelSource + 'export default [];', triggers: [] },
       grants: { harness: 'opencode', capabilities: [], mcp: [] },
     },
   });
@@ -721,7 +733,10 @@ async function editorFixture(script: string) {
     models,
     id: 'service',
     remote: 'github.com/acme/service',
-    workflow: { source: 'export default [original];', triggers: [] },
+    workflow: {
+      source: modelSource + 'export default [original];',
+      triggers: [],
+    },
     grants: { harness: 'opencode', capabilities: [], mcp: [] },
   });
   const bin = join(fixture.paths.root, 'bin');
@@ -1496,7 +1511,7 @@ it('resets workflow content while preserving config, repositories and integratio
   expect(saved.workflow.source).toContain(
     'const commands = { test: "custom-test" };',
   );
-  expect(saved.workflow.source).toContain("effort: 'high'");
+  expect(saved.models).toEqual(models);
   expect(saved.workflow.source).toContain("ctx.agent('refiner'");
   expect(saved.workflow.triggers).toContain('linear.onDelegate');
   expect(saved.prompts).toHaveProperty('deliverable-writer');
@@ -1600,4 +1615,93 @@ it('advertises failed Step retries and validates retry requests at the local API
   });
   expect(refused.statusCode).toBe(409);
   expect(refused.json().error).toContain('Workspace was released');
+});
+
+it('configures arbitrary workflow slots without rewriting source, persists choices, and rejects stale or incomplete updates', async () => {
+  const f = await setup();
+  const profiles = new LocalProfiles(f.paths);
+  f.options.profiles = profiles;
+  const source = `throw new Error('must never execute in the editor');
+export const models = { MODEL_REVIEW: { name: 'Review' }, build: { name: 'Build', description: 'Edit code' } } as const;
+export default [];`;
+  const selected = {
+    MODEL_REVIEW: models.review,
+    build: { harness: 'claude-code', model: 'claude-build', effort: 'low' },
+  };
+  const preview = await f.app.inject({
+    method: 'POST',
+    url: '/api/workflow-model-slots',
+    payload: { source },
+  });
+  expect(preview.statusCode).toBe(200);
+  expect(preview.json().modelSlots.build).toEqual({
+    name: 'Build',
+    description: 'Edit code',
+  });
+  const created = await profiles.save({
+    id: 'slots',
+    remote: 'github.com/acme/slots',
+    workflow: { source, triggers: [] },
+    models: selected,
+  });
+  expect(created.modelSlots).toEqual(preview.json().modelSlots);
+  const changed = {
+    ...selected,
+    MODEL_REVIEW: {
+      harness: 'claude-code',
+      model: 'claude-review',
+      effort: 'high',
+    },
+  };
+  const saved = await profiles.save({
+    id: created.id,
+    revision: created.revision,
+    models: changed,
+  });
+  expect(saved.models).toEqual(changed);
+  expect(saved.workflow.source).toBe(source);
+  expect(await readFile(f.paths.profileWorkflow(created.id), 'utf8')).toBe(
+    source,
+  );
+  expect((await readRepositoryProfile(f.paths, created.id)).models).toEqual(
+    changed,
+  );
+  await expect(
+    profiles.save({
+      id: created.id,
+      revision: created.revision,
+      models: selected,
+    }),
+  ).rejects.toMatchObject({ code: 'profile-changed' });
+  for (const invalid of [
+    { build: selected.build },
+    { ...changed, typo: models.planner },
+    { ...changed, build: { ...selected.build, effort: '' } },
+  ]) {
+    await expect(
+      profiles.save({
+        id: created.id,
+        revision: saved.revision,
+        models: invalid,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect((await profiles.read(created.id)).revision).toBe(saved.revision);
+  }
+  await expect(
+    profiles.save({
+      id: created.id,
+      revision: saved.revision,
+      workflow: { source: 'export default [];', triggers: [] },
+    }),
+  ).rejects.toMatchObject({ code: 'invalid-workflow-models' });
+  const restored = await profiles.resetWorkflow(created.id, {
+    revision: saved.revision,
+    models,
+  });
+  expect(restored.models).toEqual(models);
+  expect(Object.keys(restored.modelSlots ?? {})).toEqual([
+    'review',
+    'implementation',
+    'planner',
+  ]);
 });

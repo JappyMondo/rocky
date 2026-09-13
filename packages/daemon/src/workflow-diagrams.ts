@@ -13,7 +13,10 @@ import { expandHarness } from './config/expand.js';
 import { buildRedactionSet, createRedactor } from './config/redaction.js';
 import type { ConfigStore } from './config/watcher.js';
 import { AUTH_PROBES, getHarnessAdapter } from './harness/adapter.js';
-import { readWorkflowModels } from './config/workflow-models.js';
+import {
+  readWorkflowModels,
+  readWorkflowModelSlots,
+} from './config/workflow-models.js';
 
 // Bump when the prompt or accepted diagram format changes.
 const GENERATOR_VERSION = 'workflow-flowchart-v3';
@@ -29,6 +32,7 @@ export function workflowHash(profile: RepositoryProfile): string {
   return createHash('sha256')
     .update(GENERATOR_VERSION)
     .update(JSON.stringify(profile.workflow))
+    .update(JSON.stringify(profile.models ?? null))
     .digest('hex');
 }
 
@@ -59,7 +63,12 @@ export function agentDiagramGenerator(
   config: ConfigStore,
 ): DiagramGenerator {
   return async (profile, signal) => {
-    const selected = readWorkflowModels(profile.workflow.source)?.fastAgent;
+    // Named workflows use the first declared slot for this read-only helper.
+    const selected = profile.models
+      ? profile.models[
+          Object.keys(readWorkflowModelSlots(profile.workflow.source))[0]
+        ]
+      : readWorkflowModels(profile.workflow.source)?.fastAgent;
     const name = selected?.harness ?? profile.grants.harness;
     const adapter = getHarnessAdapter(name);
     if (!adapter) throw new Error('The profile agent is unavailable.');
