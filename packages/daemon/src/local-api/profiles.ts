@@ -11,6 +11,7 @@ import type {
   McpProfileView,
 } from '@rocky/local-contracts';
 import { z } from 'zod';
+import { sourceControlSchema } from '../config/source-control.js';
 
 import {
   listRepositoryProfiles,
@@ -43,6 +44,7 @@ const editable = z
     repos: profileReposSchema.optional(),
     revision: z.string().optional(),
     models: workflowModelsSchema.optional(),
+    sourceControl: sourceControlSchema.optional(),
     workflow: z
       .object({
         source: z.string().min(1),
@@ -116,6 +118,7 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
     models,
     ...metadata,
     grants: profile.grants,
+    sourceControl: profile.sourceControl,
     prompts: Object.keys(profile.prompts).sort(),
     rules: Object.keys(profile.rules).sort(),
     secretEnv: profile.settings.secretEnv,
@@ -580,6 +583,7 @@ export class LocalProfiles {
           : base.models;
       const saved = await writeRepositoryProfile(this.paths, {
         ...base,
+        sourceControl: parsed.data.sourceControl ?? base.sourceControl,
         remote: parsed.data.remote ?? base.remote,
         ...(parsed.data.repos ? { repos: parsed.data.repos } : {}),
         workflow,

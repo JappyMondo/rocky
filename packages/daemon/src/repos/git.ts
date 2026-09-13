@@ -8,11 +8,8 @@
  *
  * Two guarantees:
  *
- * - **The developer's ambient credentials, untouched.** Rocky mints nothing.
- *   The environment is inherited, not replaced, so the SSH agent, the
- *   credential helper and any `GIT_SSH_COMMAND` the developer relies on all
- *   still apply. That is also why this file sets no `GIT_SSH_COMMAND` of its
- *   own: choosing one would be Rocky overriding a setup it promised to use.
+ * - Credentials are scoped to this invocation. Without overrides Git inherits
+ *   the developer's setup; explicit Rocky/profile settings arrive through env.
  * - **Never a prompt, never an unbounded wait.** `GIT_TERMINAL_PROMPT=0` and a
  *   timeout, because the daemon has no terminal and a hung fetch inside the
  *   per-repo mutex would stall every later Run on that repo.
@@ -28,7 +25,7 @@ const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 export interface GitOptions {
   cwd?: string;
   /** Merged over the inherited environment, never replacing it. */
-  env?: Record<string, string>;
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
 }
 

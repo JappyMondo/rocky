@@ -865,3 +865,40 @@ it('creates a complete enhanced recap even when a legacy report exists for the s
     await f.runtime.close();
   }
 });
+
+it.each(['github', 'gitlab'] as const)(
+  'uses the selected %s profile token for built-in SCM operations',
+  async (platform) => {
+    const f = await fixture(async (ctx) => {
+      await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+      return 'completed';
+    });
+    if (!f.run.profile || !f.run.execution)
+      throw new Error('Missing fixture profile');
+    f.run.profile.sourceControl = {
+      [platform]: { tokenEnv: 'PROFILE_SCM_TOKEN' },
+    };
+    f.run.execution.members[0].url = `https://${platform}.com/example/app.git`;
+    await writeCredentials(f.paths, {
+      linear: { accessToken: 'fixture' },
+      repos: {
+        app: {
+          PROFILE_SCM_TOKEN: 'profile-only-token',
+          GITHUB_TOKEN: 'legacy-token',
+          GITLAB_TOKEN: 'legacy-token',
+        },
+      },
+    });
+    await writeRunHeader(f.paths, f.run);
+    try {
+      expect(
+        await f.runtime.boot(f.run, 'run', new AbortController().signal),
+      ).toMatchObject({ status: 'finished' });
+      expect(spies.scmAdapter).toHaveBeenCalledWith(
+        expect.objectContaining({ token: 'profile-only-token' }),
+      );
+    } finally {
+      await f.runtime.close();
+    }
+  },
+);

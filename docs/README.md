@@ -36,3 +36,5 @@ missing-feature lists are historical, not the current capability inventory.
 [ADRs](adr/) retain the original design decisions; in particular, ADR 0003's
 repo-vendored configuration describes the earlier model, superseded in production
 by local profiles.
+
+- [Source control accounts](source-control.md): Git SSH/signing, agent sockets and per-profile GitHub/GitLab CLI identities.

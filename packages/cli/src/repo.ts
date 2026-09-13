@@ -1,3 +1,4 @@
+import { sourceControlEnv } from '@rocky/daemon';
 /**
  * `rocky repo add|list|remove` (NG-521).
  *
@@ -96,7 +97,12 @@ export async function addRepo(
     // Eagerly, and before anything is written.
     io.out(`Cloning ${url} into ${paths.repo(name)}…`);
     const clone = await ensureClone(
-      createRepoContext({ identity: config.identity, paths }),
+      createRepoContext({
+        identity: config.identity,
+        paths,
+        sourceControl: config.sourceControl,
+        env: sourceControlEnv(config.sourceControl),
+      }),
       { name, url },
     );
 
@@ -152,7 +158,12 @@ export async function listRepos(io: CliIo): Promise<void> {
     const cloned = new Map(
       (
         await cloneStatus(
-          createRepoContext({ identity: config.identity, paths }),
+          createRepoContext({
+            identity: config.identity,
+            paths,
+            sourceControl: config.sourceControl,
+            env: sourceControlEnv(config.sourceControl),
+          }),
           config.repos,
         )
       ).map((status) => [status.name, status]),
@@ -210,7 +221,12 @@ export async function repoSummary(): Promise<string> {
 
   const missing = (
     await cloneStatus(
-      createRepoContext({ identity: config.identity, paths }),
+      createRepoContext({
+        identity: config.identity,
+        paths,
+        sourceControl: config.sourceControl,
+        env: sourceControlEnv(config.sourceControl),
+      }),
       config.repos,
     )
   )

@@ -1705,3 +1705,72 @@ export default [];`;
     'planner',
   ]);
 });
+
+it('persists source control references through settings and profiles, with reset and secret rejection', async () => {
+  const f = await setup();
+  f.options.profiles = new LocalProfiles(f.paths);
+  const sourceControl = {
+    git: {
+      sshAgent: '~/.bitwarden-ssh-agent.sock',
+      signingFormat: 'ssh',
+      signCommits: true,
+    },
+    github: { configDir: '~/.rocky/gh' },
+  };
+  const before = await f.settings.read();
+  const saved = await f.app.inject({
+    method: 'PATCH',
+    url: '/api/settings',
+    payload: { revision: before.revision, patch: { sourceControl } },
+  });
+  expect(saved.statusCode).toBe(200);
+  expect((await readInstanceConfig(f.paths)).sourceControl).toEqual(
+    sourceControl,
+  );
+  expect(saved.json().restartRequired).toBe(false);
+  const profile = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'source-control',
+      remote: 'github.com/org/repo',
+      models,
+      sourceControl: {
+        git: { sshAgent: null, signCommits: false },
+        gitlab: { tokenEnv: 'BOT_TOKEN' },
+      },
+    },
+  });
+  expect(profile.statusCode).toBe(200);
+  expect(
+    (await readRepositoryProfile(f.paths, 'source-control')).sourceControl,
+  ).toEqual(profile.json().sourceControl);
+  const reset = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: {
+      id: 'source-control',
+      revision: profile.json().revision,
+      sourceControl: {},
+    },
+  });
+  expect(reset.json().sourceControl).toEqual({});
+  const rejected = await f.app.inject({
+    method: 'PATCH',
+    url: '/api/settings',
+    payload: {
+      revision: saved.json().revision,
+      patch: { sourceControl: { github: { token: 'must-not-persist' } } },
+    },
+  });
+  expect(rejected.statusCode).toBe(400);
+  expect(JSON.stringify(await readInstanceConfig(f.paths))).not.toContain(
+    'must-not-persist',
+  );
+  const cleared = await f.app.inject({
+    method: 'PATCH',
+    url: '/api/settings',
+    payload: { revision: saved.json().revision, patch: { sourceControl: {} } },
+  });
+  expect(cleared.json().values.sourceControl).toEqual({});
+});

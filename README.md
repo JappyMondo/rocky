@@ -118,6 +118,14 @@ retries, keep their snapshots. Use the profile editor, or `rocky repo profile`
 to list, export, import, assign, seed or delete local profiles. See
 [local product](docs/local-product.md) and the [architecture overview](docs/architecture.md).
 
+## Source control accounts
+
+Set Rocky-wide Git SSH keys, agent sockets (including Bitwarden), signing keys,
+and GitHub/GitLab CLI accounts in **Settings → Source control**. Override each
+field in **Profiles → Source control**. Use `rocky exec --profile <id> -- gh auth login`
+(or `glab`) to sign into the selected CLI store. See [source control accounts](docs/source-control.md)
+for examples, token references, inheritance, and glab keyring storage.
+
 ## Lifecycle
 
 ```sh

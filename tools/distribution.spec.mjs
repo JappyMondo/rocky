@@ -140,6 +140,20 @@ test(
       await readFile(join(installed, 'docs', 'workflow-models.md'), 'utf8'),
       /ctx\.models/,
     );
+    assert.match(
+      await readFile(join(installed, 'docs', 'source-control.md'), 'utf8'),
+      /rocky exec/,
+    );
+    assert.equal(
+      cli(
+        'exec',
+        '--',
+        process.execPath,
+        '-p',
+        'process.env.GIT_AUTHOR_NAME',
+      ).trim(),
+      'Rocky',
+    );
     // Agent's production resolver loads this path lazily from boot-child.js;
     // its absence only surfaces when a real Agent Step starts.
     await readFile(join(installed, 'harness', 'adapter.js'), 'utf8');

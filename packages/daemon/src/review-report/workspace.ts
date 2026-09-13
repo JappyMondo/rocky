@@ -6,8 +6,10 @@ export async function reviewRevision(
   branch: string,
   baseBranch: string,
   expectedHead?: string,
+  env?: NodeJS.ProcessEnv,
 ) {
-  const run = async (...args: string[]) => (await git(args, { cwd })).stdout;
+  const run = async (...args: string[]) =>
+    (await git(args, { cwd, env })).stdout;
   const current = await run('branch', '--show-current');
   if (current !== branch)
     throw new Error(

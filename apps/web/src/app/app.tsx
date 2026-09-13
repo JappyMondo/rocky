@@ -1,3 +1,4 @@
+import { SourceControlFields } from './source-control.js';
 import { RetryStep } from './retry-step.js';
 import { TranscriptPanel } from './transcript-view.js';
 import { CodeOutput, OutputValue, Prose } from './output-view.js';
@@ -1488,6 +1489,7 @@ function Settings(p: {
             server: values.server,
             retention: values.retention,
             concurrency: values.concurrency,
+            sourceControl: values.sourceControl,
           },
         }),
       });
@@ -1633,6 +1635,16 @@ function Settings(p: {
             </label>
           </div>
         </div>
+        <details className={styles.sourceControlDetails}>
+          <summary>Source control · Git, SSH, signing and CLI accounts</summary>
+          <SourceControlFields
+            value={values.sourceControl}
+            disabled={p.disabled}
+            onChange={(sourceControl) =>
+              setValues({ ...values, sourceControl })
+            }
+          />
+        </details>
         <div className={styles.formActions}>
           {saved && (
             <span className={styles.saved} role="status">
@@ -1690,7 +1702,9 @@ function Profiles(p: {
   const [routingDraft, setRoutingDraft] = useState({ labels: '', teams: '' });
   const [savingRouting, setSavingRouting] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [tab, setTab] = useState<'general' | 'workflow'>('general');
+  const [tab, setTab] = useState<'general' | 'workflow' | 'sourceControl'>(
+    'general',
+  );
   useEffect(() => {
     let stopped = false;
     api<RepositoryProfileList>('/api/profiles', p.mismatch)
@@ -1854,6 +1868,7 @@ function Profiles(p: {
             revision: draft.revision || undefined,
             workflow: draft.workflow,
             grants: draft.grants,
+            sourceControl: draft.sourceControl,
             ...(draft.modelSlots ? { models: draft.models } : {}),
           }),
         },
@@ -2073,6 +2088,24 @@ function Profiles(p: {
         >
           Workflow
         </button>
+        <button
+          aria-pressed={tab === 'sourceControl'}
+          onClick={() => setTab('sourceControl')}
+        >
+          Source control
+        </button>
+      </div>
+      <div hidden={tab !== 'sourceControl'}>
+        <SourceControlFields
+          value={draft.sourceControl}
+          profile
+          profileId={draft.id}
+          disabled={p.disabled}
+          onChange={(sourceControl) => {
+            setDraft({ ...draft, sourceControl });
+            setSaved(false);
+          }}
+        />
       </div>
       <div hidden={tab !== 'general'} className={styles.profileGeneral}>
         {draft.modelSlots && (

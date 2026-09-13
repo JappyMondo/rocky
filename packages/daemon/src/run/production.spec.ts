@@ -55,7 +55,7 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
       },
     }),
   );
-  await writeCredentials(paths, { repos: {} });
+  await writeCredentials(paths, { repos: { app: { BOT_GH: 'bot-gh-token' } } });
 
   const config = parseInstanceConfig({
     repos: [
@@ -67,7 +67,10 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
       },
     ],
     harnesses: {
-      'claude-code': { command: 'claude-custom' },
+      'claude-code': {
+        command: 'claude-custom',
+        env: { GH_TOKEN: 'personal-token', SSH_AUTH_SOCK: '/personal-agent' },
+      },
       opencode: { sessionStorage: 'opencode' },
     },
   });
@@ -89,6 +92,15 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
     trigger: 'linear.onDelegate',
     now: '2026-09-07T00:00:00.000Z',
   });
+  if (!run.profile) throw new Error('Missing fixture profile');
+  run.profile.sourceControl = {
+    git: {
+      sshAgent: '/snapshot-agent',
+      signingFormat: 'ssh',
+      signingKey: '/snapshot.pub',
+    },
+    github: { tokenEnv: 'BOT_GH' },
+  };
   run.linear = {
     issueId: 'issue',
     teamId: 'team',
@@ -181,6 +193,10 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
     expect.objectContaining({
       command: 'claude-custom',
       sessionStorage: 'rocky',
+      env: expect.objectContaining({
+        GH_TOKEN: 'bot-gh-token',
+        SSH_AUTH_SOCK: '/snapshot-agent',
+      }),
     }),
   );
   expect(

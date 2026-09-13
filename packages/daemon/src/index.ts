@@ -162,3 +162,8 @@ export {
   type DoctorOptions,
   type DoctorReport,
 } from './doctor/doctor.js';
+
+export {
+  resolveSourceControl,
+  sourceControlEnv,
+} from './config/source-control.js';

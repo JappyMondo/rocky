@@ -1,3 +1,8 @@
+import { readCredentials } from '../config/store.js';
+import {
+  resolveSourceControl,
+  sourceControlEnv,
+} from '../config/source-control.js';
 import { prepareRetryWorkspace } from './retry-workspace.js';
 import { rm } from 'node:fs/promises';
 import { createWorkspace, releaseCleanWorkspace } from '../repos/workspace.js';
@@ -160,12 +165,24 @@ export function createExecutionRequestHandler(
           throw new Error(
             `${runId}: missing frozen repo membership; re-delegate through production admission`,
           );
-        const workspace = await createWorkspace(options.repos, {
-          runId,
-          branch: run.branch,
-          lead: run.repo,
-          members: run.execution.members,
-        });
+        const workspace = await createWorkspace(
+          run.profile?.sourceControl
+            ? {
+                ...options.repos,
+                sourceControl: run.profile?.sourceControl,
+                env: sourceControlEnv(run.profile?.sourceControl, {
+                  ...process.env,
+                  ...(await readCredentials(options.paths)).repos[run.repo],
+                }),
+              }
+            : options.repos,
+          {
+            runId,
+            branch: run.branch,
+            lead: run.repo,
+            members: run.execution.members,
+          },
+        );
         signal.throwIfAborted();
         return workspace;
       }
@@ -235,6 +252,21 @@ export async function openExecution(options: ExecutionOptions) {
     trigger: RunExecution['trigger'],
     signal: AbortSignal,
   ): Promise<PreparedExecution> => {
+    const config = options.config();
+    profile = {
+      ...profile,
+      sourceControl: resolveSourceControl(
+        {
+          ...config.sourceControl,
+          git: {
+            name: config.identity.name,
+            email: config.identity.email,
+            ...config.sourceControl?.git,
+          },
+        },
+        profile.sourceControl,
+      ),
+    };
     const lead = profile.repos?.[0] ?? fallbackLead;
     if (!lead)
       throw new Error(
@@ -242,7 +274,14 @@ export async function openExecution(options: ExecutionOptions) {
       );
     const loader = await import('./snapshot.js');
     const snapshot = await loader.prepareProfileSnapshot(
-      options.repos,
+      {
+        ...options.repos,
+        sourceControl: profile.sourceControl,
+        env: sourceControlEnv(profile.sourceControl, {
+          ...process.env,
+          ...(await readCredentials(options.paths)).repos[lead.name],
+        }),
+      },
       lead,
       profile,
       { signal },

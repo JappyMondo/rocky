@@ -105,7 +105,10 @@ async function ensureCloneLocked(
   }
 
   try {
-    await git(['fetch', '--quiet', '--prune', 'origin'], { cwd: dir });
+    await git(['fetch', '--quiet', '--prune', 'origin'], {
+      cwd: dir,
+      env: ctx.env,
+    });
   } catch (error) {
     // Only the directory this call created is cleaned up. An existing clone is
     // the only copy of a parked Run's prior art, and NG-574's rule is that
@@ -120,7 +123,10 @@ async function ensureCloneLocked(
 
   // Records `origin/HEAD`, which is where the upstream's default branch is
   // legible from without asking the platform API.
-  await gitOk(['remote', 'set-head', 'origin', '--auto'], { cwd: dir });
+  await gitOk(['remote', 'set-head', 'origin', '--auto'], {
+    cwd: dir,
+    env: ctx.env,
+  });
 
   return {
     repo: repo.name,
@@ -241,7 +247,7 @@ function unreachable(repo: CloneRef, cause: unknown): CloneError {
     [
       `Could not fetch "${repo.name}" from ${repo.url}.`,
       said && `git said: ${said}`,
-      `Rocky clones with your own git credentials — an SSH agent or a credential helper — and mints none of its own, so check that \`git ls-remote ${repo.url}\` works for you.`,
+      `Check the Rocky/profile source control settings (SSH key, agent socket, or credential helper) and verify that \`git ls-remote ${repo.url}\` works for you.`,
     ]
       .filter(Boolean)
       .join('\n'),

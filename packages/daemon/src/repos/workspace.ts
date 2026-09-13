@@ -1,3 +1,4 @@
+import { sourceControlGitConfig } from '../config/source-control.js';
 /**
  * A Run's workspace: one plain `git worktree add` per member repo (NG-521,
  * NG-578).
@@ -170,7 +171,7 @@ async function addWorktree(
   },
 ): Promise<Adoption> {
   const { runId, branch, repo, clone, dir } = options;
-  const inClone = { cwd: clone };
+  const inClone = { cwd: clone, env: ctx.env };
 
   // Cheap insurance: metadata for a directory a human deleted by hand would
   // otherwise make `worktree add` refuse a path that is not actually taken.
@@ -258,12 +259,13 @@ function addFailed(
  * needs, and explains the `core.bare` trap that comes with it.
  */
 async function writeIdentity(ctx: RepoContext, dir: string): Promise<void> {
-  await git(['config', '--worktree', 'user.name', ctx.identity.name], {
-    cwd: dir,
-  });
-  await git(['config', '--worktree', 'user.email', ctx.identity.email], {
-    cwd: dir,
-  });
+  const config = {
+    'user.name': ctx.identity.name,
+    'user.email': ctx.identity.email,
+    ...sourceControlGitConfig(ctx.sourceControl ?? {}, ctx.env),
+  };
+  for (const [key, value] of Object.entries(config))
+    await git(['config', '--worktree', key, value], { cwd: dir });
 }
 
 async function isWorktree(dir: string): Promise<boolean> {
