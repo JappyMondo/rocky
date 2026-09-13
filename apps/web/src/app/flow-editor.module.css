@@ -448,3 +448,93 @@
     flex-wrap: wrap;
   }
 }
+
+.hasComponents {
+  padding-bottom: 40px;
+  min-height: 108px;
+}
+.resourceNode {
+  border-radius: 18px;
+  background: #fcfdf9;
+}
+.nodePorts {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  min-height: 28px;
+  border-top: 1px solid #e7ece2;
+  border-radius: 0 0 9px 9px;
+  background: #f6f8f2;
+  color: #627455;
+  font-size: 8px;
+  text-align: center;
+}
+.nodePorts > span {
+  flex: 1;
+  padding: 5px 3px;
+}
+.nodePorts :global(.react-flow__handle) {
+  border-radius: 2px;
+}
+.breadcrumb {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 11px;
+  color: var(--muted);
+  box-shadow: 0 2px 8px #273f2610;
+}
+.breadcrumb button {
+  font-size: 11px;
+  border: 0;
+  padding: 4px;
+  color: var(--accent);
+}
+.componentSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.componentPort {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fafbf8;
+}
+.componentPort > strong {
+  font-size: 11px;
+  color: #53684a;
+}
+.componentPort select {
+  width: 100%;
+  font-size: 11px;
+  padding: 8px;
+}
+.componentLink {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.componentLink button:first-child {
+  flex: 1;
+  text-align: left;
+}
+.componentLink button {
+  font-size: 11px;
+  padding: 6px 8px;
+}

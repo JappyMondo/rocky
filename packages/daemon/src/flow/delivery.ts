@@ -1,8 +1,8 @@
+import type { DeliveryAgents } from './agents.js';
 import {
   type WorkflowContext,
   type ScmPr,
   type ScmRefusal,
-  type AgentCallOpts,
   type WorkflowInput,
   type CheckpointAnswer,
   z,
@@ -116,11 +116,7 @@ export function createDeliveryOperations(
 ) {
   const { commands, ui, states, reviewCap, ciCap, readiness, ciLogLines } =
     settings;
-  const read: AgentCallOpts = { ...ctx.models.review, tools: ['read'] };
-  const edit: AgentCallOpts = {
-    ...ctx.models.implementation,
-    tools: ['read', 'edit', 'bash'],
-  };
+  let actors: DeliveryAgents;
   let scope!: Extract<z.infer<typeof Refinement>, { status: 'clear' }>;
   let delivery!: typeof scope.delivery;
   let issue = ctx.issue;
@@ -160,8 +156,7 @@ export function createDeliveryOperations(
         if (!complaint) throw new Error(`Missing complaint ${id}.`);
         return { id, text: complaint.text, why: note };
       });
-    const result = await ctx.agent(name, {
-      ...read,
+    const result = await actors.call(name, {
       label: `${name} ${revision}/${reviewCap}`,
       input: {
         issue,
@@ -179,8 +174,7 @@ export function createDeliveryOperations(
     const complaints = result.complaints;
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
-    const fixed = await ctx.agent('fixer', {
-      ...edit,
+    const fixed = await actors.call('fixer', {
       label: `${name} fixer ${revision}/${reviewCap}`,
       input: { issue, delivery, complaints, commands },
       schema: FixReportFor(complaints),
@@ -201,8 +195,7 @@ export function createDeliveryOperations(
       );
     while (ci.status === 'failed' && ciAttempts < ciCap) {
       ciAttempts++;
-      const fix = await ctx.agent('ci-fixer', {
-        ...edit,
+      const fix = await actors.call('ci-fixer', {
         label: `ci-fixer ${ciAttempts}/${ciCap}`,
         input: { issue, delivery, failedJobs: ci.failedJobs, commands },
         schema: CiFix,
@@ -241,9 +234,7 @@ export function createDeliveryOperations(
     const rules = await loadRules(ctx, snapshotDir);
     if (!checks) {
       checks = (
-        await ctx.agent('ui-planner', {
-          ...read,
-          ...ctx.models.planner,
+        await actors.call('ui-planner', {
           input: { issue, delivery, diff: await diff(), rules },
           schema: Checks,
         })
@@ -318,10 +309,7 @@ export function createDeliveryOperations(
           throw new Error(
             'The UI stage requires ROCKY_SCREENSHOT_DIR from the Run runtime.',
           );
-        const result = await ctx.agent('ui-inspector', {
-          ...ctx.models.review,
-          tools: ['read'],
-          mcp: ['playwright'],
+        const result = await actors.call('ui-inspector', {
           label: `ui-inspector ${revision}/${reviewCap}`,
           input: { baseUrl: url.href, checks, rules, previousExplanations },
           schema: CheckResultsFor(checks, screenshotDir),
@@ -332,8 +320,7 @@ export function createDeliveryOperations(
       complaints = await ctx.parallel(
         observations,
         async (observation, index) =>
-          ctx.agent('ui-complaint-writer', {
-            ...read,
+          actors.call('ui-complaint-writer', {
             label: `ui-complaint-writer ${revision}/${reviewCap} ${index + 1}`,
             input: {
               observation,
@@ -346,8 +333,7 @@ export function createDeliveryOperations(
     }
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
-    const fixed = await ctx.agent('fixer', {
-      ...edit,
+    const fixed = await actors.call('fixer', {
       label: `UI fixer ${revision}/${reviewCap}`,
       input: { issue, delivery, complaints, commands },
       schema: FixReportFor(complaints),
@@ -366,9 +352,7 @@ export function createDeliveryOperations(
       ctx.stage('Clarify');
       const conversation: { questions: string[]; answer: string }[] = [];
       for (;;) {
-        const refinement = await ctx.agent('refiner', {
-          ...ctx.models.planner,
-          tools: ['read'],
+        const refinement = await actors.call('refiner', {
           label: `Clarify scope ${conversation.length + 1}`,
           input: { issue: ctx.issue, workspace, conversation },
           schema: Refinement,
@@ -415,12 +399,10 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     async deliverable() {
       // Check installed validation support before spending any drafting/review turns.
       await validateDiagrams(ctx, '');
-      const inspect: AgentCallOpts = { ...read, tools: ['read', 'bash'] };
       let previous: { body: string; problems: string[] } | undefined;
       for (let revision = 1; revision <= reviewCap; revision++) {
         ctx.stage('Prepare deliverable');
-        const draft = await ctx.agent('deliverable-writer', {
-          ...inspect,
+        const draft = await actors.call('deliverable-writer', {
           input: {
             issue,
             workspace,
@@ -449,8 +431,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         const reviews = await ctx.parallel(
           ['acceptance', 'accuracy'],
           async (focus) =>
-            ctx.agent('deliverable-reviewer', {
-              ...inspect,
+            actors.call('deliverable-reviewer', {
               label: `Deliverable ${focus} ${revision}/${reviewCap}`,
               input: {
                 issue,
@@ -475,7 +456,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             deliverable: draft.body,
             title: issue.title,
             scope,
-            agent: ctx.models.review,
+            agents: actors.recap(),
           });
           ctx.stage('Deliver');
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
@@ -492,9 +473,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async plan() {
       ctx.stage('Plan');
-      plan = await ctx.agent('planner', {
-        ...read,
-        ...ctx.models.planner,
+      plan = await actors.call('planner', {
         input: { issue, workspace, delivery, diff: await diff() },
         schema: Plan,
       });
@@ -506,8 +485,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async implement() {
       ctx.stage('Implement');
-      const implementation = await ctx.agent('implementer', {
-        ...edit,
+      const implementation = await actors.call('implementer', {
         input: { issue, workspace, delivery, plan, commands },
       });
       await shell(ctx, 'git push origin HEAD');
@@ -559,8 +537,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         'No local validation commands configured; see CI and review evidence.';
       if (validationProblems.length) {
         if (revision === reviewCap) return giveUp(ctx, pr, validationProblems);
-        const fixed = await ctx.agent('fixer', {
-          ...edit,
+        const fixed = await actors.call('fixer', {
           label: `Validation fixer ${revision}/${reviewCap}`,
           input: { issue, delivery, complaints: validationProblems, commands },
           schema: FixReportFor(validationProblems),
@@ -591,9 +568,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async ui() {
       ctx.stage('UI');
-      const triage = await ctx.agent('ui-triage', {
-        ...ctx.models.planner,
-        tools: ['read'],
+      const triage = await actors.call('ui-triage', {
         input: { changedFiles: await ctx.changedFiles(), diff: await diff() },
         schema: UiTriage,
       });
@@ -651,7 +626,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       recap = await ctx.visualRecap({
         pr,
         scope: { issue, validationSummary, uiSummary },
-        agent: { ...ctx.models.review, ...(ui ? { mcp: ['playwright'] } : {}) },
+        agents: actors.recap(),
       });
 
       return 'next';
@@ -695,8 +670,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         };
         ticket = `${issue.title}\n${issue.description}`;
         checks = undefined;
-        const fix = await ctx.agent('fixer', {
-          ...edit,
+        const fix = await actors.call('fixer', {
           input: { issue, delivery, steer: answer.message, commands },
         });
         changes.push(fix.summary);
@@ -722,8 +696,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           'git diff --name-only --diff-filter=U',
         );
         if (update.status === 'conflict' || conflicts) {
-          const fixed = await ctx.agent('merger', {
-            ...edit,
+          const fixed = await actors.call('merger', {
             input: { issue, delivery, update, conflicts, commands },
           });
           changes.push(fixed.summary);
@@ -781,9 +754,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         }),
       );
       if (!complaints.length) return 'completed';
-      const report = await ctx.agent('fixer', {
-        ...ctx.models.implementation,
-        tools: ['read', 'edit', 'bash'],
+      const report = await actors.call('fixer', {
         input: { issue: ctx.issue, complaints, commands },
         schema: FixReportFor(complaints),
       });
@@ -809,12 +780,16 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       await ctx.visualRecap({
         pr: { ...pr, headSha: sha },
         scope: { issue: ctx.issue, resolutions: report.resolutions },
-        agent: { ...ctx.models.review, ...(ui ? { mcp: ['playwright'] } : {}) },
+        agents: actors.recap(),
       });
       return 'completed';
     },
   };
-  return async (operation: string): Promise<string> => {
+  return async (
+    operation: string,
+    connectedAgents: DeliveryAgents,
+  ): Promise<string> => {
+    actors = connectedAgents;
     const run = operations[operation];
     if (!run) throw new Error(`Unknown delivery operation: ${operation}`);
     if (!['clarify', 'conversations'].includes(operation) && !scope)

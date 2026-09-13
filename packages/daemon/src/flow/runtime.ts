@@ -8,60 +8,21 @@ import type {
 import { z } from 'zod';
 import {
   validateFlow,
+  isAttachment,
   type WorkflowFlow,
   type FlowValue,
 } from '@rocky/local-contracts';
 import { createDeliveryOperations } from './delivery.js';
 
-/** Data paths only: no JavaScript, function calls, prototype traversal or eval. */
-export function resolveFlowValue(
-  value: FlowValue,
-  data: Record<string, unknown>,
-): unknown {
-  const lookup = (path: string) => {
-    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(path))
-      throw new Error(`Invalid data reference: ${path}`);
-    let result: unknown = data;
-    for (const key of path.split('.')) {
-      if (['__proto__', 'prototype', 'constructor'].includes(key))
-        throw new Error(`Reserved reference key: ${key}`);
-      if (
-        result === null ||
-        typeof result !== 'object' ||
-        !Object.hasOwn(result, key)
-      )
-        throw new Error(
-          `Data reference ${path} is unavailable. Connect the producing node before this node.`,
-        );
-      result = (result as Record<string, unknown>)[key];
-    }
-    return result;
-  };
-  if (typeof value === 'string')
-    return value.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_, path: string) => {
-      const resolved = lookup(path.trim());
-      return typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
-    });
-  if (Array.isArray(value))
-    return value.map((item) => resolveFlowValue(item, data));
-  if (value && typeof value === 'object') {
-    if (Object.hasOwn(value, '$ref')) {
-      if (Object.keys(value).length !== 1 || typeof value.$ref !== 'string')
-        throw new Error('A reference must contain only a string $ref.');
-      return lookup(value.$ref);
-    }
-    return Object.fromEntries(
-      Object.entries(value).map(([key, v]) => [key, resolveFlowValue(v, data)]),
-    );
-  }
-  return value;
-}
+import { resolveFlowValue } from './values.js';
+export { resolveFlowValue } from './values.js';
+import { configuredFlowAgent, invokeAgent, deliveryAgents } from './agents.js';
 
 export function flowBindings(source: string, snapshotDir: string) {
   const flow = validateFlow(source);
   // Invalid output schemas must fail admission, before any effects run.
   for (const node of flow.nodes)
-    if (node.type === 'agent' && node.parameters.schema)
+    if (node.type === 'ai.schema' && node.parameters.schema)
       z.fromJSONSchema(node.parameters.schema as z.core.JSONSchema.JSONSchema);
   return flow.nodes
     .filter((node) => node.type === 'trigger')
@@ -83,7 +44,7 @@ export async function executeFlow(
   snapshotDir: string,
 ): Promise<RunOutcome> {
   // Validate at this boundary too: embedders cannot accidentally execute an invalid graph.
-  validateFlow(JSON.stringify(flow));
+  flow = validateFlow(JSON.stringify(flow));
   const nodes = new Map(flow.nodes.map((node) => [node.id, node]));
   if (nodes.get(triggerId)?.type !== 'trigger')
     throw new Error(`Unknown flow trigger: ${triggerId}`);
@@ -121,28 +82,8 @@ export async function executeFlow(
         output = ctx.issue;
         break;
       case 'agent': {
-        const selection = ctx.models[String(p.model)];
-        if (!selection)
-          throw new Error(`${node.name}: configure model slot ${p.model}.`);
-        const options = {
-          ...selection,
-          label: node.name,
-          input: resolved('input', null),
-          tools: p.tools as ('read' | 'edit' | 'bash')[],
-          mcp: p.mcp as string[],
-          timeout: p.timeout as number | undefined,
-        };
-        output = p.schema
-          ? await ctx.agent(
-              { prompt: text('prompt') },
-              {
-                ...options,
-                schema: z.fromJSONSchema(
-                  p.schema as z.core.JSONSchema.JSONSchema,
-                ),
-              },
-            )
-          : await ctx.agent({ prompt: text('prompt') }, options);
+        const config = configuredFlowAgent(flow, node.id, ctx, data);
+        output = await invokeAgent(ctx.agent, config);
         break;
       }
       case 'command': {
@@ -211,7 +152,10 @@ export async function executeFlow(
           flow.settings,
           snapshotDir,
         );
-        port = await delivery(node.type.slice('delivery.'.length));
+        port = await delivery(
+          node.type.slice('delivery.'.length),
+          deliveryAgents(flow, node.id, ctx, data),
+        );
         // A merged result is an observed platform fact, never a configurable finish outcome.
         if (port === 'merged') merged = true;
         output = { status: port };
@@ -219,7 +163,10 @@ export async function executeFlow(
     (data.nodes as Record<string, unknown>)[node.id] = output;
     data.input = output;
     const edge = flow.edges.find(
-      (item) => item.source === current && item.sourceHandle === port,
+      (item) =>
+        !isAttachment(item) &&
+        item.source === current &&
+        item.sourceHandle === port,
     );
     if (!edge) throw new Error(`${node.name}: no connection for ${port}.`);
     current = edge.target;

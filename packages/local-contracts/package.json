@@ -1,6 +1,6 @@
 {
   "name": "@rocky/local-contracts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Wire contracts and flow configuration for Rocky's local product, separate from Workflow SDK semantics.",

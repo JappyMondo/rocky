@@ -49,7 +49,7 @@ function graph(
   links: [string, string, string][],
 ): WorkflowFlow {
   return {
-    version: 1,
+    version: 2,
     name: 'Test flow',
     models: {},
     settings: defaultFlowSettings(),
@@ -90,11 +90,15 @@ it('executes a data-driven branch and passes structured output by reference', as
     [
       node('start', 'trigger', { kind: 'manual', name: 'test' }),
       node('inspect', 'agent', {
-        prompt: 'Inspect {{issue.title}}',
-        model: 'review',
-        tools: ['read'],
-        mcp: [],
         input: { $ref: 'issue' },
+      }),
+      node('model', 'ai.model', { source: 'profile', slot: 'review' }),
+      node('prompt', 'ai.prompt', {
+        source: 'text',
+        text: 'Inspect {{issue.title}}',
+      }),
+      node('read', 'ai.tool', { capability: 'read' }),
+      node('schema', 'ai.schema', {
         schema: {
           type: 'object',
           properties: { ok: { type: 'boolean' } },
@@ -120,6 +124,20 @@ it('executes a data-driven branch and passes structured output by reference', as
       ['yes', 'next', 'done'],
     ],
   );
+  for (const [source, targetHandle] of [
+    ['model', 'model'],
+    ['prompt', 'prompt'],
+    ['read', 'tools'],
+    ['schema', 'schema'],
+  ])
+    flow.edges.push({
+      id: source,
+      kind: 'attachment',
+      source,
+      target: 'inspect',
+      sourceHandle: 'provide',
+      targetHandle,
+    });
   flow.models = { review: { name: 'Review' } };
   const agent = vi.fn().mockResolvedValue({ ok: true, summary: 'All good' }),
     post = vi.fn();
@@ -328,27 +346,19 @@ it('validates identifiers, settings, triggers, model slots and tools', () => {
     'manual trigger name',
   );
   flow.nodes[0].parameters.name = 'test';
-  flow.nodes.splice(
-    1,
-    0,
-    node('agent', 'agent', {
-      prompt: 'Hello',
-      model: 'missing',
-      tools: ['delete'],
-      mcp: 'bad',
-      timeout: -1,
-      schema: [],
-    }),
+  flow.nodes.push(
+    node('agent', 'agent', { prompt: 'Inline magic', timeout: -1 }),
   );
   expect(
     flowProblems(flow)
       .map((p) => p.message)
       .join(' '),
-  ).toMatch(/model slot.*tools.*MCP.*timeout.*schema/s);
-  flow.nodes[1].parameters.schema = {
-    type: 'array',
-    items: { type: 'string' },
-  };
+  ).toMatch(/connect Model.*connect Prompt.*connected components.*timeout/s);
+  flow.nodes.push(
+    node('schema', 'ai.schema', {
+      schema: { type: 'array', items: { type: 'string' } },
+    }),
+  );
   expect(
     flowProblems(flow).some((p) => p.message.includes('type: object')),
   ).toBe(true);
@@ -560,12 +570,9 @@ it('uses an agent summary to set the configured issue state', async () => {
   const flow = graph(
     [
       node('start', 'trigger', { kind: 'manual', name: 'test' }),
-      node('agent', 'agent', {
-        prompt: 'Select a state',
-        model: 'review',
-        tools: [],
-        mcp: [],
-      }),
+      node('agent', 'agent'),
+      node('model', 'ai.model', { source: 'profile', slot: 'review' }),
+      node('prompt', 'ai.prompt', { source: 'text', text: 'Select a state' }),
       node('state', 'setState', { state: '{{nodes.agent.summary}}' }),
       node('end', 'finish', { outcome: 'completed' }),
     ],
@@ -575,6 +582,15 @@ it('uses an agent summary to set the configured issue state', async () => {
       ['state', 'next', 'end'],
     ],
   );
+  for (const source of ['model', 'prompt'])
+    flow.edges.push({
+      id: source,
+      kind: 'attachment',
+      source,
+      target: 'agent',
+      sourceHandle: 'provide',
+      targetHandle: source,
+    });
   flow.models = { review: { name: 'Review' } };
   const setState = vi.fn();
   const ctx = context({

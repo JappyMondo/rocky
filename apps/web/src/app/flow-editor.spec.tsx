@@ -20,7 +20,8 @@ vi.mock('@xyflow/react', async () => {
   const React = await import('react');
   return {
     Handle: () => null,
-    Position: { Left: 'left', Right: 'right' },
+    Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
+    useUpdateNodeInternals: () => () => undefined,
     MarkerType: { ArrowClosed: 'arrow' },
     Background: () => null,
     Controls: () => null,
@@ -129,7 +130,7 @@ vi.mock('@xyflow/react', async () => {
   };
 });
 const initial = (): WorkflowFlow => ({
-  version: 1,
+  version: 2,
   name: 'Example flow',
   models: { planner: { name: 'Planner' } },
   settings: defaultFlowSettings(),
@@ -217,28 +218,62 @@ it('adds an agent, configures its input/model/tools, and connects it into a runn
   click('+ Add node');
   fill('Search nodes', 'AI agent');
   fireEvent.click(
-    screen.getByRole('button', { name: /AI agent Run a prompt/ }),
+    screen.getByRole('button', { name: /AI agent Coordinate a connected/ }),
   );
   const added = saved.nodes[2].id;
   expect(validity).toHaveBeenLastCalledWith(false);
-  fill('Prompt', 'Inspect the request');
-  fill('Model slot', 'planner');
   fill('Input', '{"$ref":"issue"}');
-  fill('Tools', '["read","bash"]');
-  fill('MCP servers', '["docs"]');
-  fill('Output JSON schema', '{"type":"object"}');
   fill('Timeout (ms)', '9000');
+  fill('Connect Model', 'new:ai.model');
+  fill('Profile model', 'planner');
+  const model = saved.nodes.at(-1)!;
+  expect(model.type).toBe('ai.model');
+  selectNode(added);
+  fill('Connect Prompt', 'new:ai.prompt');
+  fill('Instructions', 'Inspect the request');
+  const prompt = saved.nodes.at(-1)!;
+  selectNode(added);
+  fill('Connect Tools', 'new:ai.tool');
+  fill('Capability', 'bash');
+  const tool = saved.nodes.at(-1)!;
+  selectNode(added);
+  fill('Connect Tools', 'new:ai.mcp');
+  fill('MCP server name', 'docs');
+  selectNode(added);
+  fill('Connect Output schema', 'new:ai.schema');
+  fill('Output JSON schema', '{"type":"object"}');
+  selectNode(added);
   fill('next destination', 'finish');
+  click('← Workflow');
   selectNode('start');
   fill('next destination', added);
   expect(validity).toHaveBeenLastCalledWith(true);
-  expect(saved.nodes[2].parameters).toMatchObject({
-    prompt: 'Inspect the request',
+  expect(saved.nodes[2].parameters).toEqual({
     input: { $ref: 'issue' },
-    tools: ['read', 'bash'],
-    mcp: ['docs'],
     timeout: 9000,
   });
+  expect(saved.edges).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'attachment',
+        source: model.id,
+        target: added,
+        targetHandle: 'model',
+      }),
+      expect.objectContaining({
+        kind: 'attachment',
+        source: prompt.id,
+        target: added,
+        targetHandle: 'prompt',
+      }),
+      expect.objectContaining({
+        kind: 'attachment',
+        source: tool.id,
+        target: added,
+        targetHandle: 'tools',
+      }),
+    ]),
+  );
 });
 
 it('reports malformed JSON and disconnected outputs before saving', () => {
@@ -349,7 +384,7 @@ it('imports and exports a portable flow and rejects unsupported formats', async 
       target: { files: [{ size: 50, text: async () => '{"version":99}' }] },
     });
   });
-  expect(screen.getByRole('alert').textContent).toContain('version 1');
+  expect(screen.getByRole('alert').textContent).toContain('version 2');
   const replacement = initial();
   replacement.name = 'Imported';
   replacement.nodes[1].name = 'Imported result';
@@ -394,7 +429,7 @@ it('shows node-specific delivery guidance and validation issues', () => {
   render(<Editor source={JSON.stringify(flow)} />);
   selectNode('finish');
   const panel = screen.getByLabelText('Node settings');
-  expect(within(panel).getByText(/Uses the profile/)).toBeTruthy();
+  expect(within(panel).getByText(/Connected agents handle/)).toBeTruthy();
   fireEvent.click(within(panel).getByRole('button', { name: 'Flow settings' }));
   expect(screen.getByLabelText('Flow name')).toBeTruthy();
 });
@@ -531,4 +566,85 @@ it('highlights node and edge paths on hover, clears on exit, and leaves read-onl
   expect(finish.className).toBe('');
   expect(onChange).not.toHaveBeenCalled();
   expect((screen.getByTitle('Undo') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('opens a coordinator group, replaces its connected agent, edits custom models and disconnects tools with undo', () => {
+  const flow = initial();
+  flow.nodes[1].type = 'delivery.implement';
+  flow.nodes[1].parameters = {};
+  render(<Editor source={JSON.stringify(flow)} />);
+  selectNode('finish');
+  click('Open components');
+  fill('Connect Implementation agent', 'new:agent');
+  const agent = saved.nodes.at(-1)!.id;
+  expect(screen.queryByLabelText('next destination')).toBeNull();
+  fill('Connect Model', 'new:ai.model');
+  fill('Model source', 'custom');
+  expect(screen.queryByLabelText('Profile model')).toBeNull();
+  fill('Harness', 'claude-code');
+  fill('Model ID', 'my-model');
+  fill('Variant / effort', 'high');
+  expect(saved.nodes.at(-1)!.parameters).toMatchObject({
+    source: 'custom',
+    harness: 'claude-code',
+    model: 'my-model',
+    effort: 'high',
+  });
+  selectNode(agent);
+  fill('Connect Prompt', 'new:ai.prompt');
+  fill('Prompt source', 'profile');
+  fill('Profile prompt name', 'my-prompt');
+  expect(screen.queryByLabelText('Instructions')).toBeNull();
+  selectNode(agent);
+  fill('Connect Tools', 'new:ai.tool');
+  const tool = saved.nodes.at(-1)!.id;
+  selectNode(agent);
+  const disconnect = screen.getByTitle('Disconnect Workspace tool');
+  fireEvent.click(disconnect);
+  expect(saved.edges.some((e) => e.source === tool)).toBe(false);
+  click('↶');
+  expect(saved.edges.some((e) => e.source === tool)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Workspace tool ↗' }));
+  expect((label('Capability') as HTMLSelectElement).value).toBe('read');
+  selectNode(agent);
+  fill('Connect Tools', 'new:ai.tool');
+  const second = saved.nodes.at(-1)!.id;
+  selectNode(agent);
+  expect(saved.edges.filter((e) => e.targetHandle === 'tools')).toHaveLength(2);
+  fireEvent.click(screen.getAllByTitle('Disconnect Workspace tool')[1]);
+  fill('Connect Tools', second);
+  expect(saved.edges.filter((e) => e.targetHandle === 'tools')).toHaveLength(2);
+  click('← Workflow');
+  selectNode('finish');
+  click('Delete node');
+  expect(saved.nodes).toHaveLength(1);
+  click('↶');
+  expect(saved.nodes.some((n) => n.id === agent)).toBe(true);
+});
+
+it('reports an unsupported flow without crashing the profile screen', () => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  const { rerender } = render(
+    <FlowEditor
+      source='{"version":1}'
+      disabled={false}
+      unsaved={false}
+      onChange={vi.fn()}
+      onValidityChange={validity}
+    />,
+  );
+  expect(screen.getByRole('alert').textContent).toContain('version 2');
+  expect(validity).toHaveBeenLastCalledWith(false);
+  rerender(
+    <FlowEditor
+      source={JSON.stringify(initial())}
+      disabled={false}
+      unsaved={false}
+      onChange={vi.fn()}
+      onValidityChange={validity}
+    />,
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByText('Example flow')).toBeTruthy();
+  log.mockRestore();
 });

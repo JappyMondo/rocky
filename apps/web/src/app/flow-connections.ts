@@ -1,4 +1,8 @@
-import type { FlowEdge, WorkflowFlow } from '@rocky/local-contracts';
+import {
+  isAttachment,
+  type FlowEdge,
+  type WorkflowFlow,
+} from '@rocky/local-contracts';
 
 export type FlowHover = { kind: 'node' | 'edge'; id: string };
 
@@ -17,7 +21,7 @@ export function connectedPath(flow: WorkflowFlow, hover: FlowHover | null) {
   const edges = new Set<string>(edge ? [edge.id] : []);
   const incoming = new Map<string, FlowEdge[]>();
   const outgoing = new Map<string, FlowEdge[]>();
-  for (const connection of flow.edges) {
+  for (const connection of flow.edges.filter((e) => !isAttachment(e))) {
     incoming.set(connection.target, [
       ...(incoming.get(connection.target) ?? []),
       connection,
@@ -44,7 +48,34 @@ export function connectedPath(flow: WorkflowFlow, hover: FlowHover | null) {
       }
     }
   };
-  trace(edge?.source ?? hover.id, incoming, 'source');
-  trace(edge?.target ?? hover.id, outgoing, 'target');
+  const owners = (id: string) => {
+    const roots = new Set<string>(),
+      visited = new Set<string>(),
+      pending = [id];
+    for (const current of pending) {
+      if (visited.has(current)) continue;
+      visited.add(current);
+      nodes.add(current);
+      const parents = flow.edges.filter(
+        (e) => isAttachment(e) && e.source === current,
+      );
+      if (!parents.length) roots.add(current);
+      for (const parent of parents) {
+        edges.add(parent.id);
+        pending.push(parent.target);
+      }
+    }
+    return roots;
+  };
+  for (const start of owners(edge?.source ?? hover.id))
+    trace(start, incoming, 'source');
+  for (const start of owners(edge?.target ?? hover.id))
+    trace(start, outgoing, 'target');
+  for (const id of nodes)
+    for (const connection of flow.edges)
+      if (isAttachment(connection) && connection.target === id) {
+        edges.add(connection.id);
+        nodes.add(connection.source);
+      }
   return { nodes, edges };
 }

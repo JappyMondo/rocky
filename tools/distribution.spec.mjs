@@ -219,7 +219,7 @@ test(
       join(seedHome, 'profiles/flows/fixture.json'),
       'utf8',
     );
-    assert.equal(JSON.parse(pinnedWorkflow).version, 1);
+    assert.equal(JSON.parse(pinnedWorkflow).version, 2);
     assert.doesNotMatch(
       pinnedWorkflow,
       /provider\/main-model|claude-helper-model/,

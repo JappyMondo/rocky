@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Rocky's local web UI, served by the daemon on the same port as the API.",
   "type": "module",

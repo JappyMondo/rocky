@@ -1,3 +1,12 @@
+import {
+  AI_NODES,
+  attachedNodes,
+  attachmentPorts,
+  canConnect,
+  isAttachment,
+  isAttachedAgent,
+  isResource,
+} from './flow-components.js';
 /** Versioned, JSON-only workflows shared by the editor and daemon. */
 export type FlowValue =
   null | boolean | number | string | FlowValue[] | { [key: string]: FlowValue };
@@ -15,6 +24,8 @@ export interface FlowEdge {
   source: string;
   target: string;
   sourceHandle: string;
+  kind?: 'attachment';
+  targetHandle?: string;
 }
 export interface FlowSettings {
   commands: { install: string; test: string; lint: string; build: string };
@@ -27,7 +38,7 @@ export interface FlowSettings {
   maxTransitions: number;
 }
 export interface WorkflowFlow {
-  version: 1;
+  version: 2;
   name: string;
   models: Record<string, { name: string; description?: string }>;
   settings: FlowSettings;
@@ -42,11 +53,12 @@ export interface FlowField {
   required?: boolean;
   hint?: string;
   default?: FlowValue;
+  visibleWhen?: { key: string; value: FlowValue };
 }
 export interface FlowNodeDefinition {
   type: string;
   name: string;
-  group: 'Triggers' | 'Actions' | 'Logic' | 'Delivery';
+  group: 'Triggers' | 'Actions' | 'Logic' | 'Delivery' | 'AI components';
   description: string;
   icon: string;
   outputs: string[];
@@ -73,6 +85,7 @@ const action = (
   fields: [],
 });
 export const FLOW_NODES: FlowNodeDefinition[] = [
+  ...AI_NODES,
   {
     type: 'trigger',
     name: 'Trigger',
@@ -94,28 +107,12 @@ export const FLOW_NODES: FlowNodeDefinition[] = [
     name: 'AI agent',
     group: 'Actions',
     icon: '✦',
-    description: 'Run a prompt with a model, tools, and structured inputs.',
+    description:
+      'Coordinate a connected model, prompt and tools. Use in the flow or attach to a delivery coordinator.',
     outputs: ['next'],
     fields: [
-      field('prompt', 'Prompt', 'textarea', {
-        required: true,
-        default: 'Describe the next steps for this issue.',
-      }),
-      field('model', 'Model slot', 'model', {
-        required: true,
-        default: 'planner',
-      }),
       field('input', 'Input', 'json', {
-        default: { issue: { $ref: 'issue' }, previous: { $ref: 'input' } },
-      }),
-      field('tools', 'Tools', 'json', {
-        default: ['read'],
-        hint: 'Available capabilities: read, edit, bash.',
-      }),
-      field('mcp', 'MCP servers', 'json', { default: [] }),
-      field('schema', 'Output JSON schema', 'json', {
-        default: null,
-        hint: 'Leave null for a summary. Use type: object for additional structured output fields.',
+        default: { $ref: 'input' },
       }),
       field('timeout', 'Timeout (ms)', 'number', { default: 600000 }),
     ],
@@ -339,7 +336,7 @@ export function parseFlow(source: string): WorkflowFlow {
   const value: unknown = JSON.parse(source);
   if (
     !record(value) ||
-    value.version !== 1 ||
+    value.version !== 2 ||
     typeof value.name !== 'string' ||
     !value.name.trim() ||
     !record(value.models) ||
@@ -348,7 +345,7 @@ export function parseFlow(source: string): WorkflowFlow {
     !Array.isArray(value.edges)
   )
     throw new Error(
-      'Expected a version 1 flow with name, models, settings, nodes and edges.',
+      'Expected a version 2 flow with name, models, settings, nodes and edges.',
     );
   if (
     value.nodes.length > 250 ||
@@ -399,7 +396,9 @@ export function parseFlow(source: string): WorkflowFlow {
       edgeIds.has(edge.id) ||
       typeof edge.source !== 'string' ||
       typeof edge.target !== 'string' ||
-      typeof edge.sourceHandle !== 'string'
+      typeof edge.sourceHandle !== 'string' ||
+      (edge.kind !== undefined && edge.kind !== 'attachment') ||
+      (edge.targetHandle !== undefined && typeof edge.targetHandle !== 'string')
     )
       throw new Error('Invalid or duplicate connection.');
     edgeIds.add(edge.id);
@@ -467,6 +466,11 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
   for (const node of flow.nodes) {
     const def = flowNodeDefinition(node.type)!;
     for (const f of def.fields) {
+      if (
+        f.visibleWhen &&
+        node.parameters[f.visibleWhen.key] !== f.visibleWhen.value
+      )
+        continue;
       const v = node.parameters[f.key];
       if (
         f.required &&
@@ -497,31 +501,96 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
         add(`${node.name}: duplicate trigger ${name}.`, node.id);
       triggerNames.add(name);
     }
-    if (node.type === 'agent') {
+    {
       const p = node.parameters;
-      if (
-        !Array.isArray(p.tools) ||
-        p.tools.some((t) => !['read', 'edit', 'bash'].includes(String(t)))
-      )
-        add(
-          `${node.name}: tools must be an array of read, edit, bash.`,
-          node.id,
+      for (const port of attachmentPorts(node.type)) {
+        const links = flow.edges.filter(
+          (e) =>
+            isAttachment(e) &&
+            e.target === node.id &&
+            e.targetHandle === port.id,
         );
+        if (
+          (port.required && !links.length) ||
+          (!port.multiple && links.length > 1)
+        )
+          add(
+            `${node.name}: connect ${port.name} to ${port.multiple ? 'at least' : 'exactly'} one component.`,
+            node.id,
+          );
+        if (new Set(links.map((e) => e.source)).size !== links.length)
+          add(`${node.name}: duplicate ${port.name} connection.`, node.id);
+      }
+      if (node.type === 'agent') {
+        if (
+          ['prompt', 'model', 'tools', 'mcp', 'schema'].some(
+            (key) => p[key] !== undefined,
+          )
+        )
+          add(
+            `${node.name}: configure model, prompt, tools and schema through connected components.`,
+            node.id,
+          );
+        if (
+          p.timeout !== undefined &&
+          (!Number.isInteger(p.timeout) ||
+            Number(p.timeout) < 1 ||
+            Number(p.timeout) > 86400000)
+        )
+          add(`${node.name}: timeout must be 1–86400000 ms.`, node.id);
+        if (
+          isAttachedAgent(flow, node.id) &&
+          flow.edges.some(
+            (e) =>
+              !isAttachment(e) &&
+              (e.source === node.id || e.target === node.id),
+          )
+        )
+          add(
+            `${node.name}: an attached agent cannot also be a step in the flow.`,
+            node.id,
+          );
+        if (
+          isAttachedAgent(flow, node.id) &&
+          attachedNodes(flow, node.id, 'schema').length
+        )
+          add(
+            `${node.name}: the delivery coordinator supplies the required output schema.`,
+            node.id,
+          );
+      }
+      if (node.type === 'ai.model') {
+        if (
+          p.source === 'profile' &&
+          (typeof p.slot !== 'string' || !Object.hasOwn(flow.models, p.slot))
+        )
+          add(`${node.name}: choose a declared profile model.`, node.id);
+        if (
+          p.source === 'custom' &&
+          (typeof p.model !== 'string' ||
+            !p.model.trim() ||
+            typeof p.effort !== 'string' ||
+            !p.effort.trim())
+        )
+          add(`${node.name}: enter a model ID and variant / effort.`, node.id);
+      }
+      if (node.type === 'ai.prompt') {
+        if (
+          p.source === 'text' &&
+          (typeof p.text !== 'string' || !p.text.trim())
+        )
+          add(`${node.name}: instructions are required.`, node.id);
+        if (
+          p.source === 'profile' &&
+          (typeof p.file !== 'string' || !/^[A-Za-z0-9_-]+$/.test(p.file))
+        )
+          add(
+            `${node.name}: choose a safe profile prompt name without .md.`,
+            node.id,
+          );
+      }
       if (
-        !Array.isArray(p.mcp) ||
-        p.mcp.some((v) => typeof v !== 'string' || !v.trim())
-      )
-        add(`${node.name}: MCP servers must be an array of names.`, node.id);
-      if (
-        p.timeout !== undefined &&
-        (!Number.isInteger(p.timeout) ||
-          Number(p.timeout) < 1 ||
-          Number(p.timeout) > 86400000)
-      )
-        add(`${node.name}: timeout must be 1–86400000 ms.`, node.id);
-      if (
-        p.schema !== undefined &&
-        p.schema !== null &&
+        node.type === 'ai.schema' &&
         (!record(p.schema) || p.schema.type !== 'object')
       )
         add(
@@ -529,16 +598,10 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
           node.id,
         );
     }
-    if (node.type.startsWith('delivery.'))
-      for (const role of ['review', 'implementation', 'planner'])
-        if (!Object.hasOwn(flow.models, role))
-          add(
-            `${node.name}: delivery nodes need the ${role} model slot.`,
-            node.id,
-          );
-    for (const port of def.outputs) {
+    for (const port of isAttachedAgent(flow, node.id) ? [] : def.outputs) {
       const edges = flow.edges.filter(
-        (e) => e.source === node.id && e.sourceHandle === port,
+        (e) =>
+          !isAttachment(e) && e.source === node.id && e.sourceHandle === port,
       );
       if (edges.length !== 1)
         add(`${node.name}: connect ${port} to exactly one node.`, node.id);
@@ -548,7 +611,13 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
     const from = nodes.get(edge.source),
       to = nodes.get(edge.target);
     if (!from || !to) add(`Connection ${edge.id} points to a missing node.`);
-    else if (
+    else if (isAttachment(edge)) {
+      if (edge.sourceHandle !== 'provide' || !canConnect(flow, edge))
+        add(`Connection ${edge.id} uses incompatible component ports.`, to.id);
+    } else if (
+      !!edge.targetHandle ||
+      isResource(from) ||
+      isResource(to) ||
       to.type === 'trigger' ||
       !flowNodeDefinition(from.type)!.outputs.includes(edge.sourceHandle)
     )
@@ -558,7 +627,12 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
   const visit = (id: string) => {
     if (reachable.has(id)) return;
     reachable.add(id);
-    flow.edges.filter((e) => e.source === id).forEach((e) => visit(e.target));
+    flow.edges
+      .filter((e) => !isAttachment(e) && e.source === id)
+      .forEach((e) => visit(e.target));
+    flow.edges
+      .filter((e) => isAttachment(e) && e.target === id)
+      .forEach((e) => visit(e.source));
   };
   triggers.forEach((t) => visit(t.id));
   flow.nodes.forEach((n) => {

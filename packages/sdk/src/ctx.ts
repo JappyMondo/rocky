@@ -104,6 +104,12 @@ export interface AgentCallOpts<S extends z.ZodType = z.ZodType> {
   mcp?: string[];
 }
 
+export type RecapAgentRole = 'inventory' | 'narrative' | 'capture' | 'audit';
+export interface ConfiguredAgent {
+  prompt: string | { prompt: string };
+  options: AgentCallOpts;
+}
+
 /** Generate, host and publish a visual recap of a PR or another deliverable. */
 export interface VisualRecapOptions {
   pr?: ScmPr;
@@ -112,6 +118,9 @@ export interface VisualRecapOptions {
   title?: string;
   scope?: unknown;
   agent?: AgentCallOpts;
+  /** Explicit agents for each recap task. Omit for legacy SDK workflows. */
+  /** Resolve an agent against the current recap subtask input. */
+  agents?: Record<RecapAgentRole, (input: unknown) => ConfiguredAgent>;
 }
 
 export interface VisualRecapResult {

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   ReactFlow,
   Background,
@@ -8,6 +16,7 @@ import {
   Position,
   MarkerType,
   useNodesState,
+  useUpdateNodeInternals,
   type NodeProps,
   type Node,
   type Connection,
@@ -15,6 +24,11 @@ import {
 } from '@xyflow/react';
 import {
   FLOW_NODES,
+  attachmentPorts,
+  isAttachment,
+  isResource,
+  isAttachedAgent,
+  canConnect,
   flowNodeDefinition,
   flowProblems,
   flowTriggerNames,
@@ -30,15 +44,40 @@ import '@xyflow/react/dist/style.css';
 import { layoutFlow } from './flow-layout.js';
 import { connectedPath, type FlowHover } from './flow-connections.js';
 import styles from './flow-editor.module.css';
+import {
+  componentOwner,
+  visibleComponents,
+  connectFlow,
+  createFlowNode,
+  removeFlowNodes,
+  flowId,
+} from './flow-components.js';
+import { ComponentSettings } from './flow-component-settings.js';
 
-type CanvasNode = Node<{ node: FlowNode; invalid: boolean }, 'operation'>;
+type CanvasNode = Node<
+  { node: FlowNode; invalid: boolean; attached: boolean; components: boolean },
+  'operation'
+>;
 function OperationNode({ data, selected }: NodeProps<CanvasNode>) {
   const definition = flowNodeDefinition(data.node.type)!;
+  const updateInternals = useUpdateNodeInternals();
+  const ports = attachmentPorts(data.node.type).filter(
+    (p) => p.id !== 'schema' || !data.attached,
+  );
+  const resource = isResource(data.node);
+  useEffect(() => {
+    updateInternals(data.node.id);
+  }, [updateInternals, data.node.id, data.attached, data.components]);
   return (
     <div
-      className={`${styles.node} ${selected ? styles.selected : ''} ${data.invalid ? styles.invalid : ''}`}
+      className={`${styles.node} ${resource ? styles.resourceNode : ''} ${ports.length ? styles.hasComponents : ''} ${selected ? styles.selected : ''} ${data.invalid ? styles.invalid : ''}`}
+      style={
+        data.components
+          ? { width: Math.max(188, ports.length * 100) }
+          : undefined
+      }
     >
-      {data.node.type !== 'trigger' && (
+      {data.node.type !== 'trigger' && !resource && !data.attached && (
         <Handle
           type="target"
           position={
@@ -55,21 +94,55 @@ function OperationNode({ data, selected }: NodeProps<CanvasNode>) {
         <strong>{data.node.name}</strong>
         <small>{definition.name}</small>
       </div>
-      {definition.outputs.map((port, index) => (
+      {(resource || data.attached ? [] : definition.outputs).map(
+        (port, index) => (
+          <Handle
+            key={port}
+            id={port}
+            type="source"
+            position={
+              data.node.direction === 'left' ? Position.Left : Position.Right
+            }
+            style={{
+              top: `${(100 * (index + 1)) / (definition.outputs.length + 1)}%`,
+            }}
+            title={port}
+            aria-label={`${data.node.name}: ${port}`}
+          />
+        ),
+      )}
+      {(resource || data.node.type === 'agent') && (
         <Handle
-          key={port}
-          id={port}
+          id="provide"
           type="source"
-          position={
-            data.node.direction === 'left' ? Position.Left : Position.Right
-          }
-          style={{
-            top: `${(100 * (index + 1)) / (definition.outputs.length + 1)}%`,
-          }}
-          title={port}
-          aria-label={`${data.node.name}: ${port}`}
+          position={Position.Top}
+          title="Provide component"
         />
-      ))}
+      )}
+      {!!ports.length && (
+        <div className={styles.nodePorts}>
+          {data.components ? (
+            ports.map((port, index) => (
+              <span key={port.id}>
+                {port.name}
+                <Handle
+                  id={port.id}
+                  type="target"
+                  position={Position.Bottom}
+                  title={port.name}
+                  aria-label={`${data.node.name}: ${port.name}`}
+                  style={{ left: `${(100 * (index + 0.5)) / ports.length}%` }}
+                />
+              </span>
+            ))
+          ) : (
+            <span>
+              {ports.filter((p) => p.required).length} required components ·
+              double-click to open
+            </span>
+          )}
+        </div>
+      )}
       {data.node.notes && (
         <span className={styles.noteDot} title={data.node.notes}>
           •
@@ -87,7 +160,12 @@ const toCanvas = (flow: WorkflowFlow): CanvasNode[] => {
     position: node.position,
     sourcePosition: node.direction === 'left' ? Position.Left : Position.Right,
     targetPosition: node.direction === 'left' ? Position.Right : Position.Left,
-    data: { node, invalid: errors.some((e) => e.nodeId === node.id) },
+    data: {
+      node,
+      invalid: errors.some((e) => e.nodeId === node.id),
+      attached: isAttachedAgent(flow, node.id),
+      components: false,
+    },
   }));
 };
 function ParameterField(p: {
@@ -189,7 +267,45 @@ function ParameterField(p: {
   );
 }
 
-export function FlowEditor(p: {
+class FlowBoundary extends Component<
+  {
+    source: string;
+    children: ReactNode;
+    onValidityChange: (valid: boolean) => void;
+  },
+  { error: string | null }
+> {
+  override state = { error: null as string | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error: error.message };
+  }
+  override componentDidCatch() {
+    this.props.onValidityChange(false);
+  }
+  override componentDidUpdate(previous: Readonly<{ source: string }>) {
+    if (this.state.error && previous.source !== this.props.source)
+      this.setState({ error: null });
+  }
+  override render() {
+    return this.state.error ? (
+      <p role="alert">
+        Cannot open this flow: {this.state.error} Replace workflow.json with a
+        supported flow.
+      </p>
+    ) : (
+      this.props.children
+    );
+  }
+}
+export function FlowEditor(p: Parameters<typeof FlowCanvas>[0]) {
+  return (
+    <FlowBoundary source={p.source} onValidityChange={p.onValidityChange}>
+      <FlowCanvas {...p} />
+    </FlowBoundary>
+  );
+}
+
+function FlowCanvas(p: {
   source: string;
   disabled: boolean;
   unsaved: boolean;
@@ -201,6 +317,11 @@ export function FlowEditor(p: {
   const [flow, setFlow] = useState(() => parseFlow(p.source));
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(
     toCanvas(flow),
+  );
+  const [componentFocus, setComponentFocus] = useState<string | null>(null);
+  const visible = useMemo(
+    () => visibleComponents(flow, componentFocus),
+    [flow, componentFocus],
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
@@ -250,6 +371,7 @@ export function FlowEditor(p: {
       setHistory([]);
       setFuture([]);
       setSelectedId(null);
+      setComponentFocus(null);
       setHover(null);
       setFieldErrors({});
       lastSource.current = p.source;
@@ -264,7 +386,7 @@ export function FlowEditor(p: {
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [expanded, layoutRevision]);
+  }, [expanded, layoutRevision, componentFocus]);
   const valid = problems.length === 0 && Object.keys(fieldErrors).length === 0;
   const onValidityChange = p.onValidityChange;
   useEffect(() => {
@@ -299,11 +421,8 @@ export function FlowEditor(p: {
   const updateSettings = (patch: Partial<FlowSettings>) =>
     change({ ...flow, settings: { ...flow.settings, ...patch } });
   const removeNode = (id: string) => {
-    change({
-      ...flow,
-      nodes: flow.nodes.filter((n) => n.id !== id),
-      edges: flow.edges.filter((e) => e.source !== id && e.target !== id),
-    });
+    change(removeFlowNodes(flow, new Set([id])));
+    if (componentFocus === id) setComponentFocus(null);
     setSelectedId(null);
     setFieldErrors({});
   };
@@ -322,50 +441,38 @@ export function FlowEditor(p: {
     setFuture(future.slice(1));
     setFieldErrors({});
   };
-  const addNode = (type: string) => {
-    const def = flowNodeDefinition(type)!;
-    const id = `node_${Date.now()}`;
+  const addNode = (type: string, target?: string, port?: string) => {
     const viewport = instance.current?.getViewport() ?? { x: 0, y: 0, zoom: 1 };
-    const node: FlowNode = {
-      id,
+    const owner = flow.nodes.find((n) => n.id === target);
+    const node = createFlowNode(
       type,
-      name: def.name,
-      position: {
-        x: (300 - viewport.x) / viewport.zoom,
-        y: (200 - viewport.y) / viewport.zoom,
-      },
-      parameters: Object.fromEntries(
-        def.fields
-          .filter((f) => f.default !== undefined)
-          .map((f) => [f.key, f.default as FlowValue]),
-      ),
-    };
-    change({ ...flow, nodes: [...flow.nodes, node] });
-    setSelectedId(id);
+      owner
+        ? { x: owner.position.x, y: owner.position.y + 180 }
+        : {
+            x: (300 - viewport.x) / viewport.zoom,
+            y: (200 - viewport.y) / viewport.zoom,
+          },
+    );
+    let next = { ...flow, nodes: [...flow.nodes, node] };
+    if (target && port) {
+      next = connectFlow(next, {
+        source: node.id,
+        target,
+        sourceHandle: 'provide',
+        targetHandle: port,
+      });
+      next = layoutFlow(next, instance.current?.getNodes());
+      setComponentFocus(componentFocus ?? componentOwner(flow, target));
+      setLayoutRevision((r) => r + 1);
+    }
+    change(next);
+    setSelectedId(node.id);
     setPanel('node');
     setFieldErrors({});
   };
   const connect = (connection: Connection) => {
-    if (!connection.source || !connection.target || !connection.sourceHandle)
-      return;
-    change({
-      ...flow,
-      edges: [
-        ...flow.edges.filter(
-          (e) =>
-            !(
-              e.source === connection.source &&
-              e.sourceHandle === connection.sourceHandle
-            ),
-        ),
-        {
-          id: `edge_${Date.now()}`,
-          source: connection.source,
-          target: connection.target,
-          sourceHandle: connection.sourceHandle,
-        },
-      ],
-    });
+    const next = connectFlow(flow, connection);
+    if (next !== flow) change(next);
   };
   const fieldError = useCallback(
     (key: string, error: string | null) =>
@@ -392,6 +499,7 @@ export function FlowEditor(p: {
   const focusNode = (id: string) => {
     setSelectedId(id);
     setPanel('node');
+    if (!visible.has(id)) setComponentFocus(componentOwner(flow, id));
     void instance.current?.fitView({
       nodes: [{ id }],
       maxZoom: 1,
@@ -473,44 +581,58 @@ export function FlowEditor(p: {
       <div className={styles.workspace}>
         <div className={styles.canvas}>
           <ReactFlow<CanvasNode>
-            nodes={nodes.map((node) => ({
-              ...node,
-              className: highlighted
-                ? highlighted.nodes.has(node.id)
-                  ? styles.connected
-                  : styles.unrelated
-                : undefined,
-            }))}
-            edges={flow.edges.map((edge) => {
-              const connected = highlighted?.edges.has(edge.id);
-              const stroke = connected
-                ? '#365c42'
-                : edge.sourceHandle === 'retry'
-                  ? '#b6ad96'
-                  : '#8b9b82';
-              return {
-                ...edge,
-                className:
-                  highlighted && !connected ? styles.unrelated : undefined,
-                type: 'smoothstep',
-                label:
-                  edge.sourceHandle === 'next' ? undefined : edge.sourceHandle,
-                selected: edge.id === selectedEdge,
-                style: {
-                  stroke,
-                  strokeWidth: connected ? 2.8 : 1.4,
-                  strokeDasharray:
-                    edge.sourceHandle === 'retry' ? '5 4' : undefined,
-                },
-                markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
-                labelStyle: {
-                  fontSize: 11,
-                  fill: connected ? '#365c42' : '#687461',
-                  fontWeight: connected ? 600 : 400,
-                },
-                labelBgStyle: { fill: '#fafbf8' },
-              };
-            })}
+            nodes={nodes
+              .filter((node) => visible.has(node.id))
+              .map((node) => ({
+                ...node,
+                data: { ...node.data, components: componentFocus !== null },
+                selected: node.id === selectedId,
+                className: highlighted
+                  ? highlighted.nodes.has(node.id)
+                    ? styles.connected
+                    : styles.unrelated
+                  : undefined,
+              }))}
+            edges={flow.edges
+              .filter(
+                (edge) => visible.has(edge.source) && visible.has(edge.target),
+              )
+              .map((edge) => {
+                const connected = highlighted?.edges.has(edge.id);
+                const stroke = connected
+                  ? '#365c42'
+                  : edge.sourceHandle === 'retry'
+                    ? '#b6ad96'
+                    : '#8b9b82';
+                return {
+                  ...edge,
+                  className:
+                    highlighted && !connected ? styles.unrelated : undefined,
+                  type: isAttachment(edge) ? 'default' : 'smoothstep',
+                  label:
+                    isAttachment(edge) || edge.sourceHandle === 'next'
+                      ? undefined
+                      : edge.sourceHandle,
+                  selected: edge.id === selectedEdge,
+                  style: {
+                    stroke,
+                    strokeWidth: connected ? 2.8 : 1.4,
+                    strokeDasharray:
+                      isAttachment(edge) || edge.sourceHandle === 'retry'
+                        ? '5 4'
+                        : undefined,
+                  },
+                  markerEnd: isAttachment(edge)
+                    ? undefined
+                    : { type: MarkerType.ArrowClosed, color: stroke },
+                  labelStyle: {
+                    fontSize: 11,
+                    fill: connected ? '#365c42' : '#687461',
+                    fontWeight: connected ? 600 : 400,
+                  },
+                  labelBgStyle: { fill: '#fafbf8' },
+                };
+              })}
             nodeTypes={nodeTypes}
             onNodeMouseEnter={hoverNode}
             onNodeMouseLeave={clearHover}
@@ -520,7 +642,11 @@ export function FlowEditor(p: {
             onInit={(rf) => {
               instance.current = rf;
             }}
-            onNodesChange={onNodesChange}
+            onNodesChange={(changes) => {
+              onNodesChange(changes);
+              if (changes.some((change) => change.type === 'dimensions'))
+                setLayoutRevision((r) => r + 1);
+            }}
             onNodeDragStop={(_, node) =>
               change({
                 ...flow,
@@ -531,14 +657,11 @@ export function FlowEditor(p: {
             }
             onNodesDelete={(removed) => {
               const ids = new Set(removed.map((n) => n.id));
-              change({
-                ...flow,
-                nodes: flow.nodes.filter((n) => !ids.has(n.id)),
-                edges: flow.edges.filter(
-                  (e) => !ids.has(e.source) && !ids.has(e.target),
-                ),
-              });
+              change(removeFlowNodes(flow, ids));
+              if (componentFocus && ids.has(componentFocus))
+                setComponentFocus(null);
               setSelectedId(null);
+              setFieldErrors({});
             }}
             onEdgesDelete={(removed) =>
               change({
@@ -549,10 +672,14 @@ export function FlowEditor(p: {
               })
             }
             onConnect={connect}
-            isValidConnection={(c) =>
-              flow.nodes.find((n) => n.id === c.target)?.type !== 'trigger' &&
-              !!c.sourceHandle
-            }
+            isValidConnection={(c) => canConnect(flow, c)}
+            onNodeDoubleClick={(_, node) => {
+              if (attachmentPorts(node.data.node.type).length) {
+                setComponentFocus(componentOwner(flow, node.id));
+                setSelectedId(node.id);
+                setPanel('node');
+              }
+            }}
             onNodeClick={(_, node) => {
               setSelectedId(node.id);
               setSelectedEdge(null);
@@ -593,6 +720,24 @@ export function FlowEditor(p: {
               zoomable
             />
           </ReactFlow>
+          {componentFocus && (
+            <div className={styles.breadcrumb}>
+              <button
+                onClick={() => {
+                  setComponentFocus(null);
+                  setSelectedId(null);
+                  setPanel(null);
+                  setSelectedEdge(null);
+                }}
+              >
+                ← Workflow
+              </button>
+              <span>
+                / {flow.nodes.find((n) => n.id === componentFocus)?.name}{' '}
+                components
+              </span>
+            </div>
+          )}
           {flow.nodes.length === 0 && (
             <div className={styles.empty}>
               <strong>Start with a trigger</strong>
@@ -660,40 +805,46 @@ export function FlowEditor(p: {
                     onChange={(e) => setSearch(e.target.value)}
                     autoFocus
                   />
-                  {(['Triggers', 'Actions', 'Logic', 'Delivery'] as const).map(
-                    (group) => {
-                      const list = FLOW_NODES.filter(
-                        (d) =>
-                          d.group === group &&
-                          `${d.name} ${d.description}`
-                            .toLowerCase()
-                            .includes(search.toLowerCase()),
-                      );
-                      return (
-                        list.length > 0 && (
-                          <div key={group}>
-                            <h3>{group}</h3>
-                            {list.map((def) => (
-                              <button
-                                key={def.type}
-                                className={styles.paletteItem}
-                                disabled={p.disabled}
-                                onClick={() => addNode(def.type)}
-                              >
-                                <span className={styles.nodeIcon}>
-                                  {def.icon}
-                                </span>
-                                <span>
-                                  <strong>{def.name}</strong>
-                                  <small>{def.description}</small>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )
-                      );
-                    },
-                  )}
+                  {(
+                    [
+                      'Triggers',
+                      'Actions',
+                      'AI components',
+                      'Logic',
+                      'Delivery',
+                    ] as const
+                  ).map((group) => {
+                    const list = FLOW_NODES.filter(
+                      (d) =>
+                        d.group === group &&
+                        `${d.name} ${d.description}`
+                          .toLowerCase()
+                          .includes(search.toLowerCase()),
+                    );
+                    return (
+                      list.length > 0 && (
+                        <div key={group}>
+                          <h3>{group}</h3>
+                          {list.map((def) => (
+                            <button
+                              key={def.type}
+                              className={styles.paletteItem}
+                              disabled={p.disabled}
+                              onClick={() => addNode(def.type)}
+                            >
+                              <span className={styles.nodeIcon}>
+                                {def.icon}
+                              </span>
+                              <span>
+                                <strong>{def.name}</strong>
+                                <small>{def.description}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    );
+                  })}
                   {!FLOW_NODES.some((d) =>
                     `${d.name} ${d.description}`
                       .toLowerCase()
@@ -715,89 +866,143 @@ export function FlowEditor(p: {
                       onChange={(e) => updateNode({ name: e.target.value })}
                     />
                   </label>
-                  {definition.fields.map((field) => (
-                    <ParameterField
-                      key={`${selected.id}:${field.key}`}
-                      field={field}
-                      value={selected.parameters[field.key]}
-                      models={flow.models}
-                      disabled={p.disabled}
-                      onChange={(value) =>
-                        updateNode({
-                          parameters: {
-                            ...selected.parameters,
-                            [field.key]: value,
-                          },
-                        })
-                      }
-                      onError={fieldError}
-                    />
-                  ))}
+                  {!!attachmentPorts(selected.type).length && (
+                    <button
+                      onClick={() => {
+                        setComponentFocus(componentOwner(flow, selected.id));
+                        setLayoutRevision((r) => r + 1);
+                      }}
+                    >
+                      Open components
+                    </button>
+                  )}
+                  {definition.fields
+                    .filter(
+                      (f) =>
+                        !f.visibleWhen ||
+                        selected.parameters[f.visibleWhen.key] ===
+                          f.visibleWhen.value,
+                    )
+                    .map((field) => (
+                      <ParameterField
+                        key={`${selected.id}:${field.key}`}
+                        field={field}
+                        value={selected.parameters[field.key]}
+                        models={flow.models}
+                        disabled={p.disabled}
+                        onChange={(value) =>
+                          updateNode({
+                            parameters: {
+                              ...selected.parameters,
+                              [field.key]: value,
+                            },
+                          })
+                        }
+                        onError={fieldError}
+                      />
+                    ))}
                   {selected.type.startsWith('delivery.') && (
                     <div className={styles.callout}>
-                      Uses the profile’s Review, Implementation and Planner
-                      models. Commands, review limits and Linear states live in{' '}
+                      Connected agents handle the AI work. This coordinator
+                      supplies task input and the required result format.
+                      Commands and limits live in{' '}
                       <button onClick={() => setPanel('settings')}>
                         Flow settings
                       </button>
                       .
                     </div>
                   )}
-                  <div className={styles.outputs}>
-                    <h3>Connections</h3>
-                    {definition.outputs.length === 0 ? (
-                      <p>This node ends the run.</p>
-                    ) : (
-                      definition.outputs.map((port) => {
-                        const edge = flow.edges.find(
-                          (e) =>
-                            e.source === selected.id && e.sourceHandle === port,
-                        );
-                        return (
-                          <label key={port} className={styles.field}>
-                            <span>{port}</span>
-                            <select
-                              aria-label={`${port} destination`}
-                              value={edge?.target ?? ''}
-                              disabled={p.disabled}
-                              onChange={(e) => {
-                                const rest = flow.edges.filter(
-                                  (v) =>
-                                    !(
-                                      v.source === selected.id &&
-                                      v.sourceHandle === port
-                                    ),
-                                );
-                                change({
-                                  ...flow,
-                                  edges: e.target.value
-                                    ? [
-                                        ...rest,
-                                        {
-                                          id: edge?.id ?? `edge_${Date.now()}`,
-                                          source: selected.id,
-                                          sourceHandle: port,
-                                          target: e.target.value,
-                                        },
-                                      ]
-                                    : rest,
-                                });
-                              }}
-                            >
-                              <option value="">Not connected</option>
-                              {flow.nodes
-                                .filter((n) => n.type !== 'trigger')
-                                .map((n) => (
-                                  <option key={n.id} value={n.id}>
-                                    {n.name}
-                                  </option>
-                                ))}
-                            </select>
-                          </label>
-                        );
+                  <ComponentSettings
+                    flow={flow}
+                    node={selected}
+                    disabled={p.disabled}
+                    open={(id) => {
+                      setFieldErrors({});
+                      focusNode(id);
+                    }}
+                    add={addNode}
+                    connect={(source, target, port) =>
+                      change(
+                        connectFlow(flow, {
+                          source,
+                          target,
+                          sourceHandle: 'provide',
+                          targetHandle: port,
+                        }),
+                      )
+                    }
+                    disconnect={(id) =>
+                      change({
+                        ...flow,
+                        edges: flow.edges.filter((e) => e.id !== id),
                       })
+                    }
+                  />
+                  {!isResource(selected) &&
+                    !isAttachedAgent(flow, selected.id) && (
+                      <div className={styles.outputs}>
+                        <h3>Connections</h3>
+                        {definition.outputs.length === 0 ? (
+                          <p>This node ends the run.</p>
+                        ) : (
+                          definition.outputs.map((port) => {
+                            const edge = flow.edges.find(
+                              (e) =>
+                                e.source === selected.id &&
+                                e.sourceHandle === port,
+                            );
+                            return (
+                              <label key={port} className={styles.field}>
+                                <span>{port}</span>
+                                <select
+                                  aria-label={`${port} destination`}
+                                  value={edge?.target ?? ''}
+                                  disabled={p.disabled}
+                                  onChange={(e) => {
+                                    const rest = flow.edges.filter(
+                                      (v) =>
+                                        !(
+                                          v.source === selected.id &&
+                                          v.sourceHandle === port
+                                        ),
+                                    );
+                                    change({
+                                      ...flow,
+                                      edges: e.target.value
+                                        ? [
+                                            ...rest,
+                                            {
+                                              id: edge?.id ?? flowId('edge'),
+                                              source: selected.id,
+                                              sourceHandle: port,
+                                              target: e.target.value,
+                                            },
+                                          ]
+                                        : rest,
+                                    });
+                                  }}
+                                >
+                                  <option value="">Not connected</option>
+                                  {flow.nodes
+                                    .filter((n) =>
+                                      canConnect(flow, {
+                                        source: selected.id,
+                                        sourceHandle: port,
+                                        target: n.id,
+                                      }),
+                                    )
+                                    .map((n) => (
+                                      <option key={n.id} value={n.id}>
+                                        {n.name}
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
                     )}
-                  </div>
                   <details>
                     <summary>Notes & data references</summary>
                     <label className={styles.field}>
@@ -844,7 +1049,7 @@ export function FlowEditor(p: {
                     <button
                       disabled={p.disabled}
                       onClick={() => {
-                        const id = `node_${Date.now()}`;
+                        const id = flowId('node');
                         change({
                           ...flow,
                           nodes: [

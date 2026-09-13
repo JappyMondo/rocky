@@ -1,6 +1,6 @@
 {
   "name": "@rocky/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Types and Trigger builders for a repo's .rocky/ \u2014 never behaviour.",
   "type": "module",

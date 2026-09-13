@@ -1,17 +1,19 @@
 # Configurable workflows
 
-Rocky 0.1 stores new workflows as versioned JSON graphs and executes their
+Rocky 0.2 stores workflows as version 2 JSON graphs and executes their
 connections directly. **Profiles → Workflow** opens the XYFlow editor. It uses
 Rocky's existing colors, a dotted canvas, compact nodes, a searchable node
 picker, and a settings panel inspired by n8n's workflow editor.
 
 Select a node to configure its action and output destinations. Drag nodes to
-arrange them, or use **Auto layout** to arrange all nodes from left to right and
-fit the flow into view. Undo restores the previous arrangement. Drag from an
+arrange them, or use **Auto layout** to arrange the workflow from left to right,
+lay out every component group beneath its coordinator, and fit the current view. Undo restores the previous arrangement. Drag from an
 output handle to another node's input to connect them.
 The destination dropdowns provide the same connection editing without dragging.
 Hover a node or connection to highlight its full upstream and downstream path;
-unrelated branches fade until the pointer leaves.
+unrelated branches fade until the pointer leaves. Connected AI components are
+included in the highlight. Double-click a coordinator or choose **Open components**
+to focus its agents and dependencies. **← Workflow** returns to the overview.
 Each output has exactly one destination. Use a Condition for branching; connect
 an output back to an earlier node for a loop. Unconnected nodes, missing required
 parameters, invalid settings and ambiguous connections block saving and admission.
@@ -20,7 +22,8 @@ The editor supports undo/redo, duplicate/delete, pan/zoom, a minimap, full-scree
 editing, notes and JSON import/export. **Save profile** publishes the graph for
 future runs. Import changes the draft; save it to publish. Export carries the
 flow and model role declarations, without the profile's model selections,
-credentials, prompts or repository membership.
+credentials or repository membership. Inline prompts and custom model selections
+are part of the exported graph; profile prompt references need the matching local files.
 
 ## Node types
 
@@ -28,15 +31,28 @@ credentials, prompts or repository membership.
 | --- | --- |
 | Triggers | Linear delegation, named manual request |
 | Actions | AI agent, shell command, question, run-thread update, Linear state |
+| AI components | Model, prompt, workspace tool, MCP tools, output schema |
 | Logic | Condition, approval checkpoint, finish |
 | Delivery | Clarify scope, reviewed comment, plan, implement/open draft, validation, acceptance review, UI inspection, code review, CI, visual recap, ready for review, merge approval, approved merge, PR conversations |
 
-AI agent nodes contain an editable prompt, a model slot, JSON input, native tool
-grants, MCP server names, optional output JSON schema and timeout. The profile
-selects each slot's harness/model/effort in **General → Workflow models**.
-Without an output schema, an agent returns its `summary`. A schema must declare
-`type: object`; its fields are returned alongside that summary.
-Profile grants and the normal runtime tool policy still apply.
+AI agents coordinate connected components. Each agent requires exactly one model
+and one prompt, and accepts any number of tools. Models can use a profile slot or
+an explicit harness/model/effort. Prompts can contain editable instructions or
+reference a snapshotted profile prompt by name. Each workspace tool grants read,
+edit or bash; an MCP tools node grants a named configured server. No tool
+connections means no tool grants. The profile's runtime policy still applies.
+
+Use the node settings dropdowns to create, reuse, replace or disconnect a
+component, or connect its top socket to a matching socket on its consumer. Dashed
+component connections are dependencies, not execution branches. A provider may
+be shared. Deleting a coordinator removes exclusively owned components and
+preserves components used elsewhere; undo restores the whole edit.
+
+An agent may be a step in the workflow or a component attached beneath a delivery
+coordinator. The coordinator supplies task input and the required structured
+result contract. The agent's Input field can map that task input through `$ref`;
+it defaults to the full input. A standalone agent can connect an optional output
+schema (`type: object`); its result includes those fields and a `summary`.
 
 Questions and checkpoints park durably. Questions return `answered` or
 `cancelled`; checkpoints return `approve`, `reject` or `steer`. Commands branch on
@@ -57,8 +73,11 @@ merge checkpoint. Steering and branch updates require revalidation. Requests
 that prohibit merge end at PR handoff. The manual `address-pr-conversations`
 trigger retains the review-thread repair and recap path.
 
-Delivery nodes are packaged, tested Rocky operations, using the profile's prompts
-and Review, Implementation and Planner model slots. Their internal structured
+Delivery nodes are packaged Rocky coordinators. Their agent roles resolve only
+the agents connected in the graph. The default graph explicitly connects profile
+prompts and Review, Implementation and Planner model slots; these can be replaced
+without changing coordinator code. Visual recap connects separate inventory,
+writing, screenshot and audit agents. Their internal structured
 review schemas and integration logic live in the daemon; users do not need to
 write TypeScript to connect, reorder, add or remove flow nodes. These operations
 have prerequisites: planning needs clarified scope, implementation needs a plan,
@@ -99,9 +118,9 @@ reference fails with the path and a connection hint. Prototype access is
 rejected. Shell commands are literal configuration: reference templates are not
 expanded into a shell command.
 
-## Storage, replay and migration
+## Storage and replay
 
-Profiles retain the existing `workflow.source` wire field for compatibility;
+Profiles store the graph in the `workflow.source` wire field;
 for a flow it contains JSON text. `workflow.triggers` is derived from its trigger
 nodes. The external `profiles/flows/<id>.json` is authoritative for flow profiles.
 A leftover `.workflow.ts` cannot override a flow. External JSON edits must be
@@ -124,6 +143,10 @@ workflow logic is replaced only by an explicit reset, not inferred or silently
 translated. Existing TypeScript run snapshots are not modified.
 
 ## Validation
+
+Version 1 JSON flows are unsupported. There is no format migration or automatic
+conversion; replace them with a version 2 flow before starting new runs. Historical
+version 1 run snapshots remain unchanged and cannot resume on this release.
 
 The shared contract is `packages/local-contracts/src/flow.ts`. The interpreter,
 delivery operations and literal migration are in `packages/daemon/src/flow/`.

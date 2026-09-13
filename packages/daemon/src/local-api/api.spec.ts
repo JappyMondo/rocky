@@ -418,7 +418,7 @@ it('previews the configured default and creates its complete local pipeline for 
   expect(preview.statusCode).toBe(200);
   expect(preview.json()).toMatchObject({
     workflow: {
-      source: expect.stringContaining('"version": 1'),
+      source: expect.stringContaining('"version": 2'),
       triggers: ['linear.onDelegate', 'address-pr-conversations'],
     },
     grants: { harness: 'opencode' },

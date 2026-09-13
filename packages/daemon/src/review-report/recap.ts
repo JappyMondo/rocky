@@ -1,4 +1,9 @@
-import type { AgentCallOpts, WorkflowContext } from '@rocky/sdk';
+import type {
+  AgentCallOpts,
+  WorkflowContext,
+  ConfiguredAgent,
+  RecapAgentRole,
+} from '@rocky/sdk';
 import { z } from 'zod';
 import { realpathSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -83,10 +88,31 @@ export async function generateRecapContent(input: {
   steps: BootContext;
   agent: WorkflowContext['agent'];
   agentOptions: AgentCallOpts;
+  agents?: Record<RecapAgentRole, (input: unknown) => ConfiguredAgent>;
   context: Record<string, unknown>;
   diff: string;
   deliverable?: string;
 }) {
+  // Defaults keep legacy SDK workflows replayable; flow coordinators supply all four agents.
+  const call = <S extends z.ZodType>(
+    role: RecapAgentRole,
+    prompt: string,
+    options: AgentCallOpts<S> & { schema: S; label: string },
+  ) => {
+    const configured = input.agents?.[role](options.input);
+    if (!configured)
+      return input.agent({ prompt }, { ...input.agentOptions, ...options });
+    const opts = {
+      ...configured.options,
+      ...options,
+      input: configured.options.input,
+      tools: configured.options.tools,
+      mcp: configured.options.mcp,
+    };
+    return typeof configured.prompt === 'string'
+      ? input.agent(configured.prompt, opts)
+      : input.agent(configured.prompt, opts);
+  };
   const files = parseUnifiedDiff(input.diff);
   const chunks = input.diff
     .split(/(?=^diff --git )/m)
@@ -106,28 +132,20 @@ export async function generateRecapContent(input: {
       previousProblems,
       revision,
     };
-    const inventory = await input.agent(
-      { prompt: inventoryPrompt },
-      {
-        ...input.agentOptions,
-        tools: ['read'],
-        mcp: [],
-        label: `Recap visual inventory ${revision}/2`,
-        input: context,
-        schema: RecapInventory,
-      },
-    );
-    const narrative = await input.agent(
-      { prompt: narrativePrompt },
-      {
-        ...input.agentOptions,
-        tools: ['read'],
-        mcp: [],
-        label: `Recap key changes and review focus ${revision}/2`,
-        input: { ...context, inventory },
-        schema: RecapNarrative,
-      },
-    );
+    const inventory = await call('inventory', inventoryPrompt, {
+      tools: ['read'],
+      mcp: [],
+      label: `Recap visual inventory ${revision}/2`,
+      input: context,
+      schema: RecapInventory,
+    });
+    const narrative = await call('narrative', narrativePrompt, {
+      tools: ['read'],
+      mcp: [],
+      label: `Recap key changes and review focus ${revision}/2`,
+      input: { ...context, inventory },
+      schema: RecapNarrative,
+    });
     const groundingProblems: string[] = [];
     const keyChanges = narrative.keyChanges.map((change) => {
       if (change.files.some((path) => !patches.has(path)))
@@ -174,16 +192,12 @@ export async function generateRecapContent(input: {
           return { status: 'done', result: null };
         },
       );
-      const capture = await input.agent(
-        { prompt: capturePrompt },
-        {
-          ...input.agentOptions,
-          tools: ['read', 'bash'],
-          label: `Recap screenshot: ${variant.group} / ${variant.variant} ${revision}/2`,
-          input: { ...context, variant, screenshotDir },
-          schema: CaptureFor(screenshotDir),
-        },
-      );
+      const capture = await call('capture', capturePrompt, {
+        tools: ['read', 'bash'],
+        label: `Recap screenshot: ${variant.group} / ${variant.variant} ${revision}/2`,
+        input: { ...context, variant, screenshotDir },
+        schema: CaptureFor(screenshotDir),
+      });
       visuals.push({
         ...capture,
         screenshots: capture.screenshots.map((shot) => ({
@@ -212,12 +226,10 @@ export async function generateRecapContent(input: {
           .map((v) => `${v.group} / ${v.variant}: ${v.reason}`),
       ],
     };
-    const audited = await input.agent(
+    const audited = await call(
+      'audit',
+      `Independently audit this recap against the original immutable diff/deliverable, ticket and repository evidence. Check meaningful changed surfaces are inventoried, each inventory variant has a capture or explicit limitation, key-change summaries and code annotations are accurate, added routes and permission changes are explicit, all review categories are evidence-backed, and the result is easy to review. Missing visual access may remain clearly labelled as unavailable; invented evidence and silently omitted variants are blocking. This is a read-only evidence audit. Capture Steps own browser commands and screenshot creation and receive bash; this audit does not. If existing captures are missing or their unavailable claims are disproven by known available tools, return actionable problems requesting a fresh capture pass. The Workflow uses those problems to run the next capture revision. Do not execute captures here or emit a tool-blocked response merely because this audit has no bash. Return only actionable blocking problems; do not repeat cosmetic preferences.`,
       {
-        prompt: `Independently audit this recap against the original immutable diff/deliverable, ticket and repository evidence. Check meaningful changed surfaces are inventoried, each inventory variant has a capture or explicit limitation, key-change summaries and code annotations are accurate, added routes and permission changes are explicit, all review categories are evidence-backed, and the result is easy to review. Missing visual access may remain clearly labelled as unavailable; invented evidence and silently omitted variants are blocking. This is a read-only evidence audit. Capture Steps own browser commands and screenshot creation and receive bash; this audit does not. If existing captures are missing or their unavailable claims are disproven by known available tools, return actionable problems requesting a fresh capture pass. The Workflow uses those problems to run the next capture revision. Do not execute captures here or emit a tool-blocked response merely because this audit has no bash. Return only actionable blocking problems; do not repeat cosmetic preferences.`,
-      },
-      {
-        ...input.agentOptions,
         tools: ['read'],
         mcp: [],
         label: `Recap evidence audit ${revision}/2`,

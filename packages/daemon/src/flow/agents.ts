@@ -1,0 +1,127 @@
+import { attachedNodes, type WorkflowFlow } from '@rocky/local-contracts';
+import {
+  z,
+  type WorkflowContext,
+  type AgentCallOpts,
+  type ConfiguredAgent,
+  type RecapAgentRole,
+} from '@rocky/sdk';
+import { resolveFlowValue } from './values.js';
+
+/** Resolve only the components wired to this agent; no role-based defaults. */
+export function configuredFlowAgent(
+  flow: WorkflowFlow,
+  agentId: string,
+  ctx: WorkflowContext,
+  data: Record<string, unknown>,
+): ConfiguredAgent {
+  const agent = flow.nodes.find((n) => n.id === agentId);
+  if (!agent || agent.type !== 'agent')
+    throw new Error(`Missing AI agent: ${agentId}`);
+  const required = (port: string) => {
+    const nodes = attachedNodes(flow, agent.id, port);
+    if (nodes.length !== 1)
+      throw new Error(`${agent.name}: connect exactly one ${port}.`);
+    return nodes[0].parameters;
+  };
+  const model = required('model');
+  const selection =
+    model.source === 'profile'
+      ? ctx.models[String(model.slot)]
+      : {
+          harness: String(model.harness),
+          model: String(model.model),
+          effort: String(model.effort),
+        };
+  if (!selection)
+    throw new Error(`${agent.name}: configure model slot ${model.slot}.`);
+  const prompt = required('prompt');
+  const resolved =
+    prompt.source === 'text' ? resolveFlowValue(prompt.text ?? '', data) : '';
+  const tools = attachedNodes(flow, agent.id, 'tools');
+  const schema = attachedNodes(flow, agent.id, 'schema')[0]?.parameters.schema;
+  return {
+    prompt:
+      prompt.source === 'profile'
+        ? String(prompt.file)
+        : { prompt: String(resolved) },
+    options: {
+      ...selection,
+      label: agent.name,
+      tools: [
+        ...new Set(
+          tools
+            .filter((n) => n.type === 'ai.tool')
+            .map((n) => n.parameters.capability as 'read' | 'edit' | 'bash'),
+        ),
+      ],
+      mcp: [
+        ...new Set(
+          tools
+            .filter((n) => n.type === 'ai.mcp')
+            .map((n) => String(n.parameters.server)),
+        ),
+      ],
+      input:
+        agent.parameters.input === undefined
+          ? data.input
+          : resolveFlowValue(agent.parameters.input, data),
+      ...(agent.parameters.timeout === undefined
+        ? {}
+        : { timeout: Number(agent.parameters.timeout) }),
+      ...(schema
+        ? { schema: z.fromJSONSchema(schema as z.core.JSONSchema.JSONSchema) }
+        : {}),
+    },
+  };
+}
+export function invokeAgent(
+  agent: WorkflowContext['agent'],
+  config: ConfiguredAgent,
+  options: AgentCallOpts = {},
+) {
+  const opts = {
+    ...config.options,
+    ...options,
+    label: options.label ?? config.options.label ?? 'AI agent',
+  };
+  return typeof config.prompt === 'string'
+    ? agent(config.prompt, opts)
+    : agent(config.prompt, opts);
+}
+export interface DeliveryAgents {
+  call<S extends z.ZodType>(
+    role: string,
+    options: AgentCallOpts<S> & { schema: S },
+  ): Promise<z.infer<S> & { summary: string }>;
+  call(role: string, options?: AgentCallOpts): Promise<{ summary: string }>;
+  recap(): Record<RecapAgentRole, (input: unknown) => ConfiguredAgent>;
+}
+export function deliveryAgents(
+  flow: WorkflowFlow,
+  coordinatorId: string,
+  ctx: WorkflowContext,
+  data: Record<string, unknown>,
+): DeliveryAgents {
+  const config = (role: string, input: unknown) => {
+    const agents = attachedNodes(flow, coordinatorId, `agent:${role}`);
+    if (agents.length !== 1)
+      throw new Error(`${coordinatorId}: connect exactly one ${role} agent.`);
+    return configuredFlowAgent(flow, agents[0].id, ctx, { ...data, input });
+  };
+  return {
+    call: ((role: string, options: AgentCallOpts = {}) => {
+      const configured = config(role, options.input);
+      return invokeAgent(ctx.agent, configured, {
+        ...options,
+        input: configured.options.input,
+      });
+    }) as DeliveryAgents['call'],
+    recap: () =>
+      Object.fromEntries(
+        (['inventory', 'narrative', 'capture', 'audit'] as const).map(
+          (role) => [role, (input: unknown) => config(`recap-${role}`, input)],
+        ),
+      ) as Record<RecapAgentRole, (input: unknown) => ConfiguredAgent>,
+  };
+}

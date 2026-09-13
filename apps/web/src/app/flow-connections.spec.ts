@@ -4,7 +4,7 @@ import { connectedPath } from './flow-connections.js';
 
 function branchingFlow(): WorkflowFlow {
   return {
-    version: 1,
+    version: 2,
     name: 'Branches',
     models: {},
     settings: defaultFlowSettings(),

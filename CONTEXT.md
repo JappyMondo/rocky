@@ -14,10 +14,17 @@ captures the selected profile; repository files do not choose the pipeline.
 connections choose the work, decisions, validation, deliverable and human checkpoints.
 
 **Flow settings**: The commands, state names and loop limits shared by a Workflow.
-Model selections belong to the Profile.
+Model components choose an explicit model or a Profile model slot.
 
 **Flow node**: A configured action, decision or outcome in a Workflow. A connection
 selects the next node for each possible result.
+
+**AI component**: A model, prompt, tool or output schema supplied to an Agent by a
+typed attachment connection. It is configuration, not an execution step.
+
+**Delivery coordinator**: A packaged operation that coordinates connected Agents,
+integration actions and required result contracts. Its Agent connections select
+prompts, models and tool grants; those choices do not belong to coordinator code.
 
 **Model slot**: A named agent role declared by a Workflow. The Profile selects its harness, model and effort; a Run exposes the captured selection through `ctx.models`.
 

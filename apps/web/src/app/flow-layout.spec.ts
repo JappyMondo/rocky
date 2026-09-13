@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { parseFlow, type WorkflowFlow } from '@rocky/local-contracts';
+import { componentTree, visibleComponents } from './flow-components.js';
 import { layoutFlow } from './flow-layout.js';
 
 const defaultFlow = () =>
@@ -33,8 +34,19 @@ it('lays out the default flow with branches and retry loops without overlapping 
   const original = defaultFlow();
   const before = structuredClone(original);
   const arranged = layoutFlow(original);
-  expectSeparated(arranged);
-  expect(arranged.nodes).toHaveLength(19);
+  const roots = visibleComponents(arranged, null);
+  expectSeparated({
+    ...arranged,
+    nodes: arranged.nodes.filter((n) => roots.has(n.id)),
+  });
+  for (const root of roots) {
+    const group = componentTree(arranged, root);
+    expectSeparated({
+      ...arranged,
+      nodes: arranged.nodes.filter((n) => group.has(n.id)),
+    });
+  }
+  expect(arranged.nodes).toHaveLength(167);
   expect({
     ...arranged,
     nodes: arranged.nodes.map((node, index) => ({
@@ -78,7 +90,14 @@ it('includes disconnected nodes and self loops, respects measured sizes, and tol
       measured: { width: 260, height: 140 },
     })),
   );
-  expectSeparated(arranged, 260, 140);
+  for (const root of visibleComponents(arranged, null)) {
+    const group = componentTree(arranged, root);
+    expectSeparated(
+      { ...arranged, nodes: arranged.nodes.filter((n) => group.has(n.id)) },
+      260,
+      140,
+    );
+  }
   expect(arranged.nodes.map((node) => node.id)).toEqual(
     flow.nodes.map((node) => node.id),
   );
