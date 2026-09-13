@@ -5,11 +5,14 @@ import {
   render,
   screen,
   within,
+  waitFor,
 } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { defaultFlowSettings, type WorkflowFlow } from '@rocky/local-contracts';
 import { FlowEditor } from './flow-editor.js';
+
+const fitView = vi.hoisted(() => vi.fn());
 
 // Test the editor's state at the canvas callback seam; real XYFlow is checked in the browser.
 vi.mock('@xyflow/react', async () => {
@@ -30,6 +33,11 @@ vi.mock('@xyflow/react', async () => {
       nodes: Array<{ id: string; data: unknown }>;
       edges: Array<{ id: string; source: string; target: string }>;
       nodeTypes: { operation: React.ComponentType<{ data: unknown }> };
+      onInit: (instance: {
+        fitView: typeof fitView;
+        getNodes: () => unknown[];
+        getViewport: () => { x: number; y: number; zoom: number };
+      }) => void;
       onNodeClick: (e: unknown, n: unknown) => void;
       onEdgeClick: (e: unknown, n: unknown) => void;
       onPaneClick: () => void;
@@ -37,57 +45,66 @@ vi.mock('@xyflow/react', async () => {
       onNodesDelete: (n: unknown[]) => void;
       onEdgesDelete: (n: unknown[]) => void;
       onConnect: (c: unknown) => void;
-    }) => (
-      <div data-testid="canvas">
-        {p.nodes.map((n) => (
+    }) => {
+      React.useEffect(() => {
+        p.onInit({
+          fitView,
+          getNodes: () => p.nodes,
+          getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+        });
+      }, [p]);
+      return (
+        <div data-testid="canvas">
+          {p.nodes.map((n) => (
+            <button
+              key={n.id}
+              data-testid={`node-${n.id}`}
+              onClick={(e) => p.onNodeClick(e, n)}
+            >
+              <p.nodeTypes.operation data={n.data} />
+            </button>
+          ))}
+          {p.edges.map((e) => (
+            <button
+              key={e.id}
+              data-testid={`edge-${e.id}`}
+              onClick={(event) => p.onEdgeClick(event, e)}
+            >
+              {e.source} → {e.target}
+            </button>
+          ))}
+          <button onClick={p.onPaneClick}>Deselect canvas</button>
           <button
-            key={n.id}
-            data-testid={`node-${n.id}`}
-            onClick={(e) => p.onNodeClick(e, n)}
+            onClick={() =>
+              p.onNodeDragStop(null, {
+                ...p.nodes[1],
+                position: { x: 450, y: 200 },
+              })
+            }
           >
-            <p.nodeTypes.operation data={n.data} />
+            Move second node
           </button>
-        ))}
-        {p.edges.map((e) => (
+          <button onClick={() => p.onNodesDelete([p.nodes[1]])}>
+            Canvas delete node
+          </button>
+          <button onClick={() => p.onEdgesDelete([p.edges[0]])}>
+            Canvas delete edge
+          </button>
           <button
-            key={e.id}
-            data-testid={`edge-${e.id}`}
-            onClick={(event) => p.onEdgeClick(event, e)}
+            onClick={() =>
+              p.onConnect({
+                source: p.nodes[0].id,
+                sourceHandle: 'next',
+                target: p.nodes[1].id,
+              })
+            }
           >
-            {e.source} → {e.target}
+            Canvas connect
           </button>
-        ))}
-        <button onClick={p.onPaneClick}>Deselect canvas</button>
-        <button
-          onClick={() =>
-            p.onNodeDragStop(null, {
-              ...p.nodes[1],
-              position: { x: 450, y: 200 },
-            })
-          }
-        >
-          Move second node
-        </button>
-        <button onClick={() => p.onNodesDelete([p.nodes[1]])}>
-          Canvas delete node
-        </button>
-        <button onClick={() => p.onEdgesDelete([p.edges[0]])}>
-          Canvas delete edge
-        </button>
-        <button
-          onClick={() =>
-            p.onConnect({
-              source: p.nodes[0].id,
-              sourceHandle: 'next',
-              target: p.nodes[1].id,
-            })
-          }
-        >
-          Canvas connect
-        </button>
-        {p.children}
-      </div>
-    ),
+          {p.children}
+        </div>
+      );
+    },
   };
 });
 const initial = (): WorkflowFlow => ({
@@ -141,6 +158,7 @@ function Editor({
 beforeEach(() => {
   saved = initial();
   validity.mockClear();
+  fitView.mockClear();
 });
 afterEach(cleanup);
 const click = (name: string) =>
@@ -332,6 +350,10 @@ it('supports an empty canvas, node search, and a full-screen editing workspace',
   empty.nodes = [];
   empty.edges = [];
   render(<Editor source={JSON.stringify(empty)} />);
+  expect(
+    (screen.getByRole('button', { name: 'Auto layout' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
   click('Add first trigger');
   expect(saved.nodes[0].type).toBe('trigger');
   click('+ Add node');
@@ -358,6 +380,12 @@ it('shows node-specific delivery guidance and validation issues', () => {
 
 it('keeps mutations disabled when the editor is read-only', () => {
   render(<Editor disabled />);
+  expect(
+    (screen.getByRole('button', { name: 'Auto layout' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  click('Auto layout');
+  expect(saved).toEqual(initial());
   expect(
     (screen.getByRole('button', { name: '+ Add node' }) as HTMLButtonElement)
       .disabled,
@@ -410,4 +438,30 @@ it('saves through the toolbar and accepts a refreshed profile without retaining 
   ).toBeTruthy();
   click('×');
   expect(screen.queryByLabelText('Flow issues')).toBeNull();
+});
+
+it('auto layouts the draft, fits all nodes, and restores the arrangement with one undo', async () => {
+  const original = initial();
+  original.nodes[1].direction = 'left';
+  original.nodes[1].position = { x: -400, y: -200 };
+  render(<Editor source={JSON.stringify(original)} />);
+  await waitFor(() => expect(fitView).toHaveBeenCalled());
+  fitView.mockClear();
+  click('Auto layout');
+  expect(saved.nodes[1].position.x).toBeGreaterThan(saved.nodes[0].position.x);
+  expect(saved.nodes[1].direction).toBe('right');
+  expect(saved.edges).toEqual(original.edges);
+  expect(screen.getByText(/Unsaved changes/)).toBeTruthy();
+  await waitFor(() =>
+    expect(fitView).toHaveBeenCalledWith({
+      padding: 0.12,
+      maxZoom: 0.9,
+      duration: 200,
+    }),
+  );
+  const arranged = saved;
+  click('↶');
+  expect(saved).toEqual(original);
+  click('↷');
+  expect(saved).toEqual(arranged);
 });

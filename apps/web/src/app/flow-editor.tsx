@@ -27,6 +27,7 @@ import {
   type FlowProblem,
 } from '@rocky/local-contracts';
 import '@xyflow/react/dist/style.css';
+import { layoutFlow } from './flow-layout.js';
 import styles from './flow-editor.module.css';
 
 type CanvasNode = Node<{ node: FlowNode; invalid: boolean }, 'operation'>;
@@ -83,6 +84,8 @@ const toCanvas = (flow: WorkflowFlow): CanvasNode[] => {
     id: node.id,
     type: 'operation',
     position: node.position,
+    sourcePosition: node.direction === 'left' ? Position.Left : Position.Right,
+    targetPosition: node.direction === 'left' ? Position.Right : Position.Left,
     data: { node, invalid: errors.some((e) => e.nodeId === node.id) },
   }));
 };
@@ -205,6 +208,7 @@ export function FlowEditor(p: {
   >(null);
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [layoutRevision, setLayoutRevision] = useState(0);
   const [importError, setImportError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<WorkflowFlow[]>([]);
@@ -245,7 +249,7 @@ export function FlowEditor(p: {
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [expanded]);
+  }, [expanded, layoutRevision]);
   const valid = problems.length === 0 && Object.keys(fieldErrors).length === 0;
   const onValidityChange = p.onValidityChange;
   useEffect(() => {
@@ -272,6 +276,10 @@ export function FlowEditor(p: {
           n.id === selected.id ? { ...n, ...patch } : n,
         ),
       });
+  };
+  const autoLayout = () => {
+    change(layoutFlow(flow, instance.current?.getNodes()));
+    setLayoutRevision((revision) => revision + 1);
   };
   const updateSettings = (patch: Partial<FlowSettings>) =>
     change({ ...flow, settings: { ...flow.settings, ...patch } });
@@ -410,6 +418,14 @@ export function FlowEditor(p: {
           </button>
           <button
             type="button"
+            disabled={p.disabled || !flow.nodes.length}
+            onClick={autoLayout}
+            title="Arrange all nodes and fit the flow into view"
+          >
+            Auto layout
+          </button>
+          <button
+            type="button"
             onClick={() => setPanel(panel === 'settings' ? null : 'settings')}
           >
             Flow settings
@@ -519,7 +535,7 @@ export function FlowEditor(p: {
             deleteKeyCode={p.disabled ? null : ['Backspace', 'Delete']}
             fitView
             fitViewOptions={{ padding: 0.16, maxZoom: 0.9 }}
-            minZoom={0.2}
+            minZoom={0.01}
             maxZoom={1.5}
             defaultEdgeOptions={{ type: 'smoothstep' }}
           >

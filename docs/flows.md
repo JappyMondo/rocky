@@ -6,7 +6,9 @@ Rocky's existing colors, a dotted canvas, compact nodes, a searchable node
 picker, and a settings panel inspired by n8n's workflow editor.
 
 Select a node to configure its action and output destinations. Drag nodes to
-arrange them; drag from an output handle to another node's input to connect them.
+arrange them, or use **Auto layout** to arrange all nodes from left to right and
+fit the flow into view. Undo restores the previous arrangement. Drag from an
+output handle to another node's input to connect them.
 The destination dropdowns provide the same connection editing without dragging.
 Each output has exactly one destination. Use a Condition for branching; connect
 an output back to an earlier node for a loop. Unconnected nodes, missing required
