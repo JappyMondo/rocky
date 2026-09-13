@@ -1,3 +1,5 @@
+import { readCredentials } from '../config/store.js';
+import { sourceControlEnv } from '../config/source-control.js';
 import { stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { restoreRetryWorkspace } from '../repos/workspace.js';
@@ -34,16 +36,28 @@ export async function prepareRetryWorkspace(
     throw new Error(
       'No recorded workspace is available for a safe Step retry.',
     );
-  await restoreRetryWorkspace(repos, {
-    runId: run.runId,
-    branch: run.branch,
-    members: run.execution.members.map((member) => {
-      const saved = recorded.data.members.find(
-        (item) => item.repo === member.name,
-      );
-      if (!saved)
-        throw new Error(`No recorded workspace revision for ${member.name}.`);
-      return { name: member.name, head: saved.head };
-    }),
-  });
+  await restoreRetryWorkspace(
+    run.profile?.sourceControl
+      ? {
+          ...repos,
+          sourceControl: run.profile?.sourceControl,
+          env: sourceControlEnv(run.profile?.sourceControl, {
+            ...process.env,
+            ...(await readCredentials(repos.paths)).repos[run.repo],
+          }),
+        }
+      : repos,
+    {
+      runId: run.runId,
+      branch: run.branch,
+      members: run.execution.members.map((member) => {
+        const saved = recorded.data.members.find(
+          (item) => item.repo === member.name,
+        );
+        if (!saved)
+          throw new Error(`No recorded workspace revision for ${member.name}.`);
+        return { name: member.name, head: saved.head };
+      }),
+    },
+  );
 }

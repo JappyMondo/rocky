@@ -106,3 +106,11 @@ export {
   type ReloadReport,
   type RestartOnlyField,
 } from './watcher.js';
+
+export {
+  resolveSourceControl,
+  sourceControlEnv,
+  sourceControlGitConfig,
+  sourceControlToken,
+  sourceControlSchema,
+} from './source-control.js';

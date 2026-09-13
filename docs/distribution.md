@@ -35,6 +35,9 @@ there is no ingress terminal to keep open. The filter binary is
 custom service manager only.
 Registry installation instructions must be written only after a maintainer
 proves ownership of the chosen scoped package and authorizes its release.
+Git SSH/signing keys, SSH agent sockets and GitHub/GitLab CLI accounts can be
+configured globally and per profile. See [`source-control.md`](source-control.md),
+also shipped as `docs/source-control.md` in the tarball.
 The implemented MCP login flow is documented in [`mcp.md`](mcp.md) in the
 source repository and `docs/mcp.md` in the tarball.
 The local API and web

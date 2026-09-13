@@ -97,7 +97,7 @@ async function fixture(
     onRefusal,
     onboarding,
   });
-  return { paths, runtime, onRefusal, execution };
+  return { paths, runtime, onRefusal, execution, config };
 }
 
 it('builds and disposes the default immutable snapshot around admission', async () => {
@@ -208,4 +208,54 @@ it('names the Onboarding fix when no handler has been wired', async () => {
   });
   expect(f.onRefusal).toHaveBeenCalledOnce();
   await f.execution.close();
+});
+
+it('freezes Rocky defaults and profile overrides before the first clone and preserves them for replay', async () => {
+  const f = await fixture();
+  f.config.sourceControl = {
+    git: { sshAgent: '/global-agent', signCommits: true },
+    github: { configDir: '/global-gh' },
+  };
+  await writeRepositoryProfile(f.paths, {
+    ...newRepositoryProfile({
+      id: 'app',
+      remote: 'https://example.test/app.git',
+    }),
+    sourceControl: {
+      git: { sshKey: '/profile.pub', signCommits: false },
+      github: { configDir: '/profile-gh' },
+    },
+  });
+  const snapshotDir = join(f.paths.root, 'frozen-snapshot');
+  await mkdir(snapshotDir);
+  prepareProfileSnapshot.mockResolvedValue({
+    sourceCommit: 'commit',
+    snapshotDir,
+    triggers: [{ kind: 'linear.onDelegate' }],
+  });
+  resolveSnapshotTrigger.mockReturnValue({ kind: 'linear.onDelegate' });
+  try {
+    const admitted = await f.execution.delegate(request);
+    expect(admitted.kind).toBe('started');
+    if (admitted.kind !== 'started') throw new Error('Admission failed');
+    expect(admitted.run.profile?.sourceControl).toMatchObject({
+      git: {
+        sshAgent: '/global-agent',
+        sshKey: '/profile.pub',
+        signCommits: false,
+      },
+      github: { configDir: '/profile-gh' },
+    });
+    expect(prepareProfileSnapshot.mock.calls[0][0].env).toMatchObject({
+      SSH_AUTH_SOCK: '/global-agent',
+      GH_CONFIG_DIR: '/profile-gh',
+      GH_TOKEN: undefined,
+    });
+    f.config.sourceControl.git = { sshAgent: '/changed' };
+    expect(admitted.run.profile?.sourceControl?.git?.sshAgent).toBe(
+      '/global-agent',
+    );
+  } finally {
+    await f.execution.close();
+  }
 });

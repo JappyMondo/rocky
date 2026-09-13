@@ -7,6 +7,7 @@ import type {
   SettingsView,
 } from '@rocky/local-contracts';
 import { z } from 'zod';
+import { sourceControlSchema } from '../config/source-control.js';
 
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import type { RockyPaths } from '../config/paths.js';
@@ -29,6 +30,7 @@ const settingsPatch = z
     revision: z.string(),
     patch: z
       .object({
+        sourceControl: sourceControlSchema.optional(),
         server: z
           .object({
             host: z.enum(['127.0.0.1', 'localhost', '::1']).optional(),
@@ -65,6 +67,7 @@ function values(
       keepSessionsAndScreenshots: config.retention.keepSessionsAndScreenshots,
     },
     concurrency: { maxRuns: config.concurrency.maxRuns },
+    sourceControl: config.sourceControl ?? {},
   };
 }
 
@@ -113,7 +116,7 @@ export class LocalSettings {
       throw new LocalApiError(
         400,
         'invalid-settings',
-        'Invalid settings. Use positive integer limits and a loopback bind address.',
+        'Invalid settings. Check limits, loopback bind address and source control fields.',
       );
     return updates.run(this.options.paths.configFile, async () => {
       const { config, revision } = await this.current();
@@ -128,6 +131,7 @@ export class LocalSettings {
       try {
         merged = parseInstanceConfig({
           ...config,
+          sourceControl: patch.sourceControl ?? config.sourceControl,
           server: { ...config.server, ...patch.server },
           retention: { ...config.retention, ...patch.retention },
           concurrency: { ...config.concurrency, ...patch.concurrency },

@@ -17,6 +17,7 @@ import type { createConsolePrompter } from './setup/prompter.js';
 
 /** Every command a developer can type, flattened out of the nesting. */
 const V1_SURFACE = [
+  'exec',
   'setup',
   'start',
   'stop',

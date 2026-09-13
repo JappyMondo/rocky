@@ -169,7 +169,25 @@ export interface DiffView {
   annotations: DiffAnnotation[];
 }
 
+/** Secret-free account references, shared by instance settings and profiles. */
+export interface SourceControlSettings {
+  git?: {
+    name?: string | null;
+    email?: string | null;
+    sshKey?: string | null;
+    sshAgent?: string | null;
+    signingKey?: string | null;
+    signingFormat?: 'ssh' | 'openpgp' | 'x509' | null;
+    signingProgram?: string | null;
+    signCommits?: boolean | null;
+    signTags?: boolean | null;
+  };
+  github?: { configDir?: string | null; tokenEnv?: string | null };
+  gitlab?: { configDir?: string | null; tokenEnv?: string | null };
+}
+
 export interface SettingsValues {
+  sourceControl?: SourceControlSettings;
   server: { host: string; port: number };
   retention: { keepTerminalRuns: number; keepSessionsAndScreenshots: number };
   concurrency: { maxRuns: number };
@@ -244,6 +262,7 @@ export type WorkflowModelSlots = Record<
 
 /** Secret-free representation of a machine-local repository profile. */
 export interface RepositoryProfileView {
+  sourceControl?: SourceControlSettings;
   id: string;
   remote: string;
   /** Absent for legacy single-repository profiles. First member is primary. */

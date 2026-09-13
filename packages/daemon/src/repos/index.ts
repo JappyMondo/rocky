@@ -68,6 +68,8 @@ export {
  */
 export function createRepoContext(options: {
   identity: RockyIdentity;
+  sourceControl?: RepoContext['sourceControl'];
+  env?: NodeJS.ProcessEnv;
   paths?: RockyPaths;
   log?(message: string): void;
 }): RepoContext {
@@ -75,6 +77,8 @@ export function createRepoContext(options: {
     paths: options.paths ?? rockyPaths(),
     mutex: new KeyedMutex(),
     identity: options.identity,
+    sourceControl: options.sourceControl,
+    env: options.env,
     log: options.log,
   };
 }

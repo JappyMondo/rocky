@@ -2166,3 +2166,32 @@
     grid-template-columns: 1fr;
   }
 }
+
+.sourceControlDetails {
+  border-top: 1px solid var(--border);
+  padding: 24px 0;
+}
+.sourceControlDetails > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+.sourceControlGroup {
+  min-width: 0;
+  border: 0;
+  padding: 16px 0 24px;
+  margin: 0;
+}
+.sourceControlGroup legend {
+  font-weight: 600;
+}
+.sourceControlGroup > p {
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+.sourceControlField {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}

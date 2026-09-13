@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 import { z } from 'zod';
+import { sourceControlSchema } from './source-control-schema.js';
 
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import { parseMcpConfig, type McpConfig } from '../mcp/config.js';
@@ -128,6 +129,7 @@ const profileSchema = z
       triggers: z.array(nonEmpty).default([]),
     }),
     models: workflowModelsSchema.optional(),
+    sourceControl: sourceControlSchema.optional(),
     prompts: z.record(segment, z.string()).default({}),
     schemas: z.string().default(''),
     rules: z.record(segment, z.string()).default({}),

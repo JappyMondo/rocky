@@ -1,3 +1,8 @@
+import {
+  sourceControlEnv,
+  sourceControlToken,
+} from '../config/source-control.js';
+import type { SourceControlSettings } from '@rocky/local-contracts';
 import type { ScmOps, ScmPr, VisualRecapOptions } from '@rocky/sdk';
 import type { Answer } from '@rocky/local-contracts';
 import type { BootContext, StepOutcome } from './replay.js';
@@ -71,6 +76,7 @@ function lazyScm(load: () => Promise<ScmOps>): ScmOps {
 function profileEnv(
   run: {
     profile?: {
+      sourceControl?: SourceControlSettings;
       settings: { env: Record<string, string>; secretEnv: string[] };
     };
     repo: string;
@@ -86,7 +92,15 @@ function profileEnv(
   return {
     ...profile.settings.env,
     ...Object.fromEntries(
-      profile.settings.secretEnv.flatMap((name) => {
+      [
+        ...new Set([
+          ...profile.settings.secretEnv,
+          ...[
+            profile.sourceControl?.github?.tokenEnv,
+            profile.sourceControl?.gitlab?.tokenEnv,
+          ].filter((name): name is string => Boolean(name)),
+        ]),
+      ].flatMap((name) => {
         const value = stored[name] ?? process.env[name];
         return value === undefined ? [] : [[name, value]];
       }),
@@ -250,39 +264,46 @@ export function createProductionRuntime(
     mirror.status(frame);
     flushMirrorSoon(activeRun.runId, mirror);
   };
-  const scmFor = (
+  const scmFor = async (
     run: Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0],
     signal: AbortSignal,
   ) => {
     if (!run.execution) throw new Error(`${run.runId}: missing frozen members`);
-    return run.execution.members.map((member) => {
-      const source = scmProject(member.url);
-      const memberEnv = profileEnv(
-        { profile: run.profile, repo: member.name },
-        credentials,
-      );
-      const token =
-        source.platform === 'github'
-          ? (memberEnv.GITHUB_TOKEN ?? memberEnv.GH_TOKEN)
-          : memberEnv.GITLAB_TOKEN;
-      if (!token)
-        throw new Error(
-          `${member.name}: missing ${source.platform === 'github' ? 'GITHUB_TOKEN (or GH_TOKEN)' : 'GITLAB_TOKEN'} in this repository's secret environment.`,
+    return Promise.all(
+      run.execution.members.map(async (member) => {
+        const source = scmProject(member.url);
+        const memberEnv = profileEnv(
+          { profile: run.profile, repo: member.name },
+          credentials,
         );
-      const input = {
-        repo: {
-          id: member.name,
-          project: source.project,
-          baseBranch: member.baseBranch,
-        },
-        branch: run.branch,
-        token,
-        signal,
-      };
-      return source.platform === 'github'
-        ? createGitHubScm(input)
-        : createGitLabScm(input);
-    });
+        const cliSelected =
+          Object.keys(run.profile?.sourceControl?.[source.platform] ?? {})
+            .length > 0;
+        const token = await sourceControlToken(
+          source.platform,
+          cliSelected
+            ? sourceControlEnv(run.profile?.sourceControl, {
+                ...process.env,
+                ...memberEnv,
+              })
+            : memberEnv,
+          { signal, cwd: options.paths.root, allowCli: cliSelected },
+        );
+        const input = {
+          repo: {
+            id: member.name,
+            project: source.project,
+            baseBranch: member.baseBranch,
+          },
+          branch: run.branch,
+          token,
+          signal,
+        };
+        return source.platform === 'github'
+          ? createGitHubScm(input)
+          : createGitLabScm(input);
+      }),
+    );
   };
   return new WorkflowRuntime({
     paths: options.paths,
@@ -338,8 +359,10 @@ export function createProductionRuntime(
       servicesEnabled = Boolean(credentials.linear?.accessToken && run.linear);
       activeRun = run;
       env = {
-        ...process.env,
-        ...profileEnv(run, credentials),
+        ...sourceControlEnv(run.profile?.sourceControl, {
+          ...process.env,
+          ...profileEnv(run, credentials),
+        }),
         ROCKY_NODE: process.execPath,
         ROCKY_MERMAID_CHECK: fileURLToPath(
           new URL('./mermaid-check.js', import.meta.url),
@@ -409,7 +432,7 @@ export function createProductionRuntime(
         if (run.execution?.source !== 'onboarding') {
           await runPreflight(steps, {
             ...(legacyPreflight ? {} : { scope: 'mcp' as const }),
-            members: legacyPreflight ? scmFor(run, signal) : [],
+            members: legacyPreflight ? await scmFor(run, signal) : [],
             signal,
             refreshMcp: async (refreshSignal) =>
               preflightMcp(
@@ -435,7 +458,10 @@ export function createProductionRuntime(
           command:
             settings.command ??
             (name === 'claude-code' ? 'claude' : 'opencode'),
-          env: { ...env, ...settings.env },
+          env: sourceControlEnv(run.profile?.sourceControl, {
+            ...env,
+            ...settings.env,
+          }),
           sessionStorage:
             settings.sessionStorage === 'opencode'
               ? ('opencode' as const)
@@ -504,6 +530,7 @@ export function createProductionRuntime(
           run.branch,
           member.baseBranch,
           head,
+          env,
         );
       };
       const visualRecap = async (
@@ -636,7 +663,7 @@ export function createProductionRuntime(
             // Re-check after a potentially long visual sweep: stale evidence must never mark another head ready.
             if (pr) {
               await revisionFor(pr.repo, pr.headSha);
-              const adapter = scmFor(run, signal).find(
+              const adapter = (await scmFor(run, signal)).find(
                 (adapter) => adapter.repo.id === pr.repo,
               );
               if (!adapter)
@@ -697,7 +724,7 @@ export function createProductionRuntime(
                   mirrorFor(run).setState(`state:${name}`, name),
               },
               scm: scmContext(steps, async () => {
-                const members = scmFor(run, signal);
+                const members = await scmFor(run, signal);
                 if (run.execution?.source !== 'onboarding' && !legacyPreflight)
                   await runPreflight(steps, {
                     scope: 'scm',

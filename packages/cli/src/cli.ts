@@ -1,3 +1,4 @@
+import { attachSourceControlCommand } from './source-control.js';
 import {
   rockyPaths,
   runDaemon,
@@ -547,6 +548,7 @@ export function buildCli(
   profile.command('delete <id>').action((id: string) => deleteProfile(io, id));
 
   attachMcpCommand(program, io, paths, cli.mcp);
+  attachSourceControlCommand(program, io, paths);
 
   for (const stub of STUBBED_COMMANDS) {
     attachStub(program, stub, io);

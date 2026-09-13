@@ -8,6 +8,7 @@
  * routing time is a parse error naming the fix instead.
  */
 import { z } from 'zod';
+import { sourceControlSchema } from './source-control-schema.js';
 
 import { DEFAULT_HOST, DEFAULT_PORT } from '../server.js';
 
@@ -143,6 +144,7 @@ const instanceConfigShape = z.looseObject({
   concurrency: concurrencySchema.prefault({}),
   workflowDefaults: workflowDefaultsSchema.prefault({}),
   identity: identitySchema.prefault({}),
+  sourceControl: sourceControlSchema.optional(),
   repos: z.array(repoEntrySchema).default([]),
   groups: z.array(repoGroupSchema).default([]),
   harnesses: z.record(nonEmpty, harnessSchema).default({}),
