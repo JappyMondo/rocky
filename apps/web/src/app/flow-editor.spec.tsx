@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { defaultFlowSettings, type WorkflowFlow } from '@rocky/local-contracts';
 import { FlowEditor } from './flow-editor.js';
+import styles from './flow-editor.module.css';
 
 const fitView = vi.hoisted(() => vi.fn());
 
@@ -30,14 +31,25 @@ vi.mock('@xyflow/react', async () => {
     },
     ReactFlow: (p: {
       children: React.ReactNode;
-      nodes: Array<{ id: string; data: unknown }>;
-      edges: Array<{ id: string; source: string; target: string }>;
+      nodes: Array<{ id: string; data: unknown; className?: string }>;
+      edges: Array<{
+        id: string;
+        source: string;
+        target: string;
+        className?: string;
+        style: React.CSSProperties;
+      }>;
       nodeTypes: { operation: React.ComponentType<{ data: unknown }> };
       onInit: (instance: {
         fitView: typeof fitView;
         getNodes: () => unknown[];
         getViewport: () => { x: number; y: number; zoom: number };
       }) => void;
+      onNodeMouseEnter: (e: unknown, n: unknown) => void;
+      onNodeMouseLeave: () => void;
+      onEdgeMouseEnter: (e: unknown, n: unknown) => void;
+      onEdgeMouseLeave: () => void;
+      onPaneMouseEnter: () => void;
       onNodeClick: (e: unknown, n: unknown) => void;
       onEdgeClick: (e: unknown, n: unknown) => void;
       onPaneClick: () => void;
@@ -59,6 +71,9 @@ vi.mock('@xyflow/react', async () => {
             <button
               key={n.id}
               data-testid={`node-${n.id}`}
+              className={n.className}
+              onMouseEnter={(e) => p.onNodeMouseEnter(e, n)}
+              onMouseLeave={p.onNodeMouseLeave}
               onClick={(e) => p.onNodeClick(e, n)}
             >
               <p.nodeTypes.operation data={n.data} />
@@ -68,12 +83,18 @@ vi.mock('@xyflow/react', async () => {
             <button
               key={e.id}
               data-testid={`edge-${e.id}`}
+              className={e.className}
+              style={e.style}
+              onMouseEnter={(event) => p.onEdgeMouseEnter(event, e)}
+              onMouseLeave={p.onEdgeMouseLeave}
               onClick={(event) => p.onEdgeClick(event, e)}
             >
               {e.source} → {e.target}
             </button>
           ))}
-          <button onClick={p.onPaneClick}>Deselect canvas</button>
+          <button onClick={p.onPaneClick} onMouseEnter={p.onPaneMouseEnter}>
+            Deselect canvas
+          </button>
           <button
             onClick={() =>
               p.onNodeDragStop(null, {
@@ -464,4 +485,50 @@ it('auto layouts the draft, fits all nodes, and restores the arrangement with on
   expect(saved).toEqual(original);
   click('↷');
   expect(saved).toEqual(arranged);
+});
+
+it('highlights node and edge paths on hover, clears on exit, and leaves read-only flows unchanged', () => {
+  const original = initial();
+  original.nodes.push({ ...original.nodes[1], id: 'unrelated' });
+  original.edges.push({
+    id: 'sibling',
+    source: 'start',
+    target: 'unrelated',
+    sourceHandle: 'other',
+  });
+  const onChange = vi.fn();
+  render(
+    <FlowEditor
+      source={JSON.stringify(original)}
+      disabled
+      unsaved={false}
+      onChange={onChange}
+      onValidityChange={validity}
+    />,
+  );
+  const start = screen.getByTestId('node-start');
+  const finish = screen.getByTestId('node-finish');
+  const unrelated = screen.getByTestId('node-unrelated');
+  const edge = screen.getByTestId('edge-edge1');
+  const sibling = screen.getByTestId('edge-sibling');
+  fireEvent.mouseEnter(finish);
+  expect(start.classList.contains(styles.connected)).toBe(true);
+  expect(finish.classList.contains(styles.connected)).toBe(true);
+  expect(unrelated.classList.contains(styles.unrelated)).toBe(true);
+  expect(sibling.classList.contains(styles.unrelated)).toBe(true);
+  expect(edge.style.strokeWidth).toBe('2.8');
+  fireEvent.mouseLeave(finish);
+  expect(start.className).toBe('');
+  expect(unrelated.className).toBe('');
+  expect(edge.style.strokeWidth).toBe('1.4');
+  fireEvent.mouseEnter(edge);
+  expect(finish.classList.contains(styles.connected)).toBe(true);
+  expect(unrelated.classList.contains(styles.unrelated)).toBe(true);
+  fireEvent.mouseLeave(edge);
+  expect(finish.className).toBe('');
+  fireEvent.mouseEnter(finish);
+  fireEvent.mouseEnter(screen.getByRole('button', { name: 'Deselect canvas' }));
+  expect(finish.className).toBe('');
+  expect(onChange).not.toHaveBeenCalled();
+  expect((screen.getByTitle('Undo') as HTMLButtonElement).disabled).toBe(true);
 });

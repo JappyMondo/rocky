@@ -28,6 +28,7 @@ import {
 } from '@rocky/local-contracts';
 import '@xyflow/react/dist/style.css';
 import { layoutFlow } from './flow-layout.js';
+import { connectedPath, type FlowHover } from './flow-connections.js';
 import styles from './flow-editor.module.css';
 
 type CanvasNode = Node<{ node: FlowNode; invalid: boolean }, 'operation'>;
@@ -203,6 +204,19 @@ export function FlowEditor(p: {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [hover, setHover] = useState<FlowHover | null>(null);
+  const highlighted = useMemo(() => connectedPath(flow, hover), [flow, hover]);
+  const hoverNode = useCallback(
+    (_: unknown, node: { id: string }) =>
+      setHover({ kind: 'node', id: node.id }),
+    [],
+  );
+  const hoverEdge = useCallback(
+    (_: unknown, edge: { id: string }) =>
+      setHover({ kind: 'edge', id: edge.id }),
+    [],
+  );
+  const clearHover = useCallback(() => setHover(null), []);
   const [panel, setPanel] = useState<
     'node' | 'add' | 'settings' | 'issues' | null
   >(null);
@@ -236,6 +250,7 @@ export function FlowEditor(p: {
       setHistory([]);
       setFuture([]);
       setSelectedId(null);
+      setHover(null);
       setFieldErrors({});
       lastSource.current = p.source;
     }
@@ -458,24 +473,50 @@ export function FlowEditor(p: {
       <div className={styles.workspace}>
         <div className={styles.canvas}>
           <ReactFlow<CanvasNode>
-            nodes={nodes}
-            edges={flow.edges.map((edge) => ({
-              ...edge,
-              type: 'smoothstep',
-              label:
-                edge.sourceHandle === 'next' ? undefined : edge.sourceHandle,
-              selected: edge.id === selectedEdge,
-              style: {
-                stroke: edge.sourceHandle === 'retry' ? '#b6ad96' : '#8b9b82',
-                strokeWidth: 1.4,
-                strokeDasharray:
-                  edge.sourceHandle === 'retry' ? '5 4' : undefined,
-              },
-              markerEnd: { type: MarkerType.ArrowClosed, color: '#8b9b82' },
-              labelStyle: { fontSize: 11, fill: '#687461' },
-              labelBgStyle: { fill: '#fafbf8' },
+            nodes={nodes.map((node) => ({
+              ...node,
+              className: highlighted
+                ? highlighted.nodes.has(node.id)
+                  ? styles.connected
+                  : styles.unrelated
+                : undefined,
             }))}
+            edges={flow.edges.map((edge) => {
+              const connected = highlighted?.edges.has(edge.id);
+              const stroke = connected
+                ? '#365c42'
+                : edge.sourceHandle === 'retry'
+                  ? '#b6ad96'
+                  : '#8b9b82';
+              return {
+                ...edge,
+                className:
+                  highlighted && !connected ? styles.unrelated : undefined,
+                type: 'smoothstep',
+                label:
+                  edge.sourceHandle === 'next' ? undefined : edge.sourceHandle,
+                selected: edge.id === selectedEdge,
+                style: {
+                  stroke,
+                  strokeWidth: connected ? 2.8 : 1.4,
+                  strokeDasharray:
+                    edge.sourceHandle === 'retry' ? '5 4' : undefined,
+                },
+                markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+                labelStyle: {
+                  fontSize: 11,
+                  fill: connected ? '#365c42' : '#687461',
+                  fontWeight: connected ? 600 : 400,
+                },
+                labelBgStyle: { fill: '#fafbf8' },
+              };
+            })}
             nodeTypes={nodeTypes}
+            onNodeMouseEnter={hoverNode}
+            onNodeMouseLeave={clearHover}
+            onEdgeMouseEnter={hoverEdge}
+            onEdgeMouseLeave={clearHover}
+            onPaneMouseEnter={clearHover}
             onInit={(rf) => {
               instance.current = rf;
             }}

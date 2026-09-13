@@ -82,6 +82,20 @@
 .canvas :global(.react-flow__node) {
   border-radius: 10px;
 }
+.canvas :global(.react-flow__node),
+.canvas :global(.react-flow__edge) {
+  transition: opacity 140ms ease;
+}
+.canvas .unrelated {
+  opacity: 0.2;
+}
+.connected .node {
+  box-shadow: 0 0 0 3px #365c4225;
+}
+.connected .node:not(.invalid) {
+  border-color: var(--accent);
+  background: #f1f5eb;
+}
 .canvas :global(.react-flow__handle) {
   width: 9px;
   height: 9px;

@@ -10,6 +10,8 @@ arrange them, or use **Auto layout** to arrange all nodes from left to right and
 fit the flow into view. Undo restores the previous arrangement. Drag from an
 output handle to another node's input to connect them.
 The destination dropdowns provide the same connection editing without dragging.
+Hover a node or connection to highlight its full upstream and downstream path;
+unrelated branches fade until the pointer leaves.
 Each output has exactly one destination. Use a Condition for branching; connect
 an output back to an earlier node for a loop. Unconnected nodes, missing required
 parameters, invalid settings and ambiguous connections block saving and admission.
