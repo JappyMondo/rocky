@@ -44,7 +44,9 @@ it.runIf(process.env.ROCKY_REAL_OPENCODE_TESTS === '1')(
       expect(
         (await readFile(input.transcriptPath, 'utf8')).startsWith(before),
       ).toBe(true);
-      expect(await readdir(join(root, 'sessions'))).toContain('opencode.db');
+      expect(await readdir(join(root, 'sessions'))).toContain(
+        'step-1.jsonl.opencode.db',
+      );
     } finally {
       if (process.env.ROCKY_KEEP_PROBE === '1')
         console.info('Live OpenCode evidence:', root);

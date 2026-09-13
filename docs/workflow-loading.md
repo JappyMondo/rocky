@@ -77,3 +77,26 @@ Coordinator edits still required: exports, receipt/admission, publication before
 header, trigger/sourceCommit persistence, live-Run refusal, built-in Onboarding
 handoff, group Trigger input, and per-Boot child composition. The loader does
 not claim those end-to-end acceptance criteria.
+
+## Delivery-specific preflight
+
+Production refreshes configured MCP authentication in a bounded, journaled
+`preflight.mcp` Step before running repository content. SCM adapters and their
+credentials are resolved only when the Workflow first calls `ctx.scm`. That
+first call performs the bounded, journaled `preflight.scm` Step before any SCM
+operation; subsequent calls in the same branch-local Boot reuse its result.
+Replay consumes the recorded probes without repeating their effects.
+
+A Workflow that delivers only a Linear comment therefore does not require SCM
+merge, draft, or source-push authority. PR Workflows retain draft and source-update authority checks before the first
+SCM action, although those checks now occur
+after planning/implementation when that is where the Workflow first uses SCM.
+The SCM probe records merge authority but does not require it for PR-only
+delivery. Actual merging still requires approval and the platform authority
+checks in `armAutoMerge`. Onboarding continues to rely on authority checks at
+its individual SCM operations.
+
+Runs whose journal already records the legacy startup `preflight` Step keep
+the original combined startup check and Step ordering on every subsequent
+Boot. This includes an interrupted probe. They do not insert deferred SCM
+preflight later, so existing parked snapshots resume without journal divergence.

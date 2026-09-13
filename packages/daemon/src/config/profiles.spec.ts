@@ -1,3 +1,12 @@
+import type { WorkflowModels } from '@rocky/local-contracts';
+const models: WorkflowModels = {
+  agent: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
+  fastAgent: {
+    harness: 'opencode',
+    model: 'openai/test-model',
+    effort: 'high',
+  },
+};
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,6 +66,7 @@ describe('local repository profiles', () => {
 
   it('turns the shipped workflow into local-only runnable profile content', async () => {
     const profile = await newSeedRepositoryProfile({
+      models,
       id: 'api',
       remote: 'https://github.com/acme/api.git',
     });
@@ -76,13 +86,14 @@ describe('local repository profiles', () => {
 
   it('pins the harness and model selected during setup into a new profile', async () => {
     const profile = await newSeedRepositoryProfile({
+      models,
       id: 'api',
       remote: 'https://github.com/acme/api.git',
-      defaults: { harness: 'opencode', model: 'openai/gpt-5.2' },
     });
 
     expect(profile.grants.harness).toBe('opencode');
-    expect(profile.workflow.source).toContain('model: "openai/gpt-5.2"');
+    expect(profile.workflow.source).toContain("model: 'openai/test-model'");
+    expect(profile.workflow.source).toContain("effort: 'high'");
   });
 
   it('stores a pipeline locally and never needs a checkout path', async () => {

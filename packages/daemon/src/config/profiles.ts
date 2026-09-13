@@ -6,6 +6,7 @@
  * profile by placing files in `.rocky/` (or anywhere else) in Git.
  */
 import { readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -16,6 +17,11 @@ import { parseMcpConfig, type McpConfig } from '../mcp/config.js';
 import type { RockyPaths } from './paths.js';
 import { ConfigError } from './schema.js';
 import type { WorkflowDefaults } from './schema.js';
+import type { WorkflowModels } from '@rocky/local-contracts';
+import {
+  configureWorkflowModels,
+  workflowModelsSchema,
+} from './workflow-models.js';
 
 const segment = z
   .string()
@@ -205,12 +211,18 @@ export async function newSeedRepositoryProfile(input: {
   id: string;
   remote?: string;
   repos?: z.input<typeof profileReposSchema>;
-  defaults?: WorkflowDefaults;
+  models: WorkflowModels;
 }): Promise<RepositoryProfile> {
+  const models = workflowModelsSchema.parse(input.models);
+  const content = await defaultProfileContent(models.agent);
+  content.workflow.source = configureWorkflowModels(
+    content.workflow.source,
+    models,
+  );
   return parseRepositoryProfile(
     {
       ...newRepositoryProfile(input),
-      ...(await defaultProfileContent(input.defaults)),
+      ...content,
     },
     `profiles/${input.id}.json`,
   );
@@ -220,8 +232,12 @@ export async function newSeedRepositoryProfile(input: {
 export async function defaultProfileContent(
   defaults: WorkflowDefaults = { harness: 'opencode' },
 ): Promise<Omit<RepositoryProfile, 'v' | 'id' | 'remote' | 'repos'>> {
+  // Bundled CLI/API entries live directly in dist; source modules live in src/config.
+  const packed = new URL('../content/.rocky/', import.meta.url);
   const directory = fileURLToPath(
-    new URL('../../content/.rocky/', import.meta.url),
+    existsSync(packed)
+      ? packed
+      : new URL('../../content/.rocky/', import.meta.url),
   );
   const [workflow, schemas, mcp, agents, rules] = await Promise.all([
     readFile(join(directory, 'workflow.ts'), 'utf8'),
@@ -253,7 +269,7 @@ function configuredWorkflow(
   defaults: WorkflowDefaults,
 ): string {
   const setting = (name: string) =>
-    `const ${name} = { harness: '${defaults.harness}'${defaults.model === undefined ? '' : `, model: ${JSON.stringify(defaults.model)}`} };`;
+    `const ${name} = ${JSON.stringify({ harness: defaults.harness, ...(defaults.model ? { model: defaults.model } : {}), ...(defaults.effort ? { effort: defaults.effort } : {}) })};`;
   if (
     !/^const agent = .*;$/m.test(source) ||
     !/^const fastAgent = .*;$/m.test(source)

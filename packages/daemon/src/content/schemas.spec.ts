@@ -12,6 +12,9 @@ const schemas = await createJiti(import.meta.url, {
   },
 }).import<{
   Plan: z.ZodType;
+  Delivery: z.ZodType;
+  Deliverable: z.ZodType;
+  DeliverableReviewFor: (criteria: string[]) => z.ZodType;
   Complaint: z.ZodType;
   FixReportFor: (complaints: { id: string }[]) => z.ZodType;
   ReviewFor: (key: string, ticket?: string) => z.ZodType;
@@ -173,4 +176,37 @@ describe('shipped output contracts', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+});
+
+it('rejects unspecified delivery and incomplete deliverable assessments', () => {
+  expect(schemas.Delivery.safeParse({}).success).toBe(false);
+  expect(
+    schemas.Delivery.safeParse({
+      kind: 'linear-comment',
+      stateChanges: false,
+      merge: true,
+    }).success,
+  ).toBe(false);
+  expect(schemas.Deliverable.safeParse({ body: '   ' }).success).toBe(false);
+  const schema = schemas.DeliverableReviewFor(['Architecture', 'Dataflow']);
+  const architecture = {
+    criterion: 'Architecture',
+    evidence: 'Source entrypoints inspected.',
+    problems: [],
+  };
+  expect(
+    schema.safeParse({ assessments: [architecture], problems: [] }).success,
+  ).toBe(false);
+  expect(
+    schema.safeParse({
+      assessments: [architecture, architecture],
+      problems: [],
+    }).success,
+  ).toBe(false);
+  expect(
+    schema.safeParse({
+      assessments: [architecture, { ...architecture, criterion: 'Dataflow' }],
+      problems: [],
+    }).success,
+  ).toBe(true);
 });

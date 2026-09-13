@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { retryRecordSchema, retryStepKey } from './retry.js';
 
 import {
   END_STEP,
@@ -64,6 +65,37 @@ export class JournalWriter {
         this.highestSeq = Math.max(this.highestSeq, snapshot.seq);
         this.ended = snapshot.step === END_STEP;
       };
+    });
+  }
+
+  /** Caller holds scheduler exclusion and has finished workspace recovery. */
+  retry(
+    requestId: string,
+    stepKey: string,
+    resetControls: string[] = [],
+  ): Promise<void> {
+    return this.schedule(() => async () => {
+      const journal = await readJournal(this.path);
+      if (journal.getControl(`retry:${requestId}`)) return;
+      if (!this.ended || retryStepKey(journal.entries) !== stepKey)
+        throw new JournalFormatError('This Step cannot be retried');
+      const record = retryRecordSchema.parse({
+        v: JOURNAL_FORMAT_VERSION,
+        kind: 'retry',
+        resetControls,
+        requestId,
+        stepKey,
+        recordedAt: new Date().toISOString(),
+      });
+      await appendFile(this.path, `${JSON.stringify(record)}\n`, {
+        flush: true,
+      });
+      this.ended = false;
+      this.highestSeq = Math.max(
+        ...journal.entries
+          .filter((entry) => entry.step !== END_STEP)
+          .map((entry) => entry.seq),
+      );
     });
   }
 

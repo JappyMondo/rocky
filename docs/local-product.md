@@ -36,6 +36,7 @@ the API never guesses cost from output text.
 | `GET /api/runs/:id/diffs/:diffId` | `DiffView` for recorded base/head identities |
 | `GET /api/screenshots/:id` | Confined bytes; not a Linear asset redirect |
 | `POST /api/runs/:id/answer` | `{stepKey,generation,answer}`; 409 includes winner |
+| `POST /api/runs/:id/retry-step` | `{requestId,stepKey,expectedBoot}`; 202 queued, 409 named refusal |
 | `POST /api/runs/:id/steer` | `{requestId,message}`; durable `SteerReceipt` |
 | `POST /api/triggers` | `{trigger,issue}`; 201 admitted, 409 named refusal |
 | `GET /api/settings` | Redacted `SettingsView` with revision and restart hint |
@@ -54,6 +55,37 @@ Reads are incremental with 16 KiB chunks and bounded stream backpressure.
 Transcript files are capped at 100 MiB. Disconnect/shutdown releases readers.
 Diffs, lists and structured results do not stream. `x-rocky-version` is present
 on local responses, including errors/SSE.
+
+Failed Runs expose **Retry failed step** when the final Step supports replay.
+It re-executes failed Agent/exec work, reuses earlier results and successful
+parallel branches, and continues the Workflow. The request is idempotent and
+checks the displayed Boot against current state. Retry failures keep the request
+ID and display the server's explanation. See [journal retry](journal-writer.md)
+for durability and workspace restrictions.
+
+## Reading Step output
+
+Expanded Steps render arbitrary result schemas as labeled fields and lists, with
+Markdown prose, tables, task lists and code blocks. Mermaid blocks offer an
+explicit render/source toggle. Raw result JSON remains available in a disclosure.
+Shell stdout/stderr and tool output preserve whitespace in code panels.
+
+The Transcript activity view decodes OpenCode and Claude Code JSONL in the
+browser, buffering incomplete records across SSE chunks. Tool calls and results
+share one expandable entry; Claude partial messages are reconciled with final
+messages. Agent messages, reasoning, tool status, timing, turn metadata, errors,
+plain diagnostics and unknown event types remain inspectable. Search and
+All/Messages/Tools/Errors filters operate on the retained browser entries.
+Follow latest is opt-in so incoming activity does not move someone reading.
+
+Rendering initially mounts the latest 80 matching entries, with earlier entries
+available on demand. Browser retention is bounded to 1,000 entries or 4 million
+serialized characters, whichever is reached first; the raw view retains the last
+200,000 characters. Oversized records (over 2 million characters) show a notice
+and parsing resumes at the next newline. Every display limit is labeled and
+leaves the durable Transcript unchanged. Long code blocks and arrays expand on
+demand. Raw HTML is inert, unsafe link protocols are rejected, and Markdown
+images do not initiate remote requests.
 
 ## Artifact Contract
 
@@ -114,12 +146,13 @@ Tests of HTTP callback transport do not close those cross-lane gates.
 
 ## Profiles with several repositories
 
-**Add profile** loads Rocky's default workflow using the machine's configured
-harness and model. Saving a new profile also stores its default prompts, schemas,
+**Add profile** loads Rocky's default workflow and asks for a harness, explicit model ID,
+and variant/effort for the main and helper agents. Helpers can use the same selection.
+Setup values are visible suggestions; blank model or variant/effort values cannot be saved. Saving a new profile also stores its default prompts, schemas,
 rules, MCP declaration, and secret references locally. The source is editable
 before saving, and updates preserve existing custom pipeline content.
 `GET /api/profile-defaults` previews the default without creating a profile;
-new `PUT /api/profiles` requests may omit workflow and grants to use those defaults.
+new `PUT /api/profiles` requests require `models: { agent: { harness, model, effort }, fastAgent: { harness, model, effort } }`. Workflow and grants may be omitted to seed the defaults. Models are written into the workflow declarations, and `models` in profile responses is derived from those declarations without executing the source. Existing profiles with dynamic or incomplete declarations are identified in the UI; they are not automatically rewritten.
 
 In **Profiles**, add each repository with a folder name, Git remote URL, and
 base branch. One profile owns one workflow and its agent configuration. The
@@ -139,6 +172,15 @@ A profile can now store its membership without a separate single `remote`:
   "workflow": { "source": "...", "triggers": ["implement"] }
 }
 ```
+
+In **Profiles → Workflow**, **Reset to default** replaces the saved workflow,
+triggers, agent prompts and schemas with the currently installed defaults after
+an explicit model-selection and reset confirmation. The reset request includes the current
+revision and complete `models`. Save pending profile edits first. The reset preserves
+other values in the marked Config block, repository membership, grants, MCP configuration, rules and environment
+settings. A workflow without a Config block receives the default configuration;
+malformed markers must be repaired first. Stale profile revisions are refused.
+Existing runs retain their snapshots; new runs use the reset workflow.
 
 The existing workflow, prompts, schemas, grants, MCP declarations, and environment
 fields keep their formats. SSH, HTTPS, file remotes and host/owner/repo shorthand
@@ -181,8 +223,8 @@ The daemon watches saved profile content, including edits to the external
 `.workflow.ts` file, every two seconds. It waits for edits to settle before
 queuing generation through the profile's configured harness. The auxiliary job
 has no tools or MCP servers and does not start a workflow Run. It uses the
-instance's default model when that default matches the profile's harness;
-otherwise the harness selects its usual model. Temporary agent data is removed
+helper model and effort declared in the workflow. Legacy workflows without literal
+model declarations retain their existing instance/harness fallback until explicitly updated. Temporary agent data is removed
 when the job completes or is cancelled.
 
 Diagrams are persisted under `~/.rocky/cache/workflow-diagrams/`, keyed by the

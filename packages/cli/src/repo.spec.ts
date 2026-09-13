@@ -84,7 +84,18 @@ function io() {
 
 async function run(...argv: string[]) {
   const { lines, io: cliIo } = io();
-  await buildCli(cliIo).parseAsync(['node', 'rocky', ...argv]);
+  const modelFlags =
+    argv[0] === 'repo' && (argv[1] === 'add' || argv[2] === 'seed')
+      ? [
+          '--harness',
+          'opencode',
+          '--model',
+          'openai/test-model',
+          '--variant',
+          'high',
+        ]
+      : [];
+  await buildCli(cliIo).parseAsync(['node', 'rocky', ...argv, ...modelFlags]);
   return { out: lines.out.join('\n'), err: lines.err.join('\n') };
 }
 

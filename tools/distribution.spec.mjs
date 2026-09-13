@@ -134,6 +134,62 @@ test(
     // the normal CLI smoke cannot exercise their dynamic URL imports.
     for (const file of ['validate-child.js', 'validate-worker.js', 'loader.js'])
       await readFile(join(installed, 'dist', file), 'utf8');
+    const syntax = JSON.parse(
+      run(
+        process.execPath,
+        [join(installed, 'dist', 'mermaid-check.js'), '--source'],
+        consumer,
+        { input: 'flowchart LR\nA["API<br/>entry"] --> B' },
+      ),
+    );
+    assert.equal(syntax.ok, true);
+    assert.equal(syntax.rendered, false);
+    assert.equal(syntax.diagrams.length, 1);
+    const seedHome = join(root, 'seed-instance');
+    await mkdir(seedHome);
+    await writeFile(
+      join(seedHome, 'config.json'),
+      JSON.stringify({
+        repos: [
+          {
+            name: 'fixture',
+            url: 'https://example.test/acme/fixture.git',
+            baseBranch: 'main',
+            label: 'fixture',
+          },
+        ],
+      }),
+    );
+    run(
+      binary,
+      [
+        'repo',
+        'profile',
+        'seed',
+        'fixture',
+        '--harness',
+        'opencode',
+        '--model',
+        'provider/main-model',
+        '--variant',
+        'high',
+        '--fast-harness',
+        'claude-code',
+        '--fast-model',
+        'claude-helper-model',
+        '--fast-variant',
+        'low',
+      ],
+      consumer,
+      { env: { ...env, ROCKY_HOME: seedHome } },
+    );
+    const pinnedWorkflow = await readFile(
+      join(seedHome, 'profiles/fixture.workflow.ts'),
+      'utf8',
+    );
+    assert.match(pinnedWorkflow, /model: 'provider\/main-model'/);
+    assert.match(pinnedWorkflow, /model: 'claude-helper-model'/);
+    assert.match(pinnedWorkflow, /effort: 'low'/);
     const seedSnapshot = join(root, 'seed-snapshot');
     await cp(join(installed, 'content', '.rocky'), seedSnapshot, {
       recursive: true,

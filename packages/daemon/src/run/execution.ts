@@ -1,3 +1,4 @@
+import { prepareRetryWorkspace } from './retry-workspace.js';
 import { rm } from 'node:fs/promises';
 import { createWorkspace, releaseCleanWorkspace } from '../repos/workspace.js';
 import type { Issue } from '@rocky/sdk';
@@ -205,7 +206,24 @@ export async function openExecution(options: ExecutionOptions) {
       ? { kill: runtime.kill, cleanup: options.preserve }
       : undefined,
     onError: options.onError,
+    retryStep: async (run, input) => {
+      const journal = await writer(options.paths.run(run.runId).journal);
+      if (await journal.get(`linear-mirror:${run.runId}:terminal`))
+        throw new Error(
+          'This Run already prepared or published a terminal Linear response. Start a new Run instead of retrying its effects.',
+        );
+      await prepareRetryWorkspace(
+        options.repos,
+        run,
+        (await journal.read()).entries,
+      );
+      await journal.retry(input.requestId, input.stepKey, [
+        `linear-mirror:${run.runId}:mode`,
+        `linear-mirror:${run.runId}:closing`,
+      ]);
+    },
     releaseTerminalWorkspace: async (run) => {
+      if (run.status === 'failed') return;
       await releaseCleanWorkspace(options.repos, run.runId);
     },
     append: async (path, entry, appendOptions) =>

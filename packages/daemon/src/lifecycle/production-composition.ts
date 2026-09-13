@@ -155,6 +155,14 @@ export async function createProductionComposition(options: {
     },
   });
 
+  // Capture the complete discussion once, before admission. Replays use the
+  // persisted snapshot; a failed fetch must not masquerade as no prior answers.
+  const hydrateIssue = async (identifier: string) => {
+    const issue = await client.issue(identifier);
+    const comments = await client.comments(issue.id);
+    return { ...issue, comments };
+  };
+
   const ownsLiveSession = (run: RunHeader, sessionId: string) =>
     !ended(run) && run.linear?.sessionId === sessionId;
   const find = async (sessionId: string) => {
@@ -166,13 +174,14 @@ export async function createProductionComposition(options: {
   const created = async (event: Parameters<AgentSessionEventHandler>[0]) => {
     if (!event.issueId)
       throw new Error('A delegated Agent session must name its Linear issue');
-    const issue = await client.issue(event.issueId);
+    const issue = await hydrateIssue(event.issueId);
     const admitted = await execution.delegate({
       requestId: event.sessionId,
       issue: {
         identifier: issue.identifier,
         title: issue.title,
         description: issue.description,
+        comments: issue.comments,
         labels: issue.labels,
         url: issue.url,
       },
@@ -297,6 +306,12 @@ export async function createProductionComposition(options: {
         profiles: new LocalProfiles(options.paths),
         connections,
         diagrams,
+        retryStep: async (id, input) => {
+          await execution.scheduler.retryStep(id, input);
+          void execution.scheduler
+            .drain()
+            .catch((error) => app.log.error(error, 'Retry scheduling failed'));
+        },
         currentCheckpoint: async (id) => (await controlView(id)).checkpoint,
         answer: async (id, input) => {
           const control = await controlFor(id);
@@ -337,13 +352,14 @@ export async function createProductionComposition(options: {
           };
         },
         manual: async ({ trigger, issue: identifier, profileId }) => {
-          const issue = await client.issue(identifier);
+          const issue = await hydrateIssue(identifier);
           const admitted = await execution.manual(trigger, {
             requestId: randomUUID(),
             issue: {
               identifier: issue.identifier,
               title: issue.title,
               description: issue.description,
+              comments: issue.comments,
               labels: issue.labels,
               url: issue.url,
             },

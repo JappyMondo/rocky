@@ -451,3 +451,31 @@ it('publishes progressive Harness events before the active invocation returns', 
   expect(await boot).toMatchObject({ status: 'finished' });
   expect(onEvent).toHaveBeenCalledTimes(2);
 });
+
+it('carries prior human directions into a fresh manual Step retry', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const f = fixture();
+  await runBoot({
+    journalPath: f.journalPath,
+    workflow: async (steps) => {
+      await steps.step('agent', {}, async (handle) => {
+        await handle.update({
+          kind: 'agent',
+          turns: [{ id: 'human', note: 'Keep this analysis read-only.' }],
+          delivered: [],
+        });
+        throw new Error('database is locked');
+      });
+      return 'completed';
+    },
+  });
+  await (await JournalWriter.open(f.journalPath)).retry('retry-agent', '0');
+  expect(
+    (await runBoot({ journalPath: f.journalPath, workflow: f.workflow }))
+      .status,
+  ).toBe('finished');
+  expect(f.run.mock.calls[0][0].prompt).toContain(
+    'Keep this analysis read-only.',
+  );
+  expect(f.resume).not.toHaveBeenCalled();
+});

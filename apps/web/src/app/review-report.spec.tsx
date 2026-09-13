@@ -176,3 +176,93 @@ it('shows failed report requests and aborts an in-flight request on close', asyn
   );
   await waitFor(() => expect(signal?.aborted).toBe(true));
 });
+it('shows a non-PR deliverable and supports keyboard navigation of code changes without interpreting HTML', async () => {
+  const recap = {
+    ...report,
+    pr: undefined,
+    deliverable: 'The requested investigation and recommendations.',
+    keyChanges: [
+      {
+        title: 'Restrict access',
+        summary: 'Only owners may update settings.',
+        files: ['src/access.ts'],
+        diff: '--- a/src/access.ts\n+++ b/src/access.ts\n@@ -1 +1 @@\n-allowAll()\n+requireOwner()\n+<script>alert(1)</script>',
+        annotations: [
+          {
+            file: 'src/access.ts',
+            line: 1,
+            text: 'Ownership is checked before writes.',
+          },
+        ],
+      },
+      {
+        title: 'Explain the outcome',
+        summary: 'The comment documents the decision.',
+        files: [],
+        diff: '',
+        annotations: [],
+      },
+    ],
+    reviewFocus: [
+      {
+        category: 'permissions',
+        title: 'Ownership boundary',
+        summary: 'Review the owner check.',
+        status: 'attention',
+        evidence: ['Non-owner requests return 403.'],
+      },
+      {
+        category: 'routes',
+        title: 'No new routes',
+        summary: 'The existing route is reused.',
+        status: 'not-applicable',
+        evidence: [],
+      },
+    ],
+    files: [{ path: 'src/access.ts', status: 'modified' }],
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(recap))),
+  );
+  render(
+    <ReviewReports
+      detail={{ ...detail, reports: [{ ...report, pr: undefined }] }}
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: /Clarify before implementation/ }),
+  );
+  await screen.findByRole('heading', { name: 'Delivered result' });
+  expect(screen.queryByRole('link', { name: 'Open pull request' })).toBeNull();
+  expect(screen.getByText(recap.deliverable)).toBeTruthy();
+  expect(screen.getByText('Review the owner check.')).toBeTruthy();
+  expect(screen.getByText('No new routes')).toBeTruthy();
+  expect(screen.getByLabelText('Key code diff').textContent).toContain(
+    '<script>alert(1)</script>',
+  );
+  expect(document.querySelector('script')).toBeNull();
+  expect(screen.getByText('src/access.ts:1')).toBeTruthy();
+  expect(screen.getByLabelText('Recap at a glance').textContent).toContain(
+    '1/2',
+  );
+  const first = screen.getByRole('tab', { name: 'Restrict access' });
+  const second = screen.getByRole('tab', { name: 'Explain the outcome' });
+  expect(first.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(first, { key: 'ArrowRight' });
+  expect(second.getAttribute('aria-selected')).toBe('true');
+  expect(document.activeElement).toBe(second);
+  expect(screen.getByRole('tabpanel').textContent).toContain(
+    'No code diff for this change.',
+  );
+  fireEvent.keyDown(second, { key: 'Home' });
+  expect(first.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(first, { key: 'End' });
+  expect(second.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(second, { key: 'ArrowLeft' });
+  expect(first.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(first, { key: 'ArrowLeft' });
+  expect(second.getAttribute('aria-selected')).toBe('true');
+  fireEvent.click(first);
+  expect(first.getAttribute('aria-selected')).toBe('true');
+});

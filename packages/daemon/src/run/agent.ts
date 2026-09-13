@@ -1,4 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { agentToolInstructions, checkAgentBlocker } from './agent-tools.js';
 import { isAbsolute, join, relative } from 'node:path';
 
 import type { AgentCallOpts, WorkflowContext } from '@rocky/sdk';
@@ -37,6 +40,7 @@ const progressSchema = z.object({
     }),
   ),
   delivered: z.array(z.string()),
+  retryNotes: z.array(z.string()).optional(),
   live: z
     .object({
       output: z.string(),
@@ -92,6 +96,7 @@ export interface AgentHarnessInvocation {
   model?: string;
   effort?: string;
   capabilities: readonly AgentCapability[];
+  evidenceDirectories?: readonly string[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
   env: NodeJS.ProcessEnv;
@@ -150,6 +155,7 @@ export interface AgentHarnessAdapter {
 }
 
 export interface AgentOptions {
+  screenshotDir?: string;
   snapshotDir: string;
   cwd: string;
   sessionDir: string;
@@ -289,7 +295,7 @@ export function createAgent(
         prompt = source.prompt;
       }
 
-      prompt = `Run workspace: ${runtime.cwd}\nWork only in this workspace and its repository members. Verify the current directory and branch before modifying files. Never substitute the daemon checkout or another repository for the assigned workspace.\n\n${prompt}`;
+      prompt = `Run workspace: ${runtime.cwd}\nWork only in this workspace and its repository members. Never substitute the daemon checkout or another repository for the assigned workspace.\n\n${agentToolInstructions(opts)}\n\n${prompt}`;
       const summary = z.object({ summary: z.string() });
       const schema = opts.schema;
       const jsonSchema = z.toJSONSchema(schema ?? summary, {
@@ -339,6 +345,22 @@ export function createAgent(
           'Agent timeout must be a positive number of milliseconds',
         );
       }
+      const retryProgress = z
+        .object({
+          kind: z.literal('agent-retry'),
+          notes: z.array(z.string()),
+          delivered: progressSchema.shape.delivered,
+        })
+        .safeParse(handle.progress);
+      const storedProgress =
+        handle.progress === undefined || retryProgress.success
+          ? undefined
+          : progressSchema.parse(handle.progress);
+      const retryNotes = retryProgress.success
+        ? retryProgress.data.notes
+        : (storedProgress?.retryNotes ?? []);
+      if (retryNotes.length)
+        prompt += `\n\nPrior human directions for this retried Step:\n${retryNotes.join('\n\n')}`;
       const fresh = (attempt: number): z.infer<typeof progressSchema> => {
         const startedAt = Date.now();
         return {
@@ -355,6 +377,7 @@ export function createAgent(
           startedAt,
           deadline: startedAt + timeout,
           phase: 'cold',
+          retryNotes,
           nudges: [],
           usage: {},
           turns: [],
@@ -362,10 +385,10 @@ export function createAgent(
           live: { output: '', summary: 'Starting agent…' },
         };
       };
-      let progress =
-        handle.progress === undefined
-          ? fresh(1)
-          : progressSchema.parse(handle.progress);
+      let progress = storedProgress ?? {
+        ...fresh(1),
+        delivered: retryProgress.success ? retryProgress.data.delivered : [],
+      };
       if (progress.phase === 'failed') {
         if (!progress.error) {
           throw new Error(
@@ -634,9 +657,22 @@ export function createAgent(
                 ...config,
                 cwd: runtime.cwd,
                 prompt: continuation?.prompt ?? prompt,
+                env: {
+                  ...config.env,
+                  ROCKY_BROWSER_SESSION: `rocky-${createHash('sha256').update(runtime.sessionDir).update(handle.identity).digest('hex').slice(0, 16)}`,
+                  ROCKY_NODE: process.execPath,
+                  ROCKY_MERMAID_CHECK: fileURLToPath(
+                    new URL('./mermaid-check.js', import.meta.url),
+                  ),
+                },
                 model: opts.model,
                 effort: opts.effort,
                 capabilities: opts.tools ?? [],
+                ...(runtime.screenshotDir &&
+                opts.tools?.includes('read') &&
+                !opts.tools.includes('edit')
+                  ? { evidenceDirectories: [runtime.screenshotDir] }
+                  : {}),
                 mcpServers,
                 transcriptPath: join(
                   runtime.sessionDir,
@@ -743,6 +779,7 @@ export function createAgent(
                 delete progress.continuation;
               }
               if (await continueWithSteers(result.sessionId)) continue;
+              checkAgentBlocker(result.text);
               try {
                 const match = /<result>([\s\S]*?)<\/result>/.exec(result.text);
                 const encoded = match?.[1];

@@ -903,3 +903,66 @@ it('posts scope and report comments once, survives an ambiguous response and pre
   );
   expect(f.comments).toHaveLength(4);
 });
+
+it.each([null, 'session-test'])(
+  'delivers a comment-only result once across Boot with session attribution %s',
+  async (sessionId) => {
+    const f = fixture();
+    const mirror = new LinearRunMirror(f.options);
+    await mirror.start();
+    await mirror.comment('deliverable', '## Analysis\n\nThe requested answer.');
+    const deliverable = f.comments.find((comment) =>
+      comment.body.startsWith('## Analysis'),
+    );
+    expect(deliverable).toBeDefined();
+    if (!deliverable) throw new Error('Missing delivered comment');
+    deliverable.sessionId = sessionId;
+
+    const restarted = new LinearRunMirror(f.options);
+    await restarted.comment(
+      'deliverable',
+      'Changed replay must not replace the answer.',
+    );
+    await restarted.beforeElicitation();
+    await restarted.finish(
+      { kind: 'completed' },
+      { changedSummary: 'Analysis delivered in the ticket comment.' },
+    );
+    await new LinearRunMirror(f.options).finish(
+      { kind: 'completed' },
+      { changedSummary: 'Changed replay' },
+    );
+
+    expect(f.comments).toHaveLength(3);
+    expect(
+      f.comments.filter((comment) => comment.id === deliverable.id),
+    ).toEqual([deliverable]);
+    expect(deliverable.body).toBe('## Analysis\n\nThe requested answer.');
+    expect(f.calls.filter((call) => call === 'comment')).toHaveLength(2);
+    expect(
+      f.activities.filter((activity) => activity.content.type === 'response'),
+    ).toHaveLength(1);
+  },
+);
+
+it('does not treat an explicit deliverable as evidence of the terminal auto-comment', async () => {
+  const f = fixture();
+  const mirror = new LinearRunMirror(f.options);
+  await mirror.start();
+  await mirror.comment('deliverable', 'The requested answer.');
+  const ensure = f.client.ensureActivity;
+  f.client.ensureActivity = async (input) => {
+    const result = await ensure(input);
+    if (input.content.type === 'response') f.comments.pop();
+    return result;
+  };
+
+  await expect(
+    mirror.finish(
+      { kind: 'completed' },
+      { changedSummary: 'Answer delivered.' },
+    ),
+  ).rejects.toThrow(/exactly one matching closing auto-comment/);
+  expect(f.comments).toHaveLength(2);
+  expect(f.comments[1].body).toBe('The requested answer.');
+});

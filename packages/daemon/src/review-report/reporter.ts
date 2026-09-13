@@ -5,6 +5,7 @@ import type { ReviewReport } from '@rocky/local-contracts';
 import type { BootContext } from '../run/replay.js';
 import { LocalArtifacts } from '../local-api/artifacts.js';
 import { ReportContent } from './schema.js';
+import { generateRecapContent } from './recap.js';
 
 export const reportPrompt = `Create a visual review report for a human deciding whether to approve a PR/MR. Explain the solved problems and observable before/after behavior in plain language, with Mermaid flowcharts or sequence diagrams of the processing changes. This is an explanation of the change, not a code review. Ground every claim in the supplied immutable diff and verified evidence; never substitute changes in another checkout or rely on an agent's claims about a commit.
 
@@ -19,17 +20,48 @@ export function reportId(
     .slice(0, 32)}`;
 }
 
+export function recapId(input: {
+  pr?: Pick<ScmPr, 'repo' | 'number' | 'headSha'>;
+  diff?: string;
+  deliverable?: string;
+  title?: string;
+  enhanced?: boolean;
+}): string {
+  if (input.pr && !input.enhanced) return reportId(input.pr);
+  const subject = input.pr
+    ? [input.pr.repo, input.pr.number, input.pr.headSha]
+    : [input.title ?? '', input.diff ?? '', input.deliverable ?? ''];
+  return `r_${createHash('sha256')
+    .update(
+      JSON.stringify([
+        input.enhanced ? 'visual-recap-v1' : 'report',
+        ...subject,
+      ]),
+    )
+    .digest('hex')
+    .slice(0, 32)}`;
+}
+
 export function reportMarkdown(
   report: ReviewReport,
   origin: string,
   images: Record<string, string> = {},
 ): string {
   const url = `${origin}/runs/${encodeURIComponent(report.runId)}?report=${report.id}`;
+  if (report.keyChanges !== undefined)
+    return [
+      `## ${report.title}`,
+      report.summary,
+      `[Open visual recap in Rocky](${url})`,
+      ...(report.pr ? [`Revision: \`${report.pr.headSha}\``] : []),
+      `Visual coverage: ${report.visuals.filter((v) => v.status === 'captured').length}/${report.visuals.length} variants captured.`,
+      ...report.limitations.map((limitation) => `- ${limitation}`),
+    ].join('\n\n');
   return [
     `## ${report.title}`,
     report.summary,
     `[Open visual review report in Rocky](${url})`,
-    `Revision: \`${report.pr.headSha}\``,
+    ...(report.pr ? [`Revision: \`${report.pr.headSha}\``] : []),
     ...report.problems.map((p) => `### ${p.problem}\n\n${p.solution}`),
     ...report.diagrams.map(
       (d) =>
@@ -53,17 +85,21 @@ export async function generateReport(input: {
   agentOptions: AgentCallOpts;
   artifacts: LocalArtifacts;
   runId: string;
-  pr: ScmPr;
-  baseSha: string;
-  diff: string;
+  pr?: ScmPr;
+  baseSha?: string;
+  diff?: string;
+  deliverable?: string;
+  title?: string;
+  enhanced?: boolean;
   issue: unknown;
   screenshotDir: string;
   workspace: unknown;
   workflow?: string;
+  previewUrl?: string;
   scope?: unknown;
   port: number | undefined;
 }): Promise<ReviewReport> {
-  const id = reportId(input.pr);
+  const id = recapId(input);
   const cached = await input.steps.step(
     'reviewReport.cache',
     { label: 'Find report for PR revision' },
@@ -76,26 +112,51 @@ export async function generateReport(input: {
     }),
   );
   if (cached) return cached;
-  const content = await input.agent(
-    { prompt: reportPrompt },
-    {
-      ...input.agentOptions,
-      label: `Visual review report: ${input.pr.repo} #${input.pr.number}`,
-      schema: ReportContent,
-      input: {
-        issue: input.issue,
-        pr: input.pr,
-        baseSha: input.baseSha,
-        diff: input.diff,
-        screenshotDir: input.screenshotDir,
-        workspace: input.workspace,
-        port: input.port ?? null,
-        workflow: input.workflow ?? null,
-        scope: input.scope ?? null,
-        reportId: id,
-      },
-    },
-  );
+  const context = {
+    issue: input.issue,
+    pr: input.pr ?? null,
+    title: input.title ?? null,
+    baseSha: input.baseSha ?? null,
+    diff: input.diff ?? '',
+    deliverable: input.deliverable ?? null,
+    screenshotDir: input.screenshotDir,
+    workspace: input.workspace,
+    port: input.port ?? null,
+    workflow: input.workflow ?? null,
+    scope: input.scope ?? null,
+    reportId: id,
+    previewUrl: input.previewUrl ?? null,
+  };
+  const content = input.enhanced
+    ? await generateRecapContent({
+        steps: input.steps,
+        agent: input.agent,
+        agentOptions: input.agentOptions,
+        context,
+        diff: input.diff ?? '',
+        deliverable: input.deliverable,
+      })
+    : await input.agent(
+        { prompt: reportPrompt },
+        {
+          ...input.agentOptions,
+          label: `Visual review report: ${input.pr?.repo ?? 'deliverable'} #${input.pr?.number ?? ''}`,
+          schema: ReportContent,
+          input: {
+            issue: input.issue,
+            pr: input.pr,
+            baseSha: input.baseSha,
+            diff: input.diff,
+            screenshotDir: input.screenshotDir,
+            workspace: input.workspace,
+            port: input.port ?? null,
+            workflow: input.workflow ?? null,
+            scope: input.scope ?? null,
+            reportId: id,
+            previewUrl: input.previewUrl ?? null,
+          },
+        },
+      );
   return input.steps.step(
     'reviewReport.save',
     { label: 'Save visual review report' },
@@ -126,13 +187,17 @@ export async function generateReport(input: {
         id,
         runId: input.runId,
         createdAt: new Date().toISOString(),
-        pr: {
-          repo: input.pr.repo,
-          number: input.pr.number,
-          url: input.pr.url,
-          headSha: input.pr.headSha,
-          baseSha: input.baseSha,
-        },
+        ...(input.pr
+          ? {
+              pr: {
+                repo: input.pr.repo,
+                number: input.pr.number,
+                url: input.pr.url,
+                headSha: input.pr.headSha,
+                baseSha: input.baseSha ?? input.pr.headSha,
+              },
+            }
+          : {}),
         visuals,
       };
       await input.artifacts.saveReport(input.runId, report);

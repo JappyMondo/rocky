@@ -130,6 +130,7 @@ export const workflowDefaultsSchema = z.looseObject({
   harness: z.enum(SHIPPED_HARNESSES).default('opencode'),
   /** OpenCode accepts provider/model strings such as `openai/gpt-5.2`. */
   model: z.string().min(1).optional(),
+  effort: z.string().min(1).optional(),
 });
 
 const instanceConfigShape = z.looseObject({

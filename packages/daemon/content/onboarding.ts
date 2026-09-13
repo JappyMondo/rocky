@@ -2,6 +2,8 @@ import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentCallOpts, ScmRefusal, WorkflowContext } from '@rocky/sdk';
 import { CiFix } from './.rocky/schemas.js';
+import { agentModelSchema } from '../src/config/workflow-models.js';
+import type { AgentModelSelection } from '@rocky/local-contracts';
 import {
   Conventions,
   Inspection,
@@ -69,11 +71,34 @@ async function immutableFiles(
 /** The missing-lead binding runs this with the internal .rocky/ as its snapshot. */
 export function createOnboarding(services: OnboardingServices) {
   return async (ctx: WorkflowContext) => {
-    // First-run onboarding must use the harness already authenticated on this
-    // machine. OpenCode owns its provider/model selection, so leave `model`
-    // unset instead of imposing a Claude-only default before Rocky can seed
-    // the repository's own configuration.
-    const model = { harness: 'opencode' };
+    const chooseModel = async (
+      role: string,
+      same?: AgentModelSelection,
+    ): Promise<AgentModelSelection | undefined> => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const answer = await ctx.question({
+          title: `Choose ${role} model`,
+          body:
+            'Enter the harness, full model ID and explicit variant/effort separated by spaces: opencode provider/model high, or claude-code full-model-id high. These settings are saved in the workflow; harness defaults are never used.' +
+            (attempt ? ' The previous answer was incomplete or invalid.' : ''),
+          ...(same ? { options: ['Same as main agent'] } : {}),
+        });
+        if ('cancelled' in answer) return undefined;
+        if (same && answer.answer === 'Same as main agent') return same;
+        const [harness, model, effort, extra] = answer.answer
+          .trim()
+          .split(/\s+/);
+        const parsed = agentModelSchema.safeParse({ harness, model, effort });
+        if (!extra && parsed.success) return parsed.data;
+      }
+      throw new Error(
+        'Choose explicit models before retrying workflow seeding.',
+      );
+    };
+    const model = await chooseModel('main agent');
+    if (!model) return 'rejected' as const;
+    const fastAgent = await chooseModel('helper agent', model);
+    if (!fastAgent) return 'rejected' as const;
     const edit: AgentCallOpts = { ...model, tools: ['read', 'edit', 'bash'] };
     const directory = join(services.repo, '.rocky');
     const shell = async (command: string) => {
@@ -127,6 +152,7 @@ export function createOnboarding(services: OnboardingServices) {
         if (await exists(directory)) await services.validate(directory);
         else
           await seedContent({
+            models: { agent: model, fastAgent },
             repo: services.repo,
             shippedDir: services.shippedDir,
             inspection: { commands: inspected.commands, ui: inspected.ui },

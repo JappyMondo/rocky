@@ -12,7 +12,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { assertSessionOwner, runProcess } from './process.js';
-import { checkMcpToolError, mcpFailure } from './mcp-policy.js';
+import {
+  checkMcpToolError,
+  checkToolAccessError,
+  mcpFailure,
+} from './mcp-policy.js';
 import { prepareClaudeSession } from './claude-session.js';
 
 export function claudeExecutionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -125,6 +129,12 @@ async function executeClaude(
     else args.push('--session-id', sessionId);
     if (input.model) args.push('--model', input.model);
     if (input.effort) args.push('--effort', input.effort);
+    if (
+      input.capabilities.includes('read') &&
+      !input.capabilities.includes('edit')
+    )
+      for (const directory of input.evidenceDirectories ?? [])
+        args.push('--add-dir', directory);
     args.push('--', input.prompt);
     const parser = createClaudeStream(
       input.onEvent,
@@ -256,8 +266,10 @@ function createClaudeStream(
               throw new HarnessError(
                 'claude-code tool result has no matching call',
               );
-            if (block.is_error)
+            if (block.is_error) {
               checkMcpToolError(name, block.content, servers, '__');
+              checkToolAccessError(name, block.content);
+            }
             emit({ kind: 'tool-result', name });
             tools.delete(block.tool_use_id);
             settledTools = true;

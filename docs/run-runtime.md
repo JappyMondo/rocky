@@ -132,7 +132,7 @@ exists is retained until its owner preserves and removes that workspace.
 Retention is not another cleanup path and never deletes a branch.
 
 Readers reject malformed `$end`, terminal records in parallel branches,
-complete records after `$end`, unknown fields and incompatible nested versions.
+ordinary records after `$end`, unknown fields and incompatible nested versions.
 Only an unterminated tail is torn. Recovery refuses corruption without
 truncating earlier work. The header caches the Journal's terminal outcome.
 The runtime checks the Journal before loading the Workflow or renewing ports.
@@ -148,3 +148,6 @@ their approved designs. Original Cyrus worktrees/delegates remain untouched.
 The 2026-09-07 decision supersedes the old newest-ordinal shortcut. Cancellation
 records its terminal outcome after cleanup rather than making the header a
 second durable authority.
+
+An explicit [Step retry marker](journal-writer.md#explicit-step-retry) can reopen
+a failed Run without editing its history. It is the only terminal-barrier exception.

@@ -8,6 +8,7 @@ import {
   writeRepositoryProfile,
 } from './config/profiles.js';
 import { parseInstanceConfig } from './config/schema.js';
+import { configureWorkflowModels } from './config/workflow-models.js';
 import type { ConfigStore } from './config/watcher.js';
 import type { HarnessInvocation } from './harness/types.js';
 import {
@@ -310,4 +311,49 @@ it('uses the configured harness, redacts known secrets, grants no tools, and rem
   expect(
     await readdir(join(paths.root, 'cache/workflow-diagram-jobs')),
   ).toEqual([]);
+});
+
+it('uses the workflow helper model and effort even after instance defaults change', async () => {
+  const { paths, profile } = await fixture();
+  const config = {
+    current: parseInstanceConfig({
+      workflowDefaults: {
+        harness: 'opencode',
+        model: 'changed/default',
+        effort: 'low',
+      },
+    }),
+    readCredentials: async () => ({}),
+  } as unknown as ConfigStore;
+  const agent = {
+    harness: 'opencode' as const,
+    model: 'selected/main',
+    effort: 'high',
+  };
+  const fastAgent = {
+    harness: 'claude-code' as const,
+    model: 'selected-helper',
+    effort: 'medium',
+  };
+  harness.run.mockResolvedValue({ text: chart });
+  await agentDiagramGenerator(paths, config)(
+    {
+      ...profile,
+      workflow: {
+        source: configureWorkflowModels('export default [];', {
+          agent,
+          fastAgent,
+        }),
+        triggers: [],
+      },
+    },
+    new AbortController().signal,
+  );
+  expect(harness.run).toHaveBeenCalledWith(
+    expect.objectContaining({
+      command: 'claude',
+      model: 'selected-helper',
+      effort: 'medium',
+    }),
+  );
 });

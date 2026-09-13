@@ -37,6 +37,9 @@ const fakes = vi.hoisted(() => ({
   }>,
   delegate: vi.fn(),
   issue: vi.fn(),
+  comments: vi.fn<
+    () => Promise<import('../linear/client.js').LinearCommentSummary[]>
+  >(async () => []),
   openExecution: vi.fn(),
   postActivity: vi.fn(async () => ({ id: 'activity', success: true })),
 }));
@@ -45,6 +48,7 @@ vi.mock('../linear/client.js', async (original) => ({
   ...(await original<typeof import('../linear/client.js')>()),
   RockyLinearClient: class {
     issue = fakes.issue;
+    comments = fakes.comments;
     acknowledgeSession = fakes.acknowledge;
     postActivity = fakes.postActivity;
   },
@@ -104,6 +108,8 @@ afterEach(async () => {
   fakes.controls.splice(0);
   fakes.delegate.mockReset();
   fakes.issue.mockReset();
+  fakes.comments.mockReset();
+  fakes.comments.mockResolvedValue([]);
   fakes.openExecution.mockReset();
   fakes.postActivity.mockClear();
   await Promise.all(
@@ -138,6 +144,7 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
   };
   const execution = {
     delegate: fakes.delegate,
+    manual: vi.fn(async () => ({ kind: 'started' as const, run })),
     scheduler: {
       get: vi.fn(async () => run),
       list: vi.fn(async () => [run]),
@@ -159,6 +166,18 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
     url: 'https://linear.app/issue/NG-700',
     teamId: 'team-1',
   });
+  const comments = [
+    {
+      id: 'answer',
+      issueId: 'issue-1',
+      body: 'Whole platform; deliver in a Linear comment, no PR.',
+      createdAt: '2026-09-07T00:00:00Z',
+      userId: 'human',
+      sessionId: null,
+      parentId: 'previous-session-thread',
+    },
+  ];
+  fakes.comments.mockResolvedValue(comments);
   fakes.delegate.mockResolvedValue({ kind: 'admitted', run });
   const config = {
     current: parseInstanceConfig({
@@ -214,6 +233,7 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
       issue: expect.objectContaining({
         identifier: 'NG-700',
         description: 'immutable description',
+        comments,
       }),
     }),
   );
@@ -282,6 +302,31 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
     (await app.inject({ url: '/api/runs', headers: tailnetHeaders }))
       .statusCode,
   ).toBe(403);
+  const manual = await app.inject({
+    method: 'POST',
+    url: '/api/triggers',
+    payload: { trigger: 'start', issue: 'NG-700' },
+  });
+  expect(manual.statusCode).toBe(201);
+  expect(execution.manual).toHaveBeenCalledWith(
+    'start',
+    expect.objectContaining({ issue: expect.objectContaining({ comments }) }),
+  );
+  expect(fakes.comments).toHaveBeenCalledWith('issue-1');
+  fakes.comments.mockRejectedValueOnce(new Error('Comments unavailable'));
+  const callsBeforeFailure = fakes.delegate.mock.calls.length;
+  await expect(
+    composition.onAgentSessionEvent({
+      action: 'created',
+      sessionId: 'new-session',
+      issueId: 'issue-1',
+      appUserId: 'app-user-1',
+      organizationId: 'organization-1',
+      payload: webhookPayload,
+    }),
+  ).rejects.toThrow('Comments unavailable');
+  expect(fakes.delegate).toHaveBeenCalledTimes(callsBeforeFailure);
+
   const answer = await app.inject({
     method: 'POST',
     url: '/api/runs/NG-700-1/answer',

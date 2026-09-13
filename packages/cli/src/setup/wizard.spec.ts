@@ -117,6 +117,8 @@ describe('the order the wizard enforces', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     const urlQuestion = asked.findIndex((q) => /public URL/i.test(q));
@@ -142,6 +144,8 @@ describe('the order the wizard enforces', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     expect(asked.filter((q) => /public URL/i.test(q))).toHaveLength(4);
@@ -213,6 +217,8 @@ describe('what a completed run leaves behind', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     expect(result.ok).toBe(true);
@@ -250,6 +256,7 @@ describe('what a completed run leaves behind', () => {
       'webhook-secret-1',
       'opencode',
       'openai/gpt-5.2',
+      'high',
     ]);
 
     const config = JSON.parse(
@@ -258,6 +265,7 @@ describe('what a completed run leaves behind', () => {
     expect(config.workflowDefaults).toEqual({
       harness: 'opencode',
       model: 'openai/gpt-5.2',
+      effort: 'high',
     });
   });
 
@@ -270,6 +278,8 @@ describe('what a completed run leaves behind', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     const mode = statSync(rockyPaths(home).credentialsFile).mode & 0o777;
@@ -285,6 +295,8 @@ describe('what a completed run leaves behind', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     expect(result.endpoint.ok).toBe(true);
@@ -300,13 +312,17 @@ describe('what a completed run leaves behind', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     expect(transcript()).toContain('Setup authorization is complete');
     expect(transcript()).toContain(`${PUBLIC_URL}/api/linear/webhook`);
     expect(transcript()).toContain('AgentSessionEvent');
     expect(transcript()).toContain('Rocky cannot inspect');
-    expect(transcript()).toContain('New local profiles will use opencode');
+    expect(transcript()).toContain(
+      'New profile creation will ask you to confirm opencode',
+    );
   });
 });
 
@@ -321,6 +337,8 @@ describe('a self-ping that fails at the end', () => {
         'client-secret-1',
         'webhook-secret-1',
         '',
+        'openai/test-model',
+        'high',
       ],
       // The tunnel is not up: the public URL resolves to nothing listening.
       { resolvePublicUrl: () => 'http://127.0.0.1:1' },
@@ -348,6 +366,8 @@ describe('the manifest the admin is handed', () => {
       'client-secret-1',
       'webhook-secret-1',
       '',
+      'openai/test-model',
+      'high',
     ]);
 
     const printed = said.find((line) => line.includes('applications/new'));

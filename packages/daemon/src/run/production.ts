@@ -1,6 +1,6 @@
-import type { ScmPr } from '@rocky/sdk';
+import type { ScmOps, ScmPr, VisualRecapOptions } from '@rocky/sdk';
 import type { Answer } from '@rocky/local-contracts';
-import type { StepOutcome } from './replay.js';
+import type { BootContext, StepOutcome } from './replay.js';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +8,7 @@ import { mkdir } from 'node:fs/promises';
 import { LocalArtifacts } from '../local-api/artifacts.js';
 import {
   generateReport,
-  reportId,
+  recapId,
   reportMarkdown,
 } from '../review-report/reporter.js';
 import { reviewRevision } from '../review-report/workspace.js';
@@ -48,6 +48,23 @@ function scmProject(url: string): {
     );
   const platform = /gitlab\.com/i.test(url) ? 'gitlab' : 'github';
   return { platform, project: match[1] };
+}
+
+/** Construct adapters and check authority only when a Workflow uses SCM. */
+function lazyScm(load: () => Promise<ScmOps>): ScmOps {
+  let pending: Promise<ScmOps> | undefined;
+  const invoke = async <T>(operation: (scm: ScmOps) => Promise<T>) =>
+    operation(await (pending ??= load()));
+  return {
+    openPr: (...args) => invoke((scm) => scm.openPr(...args)),
+    markDraft: (...args) => invoke((scm) => scm.markDraft(...args)),
+    waitForCi: (...args) => invoke((scm) => scm.waitForCi(...args)),
+    retryFailedJobs: (...args) => invoke((scm) => scm.retryFailedJobs(...args)),
+    updateBranch: (...args) => invoke((scm) => scm.updateBranch(...args)),
+    armAutoMerge: (...args) => invoke((scm) => scm.armAutoMerge(...args)),
+    reviewThreads: (...args) => invoke((scm) => scm.reviewThreads(...args)),
+    replyToThread: (...args) => invoke((scm) => scm.replyToThread(...args)),
+  };
 }
 
 /** Profile-owned environment: repository config cannot inject a Run variable. */
@@ -116,6 +133,15 @@ export interface ProductionRuntimeOptions {
 export function createProductionRuntime(
   options: ProductionRuntimeOptions,
 ): WorkflowRuntime {
+  const scmContexts = new WeakMap<BootContext, ScmOps>();
+  const scmContext = (steps: BootContext, load: () => Promise<ScmOps>) => {
+    let context = scmContexts.get(steps);
+    if (!context) {
+      context = lazyScm(load);
+      scmContexts.set(steps, context);
+    }
+    return context;
+  };
   let env: NodeJS.ProcessEnv = {};
   const registeredTranscripts = new Set<string>();
   let credentials: Awaited<ReturnType<typeof readCredentials>>;
@@ -125,6 +151,7 @@ export function createProductionRuntime(
   // real admitted Linear Run has an access token (hydration could not happen
   // otherwise), so only those Runs receive network-backed production services.
   let servicesEnabled = false;
+  let legacyPreflight = false;
   let mcp: Promise<{ runtime: McpRuntime; config: unknown }> | undefined;
   // A mirror has a small in-memory coalescing buffer. Keep one per Run rather
   // than constructing one per effect so streamed status is actually flushed.
@@ -299,6 +326,11 @@ export function createProductionRuntime(
         );
       signal.throwIfAborted();
       credentials = await readCredentials(options.paths);
+      // Preserve the Step sequence of Runs admitted before split preflight.
+      // Both settled and interrupted legacy probes select the old path.
+      legacyPreflight = (
+        await readJournal(options.paths.run(run.runId).journal)
+      ).entries.some((entry) => entry.seq === 2 && entry.step === 'preflight');
       // A browser-fired manual Run is deliberately not an Agent Session. It
       // still gets the normal local profile, workspace, and Harness, but it
       // must not create a mirror, invoke SCM preflight, or pretend it can post
@@ -308,6 +340,10 @@ export function createProductionRuntime(
       env = {
         ...process.env,
         ...profileEnv(run, credentials),
+        ROCKY_NODE: process.execPath,
+        ROCKY_MERMAID_CHECK: fileURLToPath(
+          new URL('./mermaid-check.js', import.meta.url),
+        ),
         ROCKY_RUN_DIR: options.paths.run(run.runId).dir,
         ROCKY_LEAD_REPO: join(
           options.paths.run(run.runId).workspaceDir,
@@ -368,15 +404,12 @@ export function createProductionRuntime(
             return { status: 'done' as const, result: null };
           });
         }
-        // The seed Workflow deliberately leaves merging to the human. Its
-        // branch does not exist until the Workflow pushes it, so the ordinary
-        // merge/rebase preflight would reject onboarding before it can create
-        // its non-draft PR. Its SCM operations still fail closed at the exact
-        // push/PR/CI boundary if the configured token lacks authority.
+        // MCP authentication is relevant to agent work even without a PR.
+        // SCM completion authority is checked lazily when content uses SCM.
         if (run.execution?.source !== 'onboarding') {
-          const members = scmFor(run, signal);
           await runPreflight(steps, {
-            members,
+            ...(legacyPreflight ? {} : { scope: 'mcp' as const }),
+            members: legacyPreflight ? scmFor(run, signal) : [],
             signal,
             refreshMcp: async (refreshSignal) =>
               preflightMcp(
@@ -410,6 +443,7 @@ export function createProductionRuntime(
         };
       };
       const runAgent = createAgent(steps, {
+        screenshotDir: options.paths.run(run.runId).screenshotsDir,
         snapshotDir: options.paths.run(run.runId).snapshotDir,
         cwd: options.paths.run(run.runId).workspaceDir,
         sessionDir: options.paths.run(run.runId).sessionsDir,
@@ -472,16 +506,35 @@ export function createProductionRuntime(
           head,
         );
       };
-      const onReady = async (pr: ScmPr) => {
-        const publishedKey = `review-report:${reportId(pr)}:published`;
-        const revision = await steps.step(
-          'reviewReport.revision',
-          { label: 'Verify pushed PR changes' },
-          async () => ({
-            status: 'done',
-            result: await revisionFor(pr.repo, pr.headSha),
-          }),
-        );
+      const visualRecap = async (
+        recap: VisualRecapOptions,
+        enhanced = true,
+      ) => {
+        const { pr } = recap;
+        if (!pr && !recap.diff?.trim() && !recap.deliverable?.trim())
+          throw new Error(
+            'ctx.visualRecap requires a PR, diff, or deliverable',
+          );
+        const id = recapId({ ...recap, enhanced });
+        const origin = (
+          options.config().server.tailscaleOrigin ||
+          `http://localhost:${options.config().server.port}`
+        ).replace(/\/$/, '');
+        const result = {
+          id,
+          url: `${origin}/runs/${encodeURIComponent(run.runId)}?report=${id}`,
+        };
+        const publishedKey = `review-report:${id}:published`;
+        const revision = pr
+          ? await steps.step(
+              'reviewReport.revision',
+              { label: 'Verify pushed PR changes' },
+              async () => ({
+                status: 'done',
+                result: await revisionFor(pr.repo, pr.headSha),
+              }),
+            )
+          : { diff: recap.diff ?? '' };
         const published = await steps.step(
           'reviewReport.published',
           { label: 'Check report publication' },
@@ -491,10 +544,15 @@ export function createProductionRuntime(
               (await options.request({
                 kind: 'control-get',
                 key: publishedKey,
-              })) === true,
+              })) === true ||
+              (!enhanced &&
+                (await options.request({
+                  kind: 'control-get',
+                  key: `review-report:${recapId({ ...recap, enhanced: true })}:published`,
+                })) === true),
           }),
         );
-        if (published) return;
+        if (published) return result;
         await mkdir(options.paths.run(run.runId).screenshotsDir, {
           recursive: true,
         });
@@ -510,6 +568,16 @@ export function createProductionRuntime(
               result.status === 'clear' &&
               'scope' in result,
           );
+        const previewStep = recap.deliverable
+          ? journal.entries.findLast(
+              (entry) =>
+                entry.status === 'done' &&
+                entry.result &&
+                typeof entry.result === 'object' &&
+                'body' in entry.result &&
+                entry.result.body === recap.deliverable,
+            )
+          : undefined;
         const report = await generateReport({
           steps,
           agent: runAgent,
@@ -517,20 +585,27 @@ export function createProductionRuntime(
           runId: run.runId,
           pr,
           ...revision,
+          enhanced,
+          deliverable: recap.deliverable,
+          title: recap.title,
           issue: run.issue,
           screenshotDir: options.paths.run(run.runId).screenshotsDir,
           workspace: run.execution?.members,
           workflow: run.profile?.workflow.source,
-          scope,
+          previewUrl: previewStep
+            ? `http://127.0.0.1:${options.config().server.port}/runs/${encodeURIComponent(run.runId)}#step=${previewStep.seq}`
+            : undefined,
+          scope: recap.scope ?? scope,
           port: run.ports[0],
           agentOptions: {
             harness: run.profile?.grants.harness ?? 'opencode',
             tools: ['read', 'bash'],
             mcp: run.profile?.grants.mcp ?? [],
+            ...recap.agent,
           },
         });
         const images: Record<string, string> = {};
-        for (const shot of report.visuals.flatMap(
+        for (const shot of (enhanced ? [] : report.visuals).flatMap(
           (visual) => visual.screenshots,
         )) {
           images[shot.id] = await steps.step(
@@ -549,26 +624,29 @@ export function createProductionRuntime(
             },
           );
         }
-        const markdown = reportMarkdown(
-          report,
-          `http://localhost:${options.config().server.port}`,
-          images,
-        );
+        const markdown = reportMarkdown(report, origin, images);
         await steps.step(
           'reviewReport.publish',
-          { label: 'Post review report to Linear and PR' },
+          {
+            label: pr
+              ? 'Post review report to Linear and PR'
+              : 'Post review report to Linear',
+          },
           async () => {
             // Re-check after a potentially long visual sweep: stale evidence must never mark another head ready.
-            await revisionFor(pr.repo, pr.headSha);
-            const adapter = scmFor(run, signal).find(
-              (adapter) => adapter.repo.id === pr.repo,
-            );
-            if (!adapter) throw new Error(`Unknown SCM repository ${pr.repo}`);
-            await adapter.postReviewReport(
-              pr,
-              markdown,
-              `${run.runId}:${report.id}`,
-            );
+            if (pr) {
+              await revisionFor(pr.repo, pr.headSha);
+              const adapter = scmFor(run, signal).find(
+                (adapter) => adapter.repo.id === pr.repo,
+              );
+              if (!adapter)
+                throw new Error(`Unknown SCM repository ${pr.repo}`);
+              await adapter.postReviewReport(
+                pr,
+                markdown,
+                `${run.runId}:${report.id}`,
+              );
+            }
             await mirrorFor(run).comment(`report:${report.id}`, markdown);
             await options.request({
               kind: 'control-put',
@@ -577,15 +655,23 @@ export function createProductionRuntime(
             });
             return {
               status: 'done',
-              result: { reportId: report.id, headSha: pr.headSha },
+              result: {
+                reportId: report.id,
+                ...(pr ? { headSha: pr.headSha } : {}),
+              },
             };
           },
         );
+        return result;
+      };
+      const onReady = async (pr: ScmPr) => {
+        await visualRecap({ pr }, false);
       };
       return {
         ...options.external?.(run, steps, signal, approvals),
         ...(servicesEnabled
           ? {
+              visualRecap,
               checkpoint: async (request, stepKey) =>
                 options.request({
                   kind: 'checkpoint',
@@ -610,25 +696,35 @@ export function createProductionRuntime(
                 setState: async (name: string) =>
                   mirrorFor(run).setState(`state:${name}`, name),
               },
-              scm: createScm(steps, {
-                runId: run.runId,
-                lead: run.repo,
-                members: scmFor(run, signal),
-                signal,
-                approvals,
-                ...(run.execution?.reviewReports
-                  ? {
-                      validateWork: async (repo: string) => {
-                        await revisionFor(repo);
-                      },
-                      onReady,
-                    }
-                  : {}),
-                onRefusal: async ({ key, refusal }) =>
-                  mirrorFor(run).post(
-                    key,
-                    `${refusal.message}\n\n${refusal.fix}`,
-                  ),
+              scm: scmContext(steps, async () => {
+                const members = scmFor(run, signal);
+                if (run.execution?.source !== 'onboarding' && !legacyPreflight)
+                  await runPreflight(steps, {
+                    scope: 'scm',
+                    members,
+                    signal,
+                    refreshMcp: async () => [],
+                  });
+                return createScm(steps, {
+                  runId: run.runId,
+                  lead: run.repo,
+                  members,
+                  signal,
+                  approvals,
+                  ...(run.execution?.reviewReports
+                    ? {
+                        validateWork: async (repo: string) => {
+                          await revisionFor(repo);
+                        },
+                        onReady,
+                      }
+                    : {}),
+                  onRefusal: async ({ key, refusal }) =>
+                    mirrorFor(run).post(
+                      key,
+                      `${refusal.message}\n\n${refusal.fix}`,
+                    ),
+                });
               }),
             }
           : {}),

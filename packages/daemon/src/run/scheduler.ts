@@ -1,3 +1,5 @@
+import { readJournal } from './journal.js';
+import { retryStepKey, type RetryRequest } from './retry.js';
 import {
   cp,
   mkdir,
@@ -65,6 +67,7 @@ export type RunDelegation =
 export interface RunSchedulerOptions {
   paths: RockyPaths;
   maxRuns?: number;
+  retryStep?(run: RunHeader, input: RetryRequest): Promise<void>;
   boot: SchedulerBoot;
   cancellation?: Cancellation;
   now?: () => Date;
@@ -244,6 +247,76 @@ export class RunScheduler {
       this.runs.set(runId, recovered);
       return structuredClone(recovered);
     });
+  }
+
+  async retryStep(runId: string, input: RetryRequest): Promise<RunHeader> {
+    return this.admissions.run(
+      (await this.get(runId))?.issue.identifier ?? runId,
+      () =>
+        this.mutate(async () => {
+          const run = this.runs.get(runId);
+          if (!run) throw new Error(`Unknown Run ${runId}`);
+          if (this.closed || !this.options.retryStep)
+            throw new Error('Step retry is unavailable.');
+          const journal = await readJournal(
+            this.options.paths.run(runId).journal,
+          );
+          const receipt = journal.getControl(`retry:${input.requestId}`);
+          if (receipt) {
+            if ((receipt as { stepKey: string }).stepKey !== input.stepKey)
+              throw new Error(
+                'Retry request ID was already used for a different Step.',
+              );
+            return structuredClone(run);
+          }
+          if (
+            run.status !== 'failed' ||
+            run.cancelRequestedAt ||
+            this.active.has(runId) ||
+            this.pendingHeaders.has(runId)
+          )
+            throw new Error('Only a settled failed Run can retry a Step.');
+          if (
+            run.boots !== input.expectedBoot ||
+            retryStepKey(journal.entries) !== input.stepKey
+          )
+            throw new Error(
+              'This Step is no longer retryable. Refresh the Run.',
+            );
+          if (
+            [...this.runs.values()].some(
+              (other) =>
+                other.runId !== runId &&
+                other.issue.identifier === run.issue.identifier &&
+                (!isTerminal(other) ||
+                  runNumber(run.issue.identifier, other.runId) >
+                    runNumber(run.issue.identifier, runId)),
+            )
+          )
+            throw new Error(
+              'A newer Run exists for this issue. Retry the latest Run instead.',
+            );
+          await this.options.retryStep(structuredClone(run), input);
+          const queued: RunHeader = {
+            ...run,
+            status: 'queued',
+            queueOrder: ++this.queueOrder,
+            endedAt: undefined,
+            error: undefined,
+            reason: undefined,
+            outcome: undefined,
+          };
+          try {
+            await this.options.writeHeader(this.options.paths, queued);
+          } catch (error) {
+            this.pendingHeaders.set(runId, queued);
+            this.runs.set(runId, queued);
+            throw error;
+          }
+          this.runs.set(runId, queued);
+          return structuredClone(queued);
+        }),
+    );
   }
 
   async setMaxRuns(maxRuns: number): Promise<void> {

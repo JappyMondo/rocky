@@ -1,3 +1,12 @@
+import type { WorkflowModels } from '@rocky/local-contracts';
+const models: WorkflowModels = {
+  agent: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
+  fastAgent: {
+    harness: 'opencode',
+    model: 'openai/test-model',
+    effort: 'high',
+  },
+};
 import { execFile } from 'node:child_process';
 import {
   mkdir,
@@ -137,7 +146,7 @@ it('validates the runnable shipped profile without loading repository .rocky', a
   const snapshot = await prepareProfileSnapshot(
     context,
     lead,
-    await newSeedRepositoryProfile({ id: 'local', remote: lead.url }),
+    await newSeedRepositoryProfile({ models, id: 'local', remote: lead.url }),
     { mcp },
   );
 

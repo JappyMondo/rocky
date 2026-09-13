@@ -29,6 +29,11 @@ import { PUBLIC_MODE } from '../atomic-write.js';
 import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
 import { ConfigError } from '../config/schema.js';
 import { parseMcpConfig } from '../mcp/config.js';
+import {
+  configureWorkflowModels,
+  readWorkflowModels,
+  workflowModelsSchema,
+} from '../config/workflow-models.js';
 
 const id = z.string().regex(/^[A-Za-z0-9._-]+$/);
 const editable = z
@@ -37,6 +42,7 @@ const editable = z
     remote: z.string().min(1).optional(),
     repos: profileReposSchema.optional(),
     revision: z.string().optional(),
+    models: workflowModelsSchema.optional(),
     workflow: z
       .object({
         source: z.string().min(1),
@@ -76,6 +82,7 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
     remote: profile.remote,
     ...(profile.repos ? { repos: profile.repos } : {}),
     workflow: profile.workflow,
+    models: readWorkflowModels(profile.workflow.source),
     grants: profile.grants,
     prompts: Object.keys(profile.prompts).sort(),
     rules: Object.keys(profile.rules).sort(),
@@ -236,15 +243,86 @@ export class LocalProfiles {
     return this.mcp(profileId);
   }
 
+  async resetWorkflow(
+    profileId: string,
+    input: unknown,
+  ): Promise<RepositoryProfileView> {
+    const parsed = z
+      .object({ revision: z.string().min(1), models: workflowModelsSchema })
+      .strict()
+      .safeParse(input);
+    if (!parsed.success)
+      throw new LocalApiError(
+        400,
+        'invalid-profile-reset',
+        'Resetting a workflow requires its current revision and explicit model and variant/effort choices for both agents.',
+      );
+    return updates.run(this.paths.profile(profileId), async () => {
+      const profile = await readRepositoryProfile(this.paths, profileId);
+      if (parsed.data.revision !== revision(profile))
+        throw new LocalApiError(
+          409,
+          'profile-changed',
+          'This profile changed. Reload it before resetting; your edits were not applied.',
+        );
+      const content = await defaultProfileContent(parsed.data.models.agent);
+      const source = profile.workflow.source;
+      const blocks =
+        source.match(
+          /^\/\/ BEGIN ROCKY CONFIG\r?\n[\s\S]*?^\/\/ END ROCKY CONFIG[ \t]*\r?$/gm,
+        ) ?? [];
+      const markers =
+        source.match(/^\/\/ (?:BEGIN|END) ROCKY CONFIG[ \t]*\r?$/gm) ?? [];
+      if (markers.length && (markers.length !== 2 || blocks.length !== 1))
+        throw new LocalApiError(
+          409,
+          'invalid-workflow-config',
+          'The workflow Config block is malformed. Repair its BEGIN/END ROCKY CONFIG markers before resetting.',
+        );
+      const block = blocks[0];
+      const workflow = {
+        ...content.workflow,
+        source:
+          block !== undefined
+            ? content.workflow.source.replace(
+                /^\/\/ BEGIN ROCKY CONFIG\r?\n[\s\S]*?^\/\/ END ROCKY CONFIG[ \t]*\r?$/m,
+                () => block,
+              )
+            : content.workflow.source,
+      };
+      workflow.source = configureWorkflowModels(
+        workflow.source,
+        parsed.data.models,
+      );
+      return this.view(
+        await writeRepositoryProfile(this.paths, {
+          ...profile,
+          workflow,
+          prompts: content.prompts,
+          schemas: content.schemas,
+        }),
+      );
+    });
+  }
+
   async defaults(): Promise<RepositoryProfileDefaults> {
     const config = await readInstanceConfig(this.paths);
     const content = await defaultProfileContent(config.workflowDefaults);
+    const suggestion = {
+      harness: config.workflowDefaults.harness,
+      model: config.workflowDefaults.model,
+      effort: config.workflowDefaults.effort,
+    };
     return {
       workflow: content.workflow,
       grants: content.grants,
       prompts: Object.keys(content.prompts).sort(),
       rules: Object.keys(content.rules).sort(),
       secretEnv: content.settings.secretEnv,
+      modelSuggestions: {
+        agent: suggestion,
+        fastAgent: suggestion,
+      },
     };
   }
 
@@ -417,19 +495,33 @@ export class LocalProfiles {
           'profile-changed',
           'This profile no longer exists. Reload before saving.',
         );
+      if (!existing && !parsed.data.models)
+        throw new LocalApiError(
+          400,
+          'model-selection-required',
+          'Choose the harness, model and variant/effort for the main and helper agents before creating a profile.',
+        );
       const base =
         existing ??
         (await newSeedRepositoryProfile({
           id: parsed.data.id,
           remote: parsed.data.remote,
           repos: parsed.data.repos,
-          defaults: (await readInstanceConfig(this.paths)).workflowDefaults,
+          models: workflowModelsSchema.parse(parsed.data.models),
         }));
       const saved = await writeRepositoryProfile(this.paths, {
         ...base,
         remote: parsed.data.remote,
         ...(parsed.data.repos ? { repos: parsed.data.repos } : {}),
-        workflow: parsed.data.workflow ?? base.workflow,
+        workflow: parsed.data.models
+          ? {
+              ...(parsed.data.workflow ?? base.workflow),
+              source: configureWorkflowModels(
+                (parsed.data.workflow ?? base.workflow).source,
+                parsed.data.models,
+              ),
+            }
+          : (parsed.data.workflow ?? base.workflow),
         grants: parsed.data.grants ?? base.grants,
       });
       return this.view(saved);

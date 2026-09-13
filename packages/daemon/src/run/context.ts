@@ -22,7 +22,7 @@ export type CheckpointApprovalVerifier = (
 
 export type ExternalContext = Pick<
   WorkflowContext,
-  'agent' | 'post' | 'scm' | 'linear' | 'comment'
+  'agent' | 'post' | 'scm' | 'linear' | 'comment' | 'visualRecap'
 >;
 export type ExternalServices = Partial<ExternalContext> & {
   checkpoint?: (
@@ -178,6 +178,9 @@ export function createWorkflowContext(
       if (answer.decision !== 'steer' || !answer.message.trim())
         throw new Error('A Question requires a written answer');
       return { answer: answer.message };
+    },
+    get visualRecap() {
+      return external('visualRecap');
     },
     get comment() {
       return external('comment');

@@ -1,3 +1,6 @@
+import { RetryStep } from './retry-step.js';
+import { TranscriptPanel } from './transcript-view.js';
+import { CodeOutput, OutputValue, Prose } from './output-view.js';
 import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -20,6 +23,7 @@ import type {
   SettingsView,
   StepView,
   Usage,
+  WorkflowModels,
 } from '@rocky/local-contracts';
 import { api, apiError } from './api.js';
 import { ReviewReports } from './review-report.js';
@@ -29,9 +33,13 @@ import { RunsOverview, type RunsViewState } from './runs-overview.js';
 import { Dialog, Icon, Mark, Status, dateLabel } from './ui.js';
 import styles from './app.module.css';
 import { Connections } from './connections.js';
+import {
+  ModelChoices,
+  modelsComplete,
+  suggestedModels,
+} from './model-choices.js';
 
 const VERSION = __ROCKY_VERSION__;
-const TAIL = 40_000;
 type Route =
   | { page: 'inbox'; runId?: string; issueIdentifier?: string }
   | { page: 'settings' }
@@ -795,6 +803,20 @@ export function App() {
               submitSteer={submitSteer}
               allowed={mutationsAllowed}
               answer={submitAnswer}
+              retryStep={async (stepKey, requestId, expectedBoot) => {
+                if (!selectedDetail || !mutationsAllowed) return;
+                const runId = selectedDetail.run.runId;
+                await api(
+                  `/api/runs/${encodeURIComponent(runId)}/retry-step`,
+                  setMismatch,
+                  {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ stepKey, requestId, expectedBoot }),
+                  },
+                );
+                await refreshDetail(runId);
+              }}
               recoverSession={recoverSession}
               openDiff={setDiffId}
             />
@@ -907,141 +929,35 @@ export function App() {
   );
 }
 
-function TranscriptPanel({ runId, step }: { runId: string; step: StepView }) {
-  const [text, setText] = useState('');
-  const [state, setState] = useState<
-    'loading' | 'settled' | 'unavailable' | 'error'
-  >('loading');
-  const offset = useRef(0);
-  useEffect(() => {
-    let source: EventSource | undefined;
-    try {
-      source = new EventSource(
-        `/api/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(step.key)}/transcript?offset=${offset.current}`,
-      );
-      source.addEventListener('transcript', (event) => {
-        try {
-          const value = JSON.parse((event as MessageEvent<string>).data) as {
-            text?: unknown;
-            offset?: unknown;
-          };
-          if (
-            typeof value.text !== 'string' ||
-            typeof value.offset !== 'number' ||
-            value.offset <= offset.current
-          )
-            return;
-          offset.current = value.offset;
-          setText((old) => `${old}${value.text}`.slice(-TAIL));
-          setState('loading');
-        } catch {
-          setState('error');
-        }
-      });
-      source.addEventListener('settled', () => {
-        setState('settled');
-        source?.close();
-      });
-      source.addEventListener('unavailable', () => {
-        setState('unavailable');
-        source?.close();
-      });
-      source.onerror = () => {
-        if (step.status !== 'running') {
-          setState('error');
-          source?.close();
-        }
-      };
-    } catch {
-      setState('error');
-    }
-    return () => source?.close();
-  }, [runId, step.key, step.status]);
-  const empty =
-    state === 'unavailable'
-      ? 'Transcript is unavailable.'
-      : state === 'error'
-        ? 'Transcript could not be read.'
-        : step.transcript === 'pending'
-          ? 'Transcript is still being written…'
-          : 'Loading transcript…';
-  return <pre className={styles.transcript}>{text || empty}</pre>;
-}
 function ResultView({ step }: { step: StepView }) {
-  const live =
-    step.status === 'running' && (step.liveOutput || step.liveSummary) ? (
-      <div className={styles.resultWrap} aria-live="polite">
-        {step.liveSummary && (
-          <p className={styles.stepResult}>{step.liveSummary}</p>
-        )}
-        {step.liveOutput && (
-          <pre className={styles.transcript}>{step.liveOutput}</pre>
-        )}
-      </div>
-    ) : null;
-  if (step.result === undefined && !step.error) return live;
-  if (typeof step.result === 'string')
-    return <p className={styles.stepResult}>{step.result}</p>;
-  const record =
-    step.result &&
-    typeof step.result === 'object' &&
-    !Array.isArray(step.result)
-      ? (step.result as Record<string, unknown>)
-      : undefined;
-  const summary =
-    typeof record?.summary === 'string' ? record.summary : undefined;
-  const plan = Array.isArray(record?.steps) ? record.steps : undefined;
-  const rendered = JSON.stringify(step.result, null, 2);
+  const hasTranscript =
+    step.transcript === 'available' || step.transcript === 'pending';
   return (
     <div className={styles.resultWrap}>
-      {live}
-      {summary && <p className={styles.stepResult}>{summary}</p>}
-      {plan && (
-        <ol className={styles.plan}>
-          {plan.map((item, index) => (
-            <li key={index}>
-              {typeof item === 'string' ? item : JSON.stringify(item)}
-            </li>
-          ))}
-        </ol>
-      )}
-      {record?.ci !== undefined && <Values title="CI" value={record.ci} />}
-      {record?.results !== undefined && (
-        <Values title="Results" value={record.results} />
-      )}
+      {step.status === 'running' &&
+        !hasTranscript &&
+        (step.liveOutput || step.liveSummary) && (
+          <div aria-live="polite">
+            {step.liveSummary && <Prose text={step.liveSummary} />}
+            {step.liveOutput && <OutputValue value={step.liveOutput} />}
+          </div>
+        )}
       {step.error && (
-        <p className={styles.error}>
-          <strong>{step.error.name}:</strong> {step.error.message}
-        </p>
+        <div className={styles.error}>
+          <strong>{step.error.name}:</strong>
+          <OutputValue value={step.error.message} />
+        </div>
       )}
-      {rendered && (
-        <details className={styles.rawResult}>
-          <summary>Raw result</summary>
-          <pre>{rendered}</pre>
-        </details>
+      {step.result !== undefined && (
+        <>
+          <OutputValue value={step.result} />
+          <details className={styles.rawResult}>
+            <summary>Raw result</summary>
+            <CodeOutput text={JSON.stringify(step.result, null, 2)} />
+          </details>
+        </>
       )}
     </div>
-  );
-}
-function Values({ title, value }: { title: string; value: unknown }) {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    return (
-      <p className={styles.stepResult}>
-        {title}: {String(value)}
-      </p>
-    );
-  return (
-    <>
-      <h4>{title}</h4>
-      <dl className={styles.values}>
-        {Object.entries(value as Record<string, unknown>).map(([key, item]) => (
-          <div key={key}>
-            <dt>{key}</dt>
-            <dd>{typeof item === 'string' ? item : JSON.stringify(item)}</dd>
-          </div>
-        ))}
-      </dl>
-    </>
   );
 }
 function stepName(step: StepView) {
@@ -1066,6 +982,11 @@ function RunView(p: {
   allowed: boolean;
   answer: (a: Answer) => Promise<void>;
   recoverSession: (runId: string) => Promise<void>;
+  retryStep: (
+    stepKey: string,
+    requestId: string,
+    expectedBoot: number,
+  ) => Promise<void>;
   openDiff: (id: string) => void;
 }) {
   const d = p.detail;
@@ -1385,6 +1306,16 @@ function RunView(p: {
                     <Icon name="chevron" size={16} />
                   </span>
                 </button>
+                {d.controls.retryStep === step.key &&
+                  d.run.status === 'failed' && (
+                    <RetryStep
+                      key={`${d.run.runId}:${d.run.boots}`}
+                      disabled={!p.allowed}
+                      submit={(requestId) =>
+                        p.retryStep(step.key, requestId, d.run.boots)
+                      }
+                    />
+                  )}
                 {!expanded && step.status === 'running' && step.liveSummary && (
                   <p className={styles.livePreview}>{step.liveSummary}</p>
                 )}
@@ -1736,6 +1667,9 @@ function Profiles(p: {
   );
   const [selected, setSelected] = useState<RepositoryProfileView | null>(null);
   const [draft, setDraft] = useState<RepositoryProfileView | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [models, setModels] = useState<WorkflowModels | null>(null);
+  const [resetModels, setResetModels] = useState<WorkflowModels | null>(null);
   const [creating, setCreating] = useState(false);
   const [editor, setEditor] = useState('default');
   const [openingEditor, setOpeningEditor] = useState(false);
@@ -1766,6 +1700,8 @@ function Profiles(p: {
     };
   }, [p.mismatch, p.error]);
   const choose = (id: string) => {
+    setResetModels(null);
+    setModels(null);
     setSaved(false);
     setEditorOpened(false);
     setEditorError(null);
@@ -1812,6 +1748,8 @@ function Profiles(p: {
       setEditorOpened(false);
       setEditorError(null);
       setTab('general');
+      setModels(suggestedModels(defaults));
+      setResetModels(null);
       const next: RepositoryProfileView = {
         ...defaults,
         id: '',
@@ -1834,6 +1772,7 @@ function Profiles(p: {
   };
   const save = async () => {
     if (!draft || p.disabled) return;
+    if (!selected && !modelsComplete(models)) return;
     try {
       const saved = await api<RepositoryProfileView>(
         '/api/profiles',
@@ -1849,6 +1788,7 @@ function Profiles(p: {
             revision: draft.revision || undefined,
             workflow: draft.workflow,
             grants: draft.grants,
+            ...(!selected ? { models } : {}),
           }),
         },
       );
@@ -1919,6 +1859,45 @@ function Profiles(p: {
       p.error(await apiError(caught, 'Profile was not deleted.'));
     }
   };
+  const resetWorkflow = async () => {
+    if (
+      !selected ||
+      !draft ||
+      p.disabled ||
+      resetting ||
+      !modelsComplete(resetModels)
+    )
+      return;
+    if (JSON.stringify(draft) !== JSON.stringify(selected)) return;
+    setResetting(true);
+    try {
+      const next = await api<RepositoryProfileView>(
+        `/api/profiles/${encodeURIComponent(selected.id)}/reset-workflow`,
+        p.mismatch,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            revision: selected.revision,
+            models: resetModels,
+          }),
+        },
+      );
+      setProfiles((current) =>
+        (current ?? []).map((item) => (item.id === next.id ? next : item)),
+      );
+      setSelected(next);
+      setDraft(next);
+      setSaved(true);
+      setEditorOpened(false);
+      setEditorError(null);
+      setResetModels(null);
+    } catch (caught) {
+      p.error(await apiError(caught, 'Workflow was not reset.'));
+    } finally {
+      setResetting(false);
+    }
+  };
   const openWorkflow = async () => {
     if (!selected || p.disabled || openingEditor) return;
     setOpeningEditor(true);
@@ -1973,7 +1952,11 @@ function Profiles(p: {
       </section>
     );
   return (
-    <section className={styles.profiles} onChange={() => setSaved(false)}>
+    <fieldset
+      disabled={resetting}
+      className={styles.profiles}
+      onChange={() => setSaved(false)}
+    >
       <header className={styles.pageHeader}>
         <div>
           <p className={styles.eyebrow}>Workflow profiles</p>
@@ -2026,6 +2009,18 @@ function Profiles(p: {
         </button>
       </div>
       <div hidden={tab !== 'general'} className={styles.profileGeneral}>
+        {!selected && models && (
+          <ModelChoices
+            value={models}
+            onChange={(next) => {
+              setModels(next);
+              setDraft({
+                ...draft,
+                grants: { ...draft.grants, harness: next.agent.harness },
+              });
+            }}
+          />
+        )}
         <div className={styles.sectionHeading}>
           <div>
             <h2>Profile details</h2>
@@ -2216,6 +2211,30 @@ function Profiles(p: {
         </section>
       </div>
       <div hidden={tab !== 'workflow'} className={styles.profileWorkflow}>
+        {selected && (
+          <section className={styles.workflowEditor}>
+            <div>
+              <h2>Workflow models</h2>
+              {selected.models ? (
+                <p>
+                  Main: {selected.models.agent.harness} ·{' '}
+                  {selected.models.agent.model} · {selected.models.agent.effort}
+                  <br />
+                  Helper: {selected.models.fastAgent.harness} ·{' '}
+                  {selected.models.fastAgent.model} ·{' '}
+                  {selected.models.fastAgent.effort}
+                </p>
+              ) : (
+                <p>
+                  This workflow has no complete literal model selection. Check
+                  its source for per-step choices; omitted settings can follow
+                  harness defaults. Reset to choose explicit models for the
+                  default workflow.
+                </p>
+              )}
+            </div>
+          </section>
+        )}
         {tab === 'workflow' && (
           <WorkflowDiagram
             key={selected?.id ?? 'new'}
@@ -2275,6 +2294,67 @@ function Profiles(p: {
             )}
           </div>
         </section>
+        <section className={styles.workflowEditor}>
+          <div>
+            <h2>Restore the default workflow</h2>
+            <p>
+              Replace workflow code, triggers, agent prompts and schemas with
+              Rocky’s current defaults. Keep your Config block and profile
+              settings. Choose the models to use for the replacement.
+            </p>
+            {selected && JSON.stringify(draft) !== JSON.stringify(selected) && (
+              <p>Save your profile changes before resetting.</p>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={
+              p.disabled ||
+              !selected ||
+              resetting ||
+              JSON.stringify(draft) !== JSON.stringify(selected)
+            }
+            aria-busy={resetting}
+            onClick={async () => {
+              try {
+                const defaults = await api<RepositoryProfileDefaults>(
+                  '/api/profile-defaults',
+                  p.mismatch,
+                );
+                setResetModels(selected?.models ?? suggestedModels(defaults));
+              } catch (caught) {
+                p.error(
+                  await apiError(caught, 'Could not load model choices.'),
+                );
+              }
+            }}
+          >
+            {resetting ? 'Resetting…' : 'Reset to default'}
+          </button>
+        </section>
+        {resetModels && (
+          <section aria-label="Reset workflow" className={styles.modelChoices}>
+            <ModelChoices value={resetModels} onChange={setResetModels} />
+            <p>
+              Reset replaces custom workflow code, triggers, prompts, schemas
+              and agent model settings. Other Config values, repositories,
+              tools, rules and credentials are kept. Existing runs keep their
+              snapshots.
+            </p>
+            <div className={styles.formActions}>
+              <button onClick={() => setResetModels(null)}>Cancel reset</button>
+              <button
+                className={styles.primary}
+                disabled={
+                  p.disabled || resetting || !modelsComplete(resetModels)
+                }
+                onClick={() => void resetWorkflow()}
+              >
+                {resetting ? 'Resetting…' : 'Reset workflow with these models'}
+              </button>
+            </div>
+          </section>
+        )}
         <label>
           Manual triggers (one per line)
           <textarea
@@ -2319,29 +2399,31 @@ function Profiles(p: {
         <div className={styles.sectionHeading}>
           <div>
             <h2>Agent & tools</h2>
-            <p>The coding agent that executes your workflow.</p>
+            <p>Tools and configuration available to the workflow.</p>
           </div>
         </div>
-        <label>
-          Harness
-          <select
-            value={draft.grants.harness}
-            disabled={p.disabled}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                grants: {
-                  ...draft.grants,
-                  harness: event.target
-                    .value as RepositoryProfileView['grants']['harness'],
-                },
-              })
-            }
-          >
-            <option value="opencode">OpenCode</option>
-            <option value="claude-code">Claude Code</option>
-          </select>
-        </label>
+        {selected && (
+          <label>
+            Harness
+            <select
+              value={draft.grants.harness}
+              disabled={p.disabled}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  grants: {
+                    ...draft.grants,
+                    harness: event.target
+                      .value as RepositoryProfileView['grants']['harness'],
+                  },
+                })
+              }
+            >
+              <option value="opencode">OpenCode</option>
+              <option value="claude-code">Claude Code</option>
+            </select>
+          </label>
+        )}
         <details className={styles.rawResult}>
           <summary>
             Configuration files · {draft.prompts.length} prompts ·{' '}
@@ -2367,6 +2449,7 @@ function Profiles(p: {
           disabled={
             p.disabled ||
             !draft.id ||
+            (!selected && !modelsComplete(models)) ||
             (draft.repos
               ? draft.repos.length === 0 ||
                 draft.repos.some(
@@ -2392,7 +2475,7 @@ function Profiles(p: {
           </button>
         )}
       </div>
-    </section>
+    </fieldset>
   );
 }
 export default App;

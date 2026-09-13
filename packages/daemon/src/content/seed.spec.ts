@@ -1,3 +1,12 @@
+import type { WorkflowModels } from '@rocky/local-contracts';
+const models: WorkflowModels = {
+  agent: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
+  fastAgent: {
+    harness: 'opencode',
+    model: 'openai/test-model',
+    effort: 'high',
+  },
+};
 import {
   mkdtemp,
   mkdir,
@@ -31,6 +40,7 @@ it('adds Playwright only for UI and distils only explicit agent docs', async () 
     conventions: 'Use strict TypeScript.',
   }));
   const result = await seedContent({
+    models,
     repo,
     shippedDir,
     inspection: {
@@ -73,6 +83,7 @@ it('never distils code in a docs-less repo, preserves MCP bytes, and retries fai
   const { repo, shippedDir } = await fixture();
   const distill = vi.fn(async () => ({ conventions: 'Invented rules' }));
   const options = {
+    models,
     repo,
     shippedDir,
     distill,
@@ -107,6 +118,7 @@ it.each(['directory', 'file', 'symlink'])(
     else await symlink(join(repo, 'missing'), target);
     await expect(
       seedContent({
+        models,
         repo,
         shippedDir,
         inspection: {
@@ -132,6 +144,7 @@ it('foreground init obtains validated inspection and routing team states before 
     { name: 'Finished', type: 'completed', position: 3 },
   ]);
   await inspectAndSeed({
+    models,
     repo,
     shippedDir,
     inspect,
@@ -147,6 +160,7 @@ it('foreground init obtains validated inspection and routing team states before 
   expect(source).not.toContain('Verify these Linear state names');
   await expect(
     inspectAndSeed({
+      models,
       repo,
       shippedDir,
       inspect,
@@ -163,6 +177,7 @@ it.each(['directory', 'file', 'symlink'])(
     const target = join(repo, '.rocky');
     await expect(
       seedContent({
+        models,
         repo,
         shippedDir,
         inspection: {
@@ -197,6 +212,7 @@ it('seeds installed assets byte-identically outside Config and preserves the dir
   await writeFile(join(repo, 'existing.txt'), 'dirty');
   const index = await readFile(join(repo, '.git/index'));
   const result = await seedContent({
+    models,
     repo,
     shippedDir,
     inspection: {
@@ -233,6 +249,7 @@ it('renders the generated Config block in the shipped formatter style', async ()
     new URL('../../content/.rocky/', import.meta.url),
   );
   const directory = await seedContent({
+    models,
     repo,
     shippedDir,
     inspection: {
@@ -257,6 +274,7 @@ it('renders the generated Config block in the shipped formatter style', async ()
 it('leaves no installation after malformed Config or failed rule distillation', async () => {
   const { repo, shippedDir } = await fixture();
   const options = {
+    models,
     repo,
     shippedDir,
     inspection: {
@@ -300,6 +318,7 @@ it('validates the staged tree before installing and changes only the Config bloc
   const { repo, shippedDir } = await fixture();
   let validated = false;
   const result = await seedContent({
+    models,
     repo,
     shippedDir,
     inspection: {

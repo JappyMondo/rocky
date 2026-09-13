@@ -11,6 +11,8 @@ import { parseInstanceConfig } from '../config/schema.js';
 import { writeCredentials } from '../config/store.js';
 import { LocalArtifacts } from '../local-api/artifacts.js';
 import { appendEntry } from './journal.js';
+import { runBoot } from './replay.js';
+import { runPreflight } from '../scm/preflight.js';
 import { newRunHeader, writeRunHeader } from './header.js';
 import { createProductionRuntime } from './production.js';
 import type { BootRequest } from './worker.js';
@@ -24,6 +26,10 @@ const spies = vi.hoisted(() => ({
   finish: vi.fn(),
   upload: vi.fn(),
   agent: vi.fn(),
+  preflight: vi.fn(),
+  scmAdapter: vi.fn(),
+  probe: vi.fn(),
+  openPr: vi.fn(),
 }));
 vi.mock('./loading/loader.js', () => ({ loadSnapshotWorkflow: spies.load }));
 vi.mock('../review-report/workspace.js', () => ({
@@ -46,16 +52,20 @@ vi.mock('../linear/mirror.js', () => ({
 }));
 vi.mock('../scm/index.js', async (original) => {
   const actual = await original<typeof import('../scm/index.js')>();
-  const adapter = (input: { repo: { id: string }; signal: AbortSignal }) => ({
-    repo: input.repo,
-    signal: input.signal,
-    openPr: async () => pr,
-    markDraft: async () => ({ ...pr, draft: false }),
-    postReviewReport: spies.postReport,
-  });
+  const adapter = (input: { repo: { id: string }; signal: AbortSignal }) => {
+    spies.scmAdapter(input);
+    return {
+      repo: input.repo,
+      signal: input.signal,
+      openPr: spies.openPr,
+      probe: spies.probe,
+      markDraft: async () => ({ ...pr, draft: false }),
+      postReviewReport: spies.postReport,
+    };
+  };
   return {
     ...actual,
-    runPreflight: async () => undefined,
+    runPreflight: spies.preflight,
     createGitHubScm: adapter,
     createGitLabScm: adapter,
   };
@@ -101,6 +111,8 @@ const content = {
 const roots: string[] = [];
 beforeEach(() => {
   vi.resetAllMocks();
+  spies.preflight.mockResolvedValue(undefined);
+  spies.openPr.mockResolvedValue(pr);
   spies.revision.mockResolvedValue({
     headSha: pr.headSha,
     baseSha: 'b'.repeat(40),
@@ -120,7 +132,7 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-async function fixture(workflow: Workflow) {
+async function fixture(workflow: Workflow, tailscaleOrigin?: string) {
   const root = await mkdtemp(join(tmpdir(), 'rocky-features-'));
   roots.push(root);
   const paths = rockyPaths(root);
@@ -196,7 +208,7 @@ async function fixture(workflow: Workflow) {
   });
   const runtime = createProductionRuntime({
     paths,
-    config: () => parseInstanceConfig({}),
+    config: () => parseInstanceConfig({ server: { tailscaleOrigin } }),
     request,
     adapterFor: () => ({ run: spies.agent, resume: spies.agent }),
   });
@@ -367,10 +379,10 @@ it.each(['empty', 'head changed'])(
 );
 
 it.each(['profile', 'token', 'remote'] as const)(
-  'fails visibly for missing or invalid %s before starting an agent',
+  'fails visibly for missing or invalid %s before the first SCM action',
   async (failure) => {
     const f = await fixture(async (ctx) => {
-      await ctx.agent({ prompt: 'Inspect.' }, { label: 'Inspect' });
+      await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
       return 'completed';
     });
     if (failure === 'profile') f.run.profile = undefined;
@@ -487,6 +499,368 @@ it('reuses an already published report if the same head is marked ready again', 
     expect(spies.postReport).toHaveBeenCalledTimes(1);
     expect(spies.comment).toHaveBeenCalledTimes(1);
     expect(spies.revision).toHaveBeenCalledTimes(3);
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('completes a comment-only Workflow without constructing SCM adapters or probing SCM authority', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.comment('The requested analysis and evidence.');
+    return 'completed';
+  });
+  try {
+    await expect(
+      f.runtime.boot(f.run, 'run', new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'finished', outcome: 'completed' });
+    expect(spies.preflight).toHaveBeenCalledTimes(1);
+    expect(spies.preflight.mock.calls[0][1]).toMatchObject({
+      scope: 'mcp',
+      members: [],
+    });
+    expect(spies.scmAdapter).not.toHaveBeenCalled();
+    expect(spies.comment).toHaveBeenCalledWith(
+      expect.any(String),
+      'The requested analysis and evidence.',
+    );
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('checks SCM authority once before the first PR effect and fails closed', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.comment('Scope is clear.');
+    await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+    return 'completed';
+  });
+  spies.preflight.mockImplementation(async (_steps, options) => {
+    if (options.scope === 'scm') {
+      expect(spies.comment).toHaveBeenCalled();
+      expect(spies.openPr).not.toHaveBeenCalled();
+      throw new Error('Merge authority is unknown.');
+    }
+  });
+  try {
+    await expect(
+      f.runtime.boot(f.run, 'run', new AbortController().signal),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      error: { message: 'Merge authority is unknown.' },
+    });
+    expect(spies.preflight.mock.calls.map((call) => call[1].scope)).toEqual([
+      'mcp',
+      'scm',
+    ]);
+    expect(spies.openPr).not.toHaveBeenCalled();
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('shares the SCM preflight across repeated operations in one Workflow', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+    await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+    return 'completed';
+  });
+  spies.openPr.mockResolvedValue({ ...pr, draft: true });
+  try {
+    await expect(
+      f.runtime.boot(f.run, 'run', new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'finished' });
+    expect(spies.preflight.mock.calls.map((call) => call[1].scope)).toEqual([
+      'mcp',
+      'scm',
+    ]);
+    expect(spies.openPr).toHaveBeenCalledTimes(2);
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('resumes a legacy parked Run without moving its recorded startup preflight', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.question({ title: 'Scope?', body: 'Clarify scope.' });
+    await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+    return 'completed';
+  });
+  const legacyProbe = vi.fn();
+  try {
+    const parked = await runBoot({
+      journalPath: f.paths.run(f.run.runId).journal,
+      workflow: async (steps) => {
+        for (const key of ['workspace', 'linear.start', 'preflight'])
+          await steps.step(key, {}, async () => ({
+            status: 'done',
+            result: null,
+          }));
+        await steps.step('question', {}, async () => ({ status: 'waiting' }));
+        return 'completed';
+      },
+    });
+    expect(parked).toMatchObject({ status: 'parked' });
+    spies.preflight.mockImplementation(async (steps, options) =>
+      steps.step(
+        options.scope ? `preflight.${options.scope}` : 'preflight',
+        {},
+        async () => {
+          legacyProbe();
+          return { status: 'done', result: null };
+        },
+      ),
+    );
+    spies.checkpoint.mockResolvedValue({
+      status: 'done',
+      result: { decision: 'steer', message: 'Proceed.' },
+    });
+    spies.openPr.mockResolvedValue({ ...pr, draft: true });
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+      outcome: 'completed',
+    });
+    expect(spies.preflight).toHaveBeenCalledTimes(1);
+    expect(spies.preflight.mock.calls[0][1].scope).toBeUndefined();
+    expect(legacyProbe).not.toHaveBeenCalled();
+    expect(spies.openPr).toHaveBeenCalledTimes(1);
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('opens a PR-only deliverable with denied merge authority using the real deferred preflight', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+    return 'completed';
+  });
+  const allowed = { status: 'allowed', source: 'fixture', fix: '' };
+  spies.probe.mockResolvedValue({
+    repo: 'app',
+    platform: 'github',
+    merge: {
+      status: 'denied',
+      source: 'fixture',
+      fix: 'Ask a maintainer to merge.',
+    },
+    rebase: allowed,
+    sourcePush: allowed,
+    draft: allowed,
+  });
+  spies.preflight.mockImplementation(async (steps, options) => {
+    if (options.scope === 'scm') return runPreflight(steps, options);
+    return undefined;
+  });
+  spies.openPr.mockResolvedValue({ ...pr, draft: true });
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+      outcome: 'completed',
+    });
+    expect(spies.probe).toHaveBeenCalledTimes(1);
+    expect(spies.openPr).toHaveBeenCalledTimes(1);
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('rejects a visual recap without a subject before capturing or publishing evidence', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.visualRecap({ title: 'Empty' });
+    return 'completed';
+  });
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { message: 'ctx.visualRecap requires a PR, diff, or deliverable' },
+    });
+    expect(spies.agent).not.toHaveBeenCalled();
+    expect(spies.comment).not.toHaveBeenCalled();
+    expect(spies.scmAdapter).not.toHaveBeenCalled();
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+function enhancedRecapAgent() {
+  spies.agent.mockImplementation(async (input: AgentHarnessInvocation) => {
+    const response = input.prompt.includes('Inventory the visual evidence')
+      ? { variants: [], exclusions: ['No UI changes in this subject.'] }
+      : input.prompt.includes('Independently audit this recap')
+        ? { problems: [] }
+        : {
+            ...content,
+            keyChanges: [],
+            reviewFocus: [
+              'security',
+              'permissions',
+              'routes',
+              'data',
+              'compatibility',
+              'operations',
+              'testing',
+              'other',
+            ].map((category) => ({
+              category,
+              title: category,
+              summary: 'No applicable changes.',
+              status: 'not-applicable',
+              evidence: ['Inspected supplied subject.'],
+            })),
+          };
+    return {
+      text: `<result>${JSON.stringify({ ...response, summary: 'Recap evidence collected.' })}</result>`,
+      events: [],
+      sessionId: 'recap-session',
+    };
+  });
+}
+
+it('hosts a deliverable recap without SCM and publishes its Tailscale link once across replay', async () => {
+  enhancedRecapAgent();
+  let recap: { id: string; url: string } | undefined;
+  const f = await fixture(async (ctx) => {
+    recap = await ctx.visualRecap({
+      deliverable: 'Analysis with verified evidence.',
+      title: 'Investigation recap',
+    });
+    return 'completed';
+  }, 'https://rocky.tail123.ts.net:7625');
+  try {
+    await writeCredentials(f.paths, {
+      linear: { accessToken: 'fixture' },
+      repos: {},
+    });
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+    });
+    expect(recap?.url).toBe(
+      `https://rocky.tail123.ts.net:7625/runs/${f.run.runId}?report=${recap?.id}`,
+    );
+    const [report] = await new LocalArtifacts(f.paths).listReports(f.run.runId);
+    expect(report.id).toBe(recap?.id);
+    expect(report.pr).toBeUndefined();
+    expect(spies.comment).toHaveBeenCalledWith(
+      `report:${report.id}`,
+      expect.stringContaining(recap?.url ?? 'missing recap URL'),
+    );
+    expect(spies.scmAdapter).not.toHaveBeenCalled();
+    expect(spies.revision).not.toHaveBeenCalled();
+    expect(spies.upload).not.toHaveBeenCalled();
+    const calls = spies.agent.mock.calls.length;
+    await f.runtime.boot(f.run, 'run', new AbortController().signal);
+    expect(spies.agent).toHaveBeenCalledTimes(calls);
+    expect(spies.comment).toHaveBeenCalledTimes(1);
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('does not duplicate an explicit PR recap when the PR is marked ready', async () => {
+  enhancedRecapAgent();
+  const f = await fixture(async (ctx) => {
+    await ctx.visualRecap({ pr });
+    await ctx.scm.markDraft({ ...pr, draft: true }, false);
+    return 'completed';
+  });
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+    });
+    expect(
+      await new LocalArtifacts(f.paths).listReports(f.run.runId),
+    ).toHaveLength(1);
+    expect(spies.postReport).toHaveBeenCalledTimes(1);
+    expect(spies.comment).toHaveBeenCalledTimes(1);
+    expect(spies.upload).not.toHaveBeenCalled();
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('refuses to publish a recap if the pushed PR revision changes during capture', async () => {
+  enhancedRecapAgent();
+  const f = await fixture(async (ctx) => {
+    await ctx.visualRecap({ pr });
+    return 'completed';
+  });
+  spies.revision
+    .mockResolvedValueOnce({
+      headSha: pr.headSha,
+      baseSha: 'b'.repeat(40),
+      diff: '+clarify',
+    })
+    .mockRejectedValueOnce(new Error('PR head changed during capture'));
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { message: 'PR head changed during capture' },
+    });
+    expect(spies.postReport).not.toHaveBeenCalled();
+    expect(spies.comment).not.toHaveBeenCalled();
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('creates a complete enhanced recap even when a legacy report exists for the same PR head', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.scm.markDraft({ ...pr, draft: true }, false);
+    enhancedRecapAgent();
+    await ctx.visualRecap({ pr });
+    await ctx.scm.markDraft({ ...pr, draft: true }, false);
+    return 'completed';
+  });
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+    });
+    const reports = await new LocalArtifacts(f.paths).listReports(f.run.runId);
+    expect(reports).toHaveLength(2);
+    expect(new Set(reports.map((report) => report.id)).size).toBe(2);
+    expect(
+      reports.filter((report) => report.keyChanges !== undefined),
+    ).toHaveLength(1);
+    expect(spies.postReport).toHaveBeenCalledTimes(2);
+    expect(spies.comment).toHaveBeenCalledTimes(2);
+    const calls = spies.agent.mock.calls.length;
+    await f.runtime.boot(f.run, 'run', new AbortController().signal);
+    expect(spies.agent).toHaveBeenCalledTimes(calls);
+    expect(spies.postReport).toHaveBeenCalledTimes(2);
   } finally {
     await f.runtime.close();
   }

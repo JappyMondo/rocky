@@ -70,7 +70,7 @@ belong only in Linear, never the local web UI.
 ## Open Gates
 
 - No real credentials, uploads, sessions, activities or comments were used or created. App-token reads, initial session discovery/recovery and manual Trigger owned-session creation remain integration/live gates. No internal `Issue.agentSessions` or `Comment.agentSessions` fields are used; no arbitrary session reuse is added.
-- Exactly two **total** comments remains the mirror layer's acceptance criterion. Automatic elicitation/response/error comments must be measured under the app token. Public association fields are evidence inputs, not proof that the count can be satisfied. An unavoidable third comment is an open platform/spec blocker.
+- Exactly two **framework-owned** comments remains the mirror layer's acceptance criterion; explicit Workflow deliverables use `ctx.comment` and durable ID attribution outside that budget. Automatic elicitation/response/error comments must be measured under the app token. Public association fields are evidence inputs, not proof that the count can be satisfied. An unavoidable third framework comment is an open platform/spec blocker.
 - Ordinary `http://localhost:<port>` is retained verbatim. Attachment, comment, select-body and session-link acceptance/rendering each require live evidence after NG-651 review. The UI stays local; no tunnel/auth workaround was added.
 - NG-629's latency-only claim assumes a known session, valid app access and working outbound Linear. Initial missed delegation and total network loss are different cases. Polling cadence, durable cursor advancement, Answer CAS, pending notes, delivery targets and stop policy remain control/runtime responsibilities.
 - The delivery document also requires the runtime fixes and stable owner handoffs before integrated acceptance. This client adds no second recovery engine and changes no shared composition files.
@@ -91,3 +91,5 @@ The focused strict typecheck and daemon library typecheck
 verification. The spec project check requires unbuilt daemon declaration outputs
 (TS6305); the focused command above checks these tests without building or editing
 other workers' modules. Formatting and `git diff --check` also pass.
+
+Delegated and manual run admission snapshots the complete paginated issue comment history, oldest first, into `ctx.issue.comments`. Bodies, timestamps, author IDs, session IDs and thread parent IDs survive persistence and replay, including answers from earlier runs. The default refiner consumes this history before asking questions, and downstream agents inherit it. Comment-fetch failures fail admission rather than silently dropping context. Existing run snapshots are unchanged; comments added after admission arrive through the existing session control mechanisms, not by rewriting the snapshot.

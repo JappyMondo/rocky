@@ -39,6 +39,7 @@ const result = await build({
     // RunWorkers forks this sibling by URL. It cannot be folded into main:
     // the child has its own IPC lifecycle and must exist in the tarball.
     'boot-child': 'packages/daemon/src/run/boot-child.ts',
+    'mermaid-check': 'packages/daemon/src/run/mermaid-check.ts',
     // Node will not type-strip a raw .ts file under installed node_modules.
     // Keep the seed content raw, but bundle Rocky's own onboarding runner.
     onboarding: 'packages/daemon/content/onboarding.ts',

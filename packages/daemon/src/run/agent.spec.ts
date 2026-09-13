@@ -50,6 +50,36 @@ function fixture() {
   return { run, resume, resolveServers, options };
 }
 
+it('grants only the Run evidence directory to read-enabled Steps without edit access', async () => {
+  const f = fixture();
+  const screenshotDir = join(dir, 'screenshots');
+  await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      const agent = createAgent(steps, { ...f.options, screenshotDir });
+      for (const tools of [
+        ['read', 'bash'],
+        ['read', 'edit'],
+        ['bash'],
+      ] as const)
+        await agent(
+          { prompt: 'Inspect evidence.' },
+          {
+            tools: [...tools],
+            label: 'Inspect evidence',
+            schema: z.object({ count: z.number() }),
+          },
+        );
+      return 'merged';
+    },
+  });
+  expect(f.run.mock.calls.map(([input]) => input.evidenceDirectories)).toEqual([
+    [screenshotDir],
+    undefined,
+    undefined,
+  ]);
+});
+
 it('returns the original schema fields plus summary and replays without a conversation', async () => {
   const f = fixture();
   const results: unknown[] = [];
@@ -1132,4 +1162,51 @@ it('persists harness-reported model and variant alongside the requested settings
       mcp: [],
     },
   });
+});
+
+it('stops a missing-tool blocker without schema repair or automatic retry', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<blocked>{"reason":"Cannot render the required diagram","requiredTool":"bash or a renderer MCP server","fix":"Enable the renderer at the Workflow Agent call site"}</blocked>',
+    sessionId: 'blocked-session',
+    events: [],
+  });
+  const result = await runBoot({
+    journalPath: join(dir, 'blocked.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Render the diagram.' },
+        { label: 'renderer', tools: ['read'] },
+      );
+      return 'completed';
+    },
+  });
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: {
+      name: 'AgentBlockedError',
+      message: expect.stringContaining('bash or a renderer MCP server'),
+    },
+  });
+  expect(f.run).toHaveBeenCalledOnce();
+  expect(f.resume).not.toHaveBeenCalled();
+});
+
+it('describes the actual grants and avoids impossible branch checks for read-only Agents', async () => {
+  const f = fixture();
+  await runBoot({
+    journalPath: join(dir, 'grants.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Review the content.' },
+        { label: 'reader', tools: ['read'] },
+      );
+      return 'completed';
+    },
+  });
+  const prompt = f.run.mock.calls[0][0].prompt;
+  expect(prompt).toContain('Enabled capabilities: read');
+  expect(prompt).toContain('Enabled MCP servers: none');
+  expect(prompt).toContain('Do not inspect .git/HEAD');
+  expect(prompt).toContain('<blocked>');
 });

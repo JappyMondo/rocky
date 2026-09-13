@@ -467,3 +467,20 @@ describe('the in-memory index', () => {
     expect(index[0]?.boots).toBe(4);
   });
 });
+
+it('preserves prior comment threads when reading the issue snapshot', async () => {
+  const comments = [
+    {
+      id: 'answer',
+      body: 'No PR; reply in Linear.',
+      createdAt: '2026-09-01T00:00:00Z',
+      userId: 'human',
+      sessionId: null,
+      parentId: 'old-thread',
+    },
+  ];
+  await writeRunHeader(paths, header({ issue: { ...issue, comments } }));
+  expect((await readRunHeader(paths, 'NG-601-1')).issue.comments).toEqual(
+    comments,
+  );
+});

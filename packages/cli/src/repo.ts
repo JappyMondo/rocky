@@ -36,8 +36,10 @@ import {
 } from '@rocky/daemon';
 
 import type { CliIo } from './cli.js';
+import { chooseWorkflowModels, type ModelFlags } from './workflow-models.js';
+import type { createConsolePrompter } from './setup/prompter.js';
 
-export interface AddRepoOptions {
+export interface AddRepoOptions extends ModelFlags {
   name?: string;
   label?: string;
   baseBranch?: string;
@@ -68,6 +70,7 @@ export async function addRepo(
   io: CliIo,
   url: string,
   options: AddRepoOptions = {},
+  createPrompter?: typeof createConsolePrompter,
 ): Promise<void> {
   const paths = rockyPaths();
 
@@ -84,6 +87,11 @@ export async function addRepo(
     assertNameFree(config, name);
     const label = options.label ?? name;
     assertLabelFree(config, label);
+    const models = await chooseWorkflowModels(
+      options,
+      config.workflowDefaults,
+      createPrompter,
+    );
 
     // Eagerly, and before anything is written.
     io.out(`Cloning ${url} into ${paths.repo(name)}…`);
@@ -108,7 +116,7 @@ export async function addRepo(
       await newSeedRepositoryProfile({
         id: name,
         remote: url,
-        defaults: config.workflowDefaults,
+        models,
       }),
     );
     const entry: RepoEntry = { name, url, baseBranch, label, profile: name };
@@ -343,7 +351,12 @@ export async function useProfile(
 }
 
 /** Explicitly migrate a legacy route without consulting its checkout. */
-export async function seedProfile(io: CliIo, repoName: string): Promise<void> {
+export async function seedProfile(
+  io: CliIo,
+  repoName: string,
+  options: ModelFlags = {},
+  createPrompter?: typeof createConsolePrompter,
+): Promise<void> {
   const paths = rockyPaths();
   try {
     const config = await readInstanceConfig(paths);
@@ -353,13 +366,18 @@ export async function seedProfile(io: CliIo, repoName: string): Promise<void> {
         `There is no repo entry called "${repoName}". \`rocky repo list\` shows them.`,
       );
     const id = repo.profile ?? repo.name;
+    const models = await chooseWorkflowModels(
+      options,
+      config.workflowDefaults,
+      createPrompter,
+    );
     await ensureInstanceLayout(paths);
     await writeRepositoryProfile(
       paths,
       await newSeedRepositoryProfile({
         id,
         remote: repo.url,
-        defaults: config.workflowDefaults,
+        models,
       }),
     );
     await writeInstanceConfig(paths, {

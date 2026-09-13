@@ -22,6 +22,7 @@ import { dirname } from 'node:path';
 
 import type { RunOutcome } from '@rocky/sdk';
 import { z } from 'zod';
+import { retryEntry, retryRecordSchema, retryStepKey } from './retry.js';
 
 /**
  * Bumped when the entry shape changes incompatibly. A journal carrying any
@@ -343,6 +344,27 @@ function parseLines(
   const controls = new Map<string, unknown>();
   let terminal = false;
   for (const [index, value] of raw.entries()) {
+    const retry = retryRecordSchema.safeParse(value);
+    if (retry.success) {
+      if (
+        !terminal ||
+        retryStepKey(entries) !== retry.data.stepKey ||
+        controls.has(`retry:${retry.data.requestId}`)
+      )
+        throw new JournalFormatError(`${at(index)}: invalid Step retry`);
+      entries.pop(); // The prior $end remains on disk, outside the active replay.
+      const previous = entries.findLast(
+        (entry) => String(entry.seq) === retry.data.stepKey,
+      );
+      if (!previous)
+        throw new JournalFormatError(`${at(index)}: missing retry Step`);
+      entries.push(retryEntry(previous, retry.data.recordedAt));
+      controls.set(`retry:${retry.data.requestId}`, retry.data);
+      controls.set('retry:latest', retry.data);
+      for (const key of retry.data.resetControls ?? []) controls.delete(key);
+      terminal = false;
+      continue;
+    }
     if (terminal)
       throw new JournalFormatError(`${at(index)}: entry after $end`);
     const control = controlRecordSchema.safeParse(value);

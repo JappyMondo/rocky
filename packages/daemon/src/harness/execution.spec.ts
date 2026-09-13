@@ -1,4 +1,12 @@
-import { chmod, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +32,66 @@ it.each(['malformed-config', 'malformed-agent', 'wide-agent'])(
     ).rejects.toMatchObject({ retryable: false });
   },
 );
+
+it('isolates parallel Steps and their configuration probes from each other', async () => {
+  const input = await invocation();
+  const second = {
+    ...input,
+    transcriptPath: join(input.cwd, 'sessions', 'second.jsonl'),
+  };
+  const results = await Promise.all([
+    opencode.run(input),
+    opencode.run(second),
+  ]);
+  const databases = results.map((result) => JSON.parse(result.text).db);
+  expect(databases[0]).not.toBe(databases[1]);
+  expect(databases).toEqual([
+    `${input.transcriptPath}.opencode.db`,
+    `${second.transcriptPath}.opencode.db`,
+  ]);
+});
+
+it('uses disposable probe databases and preserves legacy conversation resumption', async () => {
+  const input = await invocation();
+  const first = await opencode.run(input);
+  const log = join(input.cwd, 'probes.jsonl');
+  const legacy = join(input.cwd, 'sessions', 'opencode.db');
+  // Existing sessions predate per-Step stores.
+  await writeFile(legacy, 'legacy fixture');
+  const resumed = await opencode.resume({
+    ...input,
+    sessionId: first.sessionId,
+    env: { ...input.env, FIXTURE_PROBE_LOG: log },
+  });
+  expect(JSON.parse(resumed.text).db).toBe(legacy);
+  const probes = (await readFile(log, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line).db);
+  expect(probes).toHaveLength(2);
+  expect(probes[0]).not.toBe(legacy);
+  expect(probes[0]).toBe(probes[1]);
+  expect(
+    await stat(probes[0]).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(false);
+  await writeFile(`${input.transcriptPath}.opencode.db`, 'step fixture');
+  const stepResume = await opencode.resume({
+    ...input,
+    sessionId: first.sessionId,
+  });
+  expect(JSON.parse(stepResume.text).db).toBe(
+    `${input.transcriptPath}.opencode.db`,
+  );
+  await expect(
+    opencode.run({
+      ...input,
+      env: { ...input.env, FIXTURE_MODE: 'locked-probe' },
+    }),
+  ).rejects.toThrow(/database is locked/);
+});
 
 it('preserves the native store override only in opencode storage mode', async () => {
   const input = await invocation();
@@ -423,4 +491,29 @@ it('passes model variant to OpenCode and publishes the resolved configuration', 
   expect(JSON.parse(result.text).args).toContain('high');
   expect(result).toMatchObject({ model: input.model, variant: 'high' });
   expect(configurations).toEqual([{ model: input.model, variant: 'high' }]);
+});
+
+it('permits reading Run evidence without broad external-directory or edit grants', async () => {
+  const input = await invocation();
+  const directory = join(input.cwd, 'evidence');
+  const result = await opencode.run({
+    ...input,
+    capabilities: ['read'],
+    evidenceDirectories: [directory],
+  });
+  const info = JSON.parse(result.text);
+  expect(info.permission.external_directory).toEqual({
+    '*': 'deny',
+    [directory]: 'allow',
+    [`${directory}/**`]: 'allow',
+  });
+  expect(info.permission.edit).toBeUndefined();
+  const claude = await claudeCode.run({
+    ...input,
+    capabilities: ['read'],
+    evidenceDirectories: [directory],
+  });
+  expect(JSON.parse(claude.text).args).toEqual(
+    expect.arrayContaining(['--add-dir', directory]),
+  );
 });

@@ -113,3 +113,9 @@ browser acceptance when changing the packaged UI or its asset layout.
   repeats packaging tests after the remaining Harness, content and UI integration
   has landed. New runtime data files, dynamic loaders and subprocess entries
   must be added to packaging and its smoke test when introduced.
+
+The installed package also carries `dist/mermaid-check.js` and its runtime
+Mermaid/DOM dependencies. It executes in its own process so parser DOM globals
+cannot affect the daemon or Workflow worker. Production Agents and shell Steps
+receive its absolute location through `ROCKY_MERMAID_CHECK` plus `ROCKY_NODE`.
+The distribution smoke runs this validator outside the source workspace.

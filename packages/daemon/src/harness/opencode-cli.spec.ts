@@ -163,9 +163,17 @@ it.runIf(process.env.ROCKY_OPENCODE_POLICY_TESTS === '1')(
           OPENCODE_DISABLE_MODELS_FETCH: 'true',
         },
       };
-      const result = await opencode.run(input);
+      const [result, parallel] = await Promise.all([
+        opencode.run(input),
+        opencode.run({
+          ...input,
+          transcriptPath: join(root, 'sessions', 'parallel.jsonl'),
+        }),
+      ]);
+      expect(parallel.text).toBe('fixture response');
+      expect(parallel.sessionId).not.toBe(result.sessionId);
       expect(result.text).toBe('fixture response');
-      const db = new DatabaseSync(join(root, 'sessions', 'opencode.db'), {
+      const db = new DatabaseSync(`${input.transcriptPath}.opencode.db`, {
         readOnly: true,
       });
       try {

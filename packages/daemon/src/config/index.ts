@@ -37,6 +37,16 @@ export {
 } from './schema.js';
 
 export { expandHarness, expandVars, type Env } from './expand.js';
+export {
+  agentModelSchema,
+  workflowModelsSchema,
+  configureWorkflowModels,
+  readWorkflowModels,
+} from './workflow-models.js';
+export type {
+  AgentModelSelection,
+  WorkflowModels,
+} from '@rocky/local-contracts';
 
 export {
   ensureInstanceLayout,

@@ -1,3 +1,11 @@
+const models = {
+  agent: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
+  fastAgent: {
+    harness: 'opencode',
+    model: 'openai/test-model',
+    effort: 'high',
+  },
+} as const;
 import {
   appendFile,
   mkdir,
@@ -393,13 +401,17 @@ it('previews the configured default and creates its complete local pipeline for 
   const fixture = await setup();
   fixture.options.profiles = new LocalProfiles(fixture.paths);
   await writeInstanceConfig(fixture.paths, {
-    workflowDefaults: { harness: 'opencode', model: 'openai/configured-model' },
+    workflowDefaults: {
+      harness: 'opencode',
+      model: 'openai/test-model',
+      effort: 'high',
+    },
   });
   const preview = await fixture.app.inject('/api/profile-defaults');
   expect(preview.statusCode).toBe(200);
   expect(preview.json()).toMatchObject({
     workflow: {
-      source: expect.stringContaining('openai/configured-model'),
+      source: expect.stringContaining('openai/test-model'),
       triggers: ['linear.onDelegate', 'address-pr-conversations'],
     },
     grants: { harness: 'opencode' },
@@ -416,11 +428,12 @@ it('previews the configured default and creates its complete local pipeline for 
   const created = await fixture.app.inject({
     method: 'PUT',
     url: '/api/profiles',
-    payload: { id: 'product', repos },
+    payload: { id: 'product', repos, models },
   });
   expect(created.statusCode).toBe(200);
   const stored = await readRepositoryProfile(fixture.paths, 'product');
-  expect(stored.workflow).toEqual(preview.json().workflow);
+  expect(stored.workflow.source).toContain("model: 'openai/test-model'");
+  expect(stored.workflow.source).toContain("effort: 'high'");
   expect(stored.repos).toEqual(repos);
   expect(stored.prompts.planner).toBeTruthy();
   expect(stored.schemas).toContain('export');
@@ -443,6 +456,65 @@ it('previews the configured default and creates its complete local pipeline for 
   ).toBe('export default [];');
 });
 
+it('requires model choices on creation and reset, and replaces old models without resetting other Config values', async () => {
+  const f = await setup();
+  const profiles = new LocalProfiles(f.paths);
+  f.options.profiles = profiles;
+  const input = { id: 'selected-models', remote: 'github.com/acme/web' };
+  const missing = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: input,
+  });
+  expect(missing.statusCode).toBe(400);
+  expect(missing.json().code).toBe('model-selection-required');
+  expect(await profiles.list()).toEqual([]);
+  const created = await profiles.save({
+    ...input,
+    models,
+    workflow: {
+      source: `// BEGIN ROCKY CONFIG\nconst reviewCap = 9;\nconst agent = { harness: 'opencode' };\nconst fastAgent = { harness: 'opencode' };\n// END ROCKY CONFIG\nexport default [];`,
+      triggers: [],
+    },
+  });
+  expect(created.models).toEqual(models);
+  for (const bad of [
+    undefined,
+    { ...models, agent: { ...models.agent, effort: '' } },
+  ]) {
+    const reset = await f.app.inject({
+      method: 'POST',
+      url: '/api/profiles/selected-models/reset-workflow',
+      payload: { revision: created.revision, models: bad },
+    });
+    expect(reset.statusCode).toBe(400);
+    expect((await profiles.read(created.id)).revision).toBe(created.revision);
+  }
+  await writeInstanceConfig(f.paths, {
+    workflowDefaults: {
+      harness: 'claude-code',
+      model: 'ambient-changed-model',
+      effort: 'low',
+    },
+  });
+  const selected = {
+    agent: {
+      harness: 'claude-code',
+      model: 'claude-chosen-model',
+      effort: 'high',
+    },
+    fastAgent: { ...models.fastAgent, effort: 'low' },
+  };
+  const reset = await profiles.resetWorkflow(created.id, {
+    revision: created.revision,
+    models: selected,
+  });
+  expect(reset.models).toEqual(selected);
+  expect(reset.workflow.source).toContain('const reviewCap = 9;');
+  expect(reset.workflow.source).not.toContain('ambient-changed-model');
+  expect(reset.workflow.source).not.toContain('old-model');
+});
+
 it('edits a secret-free local profile with optimistic concurrency', async () => {
   const fixture = await setup();
   fixture.options.profiles = new LocalProfiles(fixture.paths);
@@ -451,6 +523,7 @@ it('edits a secret-free local profile with optimistic concurrency', async () => 
     url: '/api/profiles',
     payload: {
       id: 'service',
+      models,
       remote: 'git@github.com:acme/service.git',
       workflow: { source: 'export default [];', triggers: ['custom-workflow'] },
       grants: { harness: 'opencode', capabilities: ['read'], mcp: [] },
@@ -505,6 +578,7 @@ it('edits complete multi-repository membership and rejects ambiguous or unsafe m
     },
   ];
   const input = {
+    models,
     id: 'product',
     repos,
     workflow: { source: 'export default [];', triggers: [] },
@@ -556,6 +630,7 @@ it('keeps a legacy profile’s configured folder, SSH remote and base branch whe
   const fixture = await setup();
   const profiles = new LocalProfiles(fixture.paths);
   const original = await profiles.save({
+    models,
     id: 'pipeline',
     remote: 'github.com/acme/api',
     workflow: { source: 'export default [];', triggers: [] },
@@ -611,6 +686,7 @@ it('deletes only a current local profile revision', async () => {
     url: '/api/profiles',
     payload: {
       id: 'disposable',
+      models,
       remote: 'github.com/acme/disposable',
       workflow: { source: 'export default [];', triggers: [] },
       grants: { harness: 'opencode', capabilities: [], mcp: [] },
@@ -642,6 +718,7 @@ async function editorFixture(script: string) {
   const fixture = await setup();
   fixture.options.profiles = new LocalProfiles(fixture.paths);
   const profile = await fixture.options.profiles.save({
+    models,
     id: 'service',
     remote: 'github.com/acme/service',
     workflow: { source: 'export default [original];', triggers: [] },
@@ -1388,4 +1465,139 @@ it('exposes live agent settings, execution timing, profile and the PR from durab
     (await app.inject(`/api/runs/${run.runId}`)).json<RunDetail>().steps[0]
       .transcript,
   ).toBe('pruned');
+});
+
+it('resets workflow content while preserving config, repositories and integration settings, and rejects stale resets', async () => {
+  const f = await setup();
+  f.options.profiles = new LocalProfiles(f.paths);
+  const block =
+    '// BEGIN ROCKY CONFIG\nconst commands = { test: "custom-test" };\n// END ROCKY CONFIG';
+  const original = await writeRepositoryProfile(f.paths, {
+    ...newRepositoryProfile({ id: 'product', remote: 'github.com/acme/web' }),
+    repos: [
+      { name: 'web', url: 'https://github.com/acme/web', baseBranch: 'main' },
+      { name: 'api', url: 'https://github.com/acme/api', baseBranch: 'dev' },
+    ],
+    workflow: { source: block + '\nexport default [];', triggers: ['custom'] },
+    prompts: { custom: 'old prompt' },
+    schemas: 'old schema',
+    rules: { conventions: 'Keep these rules.' },
+    mcp: { mcpServers: {} },
+    settings: { env: { CUSTOM: 'value' }, secretEnv: ['MY_TOKEN'] },
+  });
+  const profile = (await f.app.inject('/api/profiles/product')).json();
+  const response = await f.app.inject({
+    method: 'POST',
+    url: '/api/profiles/product/reset-workflow',
+    payload: { revision: profile.revision, models },
+  });
+  expect(response.statusCode).toBe(200);
+  const saved = await readRepositoryProfile(f.paths, 'product');
+  expect(saved.workflow.source).toContain(
+    'const commands = { test: "custom-test" };',
+  );
+  expect(saved.workflow.source).toContain("effort: 'high'");
+  expect(saved.workflow.source).toContain("ctx.agent('refiner'");
+  expect(saved.workflow.triggers).toContain('linear.onDelegate');
+  expect(saved.prompts).toHaveProperty('deliverable-writer');
+  expect(saved.prompts).not.toHaveProperty('custom');
+  expect(saved.schemas).not.toBe('old schema');
+  for (const key of ['repos', 'settings', 'grants', 'mcp', 'rules'] as const)
+    expect(saved[key]).toEqual(original[key]);
+  expect(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url: '/api/profiles/product/reset-workflow',
+        payload: { revision: profile.revision, models },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(await readRepositoryProfile(f.paths, 'product')).toEqual(saved);
+});
+
+it('refuses to reset a malformed Config block without replacing content', async () => {
+  const f = await setup();
+  f.options.profiles = new LocalProfiles(f.paths);
+  const original = await writeRepositoryProfile(f.paths, {
+    ...newRepositoryProfile({ id: 'product', remote: 'github.com/acme/web' }),
+    workflow: {
+      source: '// BEGIN ROCKY CONFIG\nconst custom = true;',
+      triggers: [],
+    },
+  });
+  const profile = (await f.app.inject('/api/profiles/product')).json();
+  const response = await f.app.inject({
+    method: 'POST',
+    url: '/api/profiles/product/reset-workflow',
+    payload: { revision: profile.revision, models },
+  });
+  expect(response.statusCode).toBe(409);
+  expect(response.json().code).toBe('invalid-workflow-config');
+  expect(await readRepositoryProfile(f.paths, 'product')).toEqual(original);
+});
+
+it('advertises failed Step retries and validates retry requests at the local API', async () => {
+  const retryStep = vi.fn(async () => undefined);
+  const { app, run, paths } = await setup({ retryStep });
+  const entry: JournalEntry = {
+    v: 1,
+    seq: 0,
+    step: 'agent',
+    status: 'failed',
+    boot: 1,
+    startedAt: '2026-09-11T10:00:00Z',
+    error: { name: 'Error', message: 'transient' },
+  };
+  await mkdir(paths.run(run.runId).dir, { recursive: true });
+  await writeFile(
+    paths.run(run.runId).journal,
+    [
+      entry,
+      {
+        ...entry,
+        seq: 1,
+        step: '$end',
+        result: { status: 'failed', error: entry.error },
+      },
+    ]
+      .map((item) => JSON.stringify(item))
+      .join('\n') + '\n',
+  );
+  await writeRunHeader(paths, { ...run, status: 'failed', boots: 1 });
+  expect(
+    (await app.inject(`/api/runs/${run.runId}`)).json().controls.retryStep,
+  ).toBe('0');
+  const payload = {
+    requestId: '11111111-1111-4111-8111-111111111111',
+    stepKey: '0',
+    expectedBoot: 1,
+  };
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.runId}/retry-step`,
+        payload,
+      })
+    ).statusCode,
+  ).toBe(202);
+  expect(retryStep).toHaveBeenCalledWith(run.runId, payload);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.runId}/retry-step`,
+        payload: { ...payload, stepKey: '../0' },
+      })
+    ).statusCode,
+  ).toBe(400);
+  retryStep.mockRejectedValueOnce(new Error('Workspace was released'));
+  const refused = await app.inject({
+    method: 'POST',
+    url: `/api/runs/${run.runId}/retry-step`,
+    payload,
+  });
+  expect(refused.statusCode).toBe(409);
+  expect(refused.json().error).toContain('Workspace was released');
 });

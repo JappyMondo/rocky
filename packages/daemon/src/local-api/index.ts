@@ -1,3 +1,4 @@
+import { retryStepKey, type RetryRequest } from '../run/retry.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
@@ -61,6 +62,7 @@ export interface LocalApiOptions {
   profiles?: LocalProfiles;
   connections?: LocalConnections;
   diagrams?: Pick<WorkflowDiagrams, 'read' | 'retry'>;
+  retryStep?: (runId: string, input: RetryRequest) => Promise<void>;
   currentCheckpoint?: (runId: string) => Promise<Checkpoint | undefined>;
   answer?: (
     runId: string,
@@ -525,6 +527,12 @@ export async function registerLocalApi(
           steer: options.steer !== undefined,
         };
         if (
+          options.retryStep &&
+          run.status === 'failed' &&
+          !run.artifactsPruned
+        )
+          controls.retryStep = retryStepKey(entries);
+        if (
           options.recoverSession &&
           run.linear &&
           (run.status === 'failed' || run.status === 'cancelled')
@@ -689,6 +697,21 @@ export async function registerLocalApi(
         );
       },
     );
+    local.post<{ Params: { id: string } }>(
+      '/api/profiles/:id/reset-workflow',
+      async (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Repository profiles are not connected.',
+          );
+        return options.profiles.resetWorkflow(
+          parse(segment, request.params.id),
+          request.body,
+        );
+      },
+    );
     local.put('/api/profiles', async (request) => {
       if (!options.profiles)
         throw new LocalApiError(
@@ -768,6 +791,40 @@ export async function registerLocalApi(
             answer: result.answer,
           });
         return result;
+      },
+    );
+    local.post<{ Params: { id: string } }>(
+      '/api/runs/:id/retry-step',
+      async (request, reply) => {
+        const run = await getRun(request.params.id);
+        const input = parse(
+          z
+            .object({
+              requestId: z.string().uuid(),
+              stepKey: z.string().regex(/^\d+$/),
+              expectedBoot: z.number().int().min(1),
+            })
+            .strict(),
+          request.body,
+        );
+        if (!options.retryStep)
+          throw new LocalApiError(
+            503,
+            'retry-unavailable',
+            'Step retry is unavailable.',
+          );
+        try {
+          await options.retryStep(run.runId, input);
+        } catch (error) {
+          throw new LocalApiError(
+            409,
+            'retry-refused',
+            error instanceof Error ? error.message : 'Step retry was refused.',
+          );
+        }
+        return reply
+          .code(202)
+          .send({ runId: run.runId, stepKey: input.stepKey });
       },
     );
     local.post<{ Params: { id: string } }>(

@@ -43,6 +43,7 @@ it('names missing external adapters without inventing behavior', async () => {
       });
       for (const name of [
         'agent',
+        'visualRecap',
         'checkpoint',
         'post',
         'scm',
@@ -374,4 +375,38 @@ it('parks Questions and replays the human answer without minting merge approval'
   expect(await boot()).toMatchObject({ status: 'finished' });
   expect(await boot()).toMatchObject({ status: 'finished' });
   expect(calls).toBe(2);
+});
+
+it('routes visual recaps through the current parallel branch and replays their result', async () => {
+  let generated = 0;
+  const journalPath = join(dir, 'recap.jsonl');
+  const workflow = async (
+    runner: Parameters<typeof createWorkflowContext>[0],
+  ) => {
+    const ctx = createWorkflowContext(runner, header, {
+      exec: async () => ({ pid: 1 }),
+      changedFiles: async () => [],
+      external: (steps) => ({
+        visualRecap: (options) =>
+          steps.step('visualRecap', {}, async () => {
+            generated++;
+            return {
+              status: 'done',
+              result: {
+                id: options.deliverable ?? 'missing',
+                url: 'https://rocky.test/report',
+              },
+            };
+          }),
+      }),
+    });
+    const results = await ctx.parallel(['one', 'two'], (deliverable) =>
+      ctx.visualRecap({ deliverable }),
+    );
+    expect(results.map((r) => r.id)).toEqual(['one', 'two']);
+    return 'completed' as const;
+  };
+  await runBoot({ journalPath, workflow });
+  await runBoot({ journalPath, workflow });
+  expect(generated).toBe(2);
 });

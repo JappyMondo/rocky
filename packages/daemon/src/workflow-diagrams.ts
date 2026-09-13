@@ -13,6 +13,7 @@ import { expandHarness } from './config/expand.js';
 import { buildRedactionSet, createRedactor } from './config/redaction.js';
 import type { ConfigStore } from './config/watcher.js';
 import { AUTH_PROBES, getHarnessAdapter } from './harness/adapter.js';
+import { readWorkflowModels } from './config/workflow-models.js';
 
 // Bump when the prompt or accepted diagram format changes.
 const GENERATOR_VERSION = 'workflow-flowchart-v3';
@@ -58,7 +59,8 @@ export function agentDiagramGenerator(
   config: ConfigStore,
 ): DiagramGenerator {
   return async (profile, signal) => {
-    const name = profile.grants.harness;
+    const selected = readWorkflowModels(profile.workflow.source)?.fastAgent;
+    const name = selected?.harness ?? profile.grants.harness;
     const adapter = getHarnessAdapter(name);
     if (!adapter) throw new Error('The profile agent is unavailable.');
     const current = config.current;
@@ -82,9 +84,11 @@ export function agentDiagramGenerator(
         command: resolved.command ?? AUTH_PROBES[name].command,
         env,
         model:
-          current.workflowDefaults.harness === name
+          selected?.model ??
+          (current.workflowDefaults.harness === name
             ? current.workflowDefaults.model
-            : undefined,
+            : undefined),
+        effort: selected?.effort,
         sessionStorage: 'rocky',
         capabilities: [],
         mcpServers: [],

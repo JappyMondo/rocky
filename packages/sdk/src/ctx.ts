@@ -7,7 +7,7 @@
  * than guessed; the tickets that own them add them.
  */
 import type { z } from 'zod';
-import type { ApprovedCheckpoint, ScmOps } from './scm.js';
+import type { ApprovedCheckpoint, ScmOps, ScmPr } from './scm.js';
 export type {
   ApprovedCheckpoint,
   CiResult,
@@ -21,12 +21,24 @@ export type {
 // ── Data a Workflow can see ────────────────────────────────────────────────
 
 /** The Linear issue this Run was delegated for, snapshotted at Run start. */
+/** A comment captured at admission, including replies from earlier sessions. */
+export interface IssueComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  userId: string | null;
+  sessionId: string | null;
+  parentId: string | null;
+}
+
 export interface Issue {
   identifier: string;
   title: string;
   description: string;
   url: string;
   labels: string[];
+  /** Old run snapshots may predate comment hydration. Ordered oldest first. */
+  comments?: IssueComment[];
 }
 
 export interface ExecResult {
@@ -90,6 +102,21 @@ export interface AgentCallOpts<S extends z.ZodType = z.ZodType> {
   tools?: ('read' | 'edit' | 'bash')[];
   /** Names of servers declared in `.rocky/mcp.json`. */
   mcp?: string[];
+}
+
+/** Generate, host and publish a visual recap of a PR or another deliverable. */
+export interface VisualRecapOptions {
+  pr?: ScmPr;
+  diff?: string;
+  deliverable?: string;
+  title?: string;
+  scope?: unknown;
+  agent?: AgentCallOpts;
+}
+
+export interface VisualRecapResult {
+  id: string;
+  url: string;
 }
 
 /**
@@ -167,6 +194,11 @@ export interface WorkflowContext {
 
   /** Changed files of this Run's branch against its base. Journaled. */
   changedFiles(): Promise<string[]>;
+
+  /** Runs evidence capture and synthesis, then links the report in Linear and the supplied PR/MR.
+   * Requires a PR, nonempty diff, or nonempty deliverable. Restart-safe.
+   */
+  visualRecap(options: VisualRecapOptions): Promise<VisualRecapResult>;
 
   readonly scm: ScmOps;
   readonly linear: LinearOps;

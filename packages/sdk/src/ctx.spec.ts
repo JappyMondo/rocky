@@ -103,6 +103,12 @@ describe('WorkflowContext', () => {
     const useContext = async (ctx: WorkflowContext) => {
       const ports: number[] = ctx.ports;
       ctx.stage('Code review');
+      expectTypeOf(
+        await ctx.visualRecap({
+          deliverable: 'Analysis',
+          agent: { model: 'reviewer' },
+        }),
+      ).toEqualTypeOf<{ id: string; url: string }>();
       const value = await ctx.step('derive title', () => ({ ports }));
       const results = await ctx.parallel([1, 2], async (item, index) =>
         ctx.exec(`printf ${item}-${index}`),

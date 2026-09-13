@@ -1087,6 +1087,10 @@
 }
 .settings,
 .profiles {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
   max-width: 1160px;
 }
 .settingsGroup {
@@ -1973,4 +1977,174 @@
 }
 .interrupted {
   background: #a66a26;
+}
+
+.reportOverview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+.reportOverview > span {
+  padding: 18px;
+  border-radius: 12px;
+  background: #f2f6e9;
+  color: #526249;
+  font-size: 13px;
+}
+.reportOverview strong {
+  display: block;
+  font-size: 26px;
+  color: #253b21;
+  margin-bottom: 6px;
+}
+.reportTabs {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 4px 2px 12px;
+}
+.reportTabs button {
+  flex: 0 0 auto;
+  max-width: 280px;
+  padding: 12px 18px;
+  border: 1px solid #cad5c1;
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+}
+.reportTabs button[aria-selected='true'] {
+  background: #253b21;
+  color: #fff;
+  border-color: #253b21;
+}
+.reportChange {
+  border: 1px solid #dce2d5;
+  border-radius: 12px;
+  padding: 22px;
+  min-width: 0;
+}
+.reportChange aside {
+  overflow-wrap: anywhere;
+}
+.reportChangeFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.reportDiff {
+  background: #f7f9f5;
+  border: 1px solid #dce2d5;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 12px 0;
+  max-height: 540px;
+  tab-size: 2;
+}
+.reportDiff span {
+  display: block;
+  min-width: max-content;
+  padding: 0 14px;
+}
+.reportDiffAdded {
+  background: #e3f3e5;
+  color: #1f572c;
+}
+.reportDiffRemoved {
+  background: #fbe8e6;
+  color: #8a2e24;
+}
+.reportDiffHeader {
+  background: #e9eff7;
+  color: #344d74;
+}
+.reportFocusGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 16px;
+}
+.reportFocus,
+.reportAttention {
+  border: 1px solid #dce2d5;
+  border-radius: 12px;
+  padding: 20px;
+  overflow-wrap: anywhere;
+}
+.reportAttention {
+  background: #fffaee;
+  border-color: #e7cf94;
+}
+.reportFiles {
+  list-style: none;
+  padding: 0;
+  border: 1px solid #dce2d5;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.reportFiles li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 20px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e7ebe2;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.reportFiles li:last-child {
+  border-bottom: 0;
+}
+.reportFiles span {
+  color: #617056;
+}
+@media (max-width: 600px) {
+  .reportOverview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .reportChange {
+    padding: 14px;
+  }
+  .reviewReport h1 {
+    font-size: 25px;
+  }
+}
+
+.retryStep {
+  padding: 0 20px 16px 42px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.retryStep small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  max-width: 520px;
+}
+.retryStep p {
+  flex-basis: 100%;
+}
+.modelChoices {
+  padding: 22px;
+  border: 1px solid var(--line, #ddd);
+  border-radius: 14px;
+  background: var(--panel, #fafbf8);
+}
+.modelChoices h3 {
+  margin-top: 0;
+}
+.modelReuse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0;
+}
+.modelReuse input {
+  width: auto;
 }

@@ -1,4 +1,7 @@
 import { createJiti } from 'jiti';
+import { execFile } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
 import {
   cp,
   mkdtemp,
@@ -54,6 +57,8 @@ it('ships the complete editable default tree without default Rules', async () =>
   expect(agents.sort()).toEqual([
     'ci-fixer.md',
     'compliance-reviewer.md',
+    'deliverable-reviewer.md',
+    'deliverable-writer.md',
     'fixer.md',
     'implementer.md',
     'merger.md',
@@ -81,11 +86,16 @@ it('ships the complete editable default tree without default Rules', async () =>
 
 function fixture(
   options: {
+    comments?: import('@rocky/sdk').IssueComment[];
     agent?: (
       name: string,
       input: Record<string, unknown>,
       count: number,
     ) => Record<string, unknown> | undefined;
+    exec?: (
+      command: string,
+    ) => { exitCode: number; stdout: string; stderr: string } | undefined;
+    comment?: (body: string) => void;
     scm?: (operation: string, count: number) => unknown;
     triggers?: Triggers;
   } = {},
@@ -123,13 +133,28 @@ function fixture(
               description: 'Return an empty list.',
               url: 'https://example.test/issue/1',
               labels: [],
+              ...(options.comments ? { comments: options.comments } : {}),
             },
             branch: 'test-1',
             ports: [12345],
           },
           {
             exec: async (command, background) => {
-              trace.push(command.startsWith('git push') ? 'push' : command);
+              trace.push(
+                command.includes('git push origin HEAD') ? 'push' : command,
+              );
+              const result = options.exec?.(command);
+              if (result) return result;
+              if (command.includes('ROCKY_MERMAID_CHECK'))
+                return {
+                  exitCode: 0,
+                  stdout: JSON.stringify({
+                    ok: true,
+                    rendered: false,
+                    diagrams: [],
+                  }),
+                  stderr: '',
+                };
               return background
                 ? { pid: 123 }
                 : {
@@ -159,6 +184,11 @@ function fixture(
                     (n === 'refiner'
                       ? {
                           status: 'clear',
+                          delivery: {
+                            kind: 'pull-request',
+                            merge: true,
+                            stateChanges: true,
+                          },
                           scope: 'Handle empty input.',
                           decisions: ['Return an empty list as requested.'],
                           acceptanceCriteria: ['Return an empty list.'],
@@ -185,8 +215,20 @@ function fixture(
                   ? { status: 'done', result: answer }
                   : { status: 'waiting', detail: checkpoint };
               },
+              visualRecap: () =>
+                steps.step('visualRecap', {}, async () => {
+                  trace.push('visualRecap');
+                  return {
+                    status: 'done',
+                    result: {
+                      id: 'r_fixture',
+                      url: 'https://rocky.test/recap',
+                    },
+                  };
+                }),
               comment: (body) =>
                 steps.step('linear.comment', {}, async () => {
+                  options.comment?.(body);
                   trace.push(`comment:${body}`);
                   return { status: 'done', result: undefined };
                 }),
@@ -567,6 +609,9 @@ it('runs the merger only for reported conflicts, then revalidates before asking 
     outcome: 'merged',
   });
   expect(f.calls.filter(({ name }) => name === 'merger')).toHaveLength(1);
+  expect(f.trace.filter((command) => command.includes('git merge'))).toEqual([
+    'cd -- "$ROCKY_LEAD_REPO" && git merge --no-edit -- \'refs/remotes/origin/main\'',
+  ]);
   expect(
     f.calls.filter(({ name }) => name === 'compliance-reviewer'),
   ).toHaveLength(2);
@@ -663,7 +708,13 @@ it('addresses unresolved PR conversations once each without prior Run hand-over 
     },
     { id: 'done', path: 'src/c.ts', body: 'Already fixed.', resolved: true },
   ];
+  const recap = vi.fn(async () => ({
+    id: 'r_fixture',
+    url: 'https://rocky.test/recap',
+  }));
   const result = await addressPrConversations({
+    visualRecap: recap,
+    stage: () => undefined,
     issue: {
       identifier: 'TEST-1',
       title: 'Fix it',
@@ -703,6 +754,11 @@ it('addresses unresolved PR conversations once each without prior Run hand-over 
     },
   });
   expect(result).toBe('completed');
+  expect(recap).toHaveBeenCalledWith(
+    expect.objectContaining({
+      pr: expect.objectContaining({ headSha: 'abc' }),
+    }),
+  );
   expect(replies).toEqual([
     { id: 'a', body: 'Fixed in abc. Added a guard.' },
     { id: 'b', body: 'It is needed for callers.' },
@@ -725,6 +781,11 @@ it('clarifies repeatedly before planning and carries the complete decision recor
             }
           : {
               status: 'clear',
+              delivery: {
+                kind: 'pull-request',
+                merge: true,
+                stateChanges: true,
+              },
               scope: 'App only. Empty input returns an empty list.',
               decisions: ['User chose app only.', 'User chose an empty list.'],
               acceptanceCriteria: [
@@ -745,12 +806,445 @@ it('clarifies repeatedly before planning and carries the complete decision recor
   expect(JSON.stringify(planner?.input)).toContain(
     'App only. Empty input returns an empty list.',
   );
-  expect(f.trace.find((line) => line.startsWith('comment:'))).toContain(
-    'Scope decision record',
-  );
+  expect(
+    f.trace.find(
+      (line) =>
+        line.startsWith('post:') && line.includes('Scope decision record'),
+    ),
+  ).toContain('Scope decision record');
   expect(
     JSON.stringify(
       f.calls.filter((call) => call.name === 'refiner').at(-1)?.input,
     ),
   ).toContain('An empty list.');
+});
+
+it('delivers a no-PR ticket as a reviewed Linear comment without SCM or editing', async () => {
+  const body = '## Architecture\n```mermaid\nflowchart LR\n  API --> DB\n```';
+  const f = fixture({
+    agent: (name) => {
+      if (name === 'refiner')
+        return {
+          status: 'clear',
+          scope:
+            'Inspect repositories and return a Linear comment. No PR or edits.',
+          decisions: [
+            'The user explicitly requests a Linear comment and no PR.',
+          ],
+          acceptanceCriteria: ['Explain the architecture.'],
+          outOfScope: ['Repository changes.'],
+          delivery: { kind: 'linear-comment', stateChanges: false },
+        };
+      if (name === 'deliverable-writer') return { body };
+      if (name === 'deliverable-reviewer')
+        return {
+          assessments: [
+            {
+              criterion: 'Explain the architecture.',
+              evidence: 'The diagram explains the architecture.',
+              problems: [],
+            },
+          ],
+          problems: [],
+        };
+      return undefined;
+    },
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.scmCalls).toEqual([]);
+  expect(f.trace).not.toContain('implementer');
+  for (const call of f.calls.filter(({ name }) =>
+    name.startsWith('deliverable-'),
+  )) {
+    expect(call.options?.tools).toEqual(['read', 'bash']);
+  }
+  expect(f.trace.some((line) => line.includes('git push'))).toBe(false);
+  expect(f.trace).toContain(`comment:${body}`);
+  expect(f.trace.filter((line) => line.startsWith('comment:'))).toHaveLength(1);
+  expect(f.trace).not.toContain('Done');
+  const calls = f.calls.length;
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.calls).toHaveLength(calls);
+  expect(f.trace.filter((line) => line === `comment:${body}`)).toHaveLength(1);
+});
+
+const commentScope = {
+  status: 'clear',
+  scope: 'Explain the architecture in a Linear comment.',
+  decisions: ['Deliver in Linear; no PR or repository edits.'],
+  acceptanceCriteria: ['Explain the architecture.'],
+  outOfScope: ['Repository changes.'],
+  delivery: { kind: 'linear-comment', stateChanges: true },
+};
+
+it('repairs a rejected comment and reviews the replacement before publishing', async () => {
+  const f = fixture({
+    agent: (name, input, count) => {
+      if (name === 'refiner') return commentScope;
+      if (name === 'deliverable-writer')
+        return { body: count === 1 ? 'Incomplete' : 'Complete architecture' };
+      if (name === 'deliverable-reviewer')
+        return {
+          assessments: [
+            {
+              criterion: 'Explain the architecture.',
+              evidence: 'Checked repository entrypoints.',
+              problems:
+                input.body === 'Incomplete'
+                  ? ['Missing the storage connection.']
+                  : [],
+            },
+          ],
+          problems: [],
+        };
+      return undefined;
+    },
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(
+    f.calls.filter(({ name }) => name === 'deliverable-reviewer'),
+  ).toHaveLength(4);
+  expect(
+    f.calls.filter(({ name }) => name === 'deliverable-writer')[1].input
+      .previous,
+  ).toMatchObject({
+    body: 'Incomplete',
+    problems: expect.arrayContaining(['Missing the storage connection.']),
+  });
+  expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([
+    'comment:Complete architecture',
+  ]);
+  expect(f.trace.at(-1)).toBe('In Review');
+  expect(f.scmCalls).toEqual([]);
+});
+
+it('exhausts comment review without publishing an unapproved deliverable', async () => {
+  const f = fixture({
+    agent: (name) => {
+      if (name === 'refiner') return commentScope;
+      if (name === 'deliverable-writer') return { body: 'Incomplete' };
+      if (name === 'deliverable-reviewer')
+        return {
+          assessments: [
+            {
+              criterion: 'Explain the architecture.',
+              evidence: 'No architecture in the body.',
+              problems: ['Missing architecture.'],
+            },
+          ],
+          problems: [],
+        };
+      return undefined;
+    },
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'exhausted',
+  });
+  expect(
+    f.calls.filter(({ name }) => name === 'deliverable-writer'),
+  ).toHaveLength(5);
+  expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([]);
+  expect(f.trace).not.toContain('In Review');
+  expect(f.scmCalls).toEqual([]);
+});
+
+it('does not complete or advance state when comment delivery fails', async () => {
+  const f = fixture({
+    comment: () => {
+      throw new Error('Linear unavailable');
+    },
+    agent: (name) => {
+      if (name === 'refiner') return commentScope;
+      if (name === 'deliverable-writer') return { body: 'Architecture' };
+      if (name === 'deliverable-reviewer')
+        return {
+          assessments: [
+            {
+              criterion: 'Explain the architecture.',
+              evidence: 'Source-backed architecture.',
+              problems: [],
+            },
+          ],
+          problems: [],
+        };
+      return undefined;
+    },
+  });
+  expect(await f.boot()).toMatchObject({ status: 'failed' });
+  expect(f.trace).not.toContain('In Review');
+  expect(f.trace).not.toContain('Done');
+});
+
+it('hands off a validated PR without approval or merge when the ticket forbids Rocky merging', async () => {
+  const f = fixture({
+    agent: (name) =>
+      name === 'refiner'
+        ? {
+            ...commentScope,
+            scope: 'Implement empty input and hand off a PR without merging.',
+            decisions: [
+              'The user requests a PR for human handling, without automatic merge.',
+            ],
+            outOfScope: ['Automatic merge.'],
+            delivery: {
+              kind: 'pull-request',
+              merge: false,
+              stateChanges: false,
+            },
+          }
+        : undefined,
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.trace).toContain('waitForCi');
+  expect(f.trace).not.toContain('checkpoint');
+  expect(f.trace).not.toContain('updateBranch');
+  expect(f.trace).not.toContain('armAutoMerge');
+  expect(f.trace).not.toContain('In Progress');
+  expect(f.trace).not.toContain('In Review');
+  expect(f.trace.at(-1)).toContain(
+    'comment:Ready for review: https://example.test/pr/1',
+  );
+});
+
+it('passes human steering to subsequent compliance review', async () => {
+  const f = fixture();
+  f.answer({ decision: 'steer', message: 'Also handle whitespace.' });
+  f.answer({ decision: 'reject' });
+  await f.boot();
+  const reviews = f.calls.filter(({ name }) => name === 'compliance-reviewer');
+  expect(JSON.stringify(reviews[1].input.issue)).toContain(
+    'Also handle whitespace.',
+  );
+});
+
+it('runs configured checks and blocks handoff after repeated failures even when agents claim success', async () => {
+  const snapshot = join(dir, 'validation-snapshot');
+  await cp(new URL('../../content/.rocky/', import.meta.url), snapshot, {
+    recursive: true,
+  });
+  const path = join(snapshot, 'workflow.ts');
+  await writeFile(
+    path,
+    (await readFile(path, 'utf8')).replace("test: ''", "test: 'fixture-test'"),
+  );
+  const loaded = await createJiti(import.meta.url, {
+    alias: {
+      '@rocky/sdk': new URL('../../../sdk/src/index.ts', import.meta.url)
+        .pathname,
+    },
+  }).import<{ default: Triggers }>(path);
+  const f = fixture({
+    triggers: loaded.default,
+    exec: (command) =>
+      command.includes('fixture-test')
+        ? { exitCode: 1, stdout: 'empty case still fails', stderr: '' }
+        : undefined,
+    agent: (name, input) =>
+      name === 'fixer'
+        ? {
+            resolutions: (input.complaints as { id: string }[]).map(
+              ({ id }) => ({ id, status: 'fixed', note: 'Claimed success.' }),
+            ),
+          }
+        : undefined,
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'exhausted',
+  });
+  expect(f.calls.filter(({ name }) => name === 'fixer')).toHaveLength(4);
+  expect(f.trace).not.toContain('checkpoint');
+  expect(f.trace).not.toContain('armAutoMerge');
+  expect(f.trace.at(-1)).toContain('empty case still fails');
+});
+
+it('typechecks the shipped workflow against the public SDK', async () => {
+  await promisify(execFile)(process.execPath, [
+    createRequire(import.meta.url).resolve('typescript/bin/tsc'),
+    '--ignoreConfig',
+    '--noEmit',
+    '--strict',
+    '--module',
+    'NodeNext',
+    '--target',
+    'ES2022',
+    '--skipLibCheck',
+    '--types',
+    'node',
+    new URL('../../content/.rocky/workflow.ts', import.meta.url).pathname,
+  ]);
+});
+
+it('creates the visual recap after validation and before readying or asking the human', async () => {
+  const f = fixture();
+  expect((await f.boot()).status).toBe('parked');
+  expect(f.trace.indexOf('visualRecap')).toBeGreaterThan(
+    f.trace.indexOf('waitForCi'),
+  );
+  expect(f.trace.indexOf('visualRecap')).toBeLessThan(
+    f.trace.indexOf('markDraft'),
+  );
+  expect(f.trace.indexOf('visualRecap')).toBeLessThan(
+    f.trace.indexOf('checkpoint'),
+  );
+  const ready = f.scmCalls.find(
+    ({ operation, args }) => operation === 'markDraft' && args[1] === false,
+  );
+  expect(JSON.stringify(ready)).toContain('https://rocky.test/recap');
+});
+
+it('feeds previous-session answers to refinement and downstream planning', async () => {
+  const comments = [
+    {
+      id: 'prior-answer',
+      body: 'Return an empty list.',
+      createdAt: '2026-09-01T00:00:00Z',
+      userId: 'human',
+      sessionId: null,
+      parentId: 'old-session-thread',
+    },
+  ];
+  const f = fixture({ comments });
+  await f.boot();
+  for (const name of ['refiner', 'planner']) {
+    expect(
+      f.calls.find((call) => call.name === name)?.input.issue,
+    ).toMatchObject({ comments });
+  }
+});
+
+it('reviews publication criteria as readiness, validates diagrams, and publishes only after approval', async () => {
+  const criterion =
+    'A comment is published on the issue containing the architecture diagram.';
+  const body = '```mermaid\nflowchart LR\nA --> B\n```';
+  const f = fixture({
+    exec: (command) =>
+      command.includes('ROCKY_MERMAID_CHECK')
+        ? {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              ok: true,
+              diagrams: [{ index: 1, valid: true }],
+              rendered: false,
+            }),
+            stderr: '',
+          }
+        : undefined,
+    agent: (name, input) => {
+      if (name === 'refiner')
+        return { ...commentScope, acceptanceCriteria: [criterion] };
+      if (name === 'deliverable-writer') return { body };
+      if (name === 'deliverable-reviewer') {
+        expect(input.reviewContract).toMatchObject({
+          phase: 'before-publication',
+          publisher: 'workflow',
+        });
+        expect(input.validation).toMatchObject({ ok: true, rendered: false });
+        return {
+          assessments: [
+            {
+              criterion,
+              evidence:
+                'The exact candidate body is ready; the workflow confirms publication afterwards.',
+              problems: [],
+            },
+          ],
+          problems: [],
+        };
+      }
+      return undefined;
+    },
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.calls.filter((c) => c.name === 'deliverable-writer')).toHaveLength(
+    1,
+  );
+  expect(f.trace.filter((t) => t === `comment:${body}`)).toHaveLength(1);
+});
+
+it('stops before drafting when the required validator is unavailable', async () => {
+  const f = fixture({
+    agent: (name) => (name === 'refiner' ? commentScope : undefined),
+    exec: (command) =>
+      command.includes('ROCKY_MERMAID_CHECK')
+        ? { exitCode: 127, stdout: '', stderr: 'missing validator' }
+        : undefined,
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'Required Mermaid validator is unavailable',
+      ),
+    },
+  });
+  expect(f.calls.some((c) => c.name === 'deliverable-writer')).toBe(false);
+});
+it('repairs parser failures before review and never publishes an invalid diagram', async () => {
+  let validations = 0;
+  const f = fixture({
+    exec: (command) => {
+      if (!command.includes('ROCKY_MERMAID_CHECK')) return;
+      const invalid = ++validations === 2;
+      return {
+        exitCode: invalid ? 1 : 0,
+        stdout: JSON.stringify({
+          ok: !invalid,
+          rendered: false,
+          diagrams: invalid
+            ? [{ index: 1, valid: false, error: 'Parse error' }]
+            : [],
+        }),
+        stderr: '',
+      };
+    },
+    agent: (name, input, count) => {
+      if (name === 'refiner') return commentScope;
+      if (name === 'deliverable-writer') {
+        if (count === 2)
+          expect(input.previous).toMatchObject({
+            problems: ['Mermaid diagram 1: Parse error'],
+          });
+        return { body: count === 1 ? 'Broken diagram' : 'Valid diagram' };
+      }
+      if (name === 'deliverable-reviewer')
+        return {
+          assessments: [
+            {
+              criterion: 'Explain the architecture.',
+              evidence: 'Verified',
+              problems: [],
+            },
+          ],
+          problems: [],
+        };
+      return;
+    },
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.calls.filter((c) => c.name === 'deliverable-reviewer')).toHaveLength(
+    2,
+  );
+  expect(f.trace.filter((t) => t.startsWith('comment:'))).toEqual([
+    'comment:Valid diagram',
+  ]);
 });

@@ -15,7 +15,11 @@ import type {
 } from './types.js';
 import { HarnessError } from './types.js';
 import { assertSessionOwner, runProcess } from './process.js';
-import { checkMcpDiagnostic, checkMcpToolError } from './mcp-policy.js';
+import {
+  checkMcpDiagnostic,
+  checkMcpToolError,
+  checkToolAccessError,
+} from './mcp-policy.js';
 
 export const opencode = {
   run: (input: HarnessInvocation) => executeOpencode(input),
@@ -60,14 +64,33 @@ async function executeOpencode(
         recursive: true,
         mode: 0o700,
       });
-      env.OPENCODE_DB = join(dirname(input.transcriptPath), 'opencode.db');
+      const stepDatabase = `${input.transcriptPath}.opencode.db`;
+      const legacyDatabase = join(dirname(input.transcriptPath), 'opencode.db');
+      // Older conversations still live in the Run-wide store. New conversations
+      // own one database per Step so parallel CLIs cannot race SQLite startup.
+      const legacyResume =
+        input.sessionId &&
+        !(await stat(stepDatabase).then(
+          () => true,
+          () => false,
+        )) &&
+        (await stat(legacyDatabase).then(
+          () => true,
+          () => false,
+        ));
+      env.OPENCODE_DB = legacyResume ? legacyDatabase : stepDatabase;
     }
     const expected = JSON.parse(await readFile(env.OPENCODE_CONFIG, 'utf8'));
+    // Even read-only debug commands initialize SQLite. Never probe a live store.
+    const probeEnv = {
+      ...env,
+      OPENCODE_DB: join(dirname(env.OPENCODE_CONFIG), 'probe.db'),
+    };
     const resolved = await runProcess({
       command: input.command,
       args: ['debug', 'config'],
       cwd: input.cwd,
-      env,
+      env: probeEnv,
       signal: input.signal,
       timeoutMs: Math.min(input.timeoutMs ?? 30_000, 30_000),
     });
@@ -76,7 +99,9 @@ async function executeOpencode(
       effective = JSON.parse(resolved.stdout);
     } catch {
       throw new HarnessError(
-        'opencode could not verify effective configuration; use a supported OpenCode CLI',
+        /database is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(resolved.stderr)
+          ? 'opencode configuration probe could not open its database (database is locked); retry the Step'
+          : `opencode could not verify effective configuration (exit ${resolved.code ?? 'signal'}); use a supported OpenCode CLI`,
         false,
       );
     }
@@ -113,7 +138,7 @@ async function executeOpencode(
       command: input.command,
       args: ['debug', 'agent', 'rocky'],
       cwd: input.cwd,
-      env,
+      env: probeEnv,
       signal: input.signal,
       timeoutMs: 30_000,
     });
@@ -224,7 +249,7 @@ function isOpenCodeAuthFailure(error: JsonObject): boolean {
   );
 }
 
-type OpencodePermission = 'allow' | 'deny';
+type OpencodePermission = 'allow' | 'deny' | Record<string, 'allow' | 'deny'>;
 
 export interface ScopedOpencodeConfig {
   cwd: string;
@@ -234,6 +259,7 @@ export interface ScopedOpencodeConfig {
 
 export function renderOpencodePermissions(
   capabilities: readonly Capability[],
+  evidenceDirectories: readonly string[] = [],
 ): Record<string, OpencodePermission> {
   const permissions: Record<string, OpencodePermission> = { '*': 'deny' };
 
@@ -244,6 +270,23 @@ export function renderOpencodePermissions(
   }
   if (capabilities.includes('edit')) permissions.edit = 'allow';
   if (capabilities.includes('bash')) permissions.bash = 'allow';
+  if (
+    evidenceDirectories.length &&
+    capabilities.includes('read') &&
+    !capabilities.includes('edit')
+  ) {
+    const external: Record<string, 'allow' | 'deny'> = { '*': 'deny' };
+    for (const directory of evidenceDirectories) {
+      if (!directory.startsWith('/') || /[*?]/.test(directory))
+        throw new HarnessError(
+          'Evidence directory must be an absolute path without wildcard characters.',
+          false,
+        );
+      external[directory] = 'allow';
+      external[`${directory.replace(/\/$/, '')}/**`] = 'allow';
+    }
+    permissions.external_directory = external;
+  }
 
   return permissions;
 }
@@ -282,6 +325,7 @@ export function renderOpencodeMcpServers(
 export async function createScopedOpencodeConfig(input: {
   cwd: string;
   capabilities: readonly Capability[];
+  evidenceDirectories?: readonly string[];
   mcpServers: readonly ResolvedMcpServer[];
   env?: NodeJS.ProcessEnv;
 }): Promise<ScopedOpencodeConfig> {
@@ -307,7 +351,10 @@ export async function createScopedOpencodeConfig(input: {
       }
     }
   }
-  const permission = renderOpencodePermissions(input.capabilities);
+  const permission = renderOpencodePermissions(
+    input.capabilities,
+    input.evidenceDirectories,
+  );
   for (const server of input.mcpServers) {
     if (!/^[A-Za-z0-9_-]+$/.test(server.name))
       throw new HarnessError(
@@ -554,8 +601,10 @@ function createOpencodeStream(
             throw new Error('Invalid OpenCode tool_use event');
           }
           const state = objectAt(part, 'state', 'tool_use');
-          if (state.status === 'error')
+          if (state.status === 'error') {
             checkMcpToolError(part.tool, state.error, servers, '_');
+            checkToolAccessError(part.tool, state.error);
+          }
           emit(
             { kind: 'tool-call', name: part.tool },
             { kind: 'tool-result', name: part.tool },

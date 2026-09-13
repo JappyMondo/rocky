@@ -157,8 +157,10 @@ function daemon(
     routing?: (path: string, init?: RequestInit) => Reply;
     profileDefaults?: () => Reply;
     openWorkflow?: (init?: RequestInit) => Reply;
+    resetWorkflow?: (init?: RequestInit) => Reply;
     trigger?: (init?: RequestInit) => Reply;
     recovery?: (init?: RequestInit) => Reply;
+    retryStep?: (init?: RequestInit) => Reply;
     diffs?: (path: string) => Reply;
   } = {},
 ) {
@@ -166,6 +168,7 @@ function daemon(
   let healths = 0;
   let intakeFailureReads = 0;
   return installFetch((path, init) => {
+    if (path.endsWith('/retry-step')) return options.retryStep?.(init) ?? {};
     if (path === '/api/connections')
       return {
         body: {
@@ -202,6 +205,8 @@ function daemon(
           },
         }
       );
+    if (/\/reset-workflow$/.test(path))
+      return options.resetWorkflow?.(init) ?? {};
     if (/\/open-workflow$/.test(path))
       return options.openWorkflow?.(init) ?? { body: { opened: true } };
     if (/\/routing$/.test(path))
@@ -890,6 +895,93 @@ describe('Inbox behavior', () => {
     ).toBe('true');
   });
 
+  it('offers failed Step retry, preserves the request ID after a lost response, and refreshes the Run', async () => {
+    const requests: Array<{
+      requestId: string;
+      stepKey: string;
+      expectedBoot: number;
+    }> = [];
+    daemon({
+      detail: () => ({
+        body: detail(
+          { ...r1, status: requests.length >= 2 ? 'queued' : 'failed' },
+          {
+            checkpoint: undefined,
+            steps: [
+              agent({
+                status: 'failed',
+                error: { name: 'Error', message: 'database locked' },
+              }),
+            ],
+            controls: { answer: false, steer: false, retryStep: '0' },
+          },
+        ),
+      }),
+      retryStep: (init) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return requests.length === 1
+          ? { reject: new Error('lost response') }
+          : { body: { runId: 'r1' } };
+      },
+    });
+    render(<App />);
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry failed step' }));
+    await screen.findByText('Step could not be retried.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry failed step' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Retry failed step' }),
+      ).toBeNull(),
+    );
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual(requests[1]);
+    expect(requests[0]).toMatchObject({ stepKey: '0', expectedBoot: 2 });
+  });
+
+  it('renders a recorded OpenCode tool event as readable activity instead of JSONL', async () => {
+    let receive: ((event: MessageEvent) => void) | undefined;
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        addEventListener(name: string, handler: (event: MessageEvent) => void) {
+          if (name === 'transcript') receive = handler;
+        }
+        close = vi.fn();
+      },
+    );
+    daemon();
+    render(<App />);
+    await loaded();
+    fireEvent.click(screen.getAllByRole('button', { name: /agent/ })[0]);
+    const text =
+      JSON.stringify({
+        type: 'tool_use',
+        timestamp: 1788889606033,
+        part: {
+          type: 'tool',
+          tool: 'read',
+          callID: 'call-read',
+          state: {
+            status: 'completed',
+            input: { filePath: 'package.json' },
+            output: '{"name":"rocky"}',
+            title: 'package.json',
+          },
+        },
+      }) + '\n';
+    await act(async () =>
+      receive?.(
+        new MessageEvent('transcript', {
+          data: JSON.stringify({ text, offset: text.length }),
+        }),
+      ),
+    );
+    expect(screen.getByText('read')).toBeTruthy();
+    expect(screen.getByText('package.json')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Raw' })).toBeTruthy();
+  });
+
   it('owns transcript streams per fold and handles data, duplicates, settled, unavailable, error, construction failure, and unmount', async () => {
     const sources: FakeSource[] = [];
     const close = vi.fn();
@@ -1466,9 +1558,9 @@ describe('Workspace redesign', () => {
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
     await screen.findByRole('heading', { name: 'New profile' });
-    expect((screen.getByLabelText('Harness') as HTMLSelectElement).value).toBe(
-      'claude-code',
-    );
+    expect(
+      (screen.getByLabelText('Main agent harness') as HTMLSelectElement).value,
+    ).toBe('claude-code');
     fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
     expect(
       (screen.getByLabelText('Workflow source') as HTMLTextAreaElement).value,
@@ -1512,6 +1604,12 @@ describe('Workspace redesign', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }));
     await screen.findByRole('heading', { name: 'New profile' });
+    fireEvent.change(screen.getByLabelText('Main agent model'), {
+      target: { value: 'openai/test-model' },
+    });
+    fireEvent.change(screen.getByLabelText('Main agent variant'), {
+      target: { value: 'high' },
+    });
     expect(
       (
         screen.getByRole('button', {
@@ -1553,8 +1651,14 @@ describe('Workspace redesign', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Remove repository 3' }),
     );
-    fireEvent.change(screen.getByLabelText('Harness'), {
+    fireEvent.change(screen.getByLabelText('Main agent harness'), {
       target: { value: 'claude-code' },
+    });
+    fireEvent.change(screen.getByLabelText('Main agent model'), {
+      target: { value: 'claude-selected-model' },
+    });
+    fireEvent.change(screen.getByLabelText('Main agent effort'), {
+      target: { value: 'high' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
     fireEvent.change(screen.getByLabelText('Manual triggers (one per line)'), {
@@ -1578,6 +1682,12 @@ describe('Workspace redesign', () => {
     ).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
     await screen.findByRole('heading', { name: 'New profile' });
+    fireEvent.change(screen.getByLabelText('Main agent model'), {
+      target: { value: 'openai/test-model' },
+    });
+    fireEvent.change(screen.getByLabelText('Main agent variant'), {
+      target: { value: 'high' },
+    });
     fireEvent.change(screen.getByLabelText('Profile id'), {
       target: { value: 'another' },
     });
@@ -1829,3 +1939,153 @@ it.each(['question', 'agent'])(
     expect(scroll).toHaveBeenCalledWith({ block: 'center' });
   },
 );
+
+it('requires complete model selections for creation and sends distinct helper settings', async () => {
+  window.history.replaceState({}, '', '/profiles');
+  const mock = daemon({
+    profiles: (init) =>
+      init?.method === 'PUT'
+        ? {
+            body: {
+              ...JSON.parse(String(init.body)),
+              revision: 'saved',
+              prompts: [],
+              rules: [],
+              secretEnv: [],
+            },
+          }
+        : { body: { profiles: [] } },
+  });
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }));
+  fireEvent.change(await screen.findByLabelText('Profile id'), {
+    target: { value: 'chosen' },
+  });
+  fireEvent.change(screen.getByLabelText('Folder name 1'), {
+    target: { value: 'app' },
+  });
+  fireEvent.change(screen.getByLabelText('Remote URL 1'), {
+    target: { value: 'github.com/acme/app' },
+  });
+  const save = screen.getByRole('button', {
+    name: 'Save profile',
+  }) as HTMLButtonElement;
+  expect(save.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Main agent model'), {
+    target: { value: 'provider/main' },
+  });
+  expect(save.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Main agent variant'), {
+    target: { value: 'high' },
+  });
+  expect(save.disabled).toBe(false);
+  fireEvent.click(
+    screen.getByLabelText(
+      'Use the same model and variant/effort for helper agents',
+    ),
+  );
+  fireEvent.change(screen.getByLabelText('Helper agent harness'), {
+    target: { value: 'claude-code' },
+  });
+  expect(save.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Helper agent model'), {
+    target: { value: 'claude-helper' },
+  });
+  fireEvent.change(screen.getByLabelText('Helper agent effort'), {
+    target: { value: 'low' },
+  });
+  fireEvent.click(save);
+  await screen.findByText('Profile saved');
+  const request = mock.mock.calls.find(
+    ([path, init]) => path === '/api/profiles' && init?.method === 'PUT',
+  );
+  expect(JSON.parse(String(request?.[1]?.body)).models).toEqual({
+    agent: { harness: 'opencode', model: 'provider/main', effort: 'high' },
+    fastAgent: {
+      harness: 'claude-code',
+      model: 'claude-helper',
+      effort: 'low',
+    },
+  });
+});
+
+it('confirms resetting an existing workflow, sends its revision and displays the saved default', async () => {
+  window.history.replaceState({}, '', '/profiles');
+  const profile = {
+    id: 'service',
+    remote: 'github.com/acme/service',
+    revision: 'old',
+    workflow: { source: 'custom workflow', triggers: ['custom'] },
+    grants: { harness: 'opencode', capabilities: [], mcp: [] },
+    prompts: [],
+    rules: [],
+    secretEnv: [],
+  };
+  const mock = daemon({
+    profiles: () => ({ body: { profiles: [profile] } }),
+    resetWorkflow: () => ({
+      body: {
+        ...profile,
+        revision: 'new',
+        workflow: {
+          source: 'default workflow',
+          triggers: ['linear.onDelegate'],
+        },
+      },
+    }),
+  });
+  render(<App />);
+  await screen.findByRole('heading', { name: 'service' });
+  fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
+  expect(
+    mock.mock.calls.some(([path]) => String(path).endsWith('/reset-workflow')),
+  ).toBe(false);
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel reset' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
+  fireEvent.change(await screen.findByLabelText('Main agent model'), {
+    target: { value: 'openai/test-model' },
+  });
+  fireEvent.change(screen.getByLabelText('Main agent variant'), {
+    target: { value: 'high' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Reset workflow with these models' }),
+  );
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('workflow.ts') as HTMLTextAreaElement).value,
+    ).toBe('default workflow'),
+  );
+  expect(mock).toHaveBeenCalledWith(
+    '/api/profiles/service/reset-workflow',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        revision: 'old',
+        models: {
+          agent: {
+            harness: 'opencode',
+            model: 'openai/test-model',
+            effort: 'high',
+          },
+          fastAgent: {
+            harness: 'opencode',
+            model: 'openai/test-model',
+            effort: 'high',
+          },
+        },
+      }),
+    }),
+  );
+  fireEvent.change(screen.getByLabelText('workflow.ts'), {
+    target: { value: 'unsaved changes' },
+  });
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Reset to default',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+});

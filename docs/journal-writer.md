@@ -23,7 +23,7 @@ already queued writes; read/get remain available on a healthy terminal writer.
 Control lines are `{ v: 1, kind: 'control', key, value, recordedAt }` in the same
 `journal.jsonl`. They have no sequence or Boot and never appear in `entries`,
 `latest`, interrupted counts or replay. Last value per key wins. Unknown fields,
-incompatible versions and complete records after `$end` are corruption.
+incompatible versions and ordinary records after `$end` are corruption.
 
 `open` repairs a torn tail only at exclusive owner startup. Later reads use
 non-repairing `readJournal`. Direct `appendEntry` remains for standalone `runBoot`
@@ -44,3 +44,26 @@ is skipped when no cached project graph exists.
 This is not evidence of child IPC, scheduler cancellation or live Linear
 composition. Those owners must share this writer; no live credentials, network
 effects or power-loss fault injection were used in these tests.
+
+## Explicit Step retry
+
+`JournalWriter.retry(requestId, stepKey, resetControls?)` is the sole exception to
+the terminal barrier. The scheduler authorizes it only for the final failed Agent
+or exec Step, including a failed parallel group whose completed branches can be
+reused. Structural failures, older Runs superseded by another Run for the same
+issue, cancelled/finished/live Runs, and stale Boot numbers are refused. A frozen
+terminal Linear response also prevents retry, preserving its publication identity.
+
+A flushed `kind: "retry"` record follows the prior failed `$end`. The old bytes
+remain intact. Readers project that marker as a waiting Step, clear only specified
+integration closing guards, and preserve earlier outcomes, completed branches and
+failure attempts. Agent retries carry previous human directions into a fresh
+conversation. The next Boot continues the same Workflow snapshot. A marker
+committed before a header-write failure recovers as queued on restart; request IDs
+make repeated HTTP requests idempotent. No ordinary append can cross `$end`.
+
+Failed workspaces are retained for retry until normal retention. For an older Run
+whose clean workspace was already released, Rocky can restore local worktrees only
+if their branches still match recorded revisions. It never resets a branch or
+replaces a retained worktree. Retry cannot recreate removed non-repository files
+or external services; use a new Run when earlier results depend on those.

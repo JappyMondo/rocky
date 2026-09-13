@@ -27,8 +27,11 @@ not literal JSON. Agent prompts, models, Capabilities and named MCP grants are s
 chosen at each Workflow call site.
 
 `sessionStorage: "rocky" | "opencode"` defaults to `rocky`. OpenCode implements this
-using `OPENCODE_DB`: `rocky` overrides it with `sessions/opencode.db` beside the
-Transcript; `opencode` leaves the native store selection unchanged. Retention of a
+using `OPENCODE_DB`: `rocky` gives each Step `<transcript>.opencode.db`.
+Parallel Steps never initialize or write the same SQLite store. Resumes of older
+conversations fall back to `sessions/opencode.db` when no per-Step database exists.
+Configuration/Agent probes always use a disposable database, including for legacy
+resumes, so a read-only probe cannot contend with a live session; `opencode` leaves the native store selection unchanged. Retention of a
 Run does not remove sessions kept in the ordinary OpenCode store. OpenCode auth,
 caches and logs remain in the CLI's ordinary locations. Rocky does not copy or edit
 that credential store. Claude routes only its native session artifacts into a
@@ -122,3 +125,32 @@ successful live continuation. The last reported inference failure was
 `oauth_org_not_allowed`; an offline `loggedIn: true` does not clear that gate.
 Full daemon coverage and integrated Preflight/Agent/Steer acceptance remain separate
 integration gates. Neither these fixtures nor a registered adapter close those tickets.
+
+## Missing tools and validation
+
+Every Agent prompt describes its actual Capability and MCP grants. Read-only file
+inspection does not require Git metadata reads; worktree branches are checked with
+Git when modifications are needed. Agents with `bash` also receive `ROCKY_NODE`
+and `ROCKY_MERMAID_CHECK`. Pipe Markdown to `"$ROCKY_NODE"
+"$ROCKY_MERMAID_CHECK"`, or use `--source` for one diagram. The bundled checker
+reads stdin, writes JSON with the exact input hash and per-diagram Mermaid parser
+results, and changes no repository files. Exit codes are 0 (valid), 1 (invalid
+syntax), and 2 (validator unavailable). Parsing is explicitly not rendering.
+
+A required operation blocked by missing tools/access has an alternative response:
+`<blocked>{"reason":"…","requiredTool":"…","fix":"…"}</blocked>`.
+The runner records `AgentBlockedError` immediately, preserving the session and
+usage. It does not apply schema-repair nudges or automatic retries to that response.
+Recognized native tool permission rejections likewise stop with a named fix;
+ordinary missing-file and search errors remain available for the Agent to resolve.
+No failure automatically widens grants. Fix the Workflow call site or configuration
+before retrying; changed Workflow grants require a new Run snapshot.
+
+Agents with shell access are told to check the installed `agent-browser` CLI before
+assuming a browser is missing. Each Step gets a stable, distinct
+`ROCKY_BROWSER_SESSION`. Recap captures receive a local preview URL only when a
+recorded body exactly matches the requested deliverable; they use its actual
+rendered content, not transcript source or an invented preview. A missing browser
+for a required capture stops the capture sequence with the blocked envelope.
+
+Profile creation, workflow seeding and reset require explicit main/helper model and variant/effort selections. They are stored in `workflow.ts` and frozen by Run snapshots; the adapters pass them via `--model` plus OpenCode `--variant` or Claude Code `--effort`. Use full model IDs when avoiding moving aliases. Supported variants remain model-specific ([OpenCode models](https://opencode.ai/docs/models/), [Claude Code model configuration](https://code.claude.com/docs/en/model-config)); Rocky accepts explicit names rather than maintaining a stale model catalog. This pins the selected names, not provider behavior or user-defined variant definitions.

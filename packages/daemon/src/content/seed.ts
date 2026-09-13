@@ -11,6 +11,11 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import type { WorkflowModels } from '@rocky/local-contracts';
+import {
+  configureWorkflowModels,
+  workflowModelsSchema,
+} from '../config/workflow-models.js';
 
 export const Inspection = z.strictObject({
   commands: z.strictObject({
@@ -105,6 +110,7 @@ export function selectStates(teamStates?: readonly TeamState[]) {
 }
 
 export interface SeedOptions {
+  models: WorkflowModels;
   repo: string;
   shippedDir: string;
   inspection: Inspection;
@@ -140,6 +146,7 @@ export async function assertUnconfigured(repo: string): Promise<void> {
 }
 
 export async function seedContent(options: SeedOptions): Promise<string> {
+  const models = workflowModelsSchema.parse(options.models);
   const inspection = Inspection.parse(options.inspection);
   const states = selectStates(options.teamStates);
   const repo = resolve(options.repo);
@@ -186,11 +193,14 @@ export async function seedContent(options: SeedOptions): Promise<string> {
       .join('\n');
     await writeFile(
       workflow,
-      source.slice(0, start + begin.length) +
-        '\n' +
-        block +
-        '\n' +
-        source.slice(stop),
+      configureWorkflowModels(
+        source.slice(0, start + begin.length) +
+          '\n' +
+          block +
+          '\n' +
+          source.slice(stop),
+        models,
+      ),
     );
     if (inspection.ui) {
       const path = join(directory, 'mcp.json');

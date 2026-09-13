@@ -184,6 +184,48 @@ export const CiFix = z.object({
   action: z.enum(['fixed', 'retry', 'unresolved']),
 });
 
+// Explicit ticket instructions select the route; missing fields fail closed.
+export const Delivery = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('pull-request'),
+      merge: z.boolean(),
+      stateChanges: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal('linear-comment'), stateChanges: z.boolean() })
+    .strict(),
+]);
+export const Deliverable = z
+  .object({ body: z.string().trim().min(1) })
+  .strict();
+
+export function DeliverableReviewFor(criteria: readonly string[]) {
+  return z
+    .object({
+      assessments: z
+        .array(
+          z
+            .object({
+              criterion: z.enum(criteria),
+              evidence: z.string().trim().min(1),
+              problems: z.array(z.string().trim().min(1)),
+            })
+            .strict(),
+        )
+        .refine(
+          (items) =>
+            items.length === criteria.length &&
+            new Set(items.map((item) => item.criterion)).size ===
+              criteria.length,
+          'Assess every acceptance criterion exactly once',
+        ),
+      problems: z.array(z.string().trim().min(1)),
+    })
+    .strict();
+}
+
 /** No path from an ambiguous ticket to implementation without a human answer. */
 export const Refinement = z.discriminatedUnion('status', [
   z.object({
@@ -193,9 +235,31 @@ export const Refinement = z.discriminatedUnion('status', [
   }),
   z.object({
     status: z.literal('clear'),
+    delivery: Delivery,
     scope: z.string().min(1),
     decisions: z.array(z.string().min(1)).min(1),
-    acceptanceCriteria: z.array(z.string().min(1)).min(1),
+    acceptanceCriteria: z
+      .array(z.string().min(1))
+      .min(1)
+      .refine(
+        (items) => new Set(items).size === items.length,
+        'Acceptance criteria must be unique',
+      ),
     outOfScope: z.array(z.string().min(1)),
   }),
 ]);
+
+/** Evidence emitted by Rocky's bundled local parser, not an Agent assertion. */
+export const DiagramValidation = z.object({
+  ok: z.boolean(),
+  rendered: z.literal(false),
+  sha256: z.string().optional(),
+  validator: z.string().optional(),
+  diagrams: z.array(
+    z.object({
+      index: z.number().int().positive(),
+      valid: z.boolean(),
+      error: z.string().optional(),
+    }),
+  ),
+});

@@ -2,13 +2,18 @@ import {
   linear,
   manual,
   type WorkflowContext,
-  type Pr,
+  type ScmPr,
   type ScmRefusal,
   type AgentCallOpts,
+  type WorkflowInput,
 } from '@rocky/sdk';
 import { readdir, readFile } from 'node:fs/promises';
 import {
   Plan,
+  Refinement,
+  Deliverable,
+  DeliverableReviewFor,
+  DiagramValidation,
   ReviewFor,
   FixReportFor,
   UiTriage,
@@ -35,7 +40,7 @@ const ciLogLines = 200;
 // END ROCKY CONFIG
 
 async function shell(ctx: WorkflowContext, command: string) {
-  const result = await ctx.exec(command);
+  const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`);
   if (result.exitCode !== 0)
     throw new Error(`Command failed: ${command}\n${result.stderr}`);
   return result.stdout.trim();
@@ -70,7 +75,7 @@ async function loadRules(ctx: WorkflowContext) {
 
 async function giveUp(
   ctx: WorkflowContext,
-  pr: Pr,
+  pr: ScmPr,
   complaints: readonly Complaint[],
 ) {
   requireScm(await ctx.scm.markDraft(pr, true));
@@ -80,6 +85,33 @@ async function giveUp(
   return 'exhausted' as const;
 }
 
+async function validateDiagrams(ctx: WorkflowContext, body: string) {
+  const result = await ctx.exec(
+    `printf '%s' ${quote(body)} | "$ROCKY_NODE" "$ROCKY_MERMAID_CHECK"`,
+  );
+  if (result.exitCode !== 0 && result.exitCode !== 1)
+    throw new Error(
+      `Required Mermaid validator is unavailable. Upgrade/restart Rocky to provide ROCKY_NODE and ROCKY_MERMAID_CHECK. ${result.stderr}`,
+    );
+  const evidence = DiagramValidation.parse(JSON.parse(result.stdout));
+  if (
+    evidence.ok !== (result.exitCode === 0) ||
+    evidence.ok !== evidence.diagrams.every((item) => item.valid)
+  )
+    throw new Error(
+      'Mermaid validator returned inconsistent evidence; repair the validator before continuing.',
+    );
+  return evidence;
+}
+
+const reviewContract = {
+  phase: 'before-publication',
+  publisher: 'workflow',
+  publication: 'pending content approval',
+  instruction:
+    'Assess whether this exact body is ready to publish. For criteria phrased as a comment is published, assess the required contents and destination now. Publication and exact-body verification happen afterwards in ctx.comment; absence of a publication receipt at this stage is expected and cannot be repaired by the writer. Never claim it is already published.',
+};
+
 type ReviewState = {
   complaints: Complaint[];
   resolutions: Resolution[];
@@ -87,16 +119,140 @@ type ReviewState = {
 
 export async function main(
   ctx: WorkflowContext,
-): Promise<'merged' | 'rejected' | 'exhausted'> {
+  workspace: WorkflowInput = { members: [] },
+): Promise<'merged' | 'completed' | 'rejected' | 'exhausted'> {
   const read: AgentCallOpts = { ...agent, tools: ['read'] };
   const edit: AgentCallOpts = { ...agent, tools: ['read', 'edit', 'bash'] };
-  const ticket = `${ctx.issue.title}\n${ctx.issue.description}`;
+  ctx.stage('Clarify');
+  const conversation: { questions: string[]; answer: string }[] = [];
+  let scope;
+  for (;;) {
+    const refinement = await ctx.agent('refiner', {
+      ...fastAgent,
+      tools: ['read'],
+      label: `Clarify scope ${conversation.length + 1}`,
+      input: { issue: ctx.issue, workspace, conversation },
+      schema: Refinement,
+    });
+    if (refinement.status === 'clear') {
+      scope = refinement;
+      break;
+    }
+    const questions = refinement.questions;
+    const response = await ctx.question({
+      title: 'Clarify the ticket before implementation',
+      body: `${refinement.reason}\n\n${questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`,
+    });
+    if ('cancelled' in response) return 'rejected';
+    conversation.push({ questions, answer: response.answer });
+  }
+  const decisions = `## Scope decision record — ${ctx.issue.identifier}
+
+### Agreed scope
+${scope.scope}
+
+### Decisions and rationale
+${scope.decisions.map((decision) => `- ${decision}`).join('\n')}
+
+### Acceptance criteria
+${scope.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}
+
+### Out of scope
+${scope.outOfScope.map((item) => `- ${item}`).join('\n') || 'None.'}
+
+### Clarifications
+${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.answer}`).join('\n\n') || 'The ticket was clear without additional questions.'}`;
+  await ctx.post(decisions);
+  const delivery = scope.delivery;
+  let issue = {
+    ...ctx.issue,
+    description: `${ctx.issue.description}\n\n${decisions}`,
+  };
+  if (delivery.stateChanges) await ctx.linear.setState(states.started);
+  if (delivery.kind === 'linear-comment') {
+    // Check installed validation support before spending any drafting/review turns.
+    await validateDiagrams(ctx, '');
+    const inspect: AgentCallOpts = { ...read, tools: ['read', 'bash'] };
+    let previous: { body: string; problems: string[] } | undefined;
+    for (let revision = 1; revision <= reviewCap; revision++) {
+      ctx.stage('Prepare deliverable');
+      const draft = await ctx.agent('deliverable-writer', {
+        ...inspect,
+        input: {
+          issue,
+          workspace,
+          delivery,
+          acceptanceCriteria: scope.acceptanceCriteria,
+          previous,
+          reviewContract,
+        },
+        schema: Deliverable,
+      });
+      ctx.stage('Validate deliverable');
+      const validation = await validateDiagrams(ctx, draft.body);
+      if (!validation.ok) {
+        previous = {
+          body: draft.body,
+          problems: validation.diagrams
+            .filter((item) => !item.valid)
+            .map(
+              (item) =>
+                `Mermaid diagram ${item.index}: ${item.error ?? 'syntax is invalid'}`,
+            ),
+        };
+        continue;
+      }
+      ctx.stage('Review deliverable');
+      const reviews = await ctx.parallel(
+        ['acceptance', 'accuracy'],
+        async (focus) =>
+          ctx.agent('deliverable-reviewer', {
+            ...inspect,
+            label: `Deliverable ${focus} ${revision}/${reviewCap}`,
+            input: {
+              issue,
+              workspace,
+              delivery,
+              body: draft.body,
+              reviewContract,
+              validation,
+              acceptanceCriteria: scope.acceptanceCriteria,
+              focus,
+            },
+            schema: DeliverableReviewFor(scope.acceptanceCriteria),
+          }),
+      );
+      const problems = reviews.flatMap((review) => [
+        ...review.problems,
+        ...review.assessments.flatMap((item) => item.problems),
+      ]);
+      if (!problems.length) {
+        ctx.stage('Visual recap');
+        await ctx.visualRecap({
+          deliverable: draft.body,
+          title: issue.title,
+          scope,
+          agent,
+        });
+        ctx.stage('Deliver');
+        // Publishing belongs to the Workflow, not an Agent's tools or summary.
+        await ctx.comment(draft.body);
+        if (delivery.stateChanges) await ctx.linear.setState(states.review);
+        return 'completed';
+      }
+      previous = { body: draft.body, problems };
+    }
+    await ctx.post(
+      `Deliverable review exhausted; nothing published.\n${previous?.problems.join('\n')}`,
+    );
+    return 'exhausted';
+  }
+  let ticket = `${issue.title}\n${issue.description}`;
   const diff = () => shell(ctx, 'git diff origin/HEAD...HEAD');
   ctx.stage('Plan');
-  await ctx.linear.setState(states.started);
   const plan = await ctx.agent('planner', {
     ...read,
-    input: { issue: ctx.issue, diff: await diff() },
+    input: { issue, workspace, delivery, diff: await diff() },
     schema: Plan,
   });
   await ctx.post(
@@ -105,13 +261,13 @@ export async function main(
   ctx.stage('Implement');
   const implementation = await ctx.agent('implementer', {
     ...edit,
-    input: { issue: ctx.issue, plan, commands },
+    input: { issue, workspace, delivery, plan, commands },
   });
   await shell(ctx, 'git push origin HEAD');
-  const description = `${ctx.issue.url}\n\n${plan.summary}`;
+  const description = `${issue.url}\n\n${plan.summary}`;
   let pr = requireScm(
     await ctx.scm.openPr({
-      title: `${ctx.issue.identifier}: ${ctx.issue.title}`,
+      title: `${issue.identifier}: ${issue.title}`,
       body: description,
       draft: true,
     }),
@@ -120,6 +276,8 @@ export async function main(
   let ciAttempts = 0;
   let checks: Check[] | undefined;
   let uiSummary = 'No frontend change.';
+  let validationSummary =
+    'No local validation commands configured; see CI and review evidence.';
   let server: { pid: number } | undefined;
 
   async function push() {
@@ -147,7 +305,8 @@ export async function main(
       ...read,
       label: `${name} ${revision}/${reviewCap}`,
       input: {
-        issue: ctx.issue,
+        issue,
+        delivery,
         diff: await diff(),
         namespace,
         disagreements,
@@ -164,7 +323,7 @@ export async function main(
     const fixed = await ctx.agent('fixer', {
       ...edit,
       label: `${name} fixer ${revision}/${reviewCap}`,
-      input: { issue: ctx.issue, complaints, commands },
+      input: { issue, delivery, complaints, commands },
       schema: FixReportFor(complaints),
     });
     changes.push(fixed.summary);
@@ -186,7 +345,7 @@ export async function main(
       const fix = await ctx.agent('ci-fixer', {
         ...edit,
         label: `ci-fixer ${ciAttempts}/${ciCap}`,
-        input: { issue: ctx.issue, failedJobs: ci.failedJobs, commands },
+        input: { issue, delivery, failedJobs: ci.failedJobs, commands },
         schema: CiFix,
       });
       changes.push(fix.summary);
@@ -225,7 +384,7 @@ export async function main(
       checks = (
         await ctx.agent('ui-planner', {
           ...read,
-          input: { issue: ctx.issue, diff: await diff(), rules },
+          input: { issue, delivery, diff: await diff(), rules },
           schema: Checks,
         })
       ).checks;
@@ -330,7 +489,7 @@ export async function main(
     const fixed = await ctx.agent('fixer', {
       ...edit,
       label: `UI fixer ${revision}/${reviewCap}`,
-      input: { issue: ctx.issue, complaints, commands },
+      input: { issue, delivery, complaints, commands },
       schema: FixReportFor(complaints),
     });
     changes.push(fixed.summary);
@@ -344,6 +503,39 @@ export async function main(
   let reviewerState: ReviewState = { complaints: [], resolutions: [] };
   let uiExplanations: string[] = [];
   for (let revision = 1; revision <= reviewCap; revision++) {
+    ctx.stage('Validate');
+    const validationProblems: Complaint[] = [];
+    const validations: string[] = [];
+    for (const [name, command] of Object.entries(commands)) {
+      if (name === 'install' || !command.trim()) continue;
+      const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`, {
+        label: `Validate ${name} ${revision}/${reviewCap}`,
+      });
+      validations.push(
+        `${name}: ${result.exitCode === 0 ? 'passed' : 'failed'} (${command})`,
+      );
+      if (result.exitCode !== 0)
+        validationProblems.push({
+          id: `validation/${revision}/${name}`,
+          file: '.',
+          text: `${name} failed (exit ${result.exitCode}): ${command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
+        });
+    }
+    validationSummary =
+      validations.join('\n') ||
+      'No local validation commands configured; see CI and review evidence.';
+    if (validationProblems.length) {
+      if (revision === reviewCap) return giveUp(ctx, pr, validationProblems);
+      const fixed = await ctx.agent('fixer', {
+        ...edit,
+        label: `Validation fixer ${revision}/${reviewCap}`,
+        input: { issue, delivery, complaints: validationProblems, commands },
+        schema: FixReportFor(validationProblems),
+      });
+      changes.push(fixed.summary);
+      await push();
+      continue;
+    }
     ctx.stage('Compliance');
     const compliance = await review(
       'compliance-reviewer',
@@ -401,21 +593,33 @@ export async function main(
     const ci = await checkCi();
     if (ci.complaints.length) return giveUp(ctx, pr, ci.complaints);
     if (ci.changed) continue;
+    ctx.stage('Visual recap');
+    const recap = await ctx.visualRecap({
+      pr,
+      scope: { issue, validationSummary, uiSummary },
+      agent: { ...agent, ...(ui ? { mcp: ['playwright'] } : {}) },
+    });
     const validatedHead = pr.headSha;
     pr = requireScm(
       await ctx.scm.markDraft(pr, false, {
-        body: `${description}\n\n${changes.join('\n\n')}\n\n## UI sweep\n${uiSummary}`,
+        body: `${description}\n\n[Visual recap](${recap.url})\n\n${changes.join('\n\n')}\n\n## Validation\n${validationSummary}\n\n## UI sweep\n${uiSummary}`,
       }),
     );
     if (pr.headSha !== validatedHead)
       throw new Error(
         'The PR head changed during the ready-flip. Start validation again for the new head.',
       );
-    await ctx.linear.setState(states.review);
+    if (delivery.stateChanges) await ctx.linear.setState(states.review);
+    if (!delivery.merge) {
+      await ctx.comment(
+        `Ready for review: ${pr.url}\n\n${changes.join('\n\n')}\n\n${validationSummary}\n\n${uiSummary}`,
+      );
+      return 'completed';
+    }
     ctx.stage('Checkpoint');
     const answer = await ctx.checkpoint({
       title: 'Approve this change?',
-      body: `${pr.url}\n\n${changes.join('\n\n')}\n\n${uiSummary}`,
+      body: `${pr.url}\n\n[Visual recap](${recap.url})\n\n${changes.join('\n\n')}\n\n${validationSummary}\n\n${uiSummary}`,
     });
     if (answer.decision === 'reject') {
       requireScm(await ctx.scm.markDraft(pr, true));
@@ -423,9 +627,15 @@ export async function main(
     }
     if (answer.decision === 'steer') {
       pr = requireScm(await ctx.scm.markDraft(pr, true));
+      issue = {
+        ...issue,
+        description: `${issue.description}\n\n### Human steering\n${answer.message}`,
+      };
+      ticket = `${issue.title}\n${issue.description}`;
+      checks = undefined;
       const fix = await ctx.agent('fixer', {
         ...edit,
-        input: { issue: ctx.issue, steer: answer.message, commands },
+        input: { issue, delivery, steer: answer.message, commands },
       });
       changes.push(fix.summary);
       continue;
@@ -439,7 +649,7 @@ export async function main(
       pr = requireScm(await ctx.scm.markDraft(pr, true));
       await shell(ctx, 'git fetch origin');
       const merge = await ctx.exec(
-        `git merge --no-edit -- ${quote(`refs/remotes/origin/${adoptSource ? pr.sourceBranch : pr.baseBranch}`)}`,
+        `cd -- "$ROCKY_LEAD_REPO" && git merge --no-edit -- ${quote(`refs/remotes/origin/${adoptSource ? pr.sourceBranch : pr.baseBranch}`)}`,
       );
       const conflicts = await shell(
         ctx,
@@ -448,7 +658,7 @@ export async function main(
       if (update.status === 'conflict' || conflicts) {
         const fixed = await ctx.agent('merger', {
           ...edit,
-          input: { issue: ctx.issue, update, conflicts, commands },
+          input: { issue, delivery, update, conflicts, commands },
         });
         changes.push(fixed.summary);
       } else if (merge.exitCode !== 0) {
@@ -459,7 +669,7 @@ export async function main(
       await push();
       continue;
     }
-    const result = await ctx.scm.armAutoMerge(pr);
+    const result = await ctx.scm.armAutoMerge(pr, answer);
     if ('refused' in result) {
       await ctx.post(`${result.message}\n${result.fix}`);
       if (
@@ -477,7 +687,7 @@ export async function main(
       }
       requireScm(result);
     } else if (result.status === 'merged') {
-      await ctx.linear.setState(states.done);
+      if (delivery.stateChanges) await ctx.linear.setState(states.done);
       return 'merged';
     }
   }
@@ -536,6 +746,12 @@ export async function addressPrConversations(
       ),
     );
   }
+  ctx.stage('Visual recap');
+  await ctx.visualRecap({
+    pr: { ...pr, headSha: sha },
+    scope: { issue: ctx.issue, resolutions: report.resolutions },
+    agent: { ...agent, ...(ui ? { mcp: ['playwright'] } : {}) },
+  });
   return 'completed';
 }
 

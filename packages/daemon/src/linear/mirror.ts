@@ -346,6 +346,7 @@ export class LinearRunMirror {
     });
   }
 
+  /** Explicit Workflow deliverables are outside the framework's start/close budget. */
   comment(commentId: string, body: string): Promise<void> {
     return this.serialize(async () => {
       await this.allowed('working');
@@ -355,6 +356,8 @@ export class LinearRunMirror {
         () => ({ id: randomUUID(), issueId: this.options.issueId, body }),
       );
       const key = this.key('explicit-comments');
+      // Attribute before creating: an ambiguous remote response must not turn
+      // the Workflow's own deliverable into an unclassified comment on Boot.
       const ids = z
         .array(z.string())
         .parse((await this.options.store.get(key)) ?? []);

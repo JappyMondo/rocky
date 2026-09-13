@@ -126,6 +126,15 @@ if (args.includes('--output-format')) {
 }
 const config = JSON.parse(readFileSync(process.env.OPENCODE_CONFIG, 'utf8'));
 if (args[0] === 'debug') {
+  if (process.env.FIXTURE_PROBE_LOG)
+    appendFileSync(
+      process.env.FIXTURE_PROBE_LOG,
+      JSON.stringify({ db: process.env.OPENCODE_DB }) + '\n',
+    );
+  if (mode === 'locked-probe') {
+    console.error('database is locked');
+    process.exit(1);
+  }
   if (mode === `malformed-${args[1]}`) {
     console.log('not JSON');
     process.exit(0);
@@ -206,6 +215,7 @@ if (args[0] === 'debug') {
           args,
           cwd: process.cwd(),
           db: process.env.OPENCODE_DB,
+          permission: config.permission,
         }),
       },
     }),

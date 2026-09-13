@@ -32,6 +32,7 @@ import {
   type AddRepoOptions,
 } from './repo.js';
 import { createConsolePrompter } from './setup/prompter.js';
+import type { ModelFlags } from './workflow-models.js';
 import { runSetup } from './setup/wizard.js';
 import {
   daemonStatus,
@@ -472,24 +473,46 @@ export function buildCli(
   // has to reach the terminal a human is sitting at.
   const repo = program.command('repo').description('`repo` commands.');
 
-  repo
-    .command('add <url>')
-    .description('Clone a repo eagerly and add it to the instance config.')
-    .option(
-      '--name <name>',
-      'Repo name. Defaults to the last path segment of the url.',
-    )
-    .option(
-      '--label <label>',
-      'The Linear label that routes a delegation here. Defaults to the repo name.',
-    )
-    .option(
-      '--base-branch <branch>',
-      "Branch new work starts from. Defaults to the upstream's own default branch.",
-    )
-    .action((url: string, options: AddRepoOptions) =>
-      addRepo(io, url, options),
-    );
+  const modelOptions = (command: Command) =>
+    command
+      .option('--harness <harness>', 'Agent harness: opencode or claude-code.')
+      .option(
+        '--model <model>',
+        'Explicit model identifier saved in the workflow.',
+      )
+      .option(
+        '--variant <variant>',
+        'Explicit OpenCode variant or Claude Code effort.',
+      )
+      .option(
+        '--fast-harness <harness>',
+        'Helper harness; requires all three --fast-* options.',
+      )
+      .option(
+        '--fast-model <model>',
+        'Helper model; otherwise helpers use the main selection.',
+      )
+      .option('--fast-variant <variant>', 'Helper variant or effort.');
+
+  modelOptions(
+    repo
+      .command('add <url>')
+      .description('Clone a repo eagerly and add it to the instance config.')
+      .option(
+        '--name <name>',
+        'Repo name. Defaults to the last path segment of the url.',
+      )
+      .option(
+        '--label <label>',
+        'The Linear label that routes a delegation here. Defaults to the repo name.',
+      )
+      .option(
+        '--base-branch <branch>',
+        "Branch new work starts from. Defaults to the upstream's own default branch.",
+      ),
+  ).action((url: string, options: AddRepoOptions) =>
+    addRepo(io, url, options, cli.createPrompter),
+  );
 
   repo
     .command('list')
@@ -512,12 +535,15 @@ export function buildCli(
   profile
     .command('use <repo> <id>')
     .action((repoName: string, id: string) => useProfile(io, repoName, id));
-  profile
-    .command('seed <repo>')
-    .description(
-      'Replace a legacy route with the runnable shipped local profile.',
-    )
-    .action((repoName: string) => seedProfile(io, repoName));
+  modelOptions(
+    profile
+      .command('seed <repo>')
+      .description(
+        'Replace a legacy route with the runnable shipped local profile.',
+      ),
+  ).action((repoName: string, options: ModelFlags) =>
+    seedProfile(io, repoName, options, cli.createPrompter),
+  );
   profile.command('delete <id>').action((id: string) => deleteProfile(io, id));
 
   attachMcpCommand(program, io, paths, cli.mcp);

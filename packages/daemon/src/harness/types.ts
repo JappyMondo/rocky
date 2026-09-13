@@ -12,6 +12,8 @@ export interface HarnessInvocation {
   model?: string;
   effort?: string;
   capabilities: readonly Capability[];
+  /** Run-owned evidence directories, granted only to read-enabled, non-editing Steps. */
+  evidenceDirectories?: readonly string[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
   env: NodeJS.ProcessEnv;

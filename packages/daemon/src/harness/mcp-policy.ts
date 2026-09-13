@@ -31,6 +31,20 @@ export function checkMcpToolError(
   if (server) throw mcpFailure(server.name, true);
 }
 
+/** Only called for failed native tool results; ordinary file misses remain recoverable. */
+export function checkToolAccessError(tool: string, error: unknown): void {
+  const detail = typeof error === 'string' ? error : JSON.stringify(error);
+  if (
+    /Permission(?:Denied|Rejected)Error|\bpermission (?:was )?(?:denied|rejected)\b|\btool .{0,80}(?:is disabled|is not available|is not permitted)\b|\bnot allowed to (?:use|execute|call)\b/i.test(
+      detail ?? '',
+    )
+  )
+    throw new HarnessError(
+      `Tool "${tool}" was denied access. Check this Agent's tools/MCP grants at the Workflow call site and the required resource permissions before retrying; repeating the same call cannot resolve the denial.`,
+      false,
+    );
+}
+
 /** Native startup diagnostics vary by CLI version, but name the configured key. */
 export function checkMcpDiagnostic(
   detail: string,

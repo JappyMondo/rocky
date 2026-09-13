@@ -108,6 +108,18 @@ const issueSchema = z.object({
   description: z.string(),
   url: z.string(),
   labels: z.array(z.string()),
+  comments: z
+    .array(
+      z.object({
+        id: z.string(),
+        body: z.string(),
+        createdAt: z.string(),
+        userId: z.string().nullable(),
+        sessionId: z.string().nullable(),
+        parentId: z.string().nullable(),
+      }),
+    )
+    .optional(),
 });
 
 const prSchema = z.object({
@@ -328,6 +340,17 @@ export function reconcileHeader(
 
   const end = journal.end;
   const runEnd = end ? parseRunEnd(end.result) : undefined;
+  if (
+    !end &&
+    journal.getControl('retry:latest') &&
+    ['failed', 'finished', 'cancelled'].includes(headerOnDisk.status)
+  ) {
+    patch.status = 'queued';
+    patch.endedAt = undefined;
+    patch.error = undefined;
+    patch.outcome = undefined;
+    patch.reason = undefined;
+  }
   if (end && runEnd) {
     if (headerOnDisk.status !== runEnd.status) {
       patch.status = runEnd.status;

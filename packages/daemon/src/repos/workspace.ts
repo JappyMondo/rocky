@@ -355,3 +355,48 @@ export async function releaseCleanWorkspace(
   await rm(workspaceDir, { recursive: true, force: true });
   return children;
 }
+
+/** Recover only unchanged local branches; never fetch, reset, or adopt other work. */
+export async function restoreRetryWorkspace(
+  ctx: RepoContext,
+  options: {
+    runId: string;
+    branch: string;
+    members: { name: string; head: string }[];
+  },
+): Promise<void> {
+  for (const member of options.members) {
+    await ctx.mutex.run(member.name, async () => {
+      const dir = ctx.paths.run(options.runId).workspaceRepo(member.name);
+      if (await isWorktree(dir)) {
+        const branch = (
+          await git(['branch', '--show-current'], { cwd: dir })
+        ).stdout.trim();
+        if (branch !== options.branch)
+          throw new WorkspaceError(
+            options.runId,
+            `${member.name} is on a different branch; restore the Run workspace before retrying.`,
+          );
+        return;
+      }
+      const clone = ctx.paths.repo(member.name);
+      const head = await git(
+        ['rev-parse', '--verify', `refs/heads/${options.branch}`],
+        { cwd: clone },
+      );
+      if (head.stdout.trim() !== member.head)
+        throw new WorkspaceError(
+          options.runId,
+          `${member.name}: the workspace was released and its branch has changed. Start a new Run to avoid reusing stale Step results.`,
+        );
+      await mkdir(ctx.paths.run(options.runId).workspaceDir, {
+        recursive: true,
+      });
+      await git(['worktree', 'prune'], { cwd: clone });
+      await git(['worktree', 'add', '--quiet', dir, options.branch], {
+        cwd: clone,
+      });
+      await writeIdentity(ctx, dir);
+    });
+  }
+}

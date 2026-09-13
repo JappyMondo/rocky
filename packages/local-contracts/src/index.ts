@@ -117,6 +117,8 @@ export interface RunDetail {
   controls: {
     answer: boolean;
     steer: boolean;
+    /** Final failed root Step; completed parallel branches are reused. */
+    retryStep?: string;
     /** Omitted when this Run has no supported Linear session recovery. */
     linearDelegation?: 'available' | 'enabled';
   };
@@ -227,6 +229,17 @@ export interface ConnectionCheck extends ConnectionStatus {
   tools?: string[];
 }
 
+export interface AgentModelSelection {
+  harness: 'opencode' | 'claude-code';
+  model: string;
+  /** OpenCode variant or Claude Code reasoning effort. Always explicit. */
+  effort: string;
+}
+export interface WorkflowModels {
+  agent: AgentModelSelection;
+  fastAgent: AgentModelSelection;
+}
+
 /** Secret-free representation of a machine-local repository profile. */
 export interface RepositoryProfileView {
   id: string;
@@ -234,6 +247,8 @@ export interface RepositoryProfileView {
   /** Absent for legacy single-repository profiles. First member is primary. */
   repos?: Array<{ name: string; url: string; baseBranch: string }>;
   workflow: { source: string; triggers: string[] };
+  /** Derived from literal workflow declarations, never a second source of truth. */
+  models?: WorkflowModels;
   grants: {
     harness: 'claude-code' | 'opencode';
     capabilities: Array<'read' | 'edit' | 'bash'>;
@@ -270,7 +285,12 @@ export interface WorkflowDiagramView {
 export type RepositoryProfileDefaults = Pick<
   RepositoryProfileView,
   'workflow' | 'grants' | 'prompts' | 'rules' | 'secretEnv'
->;
+> & {
+  modelSuggestions?: {
+    agent: Partial<AgentModelSelection>;
+    fastAgent: Partial<AgentModelSelection>;
+  };
+};
 
 /** A safe diagnostic for webhook work that failed after Linear received 200. */
 export interface IntakeFailure {
@@ -292,13 +312,37 @@ export interface ReviewReport {
   id: string;
   runId: string;
   createdAt: string;
-  pr: {
+  pr?: {
     repo: string;
     number: number;
     url: string;
     headSha: string;
     baseSha: string;
   };
+  deliverable?: string;
+  files?: Array<{ path: string; status: string }>;
+  keyChanges?: Array<{
+    title: string;
+    summary: string;
+    files: string[];
+    diff: string;
+    annotations: Array<{ text: string; file: string; line?: number }>;
+  }>;
+  reviewFocus?: Array<{
+    category:
+      | 'security'
+      | 'permissions'
+      | 'routes'
+      | 'data'
+      | 'compatibility'
+      | 'operations'
+      | 'testing'
+      | 'other';
+    title: string;
+    summary: string;
+    status: 'attention' | 'verified' | 'not-applicable';
+    evidence: string[];
+  }>;
   title: string;
   summary: string;
   problems: Array<{ problem: string; solution: string }>;

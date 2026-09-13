@@ -14,6 +14,7 @@ records, Transcripts stay local, and the two comments are framework-owned.
 | `flushStatus()` | Best-effort send the latest pending update as an ephemeral action. The caller schedules a rate-limited cadence; there is no timer or keepalive. |
 | `settle({ stepId, title, outcome, summary })` | One persistent action per stable Step ID, with the structured frame, Agent summary and local Step Transcript link. |
 | `post(postId, summary)` | One persistent action per stable post ID, never a comment or response. |
+| `comment(commentId, body)` | One explicit Workflow comment per stable ID. Persists attribution before creation and verifies the remote payload; replay preserves the original body. These deliverables do not consume the framework's start/close comment budget. |
 | `setState(stepId, name)` | Persist the state intent and delegate case-insensitive exact-name matching to the client. Unknown-state errors retain the team's real names. |
 | `beforeElicitation()` | Check the comment budget before NG-602 emits an elicitation. Known auto-commenting elicitation raises a spec/API gate. |
 | `setParked(true/false)` | Persist Parked/resumed state and discard pending ephemeral updates. Parked operations cannot touch Linear. |
@@ -96,6 +97,12 @@ creates one. The module reads public comments before additional comments and
 verifies the matching closing body after terminal emission. A missing or delayed
 auto-comment raises `LinearMirroringGateError`; retry after propagation only
 re-reads when the terminal effect is already recorded. It does not add a close.
+
+The two-comment budget applies to framework-owned start and closing comments.
+Explicit Workflow comments, including a ticket's requested deliverable, are
+tracked by persisted remote IDs and excluded from that budget, even after a
+restart or an ambiguous create response. This exclusion does not authorize an
+Agent to post directly: use `ctx.comment` so attribution and replay are durable.
 
 Known auto-commenting elicitation is blocked before emission: start + elicitation
 + terminal would be three. An unexpected existing elicitation artifact blocks

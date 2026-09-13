@@ -565,3 +565,73 @@ it('reports named merge and source-write gaps from a completed probe', async () 
     },
   });
 });
+
+it('runs journaled MCP-only preflight without any SCM members', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-mcp-only-'));
+  dirs.push(dir);
+  let refreshes = 0;
+  const boot = () =>
+    runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      workflow: async (steps) => {
+        await runPreflight(steps, {
+          scope: 'mcp',
+          members: [],
+          signal: new AbortController().signal,
+          refreshMcp: async () => {
+            refreshes++;
+            return ['calendar'];
+          },
+        });
+        return 'completed';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(refreshes).toBe(1);
+});
+
+it('records unknown merge authority without blocking SCM-only preflight', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-preflight-scm-only-'));
+  dirs.push(dir);
+  let refreshed = false;
+  const allowed = { status: 'allowed' as const, source: 'fixture', fix: '' };
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      await runPreflight(steps, {
+        scope: 'scm',
+        members: [
+          {
+            repo: { id: 'app' },
+            probe: async () => ({
+              repo: 'app',
+              platform: 'github' as const,
+              merge: {
+                status: 'unknown' as const,
+                source: 'fixture',
+                fix: 'Verify merge authority.',
+              },
+              rebase: allowed,
+              sourcePush: allowed,
+              draft: allowed,
+            }),
+          },
+        ],
+        signal: new AbortController().signal,
+        refreshMcp: async () => {
+          refreshed = true;
+          return [];
+        },
+      });
+      return 'completed';
+    },
+  });
+  expect(result).toMatchObject({ status: 'finished' });
+  expect(
+    (await openJournal(join(dir, 'journal.jsonl'))).latest(0),
+  ).toMatchObject({
+    result: { repos: [{ merge: { status: 'unknown' } }], failures: [] },
+  });
+  expect(refreshed).toBe(false);
+});

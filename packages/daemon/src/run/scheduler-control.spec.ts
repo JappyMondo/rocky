@@ -696,3 +696,56 @@ it.each(['parked', 'failed'] as const)(
     }
   },
 );
+
+it('serializes duplicate Step retries and refuses stale, live, and superseded Runs', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const run = stored('NG-900');
+  await writeRunHeader(paths, run);
+  const journalPath = paths.run(run.runId).journal;
+  await runBoot({
+    journalPath,
+    workflow: async (ctx) => {
+      await ctx.step('agent', {}, async () => {
+        throw new Error('transient');
+      });
+      return 'completed';
+    },
+  });
+  const writer = await JournalWriter.open(journalPath);
+  const retry = vi.fn(async (_run, input) =>
+    writer.retry(input.requestId, input.stepKey),
+  );
+  const scheduler = await RunScheduler.open({
+    paths,
+    boot: vi.fn(),
+    retryStep: retry,
+  });
+  const request = { requestId: 'request', stepKey: '0', expectedBoot: 1 };
+  await expect(
+    scheduler.retryStep(run.runId, { ...request, expectedBoot: 99 }),
+  ).rejects.toThrow(/Refresh/);
+  await expect(scheduler.retryStep('missing', request)).rejects.toThrow(
+    /Unknown Run/,
+  );
+  await Promise.all([
+    scheduler.retryStep(run.runId, request),
+    scheduler.retryStep(run.runId, request),
+  ]);
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect((await scheduler.get(run.runId))?.status).toBe('queued');
+  await expect(
+    scheduler.retryStep(run.runId, { ...request, requestId: 'new' }),
+  ).rejects.toThrow(/settled failed/);
+  await expect(
+    scheduler.retryStep(run.runId, { ...request, stepKey: '1' }),
+  ).rejects.toThrow(/different Step/);
+  await scheduler.close();
+  const reopened = await RunScheduler.open({
+    paths,
+    boot: vi.fn(),
+    retryStep: retry,
+  });
+  await reopened.retryStep(run.runId, request);
+  expect(retry).toHaveBeenCalledTimes(1);
+  await reopened.close();
+});

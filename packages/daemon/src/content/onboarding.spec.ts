@@ -51,6 +51,11 @@ function fixture(failing = false) {
       url: 'https://example.test/issue/1',
       labels: [],
     },
+    question: async ({ title }: { title: string }) => ({
+      answer: title.includes('helper')
+        ? 'Same as main agent'
+        : 'opencode openai/test-model high',
+    }),
     stage: (name: string) => {
       events.push(name);
     },

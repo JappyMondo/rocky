@@ -723,3 +723,50 @@ describe('releasing a clean terminal workspace', () => {
     expect(existsSync(dirty.dir)).toBe(true);
   });
 });
+
+it('restores unchanged released worktrees for retry and preserves edits in retained worktrees', async () => {
+  const { restoreRetryWorkspace } = await import('./workspace.js');
+  const workspace = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix],
+    lead: 'niotix',
+  });
+  const options = {
+    runId: workspace.runId,
+    branch: BRANCH,
+    members: [{ name: 'niotix', head: workspace.lead.head }],
+  };
+  await releaseCleanWorkspace(ctx, workspace.runId);
+  await restoreRetryWorkspace(ctx, options);
+  expect(
+    (await git(['rev-parse', 'HEAD'], { cwd: workspace.lead.dir })).stdout,
+  ).toBe(workspace.lead.head);
+  await writeFile(join(workspace.lead.dir, 'unfinished.txt'), 'keep this');
+  await restoreRetryWorkspace(ctx, options);
+  expect(
+    await readFile(join(workspace.lead.dir, 'unfinished.txt'), 'utf8'),
+  ).toBe('keep this');
+  await git(['checkout', '-b', 'other-branch'], { cwd: workspace.lead.dir });
+  await expect(restoreRetryWorkspace(ctx, options)).rejects.toThrow(
+    /different branch/,
+  );
+});
+it('refuses to restore a released workspace when its branch has moved', async () => {
+  const { restoreRetryWorkspace } = await import('./workspace.js');
+  const workspace = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix],
+    lead: 'niotix',
+  });
+  await commitInside(workspace.lead.dir, 'later work');
+  await releaseCleanWorkspace(ctx, workspace.runId);
+  await expect(
+    restoreRetryWorkspace(ctx, {
+      runId: workspace.runId,
+      branch: BRANCH,
+      members: [{ name: 'niotix', head: workspace.lead.head }],
+    }),
+  ).rejects.toThrow(/branch has changed/);
+});

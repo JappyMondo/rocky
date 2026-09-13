@@ -35,6 +35,7 @@ import {
   type RockyPaths,
   type RunningDaemon,
   webhookUrl,
+  agentModelSchema,
 } from '@rocky/daemon';
 
 import type { Prompter } from './prompter.js';
@@ -288,8 +289,14 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
     );
     const model = await askUntil(
       prompter,
-      `Default ${harness} model for new profiles (blank uses the harness default):`,
-      (answer) => answer.trim(),
+      `Suggested ${harness} model identifier for new profiles (required):`,
+      (answer) => agentModelSchema.shape.model.parse(answer),
+      maxAttempts,
+    );
+    const effort = await askUntil(
+      prompter,
+      'Suggested variant / effort for new profiles (required, e.g. high):',
+      (answer) => agentModelSchema.shape.effort.parse(answer),
       maxAttempts,
     );
     await writeInstanceConfig(paths, {
@@ -297,11 +304,12 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
       publicUrl,
       workflowDefaults: {
         harness,
-        ...(model === '' ? {} : { model }),
+        model,
+        effort,
       },
     });
     prompter.say(
-      `New local profiles will use ${harness}${model === '' ? "'s configured default model" : ` model ${model}`}.`,
+      `New profile creation will ask you to confirm ${harness} model ${model}, variant/effort ${effort}, or choose other models.`,
     );
 
     prompter.say('');

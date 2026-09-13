@@ -30,12 +30,15 @@ export type {
 
 export type {
   AgentCallOpts,
+  VisualRecapOptions,
+  VisualRecapResult,
   BackgroundExecResult,
   CheckpointAnswer,
   CiResult,
   ExecResult,
   FailedJob,
   Issue,
+  IssueComment,
   LinearOps,
   ParallelOptions,
   Question,

@@ -12,6 +12,8 @@ export interface PreflightOptions {
   refreshMcp(signal: AbortSignal): Promise<string[]>;
   /** May shorten, never extend the first-minute budget. */
   timeoutMs?: number;
+  /** Split startup MCP checks from delivery-specific SCM authority. */
+  scope?: 'all' | 'mcp' | 'scm';
 }
 export interface PreflightReport {
   repos: ScmProbe[];
@@ -55,14 +57,16 @@ export async function runPreflight(
   options: PreflightOptions,
 ): Promise<PreflightReport> {
   const report = await steps.step(
-    'preflight',
+    options.scope && options.scope !== 'all'
+      ? `preflight.${options.scope}`
+      : 'preflight',
     { label: 'Preflight' },
     async () => {
       const budget = options.timeoutMs ?? 60_000;
       if (!Number.isFinite(budget) || budget < 1 || budget > 60_000)
         throw new Error('Preflight budget must be within 1..60000 ms');
       if (
-        !options.members.length ||
+        (options.scope !== 'mcp' && !options.members.length) ||
         new Set(options.members.map((member) => member.repo.id)).size !==
           options.members.length
       )
@@ -93,7 +97,7 @@ export async function runPreflight(
         return `${subject}: probe failed; verify API access and connectivity without a permission mutation.`;
       };
       const reports = await Promise.all(
-        options.members.map(async (member) => {
+        (options.scope === 'mcp' ? [] : options.members).map(async (member) => {
           try {
             return await withinBudget(
               member.probe(signal),
@@ -116,7 +120,9 @@ export async function runPreflight(
           continue;
         }
         result.repos.push(probe);
-        if (probe.merge.status !== 'allowed')
+        // New Runs authorize merge at armAutoMerge. PR-only delivery does
+        // not require it; legacy combined preflight retains its old contract.
+        if (options.scope !== 'scm' && probe.merge.status !== 'allowed')
           result.failures.push(
             `${probe.repo}: merge permission ${probe.merge.status}. ${probe.merge.source} ${probe.merge.fix}`,
           );
@@ -134,11 +140,12 @@ export async function runPreflight(
       }
       try {
         signal.throwIfAborted();
-        result.refreshedMcp = await withinBudget(
-          options.refreshMcp(signal),
-          signal,
-          remaining(),
-        );
+        if (options.scope !== 'scm')
+          result.refreshedMcp = await withinBudget(
+            options.refreshMcp(signal),
+            signal,
+            remaining(),
+          );
       } catch (error) {
         result.failures.push(safeError('MCP', error));
       }
