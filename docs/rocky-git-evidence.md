@@ -1,5 +1,9 @@
 # Rocky Git Evidence
 
+> Historical snapshot from 2026-09-07. The missing-feature lists below do not
+> describe current `main`. See the [current README](../README.md) and
+> [architecture](architecture.md) for the implemented product.
+
 Research snapshot: **2026-09-07, 07:46-07:52 UTC**. Scope: this Git repository and `JappyMondo/rocky` on GitHub only. No Linear queries; issue identifiers below come from repo text or GitHub PRs, not verified ticket status. All source paths/line numbers refer to remote `main` at **`15124540349cbb48db81933c4abfb9aa3560553d`**, unless another revision is specified.
 
 **Bottom Line**

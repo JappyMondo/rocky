@@ -34,15 +34,15 @@ this API does not permit post-terminal acknowledgements.
 
 ## Verification
 
-The focused writer, Journal, non-repairing reader and replay suites pass together
-(121 tests). Writer coverage includes reopen, racing operations, invocation-time
+The writer, Journal, non-repairing reader and replay suites cover the shared
+persistence contract. Writer coverage includes reopen, racing operations, invocation-time
 snapshots, nested Steps, failed/Steer attempts, terminal barriers, malformed
 controls, torn tails and latched validation/storage failures. Focused TypeScript
 checking passes. ESLint passes its available rules; the Nx module-boundary rule
 is skipped when no cached project graph exists.
 
 This is not evidence of child IPC, scheduler cancellation or live Linear
-composition. Those owners must share this writer; no live credentials, network
+composition. Production children and controls share this writer through `run/execution.ts`; no live credentials, network
 effects or power-loss fault injection were used in these tests.
 
 ## Explicit Step retry

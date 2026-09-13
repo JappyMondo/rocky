@@ -5,7 +5,8 @@ pass through verbatim; there is no Rocky model registry or configurable third ad
 
 ## Instance Configuration
 
-The Harness block belongs in `~/.rocky/config.json`, not `.rocky/workflow.ts`:
+Native command/environment/storage settings belong in `~/.rocky/config.json`.
+Agent harness/model/effort choices belong in the local profile workflow:
 
 ```json
 {
@@ -72,8 +73,9 @@ effects, and granting a powerful MCP tool deliberately grants its effects.
 ## Caller Contract
 
 `getHarnessAdapter(name)` returns `HarnessAdapter | undefined`, exposing `run`,
-`resume` and `checkAuth`. Doctor uses its auth-only view. Preflight must call that
-same method; its production wiring belongs to NG-605.
+`resume` and `checkAuth`. Doctor uses its auth-only view. The
+production Agent uses the same adapter; the configured native account still
+needs to pass live authentication and execution checks.
 
 `HarnessInvocation` takes resolved `command`/`env`, `cwd`, `prompt`, optional model,
 Capabilities, resolved MCP servers, `sessionStorage`, a unique Step `transcriptPath`,

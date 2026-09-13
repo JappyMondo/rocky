@@ -1,8 +1,15 @@
 # Execution Integration
 
-Prerequisite boundary: `main` at `99add03`, which includes runtime PR #13 and MCP
-PR #14. Harness successor PR #20 remains a separate runnable-adapter gate; this
-lane invokes its `getHarnessAdapter` contract only when an Agent Step runs.
+Production composition lives in `lifecycle/production-composition.ts`,
+`run/execution.ts` and `run/production.ts`. It connects verified Linear intake,
+local profile snapshots, the scheduler/Boot workers, harnesses, MCP, SCM and the
+local API. `getHarnessAdapter` loads the native adapter when an Agent Step runs.
+
+Profiles are machine-local. Explicit membership selects the Run's repositories
+and first-member lead; otherwise legacy repository/group routing supplies them.
+Missing profiles fail admission with a fix. Target-repository `.rocky/` files
+are ignored. The retained repository loader and built-in Onboarding path are
+legacy/injected seams, not the default profile setup flow.
 
 ## Admission And Identity
 
@@ -11,7 +18,7 @@ one-live-Run check. `prepare(runId, signal)` only runs if admission can start ne
 work; it must not run on HTTP ingress. Concurrent requests for one issue serialize,
 but a slow import does not hold the scheduler's cancellation/Boot mutation lock.
 The callback returns `DelegateInput`, optionally including prepared `snapshotDir`,
-`linear`, and `execution`. The scheduler stages the snapshot and header outside
+`profile`, `linear`, and `execution`. The scheduler stages the snapshot and header outside
 `runs/` and publishes the complete Run with one directory rename. The caller
 removes its prepared source directory after `admit` settles.
 
@@ -28,12 +35,16 @@ execution: {
   source: 'repository' | 'onboarding',
   sourceCommit,
   trigger: { kind: 'linear.onDelegate' } | { kind: 'manual', name },
-  members: [{ name, path, lead, url, baseBranch }]
+  members: [{ name, path, lead, url, baseBranch }],
+  reviewReports: true
 }
 ```
 
-They are required by production execution, not retroactively invented for older
-foundation-only headers. Missing production metadata fails with a named fix.
+`execution` and the frozen `profile` are required for normal production Runs;
+`linear` is present for delegated, session-backed Runs only. The historical
+`source: 'repository'` enum also names profile-backed execution; it does not mean
+that a repository supplies Workflow configuration. Missing execution metadata
+fails with a named fix rather than being invented for older headers.
 `path` is workspace-relative, currently the repo name. Only `{ name, path, lead }`
 is handed to the Workflow as ordinary `WorkflowInput.members`; Linear identity,
 source commit and repo descriptors are not added to `ctx.issue`. No expanded
@@ -60,11 +71,26 @@ key; `open` also carries the nearest enclosing parallel group. This matches
 control store and acknowledges a batch only after the Agent Journal records its
 same-session continuation.
 
-## Acceptance Gates
+## Available services and verification
 
-The current branch is not an integrated release candidate. Concrete Harness/MCP
-handoffs, Linear receipt/control and local API registration, SCM Preflight and
-Onboarding content must be composed before end-to-end acceptance. Both actual
-Harnesses, app-token Linear behavior, four SCM/Harness smoke cells, installed
-package imports and reviewed NG-651 public isolation remain separate gates.
-No live public daemon or tunnel is opened by this lane's deterministic tests.
+Both delegated and manual admission hydrate the Linear issue and its complete
+paginated comment history. Manual API requests may select `profileId`, but do
+not acquire an Agent Session. Production attaches Linear mirrors, Questions,
+Checkpoints, Steers, SCM and report publication only when a Run has its Linear
+identity and a stored access token. Local-only Agent/shell Workflows can run
+without those services; the shipped SCM-dependent manual Trigger cannot.
+
+Session-backed Runs perform journaled MCP preflight before Workflow content.
+SCM resolution/preflight is deferred until the first SCM operation, so a Linear
+comment deliverable does not require PR authority. Older journals keep their
+legacy preflight ordering. See [workflow loading](workflow-loading.md).
+
+The local API uses the same scheduler for manual admission, cancellation and
+eligible failed-step retries. Retry keeps the frozen profile and completed
+work; releasing a terminal Linear session instead enables a fresh delegation.
+Neither operation silently starts a new snapshot from edited content.
+
+Production-composition and runtime tests cover these seams; the distribution
+smoke tests installed worker/loader assets. Live account access, both harnesses,
+GitHub/GitLab behavior and external endpoint delivery require their corresponding
+live verification. Unit fixtures are not evidence that every combination works.

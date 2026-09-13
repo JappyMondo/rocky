@@ -1,37 +1,102 @@
-# CONTEXT
+# Rocky
 
-Glossary of the Rocky domain. Terms are canonical: use them exactly as defined here in code, tickets and UI copy.
+Rocky runs a developer's AI workflows for Linear issues on their own machine.
+The framework supplies durable execution and integrations; editable local content
+defines the requested work and its review process.
 
-The vocabulary of the PR-comment review product Rocky used to be — Findings as review comments, Review verdicts, the rule-learning loop, the multi-user web app — was retired wholesale by [NG-571](https://linear.app/digimondo/issue/NG-571). What follows is the vocabulary of the development-lifecycle platform that replaced it, seeded while charting [NG-566](https://linear.app/digimondo/issue/NG-566) and grown by the map's grilling tickets as they resolve.
+## Language
 
-One distinction runs underneath the whole glossary: Rocky is a set of building blocks, and almost everything a user recognises as "what Rocky does" is content shipped as editable files in the default Workflow. Terms below are marked _framework_ or _content_ where the difference matters ([NG-575](https://linear.app/digimondo/issue/NG-575)).
+**Profile**: A machine-local definition of a coding pipeline and its repository
+membership, prompts, schemas, rules, tools and environment references. A run
+captures the selected profile; repository files do not choose the pipeline.
 
-## Terms
+**Workflow**: An imperative pipeline bound to an event by a Trigger. Its content
+chooses the agents, validation, deliverable and human decision points.
 
-- **Workflow** _(framework: how it runs; content: what it says)_: A pipeline written as an imperative TypeScript function in the repo's `.rocky/workflow.ts` and bound to the event that starts it by a Trigger; one file may define several ([NG-580](https://linear.app/digimondo/issue/NG-580)). Its knobs — loop caps, models, how to start the app — are consts in the Config block at the top of that same file. Rocky reads no repo configuration file except `.rocky/mcp.json`.
-- **Config block** _(content)_: The marked run of consts at the top of `workflow.ts` holding everything that varies per repo — commands, how to start the app, Linear state names, loop caps. Outside it, a vendored `.rocky/` is a byte-for-byte copy of the shipped default: Onboarding fills the holes and never writes the body ([NG-581](https://linear.app/digimondo/issue/NG-581)).
-- **Trigger** _(framework: the mechanism; content: the wiring)_: A binding connecting an event source to a Workflow, built with SDK builders — `linear.onDelegate(fn)` and `manual(name, fn)` in v1 — and collected in `workflow.ts`'s default export. The daemon learns the table by importing the module, so top-level code runs at load, outside any Run, with no `ctx`. Which Trigger fired a Run is recorded on it. Reacting to PR review comments is not an event source: a human fires the manual Trigger for that ([NG-580](https://linear.app/digimondo/issue/NG-580)). _Avoid_: entry point.
-- **Run**: One execution of a Workflow for one Linear issue, started by a Trigger and named by that issue and an incrementing number. An issue has at most one Run that has not yet ended, whatever Trigger started it; delegating it again while that Run lives is a nudge, not a second Run, and a manual Trigger fired then is refused, naming the live Run ([NG-580](https://linear.app/digimondo/issue/NG-580)). A Run executes a **snapshot** of `.rocky/` taken when it started and works from the issue text as it read it then, so editing either mid-Run changes nothing until the next Run ([NG-574](https://linear.app/digimondo/issue/NG-574)). A Run never resets the issue's branch: whatever a prior Run or a human left on it is adopted as prior art ([NG-580](https://linear.app/digimondo/issue/NG-580)).
-- **Repo group** _(framework)_: A named set of repos in the instance config that one Linear label routes to as a unit. A grouped Run checks every member out side by side as worktrees in one workspace folder and hands the agent the parent, so a single ticket can change several repos at once. One member is the group's **lead**: its `.rocky/` is the Workflow the Run executes; the other members' are ignored ([NG-578](https://linear.app/digimondo/issue/NG-578)).
-- **Journal** _(framework)_: The ordered, append-only record of a Run's Steps, and the Run's only durable truth — the daemon's memory, the Harness process and the sandbox are all disposable. Every Step is written twice, once when it starts and once when it settles, so a Run interrupted part-way through a Step is distinguishable from one that never reached it ([NG-574](https://linear.app/digimondo/issue/NG-574)).
-- **Boot** _(framework)_: One pass over a Run, from the top of the Workflow. Settled Steps hand back their recorded outcome without touching the world, and execution continues live where the Journal ends. Background commands are the exception: a working Boot starts them afresh, while a poll Boot does not. Waking a Parked Run is an ordinary Boot, so replay is exercised constantly rather than only after a crash ([NG-574](https://linear.app/digimondo/issue/NG-574), [NG-577](https://linear.app/digimondo/issue/NG-577)).
-- **Parked**: The state of a Run whose current Step cannot complete yet because it is waiting on the world — a human at a Checkpoint, or CI. A Parked Run holds no execution slot and needs no live conversation to resume, so it can outlive the process that started it. Its worktree is kept, and already-started background commands may remain alive while the runtime lives; their survival is not required for resume, and a working Boot replaces them. The Step it is parked at is the whole reason it is parked: nothing else records why ([NG-574](https://linear.app/digimondo/issue/NG-574), [NG-577](https://linear.app/digimondo/issue/NG-577)).
-- **Step** _(framework)_: One journaled unit inside a Run. Every `ctx` call except the display-only `stage()` marker is one: an Agent call, a shell command, a Checkpoint, a parallel fan-out, or arbitrary code wrapped in `ctx.step`. Journaling is what lets a Run outlive a daemon restart or a sleeping laptop and resume at the last completed Step. Code _between_ Steps is unrestricted and re-executes on every Boot. A Step is **at-least-once**: a Run that dies between an effect and its record performs that Step again, so a Step that creates something outside Rocky finds the existing one rather than making a second ([NG-574](https://linear.app/digimondo/issue/NG-574), [NG-631](https://linear.app/digimondo/issue/NG-631)).
-- **Agent** _(framework: the call; content: the prompt)_: A prompt with a model, a tool policy and an output schema. The prompt is a prose markdown file in `.rocky/agents/`; the model, Harness, Capabilities, MCP servers, input and schema are given at the call site in the Workflow. The markdown carries no frontmatter and no configuration of any kind ([NG-575](https://linear.app/digimondo/issue/NG-575)). One Agent call is one conversation, belonging to that Step alone: no conversation is ever carried from one Step to another, and a Workflow that wants one Agent's output to reach the next passes it as ordinary input ([NG-574](https://linear.app/digimondo/issue/NG-574)).
-- **Capability** _(framework)_: One of the three portable tool grants — `read`, `edit`, `bash` — that every Harness has a native equivalent of, listed at an Agent call to grant it. Anything beyond the three, a browser included, reaches an Agent as an MCP server instead.
-- **MCP server** _(framework: the plumbing; content: the declaration)_: A tool source beyond the three Capabilities, declared in `.rocky/mcp.json` — the ecosystem-standard shape, kept free of Rocky-specific keys — and enabled per Agent call by name. The Harness launches it inside the Agent call and it dies with it; Rocky never supervises an MCP process. A remote server needing OAuth is authenticated once per machine with `rocky mcp login`, its token keyed by the server's URL, not the repo-local name, and handed to the Harness as an ordinary header; a Run holding no working token fails that Step in the named-fix style ([NG-583](https://linear.app/digimondo/issue/NG-583)).
-- **Harness** _(framework)_: The agent CLI behind a Step, driven by one of Rocky's own adapters — spawning, stream parsing, session resume, usage extraction and rendering the Step's MCP servers into the CLI's native config shape are adapter code, not a library ([NG-579](https://linear.app/digimondo/issue/NG-579), [NG-583](https://linear.app/digimondo/issue/NG-583)). v1 ships claude-code and opencode; adding a Harness means writing an adapter, not configuration. Each adapter maps the Capabilities onto its own native tool names, continues one of its own sessions when a Step is Steered ([NG-574](https://linear.app/digimondo/issue/NG-574)), and signs in as the developer's own account unless the instance config points it at another. _Avoid_: Provider.
-- **Preflight** _(framework)_: The journaled probe at Run start of what the developer's token can actually do on each of the Run's repos — merge, rebase, real draft state — so a Run that cannot finish fails in its first minute, not at the merge stage after an hour of work ([NG-580](https://linear.app/digimondo/issue/NG-580)). It also verifies that every stored MCP token for a server named in the snapshot's `mcp.json` can still refresh; a server never logged into is only discoverable at its first rejection ([NG-583](https://linear.app/digimondo/issue/NG-583)).
-- **Refusal** _(framework)_: Rocky declining work in the agent session while naming the exact fix — never a silent no. Four shapes: a delegated issue whose labels match no repo entry ([NG-578](https://linear.app/digimondo/issue/NG-578)), a lead repo with no `.rocky/` — the one Refusal that builds its own fix, by running Onboarding — a `workflow.ts` registering no `linear.onDelegate` when a delegation arrives, and a snapshot that fails to import or to export a valid Trigger table ([NG-581](https://linear.app/digimondo/issue/NG-581)). Problems only knowable mid-Run — a call site naming a missing Agent file, an unknown `mcp` key — fail that Step in the same named-fix style instead.
-- **Onboarding** _(framework-shipped content)_: The built-in Workflow that seeds a repo's `.rocky/`. Delegating an issue to a repo without one runs it as a first-class Run — journaled, parked, streamed — executing the daemon's own internal `.rocky/`, the same files it copies out. It inspects the repo, fills the Config block, distils explicit agent docs (`CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`) into one rules file — never mining code — opens a non-draft seed PR whose CI it watches and fixes, and replies "merge this and re-delegate"; re-delegating before the merge adopts the existing PR rather than opening a second. `rocky init` writes the same files, uncommitted, into the developer's working copy without a Run; `rocky upgrade` hands the shipped default to the developer's own interactive agent to negotiate what to take ([NG-581](https://linear.app/digimondo/issue/NG-581)).
-- **Checkpoint** _(framework)_: The human-in-the-loop Step, placeable anywhere in a Workflow. It tells Linear that intervention is needed and links to the web UI, then parks the Run until it has an Answer. Rocky enforces that blocking itself; Linear's own gate is advisory ([NG-576](https://linear.app/digimondo/issue/NG-576)).
-- **Answer**: A human's resolution of a Checkpoint: approve, reject, or Steer. A Checkpoint has exactly one Answer however many surfaces it was offered on ([NG-576](https://linear.app/digimondo/issue/NG-576)). Not to be confused with a Resolution, which answers a Complaint.
-- **Steer**: A human's redirection of a Run in flight — every prompt typed at a working Run is one, from Linear or the web UI equally. The human's words are delivered verbatim into an Agent's conversation as their own turn once the turn in flight completes, and the conversation **continues** rather than starting over — so a Steer never costs the Run its plan, its edits, or the reasoning it is correcting; Rocky never cuts a turn short for one ([NG-574](https://linear.app/digimondo/issue/NG-574), [NG-584](https://linear.app/digimondo/issue/NG-584)). A Steer that finds no conversation — a shell command, a Run parked on CI, the gap between Steps — waits, and is guaranteed to land in the next conversation that opens: a human's words never vanish, and no Workflow code can drop them ([NG-584](https://linear.app/digimondo/issue/NG-584)). Prompts arriving in a burst coalesce into one delivery; a parallel fan-out delivers to every live conversation in it. At a Checkpoint a Steer is one of the three Answers, and which Step receives it is the Workflow's choice, not the Checkpoint's ([NG-576](https://linear.app/digimondo/issue/NG-576)). _Avoid_: Interruption, which named the held note back when delivering it was the Workflow's job.
-- **Plan** _(content)_: What the planner produces and the implementer consumes: ordered prose steps. It names no files, and it does not say whether the change is visual — both are predictions made before any code exists, and both go stale the moment the implementer starts ([NG-577](https://linear.app/digimondo/issue/NG-577)). The implementer looks for itself; a separate Agent decides afterwards, from the changed files, whether the UI was touched.
-- **Check** _(content)_: One thing the ui-inspector must verify in the running app — where to go, what to do there, and what should be true. Written once per Run by the ui-planner, before the UI loop starts, so every pass of that loop tests the same things the same way, and a Run resumed after a crash re-runs the same sweep rather than inventing a new one ([NG-577](https://linear.app/digimondo/issue/NG-577)).
-- **Check result** _(content)_: The ui-inspector's verdict on exactly one Check. There is one for every Check, always, so a Check that was never performed is a schema violation rather than an invisible gap ([NG-577](https://linear.app/digimondo/issue/NG-577)).
-- **Observation** _(content)_: What a failing Check produces: a url, screenshots and prose, and deliberately no path. It becomes a Complaint only once another Agent anchors it to one, which is what keeps the Agent looking at the application out of the codebase ([NG-577](https://linear.app/digimondo/issue/NG-577)).
-- **Complaint** _(content)_: One objection a reviewing Step emits and a fixer Step consumes. Always anchored to a path, optionally to a line, and carries an id so its Resolution can be paired back to it. Every Complaint is blocking: an Agent that would not block a merge over it does not raise it. In the UI path it is never raised directly — it is derived from an Observation ([NG-577](https://linear.app/digimondo/issue/NG-577)). _Avoid_: Finding, which named a PR review comment in the retired reviewer product.
-- **Resolution** _(content)_: A fixer's reply to exactly one Complaint — fixed, or disagreed with a reason. A disagreement is settled by the next reviewing pass, which either drops the Complaint or re-raises it with a rebuttal; nothing arbitrates between the two, and an argument neither side concedes burns the loop cap.
-- **Rule** _(content)_: A prose markdown file under `.rocky/rules/`, handed verbatim to whichever Agents the Workflow chooses to give it to. Not a framework concept — Rocky never reads the directory; workflow code does. Every file in it is prompt text, so nothing explanatory belongs there.
-- **Transcript**: The Harness's raw turn-by-turn stream for one Step, kept by Rocky. The Harness's native resumable session accompanies it; the explicit opencode storage option may keep that native session in the developer's ordinary store instead, but never moves the Transcript out of the Run ([NG-647](https://linear.app/digimondo/issue/NG-647)). A Steered Step continues that same conversation ([NG-574](https://linear.app/digimondo/issue/NG-574)). The Transcript lives only on the machine: Linear is given a deep link to it, never a copy ([NG-577](https://linear.app/digimondo/issue/NG-577)). Folded by default in the web UI — the Step's own result is what is read, and the Transcript is one click away. _Avoid_: chatter.
+**Config block**: The marked portion of a workflow containing its editable
+commands, model selections, state names and loop limits.
+
+**Trigger**: A binding from Linear delegation or a named manual request to a
+Workflow. _Avoid_: entry point.
+
+**Run**: One execution of a Workflow for a Linear issue, using a frozen profile
+and issue snapshot. An issue has at most one live Run; later work adopts existing
+issue-branch work rather than resetting it.
+
+**Repo group**: A routing destination containing several repositories. Explicit
+Profile membership determines a Run's repositories when present.
+
+**Lead repository**: The primary repository for default SCM operations in a Run.
+It is the first member of a Profile with explicit repository membership.
+
+**Journal**: The durable history of a Run's Steps and controls. Processes and
+in-memory state can be rebuilt from that history.
+
+**Boot**: One execution or poll pass through a Run's Workflow. Recorded outcomes
+are replayed before new or unfinished work proceeds.
+
+**Parked**: A live Run waiting for a human or external condition, without holding
+an execution slot. Its work and recorded conversation state remain available.
+
+**Step**: A journaled unit of work such as an Agent call, shell command, question
+or Checkpoint. Effects are at-least-once; a display-only stage marker is not a Step.
+
+**Agent**: A prompt invoked with a harness, model, tool policy, inputs and result
+schema. Its conversation belongs to that Step, including any Steer continuation.
+
+**Capability**: A portable native tool grant: read, edit or bash. Additional tool
+sources are selected as MCP servers.
+
+**MCP server**: A tool source declared in a Profile and selected for an Agent.
+Authentication belongs to the machine and is separate from the declaration.
+
+**Harness**: The native agent CLI driven by a Rocky adapter: OpenCode or Claude
+Code. _Avoid_: Provider.
+
+**Preflight**: Journaled checks of the credentials and authority needed by a Run.
+SCM checks are deferred until the Workflow first needs SCM operations.
+
+**Refusal**: Declining an admission or operation with a reason and a concrete fix.
+It does not imply that a Run was started.
+
+**Onboarding**: The retained built-in content for inspecting a repository and
+preparing a seed configuration PR. Current production setup creates local Profiles.
+
+**Question**: A request for written clarification whose answer becomes workflow
+input. It does not grant merge approval.
+
+**Checkpoint**: A human decision Step that parks until answered. An approved
+Checkpoint provides the authority a Workflow must pass when requesting merge.
+
+**Answer**: The winning resolution of a Checkpoint: approve, reject or Steer.
+A written Question answer is clarification rather than approval.
+
+**Steer**: Human redirection delivered to an Agent conversation or returned as a
+Checkpoint Answer. _Avoid_: Interruption.
+
+**Plan**: The planner's ordered proposal consumed by implementation agents.
+
+**Delivery contract**: The agreed result and destination, including whether work
+should become a PR or Linear comment and whether merge or state changes are wanted.
+
+**Check**: One behavior the UI inspector must verify in the running application.
+
+**Check result**: The inspector's verdict and evidence for one Check.
+
+**Observation**: A failed UI Check's URL, screenshots and explanation. It becomes
+a Complaint when anchored to a source path.
+
+**Complaint**: A blocking review objection with an identity and source anchor.
+_Avoid_: Finding, the retired review-comment concept.
+
+**Resolution**: A fixer's reply to a Complaint: fixed, or disagreed with a reason
+for the next review pass to assess.
+
+**Rule**: Plain-language review instructions that Workflow content supplies to
+its Agents.
+
+**Transcript**: The durable raw agent stream for a Step, distinct from its
+structured result and native resumable session. _Avoid_: chatter.
+
+**Visual recap**: A revision-bound review report explaining a PR, diff or text
+deliverable with annotations, diagrams, verification and available screenshots.

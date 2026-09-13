@@ -1,121 +1,169 @@
 # Rocky 🦝
 
-An AI development-lifecycle platform. Rocky the raccoon takes a ticket and hands you back a mergeable pull request.
+Rocky runs AI development workflows on your own machine. Delegate a Linear issue,
+then follow its progress, answer questions, review evidence, and approve the
+result in the local web UI or Linear.
 
-## What it does
+## Current capabilities
 
-You delegate a Linear issue to Rocky. A daemon on your own machine picks it up and runs a workflow defined in your repo: plan, implement, check the change against the ticket, look at the UI if the change touches it, review the code, open the PR, watch CI, and keep fixing until everything is green. Only then does it call you in — once, at the end, with a diff, screenshots and a green pipeline — and after you approve, it merges through the platform's own merge controls.
+The CLI, daemon, workflow runtime and web UI are implemented and installable
+from this checkout. Rocky is under active development; it is not published as
+this project's `rocky` package on npm.
 
-Reviewing still happens, but it is an internal stage whose complaints feed a fixer, not a pile of comments on your PR. The PR is an output, not a conversation.
+- **Linear delegation and durable runs:** issue text and comment history are
+  captured at admission. Runs use owned Git clones and per-run worktrees,
+  journal their steps, and replay after a daemon restart.
+- **Editable local profiles:** one profile owns the workflow, prompts, schemas,
+  rules, MCP configuration and repository membership. Profiles can span several
+  repositories, with the first member serving as the default SCM target.
+- **Two harness adapters:** `opencode` and `claude-code` drive the installed
+  native CLIs. New profiles require explicit model and variant/effort choices
+  for main and helper agents.
+- **Shipped workflows:** clarify the issue, then deliver either a reviewed
+  Linear comment or a PR/MR. The PR path implements validation, review/fix and CI
+  loops, visual recaps, and an approval checkpoint before platform-controlled
+  merge. A request can specify PR handoff without merging.
+- **Local controls and evidence:** structured results, decoded live agent
+  streams, diffs, screenshots, visual reports, questions, checkpoints, steering,
+  cancellation, eligible failed-step retries, and fresh Linear delegation recovery.
+- **Connections:** local UI management of Linear authentication and profile MCP
+  servers, with OAuth, connection tests and per-profile grants.
 
-## Configured in your repo
+These are implemented paths, not a guarantee that every ticket completes. Actual
+execution needs working harness accounts, repository credentials, Linear setup,
+and any tools required by the profile. The default PR workflow targets the lead
+repository; multi-repository membership does not imply a PR for every member.
 
-Everything Rocky does for a repo lives in that repo, as files you can read and edit:
+`rocky init`, `rocky upgrade` and `rocky trigger` remain failing CLI stubs. Manual
+triggers are available through **New run** and the local API, but those runs have
+no Linear Agent Session and cannot use the session-backed Linear/SCM services.
+See the [CLI and context contract](docs/cli-and-ctx.md) for the precise boundary.
 
-```
-.rocky/
-  workflow.ts      # a config block, then the pipeline, as imperative TypeScript
-  schemas.ts       # the agent output contracts, as ordinary zod values
-  mcp.json         # MCP servers; the only file Rocky reads outside a run
-  agents/*.md      # one file per agent: prompt only, no frontmatter
-  rules/*.md       # plain-markdown review rules
-```
+## Install from a local checkout
 
-Model, tools and output schema are given where an agent is *called*, in `workflow.ts`, not in the agent's own file — so the one place that answers "what could this step touch" is the call site.
-
-The shipped defaults *are* those files, so customising means editing something already visible, and opting out means deleting a directory and a line. Rocky refuses to work on a repo without `.rocky/` — and that refusal hands over the fix: it inspects the repo, generates a config tuned to what it found, opens a PR, and asks you to merge it and re-delegate.
-
-## How it runs
-
-See the [source-grounded architecture and dataflow overview](docs/architecture.md)
-for current production wiring, local profile ownership, and trust boundaries.
-
-- **A daemon per developer**, on your machine, as you — using the toolchain and CLI credentials you already have. Its own clone and a worktree per run live under `~/.rocky`, so it never touches your working copies.
-- **One Linear app per developer**, so the thread shows whose machine is working. No coordinator, no claim protocol.
-- **Harnesses**: Rocky ships exactly `claude-code` and `opencode` adapters. A third Harness requires an adapter contribution, not configuration. Rocky drives the official CLIs and never hand-rolls an agent loop. See [Harness configuration and verification](docs/harnesses.md) for session storage, policy limits and live-test gates.
-- **Runs are journaled**, so one survives a daemon restart or a sleeping laptop and resumes at the last completed step.
-- **A local, keyboard-first web UI** bound to localhost, plus a thin `rocky` CLI. It renders live runs, diffs, screenshots and the checkpoints waiting on you.
-
-GitHub and GitLab are both first-class, including the awkward parts: merge queues, merge trains, and merge-when-pipeline-succeeds.
-
-## Vocabulary
-
-| Term | Meaning |
-| --- | --- |
-| **Workflow** | The TypeScript definition in `.rocky/workflow.ts`. |
-| **Run** | One execution of a Workflow for one Linear issue. |
-| **Step** | One journaled unit inside a Run: an Agent call, a shell command, or a Checkpoint. |
-| **Agent** | A prompt file in `.rocky/agents/`, run with the model, tools and output schema its call site gives it. |
-| **Checkpoint** | The human-in-the-loop Step. Notifies Linear, links to the web UI, and blocks until answered. |
-| **Complaint** | One objection a reviewing Step emits and a fixer Step consumes. |
-| **Check** | One thing the UI inspector must verify in the running app. |
-| **Observation** | What a failed Check produces — a url, screenshots and prose. Becomes a Complaint once anchored to a file. |
-| **Harness** | The agent CLI behind a Step. |
-
-## Working on Rocky itself
-
-For local tarball installation, independent `rocky`/`@rocky/sdk` versioning and
-the manual release gate, see [distribution](docs/distribution.md). No registry
-publication is implied by a successful local pack/install test. The reconciled
-[CLI and Workflow context contract](docs/cli-and-ctx.md) distinguishes current
-implementations from named stubs; [MCP OAuth](docs/mcp.md) documents the
-implemented `rocky mcp login` flow.
-
-**Do not run bare `npx rocky` or install `rocky` from the public registry.** That
-name belongs to the unrelated `h2non/rocky` proxy package. This project's tarballs
-remain local and private until an appropriate scoped name and ownership are
-verified; the distribution guide uses explicit tarball paths only.
-
-An Nx workspace, pnpm, Node 24. Four buildable pieces:
-
-```
-packages/daemon   @rocky/daemon  the long-running local process: API + web UI on one port
-packages/cli      rocky          the CLI and staged local tarball; registry name unresolved
-packages/sdk      @rocky/sdk     types and Trigger builders for a repo's .rocky/ — never behaviour
-apps/web          web            the Vite/React shell the daemon serves
-```
+Requires Node 24 or newer, pnpm 10.33.1 (pinned in `package.json`), and macOS or
+Linux. From the repository root:
 
 ```sh
-pnpm install
-pnpm exec prettier --check .                         # CI checks this repo-wide
-pnpm exec nx run-many -t build typecheck lint        # what CI runs on main
-pnpm exec nx run-many -t test --coverage             # the coverage gate, as CI runs it
-pnpm exec nx build @rocky/daemon                     # builds web and bundles it in
-node packages/cli/dist/main.js setup                 # the first-run wizard
-node packages/cli/dist/main.js start                 # http://127.0.0.1:7625
+pnpm install --frozen-lockfile
+mkdir -p dist/tarballs
+pnpm --dir packages/cli pack --pack-destination "$PWD/dist/tarballs"
+npm install --global --ignore-scripts "$PWD/dist/tarballs/rocky-0.0.0.tgz"
+rocky --version
+rocky --help
 ```
 
-A pull request checks only the projects it touched (`nx affected`); a push to `main` re-checks everything, so a wrong `affected` answer can never leave `main` unverified. Each project pins `coverage.thresholds` in its `vitest.config.mts` at the level it currently holds, which is what makes a coverage drop fail the build in CI and locally alike — raise them when you raise coverage. Task results are cached in GitHub's own Actions cache rather than Nx Cloud, so no third party sits in the loop of a repo that will hold provider and SCM credentials, and dependencies are gated at high severity by `pnpm audit` and `dependency-review`. Node comes from `.nvmrc` alone — Rocky ships as a daemon whose runtime we control, so there is no version matrix.
+The tarball bundles the CLI, daemon, web app, workflow assets and worker entry
+points; ordinary runtime dependencies are installed by npm. This installs a
+snapshot of the checkout. Rebuild and reinstall to pick up code changes, then
+explicitly restart any running daemon. See [distribution](docs/distribution.md)
+for clean-install verification, versioning and uninstall instructions.
 
-Two `image-size` advisories are waived in `pnpm.auditConfig.ignoreGhsas` (`GHSA-w3rx-r6r6-pgpr`, `GHSA-5p2g-fcmc-qvqq`): both are denial-of-service parsers reached only through `less`, an optional peer of Vite that pnpm installs but nothing here invokes — no file in this repo is Less — and neither has a patched release to upgrade to. A waiver is per-GHSA and belongs there rather than in a lowered `--audit-level`, which would silently waive the next real advisory too. Drop them the moment `image-size` ships a fix.
+**Use the explicit local tarball path.** The unscoped npm name `rocky` belongs to
+an unrelated project; do not use bare `npx rocky` or `npm install -g rocky`.
 
-`main` is protected: the lowercase `ci` job is the required status check, commits must be signed, a pull request needs one approving review, and history stays linear — merges are squashes ([NG-562](https://linear.app/digimondo/issue/NG-562)).
+## Start using Rocky
 
-`rocky setup` is the interactive first-run wizard: it asks for your public URL first — a Linear webhook URL is fixed when the OAuth app is created and cannot be changed afterwards — then prints a manifest URL to hand to a workspace admin, takes the app's credentials, runs the OAuth flow locally, and verifies the endpoint with a self-ping. See [docs/public-endpoint.md](docs/public-endpoint.md) for tunnel recipes.
-
-`rocky start` serves the API and the web UI on one port, `127.0.0.1:7625` by default (7625 spells ROCK); `--host` and `--port` move it, and there is no auth in v1 under any binding. Never tunnel this listener. The public endpoint must target the separate `rocky-ingress` filter, which admits only the webhook and ping. `init`, `upgrade` and `trigger` are named failing stubs at this base; lifecycle, repo and `mcp login` commands are implemented. See the contract table above and [MCP OAuth](docs/mcp.md) for integration details.
-
-### The daemon's lifecycle
+Install and sign into your chosen native harness first. For Linear delegation,
+prepare a stable public HTTPS endpoint, then run the interactive setup:
 
 ```sh
-rocky start                 # foreground; the log goes to the terminal and to the file
-rocky start -d              # background: writes ~/.rocky/daemon.pid, logs to ~/.rocky/logs/
-rocky status                # version, address, pid and uptime of the running daemon
-rocky logs -f               # follow the live log, across rotations
-rocky restart               # stop, then start -d again
-rocky stop                  # asks over the local API, falls back to SIGTERM
-rocky doctor                # config, endpoint and harness sign-in; non-zero if anything fails
-rocky service install       # a launchd (macOS) or systemd (Linux) *user* unit, for boot
+rocky setup
+rocky repo add git@github.com:YOUR_ORG/YOUR_REPO.git --label YOUR_LINEAR_LABEL
+rocky doctor
+rocky status
 ```
 
-`~/.rocky/logs/daemon.log` is size-rotated — 5 MB, five kept — so a daemon left running for months cannot fill the disk. A pidfile whose process is gone is reported and replaced rather than obeyed, so a killed daemon never leaves Rocky unstartable.
+`setup` guides public endpoint/app configuration, OAuth and default model
+selection, and installs managed daemon and ingress user services. `repo add`
+clones the repository and asks which models and variant/effort to save in its
+local profile. Review the profile's commands, Linear states and tool/MCP grants
+in **Profiles** before delegating a matching labeled issue. For automation,
+`repo add` requires `--harness`, `--model` and `--variant`; see [CLI details](docs/cli-and-ctx.md).
 
-The service unit is per-user on both platforms and never system-level: Rocky runs as you, inheriting your harness logins, SSH agent and git credentials, so there is no `sudo` anywhere in the install path.
+To open the local UI before connecting Linear, run `rocky start -d` and visit
+<http://127.0.0.1:7625>. This makes the UI available; it does not configure
+external accounts or make the shipped workflow usable without them.
 
-## Status
+The daemon has no application authentication. Public HTTPS must target the
+separate `rocky-ingress` filter, which forwards only the Linear webhook, ping
+and OAuth callback. Optional private Tailscale UI access is configured separately.
+Follow the [endpoint guide](docs/public-endpoint.md).
 
-Pre-implementation. The workspace is scaffolded ([NG-515](https://linear.app/digimondo/issue/NG-515)); the design is being settled ticket by ticket on the wayfinder map, [Rocky as an AI development-lifecycle platform](https://linear.app/digimondo/issue/NG-566).
+## Where configuration lives
 
-## Project management
+Production execution reads profiles under `~/.rocky` (or `ROCKY_HOME`):
 
-Tickets live in Linear (Niotix Grid team). All tickets carry the repository label so Cyrus can map them to this repo.
+```text
+~/.rocky/
+  config.json                # routing, server, harness and instance settings
+  credentials.json           # machine credentials
+  profiles/<id>.json         # repositories, prompts, schemas, rules, MCP, grants
+  profiles/<id>.workflow.ts  # editable workflow source; overrides JSON source
+  runs/<runId>/snapshot/     # frozen profile content for this run
+  runs/<runId>/workspace/    # sibling repository worktrees
+```
+
+**Target-repository `.rocky/` files are ignored by production admission.** The
+shipped template lives at `packages/daemon/content/.rocky/` and seeds local
+profiles. Legacy repository seeding/onboarding helpers remain in the source,
+but a missing repository `.rocky/` is not the current setup trigger.
+
+Profile changes apply to future runs. Existing runs, including explicit step
+retries, keep their snapshots. Use the profile editor, or `rocky repo profile`
+to list, export, import, assign, seed or delete local profiles. See
+[local product](docs/local-product.md) and the [architecture overview](docs/architecture.md).
+
+## Lifecycle
+
+```sh
+rocky start                 # foreground daemon
+rocky start -d              # detached daemon
+rocky status                # version, address, pid, repositories and endpoint
+rocky logs -f               # follow the daemon log across rotations
+rocky restart               # explicit stop, then detached start
+rocky stop
+rocky doctor                # config, endpoint and harness authentication checks
+rocky service install       # daemon + ingress launchd/systemd user services
+rocky service uninstall     # unload and remove those services
+```
+
+Logs under `~/.rocky/logs/` rotate at 5 MB with five retained files. Services
+run as the current user. Package installation alone does not install services.
+
+## Working on Rocky
+
+Nx/pnpm workspace:
+
+| Path                       | Package                  | Purpose                                          |
+| -------------------------- | ------------------------ | ------------------------------------------------ |
+| `packages/cli`             | `rocky`                  | CLI and staged installable tarball               |
+| `packages/daemon`          | `@rocky/daemon`          | API, execution, integrations and bundled web app |
+| `packages/sdk`             | `@rocky/sdk`             | Workflow types, Trigger builders and Zod export  |
+| `packages/local-contracts` | `@rocky/local-contracts` | Shared UI/API types                              |
+| `apps/web`                 | `web`                    | Vite/React local UI                              |
+
+```sh
+pnpm exec prettier --check .
+pnpm exec nx run-many -t build typecheck lint
+pnpm exec nx run-many -t test --coverage
+pnpm test:distribution
+pnpm exec nx build rocky
+node packages/cli/dist/main.js --help
+```
+
+CI checks formatting repository-wide, runs affected projects for PRs and all
+projects on `main`, then verifies clean tarball installation. Coverage thresholds
+are configured per project. GitHub Actions caches Nx results; dependency audit
+and dependency review gate high-severity findings. The aggregate check is `ci`.
+Node is pinned by `.nvmrc`.
+
+Two `image-size` advisories are waived individually in
+`pnpm.auditConfig.ignoreGhsas` (`GHSA-w3rx-r6r6-pgpr`, `GHSA-5p2g-fcmc-qvqq`).
+The recorded rationale is their parser path through the unused optional Less
+peer. Re-evaluate those exceptions when updating dependencies; keep the audit
+severity gate intact.
+
+See the [documentation index](docs/README.md) for implementation guides and
+explicitly dated historical material. Tickets are tracked in Linear's Niotix
+Grid team with a repository routing label.

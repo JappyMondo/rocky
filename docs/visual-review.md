@@ -2,7 +2,7 @@
 
 The default workflow starts with a small, read-only refiner. It checks the ticket against the repository context and asks for missing scope, behavior, constraints, or acceptance criteria before any implementation agent runs. Questions and written answers survive a daemon restart. The refiner can ask another round when an answer exposes another unresolved decision.
 
-Once the scope is clear, Rocky posts a scope decision record to the ticket: agreed scope, decisions and rationale, acceptance criteria, exclusions, and the full clarification conversation. The augmented ticket is passed to the remaining agents. Configure the refiner through `fastAgent` in the profile's workflow and the `refiner` prompt in the profile.
+Once the scope is clear, Rocky posts a scope decision activity to the ticket: agreed scope, decisions and rationale, acceptance criteria, exclusions, and the full clarification conversation. The augmented ticket is passed to the remaining agents. Configure the refiner through `fastAgent` in the profile's workflow and the `refiner` prompt in the profile.
 
 Custom workflows can use the same durable building blocks:
 
@@ -18,7 +18,14 @@ await ctx.comment(`Agreed behavior: ${answer.answer}`);
 
 A question accepts a written answer through Linear or the run view. It never grants merge approval. `ctx.checkpoint` remains the separate approval gate; pass its approved answer to `ctx.scm.armAutoMerge(pr, answer)`.
 
-## Automatic reports
+## Visual recaps and automatic reports
+
+The current shipped workflow explicitly calls `ctx.visualRecap` after validation
+and CI, before making a PR ready or asking for approval. It also supports reviewed
+Linear-comment delivery. See [visual recaps](visual-recap.md) and
+[delivery contracts](shipped-content-contract.md#delivery-and-validation).
+The automatic callbacks below remain for older/custom workflows and reuse an
+already published report for the same revision.
 
 For newly admitted runs, the runtime hooks `ctx.scm.openPr` and `ctx.scm.markDraft`. A ready PR/MR receives a visual review report; a draft receives one before it is marked ready. Work must be committed in the intended repository, on the issue branch, nonempty against the base, and pushed to the remote. Rocky checks Git state directly and validates the PR head instead of trusting an agent's summary.
 
@@ -26,7 +33,11 @@ The report agent receives the actual diff and immutable revision, ticket, refine
 
 Reports and screenshot copies are stored as run artifacts, keyed by repository, PR number, and head SHA. A new revision gets a new report. Replays reuse the existing report and idempotent comment markers. Screenshot copies keep evidence for one revision independent of later captures. The runtime checks the revision again before publication so a changed branch cannot be marked ready using stale evidence.
 
-Rocky posts the report text, diagrams, screenshot links, and a report link to both Linear and the PR/MR. The run view lists the reports and opens a grouped gallery. Rocky report URLs are machine-local, like the rest of the web UI; the public ingress continues to expose only Linear webhook and OAuth endpoints. Artifact retention applies to screenshot availability.
+Current enhanced recaps publish a summary and private report link to Linear and
+the PR/MR, retaining screenshots and source snippets in Rocky. Legacy basic
+reports can publish their text and screenshot links too. The run view lists the reports and opens a grouped gallery. Report URLs prefer the configured private Tailscale origin and otherwise use
+localhost. The public ingress exposes only webhook, ping and OAuth callback
+routes. Artifact retention applies to screenshot availability.
 
 ## Run diagnostics
 

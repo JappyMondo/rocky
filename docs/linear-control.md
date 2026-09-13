@@ -1,8 +1,9 @@
 # Linear Control
 
-NG-601/602/603/629 composition contract. Production server, lifecycle and
-Agent execution belong to NG-598/544. This lane does not register HTTP routes
-or start a daemon. All links stay on `http://localhost:<port>`.
+The control module is composed by `lifecycle/production-composition.ts` with
+the scheduler, webhook intake, local API and Agent Steer bridge. Run links use
+the configured private Tailscale origin when present, otherwise localhost.
+Local manual Runs have no session-owned control instance.
 
 ## Runtime Handoff
 
@@ -21,7 +22,7 @@ interface LinearControlStore {
 This is a view of **runner-owned non-positional records in the same Journal**,
 not permission to add a sidecar or put human words only in `run.json`.
 `put` appends and syncs a record; `get` folds to the last recorded value.
-The runtime owner is implementing that public seam. The control store key is
+`JournalWriter` implements that shared public seam. The control store key is
 `linear:control`; mirror effects use distinct `linear-mirror:` keys. A single
 Run writer must serialize these records with Step attempts and `$end`.
 Nothing may acknowledge intake after `$end`. Terminal effect IDs must be
@@ -56,13 +57,13 @@ them. A losing old-generation Answer cannot answer a later re-ask.
 The local-product adapter must use only these read-only control methods, never
 decode `linear:control` records:
 
-| Method | Contract |
-| --- | --- |
-| `currentCheckpoint()` | The unresolved Checkpoint for the decision surface, if any. It includes the full Step key, generation, frozen title and body. |
-| `checkpointSnapshot({ stepKey, generation })` | That exact Checkpoint, including its settled winning Answer. Use this identity for a 409 conflict response; it cannot accidentally address a later re-ask. |
-| `answer({ requestId, stepKey, generation, answer })` | Performs the same CAS as Linear intake and returns `{ kind: 'accepted' | 'already-answered', answer }`. |
-| `steer({ requestId, message })` | Persists a local Compose request through the shared intake and returns its durable receipt. A waiting Checkpoint instead requires `answer()` with `decision: 'steer'`. |
-| `steers()` | Every durable receipt, including already delivered records. |
+| Method                                               | Contract                                                                                                                                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `currentCheckpoint()`                                | The unresolved Checkpoint for the decision surface, if any. It includes the full Step key, generation, frozen title and body.                                          |
+| `checkpointSnapshot({ stepKey, generation })`        | That exact Checkpoint, including its settled winning Answer. Use this identity for a 409 conflict response; it cannot accidentally address a later re-ask.             |
+| `answer({ requestId, stepKey, generation, answer })` | Performs the same CAS as Linear intake and returns `{ kind: 'accepted'                                                                                                 | 'already-answered', answer }`. |
+| `steer({ requestId, message })`                      | Persists a local Compose request through the shared intake and returns its durable receipt. A waiting Checkpoint instead requires `answer()` with `decision: 'steer'`. |
+| `steers()`                                           | Every durable receipt, including already delivered records.                                                                                                            |
 
 A `SteerSnapshot` is `{ id, source, requestId, message, receivedAt, state,
 targets }`; every target is `{ stepKey, delivered }`. `message` is verbatim,
@@ -121,7 +122,7 @@ Do not claim live Linear app-token authority from the user's MCP. Local tests
 never mutate real issues. Real session discovery, localhost rendering, automatic
 comment behavior, final image rendering and authenticated both-Harness
 continuations remain separately qualified integration gates. An elicitation
-that creates an unavoidable third total comment is a spec/API blocker, not
+that creates an unavoidable third framework-owned comment is a spec/API blocker, not
 permission to promise two explicit comments. NG-651 review precedes any live
 inbound/outage fixture. Known session + valid credentials + reachable outbound
 Linear is the boundary of the dead-endpoint recovery claim.

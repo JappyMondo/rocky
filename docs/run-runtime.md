@@ -51,8 +51,9 @@ refused, not guessed. `runs/counters.json` preserves ordinals after retention.
 
 ## Context
 
-Members: `issue`, `branch`, `ports`, `agent`, `exec`, `checkpoint`, `post`,
-`changedFiles`, `step`, `parallel`, non-journaled `stage`, `scm` and `linear`.
+Members: `issue`, `branch`, `ports`, `agent`, `exec`, `checkpoint`, `question`,
+`post`, `comment`, `visualRecap`, `changedFiles`, `step`, `parallel`, non-journaled
+`stage`, `scm` and `linear`.
 Do not restate a member count. `stage(label)` takes no sequence and sets display
 metadata on later entries without teaching the framework product-stage names.
 
@@ -104,14 +105,15 @@ persists `cancelRequestedAt`, aborts its Boot, calls `Cancellation.kill`, joins
 the Boot, calls `Cancellation.cleanup`, then appends one cancelled `$end` and
 updates the header.
 
-The Boot launcher kills and joins the Boot child it owns. `WorkflowRuntime`
-currently executes the Workflow in-process and owns exec supervisors; a
-subprocess launcher must additionally terminate its own Boot child. Harness
+Production `RunWorkers` kills and joins its owned Boot child. Inside that child,
+`WorkflowRuntime` executes the Workflow and owns exec supervisors. Harness
 adapters own concrete CLI child lifecycle and observe the supplied signal.
-SCM/Linear adapters own cleanup: preserve/push committed branches, make existing
-PRs draft with a comment (never close them), then remove worktrees and mirror
-the terminal response. Effects must be idempotent. This slice tests the SCM
-contract with fakes, not real platform pushes.
+Production cleanup distinguishes explicit stop from ordinary terminal completion.
+Stop preserves work locally without pushing, changing draft/issue state or
+continuing the Workflow. Failed workspaces remain available for eligible retry.
+Other terminal cleanup preserves branches and releases clean worktrees through
+the repository owner. Effects must be idempotent; deterministic tests are not
+evidence of live platform pushes.
 
 A cleanup failure leaves durable cancellation intent on a non-terminal Run.
 `stop` retries it; recovery's `tick` retries without resuming the Workflow.

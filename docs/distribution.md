@@ -43,10 +43,51 @@ never be exposed publicly. Follow [the public endpoint guide](public-endpoint.md
 to connect a BYO stable HTTPS tunnel to the managed filter, not to
 the daemon. The package contains that guide under `docs/public-endpoint.md`.
 
-The current artifact contains the foundation, local lifecycle commands and web
-shell, not a completed delegation-to-PR product. Installing successfully is not
-evidence of runnable Harnesses, default Workflow, Onboarding or Run control.
-Those integrations have their own acceptance gates.
+The artifact includes production Run execution, both harness adapters, shipped
+profile content, local controls, connections and visual reports. The remaining
+CLI stubs are `init`, `upgrade` and `trigger`. Local manual Runs lack the
+session-backed Linear/SCM services used by the default PR workflow. A clean
+install smoke test verifies packaging and local execution, not live acceptance
+of every Linear/SCM/harness combination.
+
+## Global installation from this checkout
+
+From the repository root, build and install the explicit local artifact:
+
+```sh
+pnpm install --frozen-lockfile
+mkdir -p dist/tarballs
+pnpm --dir packages/cli pack --pack-destination "$PWD/dist/tarballs"
+npm install --global --ignore-scripts "$PWD/dist/tarballs/rocky-0.0.0.tgz"
+rocky --version
+rocky --help
+rocky-ingress --help
+```
+
+Use the tarball filename printed by `pack` if the package version changes.
+The global npm prefix's `bin` directory must be on `PATH`; inspect it with
+`npm prefix -g` and verify command selection with `command -v rocky`. With a
+Node version manager, this install belongs to the active Node version. Use a
+user-owned prefix; no `sudo` is needed.
+
+The global commands work outside this repository. This is a built snapshot,
+not a live source link. After pulling code changes, pack and install again,
+then run `rocky restart` if a daemon is running. Development artifacts currently
+share version `0.0.0`, so the version handshake cannot detect every source change.
+
+Installation itself does not start Rocky or set up accounts. Run `rocky start -d`
+for the local UI, or `rocky setup` for interactive Linear and managed-service
+setup. `rocky repo add <url>` creates a local profile and asks for explicit
+model/variant choices; production ignores repository `.rocky/` files.
+
+To remove the global install, first run `rocky service uninstall` if managed
+services were installed, and stop any detached daemon with `rocky stop`. Then:
+
+```sh
+npm uninstall --global rocky
+```
+
+This leaves `~/.rocky` configuration, credentials and Run history in place.
 
 ## Building and verifying
 
@@ -58,9 +99,12 @@ pnpm --dir packages/cli pack --pack-destination /existing/output/directory
 pnpm test:distribution
 ```
 
-`prepack` builds the CLI/daemon/SDK and web shell via Nx, then esbuild bundles
-Rocky's workspace modules into the staged `packages/cli/dist/package/dist`.
-Non-workspace dependencies remain external. A generated distribution manifest
+`prepack` builds the CLI/daemon/SDK and web app via Nx, then esbuild bundles
+Rocky's workspace modules into `packages/cli/dist/package`. Besides CLI/ingress
+entries, it emits Boot and validation workers, the snapshot loader, SDK,
+onboarding runner and Mermaid validator. The late-loaded harness adapter,
+raw shipped content and built web assets are included too. Non-workspace
+dependencies remain external. A generated distribution manifest
 carries only runtime dependencies, binaries and assets; it contains no workspace
 references, source exports, development dependencies or install scripts. pnpm's
 `publishConfig.directory` selects that staging directory. Do not use `npm pack`
@@ -109,10 +153,10 @@ browser acceptance when changing the packaged UI or its asset layout.
   on the integrated head, and repeat the clean-install smoke test on that exact
   tarball. Only then may they publish that reviewed artifact and record its
   integrity/version. These instructions do not authorize publication.
-- Foundation tarballs at `0.0.0` are local test artifacts. Final MVP acceptance
-  repeats packaging tests after the remaining Harness, content and UI integration
-  has landed. New runtime data files, dynamic loaders and subprocess entries
-  must be added to packaging and its smoke test when introduced.
+- Tarballs at `0.0.0` are local development artifacts. New runtime data files,
+  dynamic loaders and subprocess entries must be added to packaging and its
+  smoke test when introduced. Packaging success does not replace live integration
+  acceptance.
 
 The installed package also carries `dist/mermaid-check.js` and its runtime
 Mermaid/DOM dependencies. It executes in its own process so parser DOM globals

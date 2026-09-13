@@ -11,7 +11,7 @@ so read this first.
 
 Linear fixes an OAuth app's webhook URL **when the app is created**. There is no
 supported way to change it afterwards: the settings UI can, a human can, but the
-only programmatic route is an ALPHA mutation that requires a *managing* OAuth
+only programmatic route is an ALPHA mutation that requires a _managing_ OAuth
 app — a project of its own, and one Rocky deliberately does not take on.
 
 So an ephemeral URL — a `cloudflared` quick tunnel, an ngrok free session — is
@@ -26,18 +26,17 @@ Pick something whose hostname you keep.
 **Only these exact method/path pairs.** Query strings and alternate encodings
 are not part of this protocol:
 
-| Path | What it is |
-| --- | --- |
-| `POST /api/linear/webhook` | Linear's agent-session events |
-| `GET /api/ping` | Rocky's own self-ping; answers an opaque instance id |
-| `GET /api/linear/oauth/callback?...` | Linear's OAuth browser return during setup |
+| Path                                 | What it is                                           |
+| ------------------------------------ | ---------------------------------------------------- |
+| `POST /api/linear/webhook`           | Linear's agent-session events                        |
+| `GET /api/ping`                      | Rocky's own self-ping; answers an opaque instance id |
+| `GET /api/linear/oauth/callback?...` | Linear's OAuth browser return during setup           |
 
 The web UI is **not** on the public endpoint and must not be put there. It has
 no authentication under any binding, and it controls every Run on your machine —
 putting it on the internet behind a guessable URL is exactly what
-[NG-576](https://linear.app/digimondo/issue/NG-576) §4 ruled out. A Checkpoint's
-button points at `http://localhost:<port>`, which is a live link when you are at
-the machine. Away from it, answer in Linear or open the same Run path using the
+[NG-576](https://linear.app/digimondo/issue/NG-576) §4 ruled out. Run links use the configured private Tailscale origin when present, otherwise
+`http://localhost:<port>`. Away from the machine, answer in Linear or use the
 optional private Tailscale UI address below.
 
 Every public-endpoint recipe below **must** target the `rocky-ingress` filter, never
