@@ -65,7 +65,11 @@ an unrelated project; do not use bare `npx rocky` or `npm install -g rocky`.
 ## Start using Rocky
 
 Install and sign into your chosen native harness first. For Linear delegation,
-prepare a stable public HTTPS endpoint, then run the interactive setup:
+prepare a stable public HTTPS endpoint forwarding to **`http://127.0.0.1:7626`**
+on the machine running Rocky, then run the interactive setup. This is the
+ingress port; port `7625` serves the private UI/API and must not be exposed publicly.
+Setup starts the ingress after you enter the public URL and installs it as a
+background service when setup finishes:
 
 ```sh
 rocky setup

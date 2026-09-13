@@ -77,7 +77,9 @@ share version `0.0.0`, so the version handshake cannot detect every source chang
 
 Installation itself does not start Rocky or set up accounts. Run `rocky start -d`
 for the local UI, or `rocky setup` for interactive Linear and managed-service
-setup. `rocky repo add <url>` creates a local profile and asks for explicit
+setup. Point that setup's public HTTPS URL at `http://127.0.0.1:7626`, the local
+ingress filter, never the private UI/API on port `7625`. `rocky repo add <url>`
+creates a local profile and asks for explicit
 model/variant choices; production ignores repository `.rocky/` files.
 
 To remove the global install, first run `rocky service uninstall` if managed

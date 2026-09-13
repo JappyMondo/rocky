@@ -4,8 +4,13 @@ Rocky needs **one stable, public HTTPS URL** that Linear can POST to. You bring
 it; Rocky does not manage a tunnel process, and never will — that was decided in
 [NG-578](https://linear.app/digimondo/issue/NG-578).
 
-This page is the recipes. `rocky setup` asks for the URL before anything else,
-so read this first.
+**Forward your public HTTPS URL to `http://127.0.0.1:7626` on the machine running
+Rocky.** This is the ingress filter. Port `7625` is the private UI/API and must
+not receive public traffic. Setup starts the filter after you enter the URL,
+then installs it as a background service on completion.
+
+`rocky setup` asks for this URL before creating the Linear app. Configure your
+tunnel or reverse proxy using one of the recipes below.
 
 ## Why it has to be stable
 
