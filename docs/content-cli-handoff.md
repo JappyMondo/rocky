@@ -1,6 +1,13 @@
 # Content CLI Integration
 
-Scoped NG-607/608 implementation lives in `packages/daemon/src/content/seed.ts` and `packages/cli/src/content-commands.ts`, with focused adjacent specs. This worker did not edit the command table, package manifests, daemon exports, loader, Workflow, or Harness adapters.
+This document describes the retained repository-seeding and interactive-upgrade
+helpers in `packages/daemon/src/content/seed.ts` and
+`packages/cli/src/content-commands.ts`. **`rocky init` and `rocky upgrade` remain
+failing stubs in `commands.ts`; these helpers are not registered CLI actions.**
+Production now creates machine-local profiles through `rocky repo add`,
+`rocky repo profile seed` and the UI. It ignores committed `.rocky/` files.
+The handoff below is for any future integration of the legacy commands, not
+current user setup instructions. See [CLI and profiles](cli-and-ctx.md).
 
 ## Export and Registration
 
@@ -14,7 +21,7 @@ Import `initContent` and `upgradeContent` from `./content-commands.js` in CLI re
 
 ## Assets
 
-Package the complete `packages/daemon/content/.rocky/` tree, including hidden-directory entries, and provide its absolute installed path as `shippedDir`. Compute it relative to the installed daemon package, not `cwd`, and smoke-test the packed artifact. The source test uses that actual tree; no runtime downloads are implemented.
+Packaging already includes the complete `packages/daemon/content/.rocky/` tree, including hidden-directory entries. A future CLI action must provide its absolute installed path as `shippedDir`. Compute it relative to the installed daemon package, not `cwd`, and smoke-test the packed artifact. The source test uses that actual tree; no runtime downloads are implemented.
 
 Treat the installed default as read-only. Upgrade supplies the path in its prompt and denies native edits to that tree. The session has no shell tool, so comparison/editing stays within native file tools. Test package symlinks/path canonicalization and read-only permissions in the packed-install gate; the command currently requires a real directory rather than a symlink at the supplied path.
 
@@ -25,13 +32,16 @@ Treat the installed default as read-only. Upgrade supplies the path in its promp
 - `inspect(repo): Promise<unknown>` must use the existing foreground Harness execution seam, `inspectionPrompt`, `inspectionTools` (`read` only), no MCP, and the `Inspection` schema. Inspect metadata/scripts/code for commands and UI only. The helper parses the output before staging.
 - `resolveTeamStates(repo)` returns actual `{ name, type, position }[]`, resolving the routing label to a team if possible. Return `undefined` when no team can be identified; genuine service errors propagate. The fallback emits conventional names plus a verification comment inside Config.
 - `distill(documents)` receives only root `CLAUDE.md`, `AGENTS.md`, and `CONTRIBUTING.md` text. Use `conventionsPrompt`, `Conventions`, zero Capabilities (`conventionsTools`) and no MCP. This separate call must have no repository browsing tools. No documents means no call or generated rules; a docs-bearing repo without a distiller fails rather than silently dropping its rules. Symlinked documents are excluded.
-- `validate(stagedRockyDir)` must use the framework loader to import/validate the generated Workflow and Trigger table, and reject invalid output. Do not wire a no-op or substitute a marker regex. No production loader was available within this worker's ownership.
+- `validate(stagedRockyDir)` must use the framework loader to import/validate the generated Workflow and Trigger table, and reject invalid output. Do not wire a no-op or substitute a marker regex. The production loader now exists at `run/loading/validate.ts`; it is not
+  wired into the foreground CLI stub.
 
 `seedContent({ repo, shippedDir, models, inspection, teamStates?, distill?, validate })` is the shared lower-level helper for Onboarding. It validates Inspection again, copies assets into a uniquely owned sibling staging directory, fills only Config, optionally adds Playwright, distils explicit docs, then invokes the loader callback before installation. It returns the installed `.rocky` path.
 
-The Onboarding owner must compose Agent calls and filesystem effects at the existing journaled boundaries. `seedContent` itself is intentionally non-journaled and refuses a previously installed tree; Run replay/adoption belongs to the Onboarding orchestration, not an overwrite option. If distillation is already a settled Agent Step, pass a callback returning its recorded result while still enforcing the document-only provenance contract.
+The retained `content/onboarding.ts` composes Agent calls and filesystem effects at journaled boundaries. `seedContent` itself is intentionally non-journaled and refuses a previously installed tree; Run replay/adoption belongs to the Onboarding orchestration, not an overwrite option. If distillation is already a settled Agent Step, pass a callback returning its recorded result while still enforcing the document-only provenance contract.
 
 State selection sorts by position, then name for deterministic ties: `started` is the first started-type state; `review` prefers a started-type name containing `review` (case-insensitive), otherwise the started selection; `done` is the first completed-type state. An identified team without started/completed states fails with a fix.
+
+These retained helpers still serialize legacy `agent`/`fastAgent` constants. The current shipped workflow consumes `ctx.models`; configure production profiles through the CLI or web UI instead.
 
 The whole Config block is serialized from the brief's agreed constants. Explicit `models` are required for both `agent` and `fastAgent`; onboarding asks the human before any agent invocation. Caps, readiness and log limits remain the agreed defaults; updating the shipped Config contract requires updating this serializer in the same change. Agent/schema/MCP bytes are otherwise copied intact, except the optional Playwright entry and `rules/conventions.md`.
 
@@ -57,4 +67,4 @@ Required integration gates still owned by the combined delivery:
 4. Verify real terminal Ctrl-C and SIGTERM behavior, native login failures, and CLI exit/signal propagation. Unit tests cover child outcomes; they do not prove terminal process-group behavior.
 5. The main Onboarding owner must prove the journaled seed PR/adoption/CI journey; these foreground helpers do not replace it.
 
-`rocky repo add` and `rocky repo profile seed` always ask for model selections in a terminal, using setup choices as visible suggestions. Automation must pass `--harness`, `--model`, and `--variant`. Helpers reuse that explicit choice unless all of `--fast-harness`, `--fast-model`, and `--fast-variant` are supplied. Missing or partial flags fail before cloning or writing a profile.
+`rocky repo add` and `rocky repo profile seed` always ask for model selections in a terminal, using setup choices as visible suggestions. Automation must pass `--harness`, `--model`, and `--variant`. The named review and implementation slots use that choice; planner reuses it unless all of `--fast-harness`, `--fast-model`, and `--fast-variant` are supplied. Missing or partial flags fail before cloning or writing a profile. The profile stores these selections separately from workflow code; the web UI can edit each declared slot independently. The legacy repo-content helpers described above retain their older inline configuration format and are not the production profile creation path.

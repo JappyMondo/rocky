@@ -2,7 +2,7 @@
 
 NG-544 uses `createAgent(steps, options)` from `run/agent.ts`, returning the SDK
 `WorkflowContext['agent']`. Production composition supplies a branch-local
-`BootContext`, immutable `.rocky/` `snapshotDir`, `cwd`, `sessionDir`, default
+`BootContext`, immutable profile `snapshotDir`, `cwd`, `sessionDir`, default
 `harness` name, and `harnesses[name] = { command, env, sessionStorage }`.
 Optional `signal`, incremental `onEvent(identity, event, sessionId)`, and the
 per-Boot `resolveServers` callback are runtime concerns, not Workflow options.
@@ -28,7 +28,11 @@ it for a missing snapshot prompt, which Workflow code cannot catch away.
 `AgentOptions.steer.register(handle)` receives an `AgentContinuation`:
 
 ```ts
-interface AgentTurn { id: string; ids?: string[]; note: string }
+interface AgentTurn {
+  id: string;
+  ids?: string[];
+  note: string;
+}
 interface AgentContinuation {
   readonly identity: string;
   readonly label: string;

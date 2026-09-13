@@ -100,6 +100,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   const { prompter } = options;
   const paths = options.paths ?? rockyPaths();
   const host = options.host ?? DEFAULT_HOST;
+  const ingressPort = options.ingressPort ?? 7626;
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 
   prompter.say('Rocky setup');
@@ -128,12 +129,25 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   // Step one, and nothing that could create an app happens before it returns.
   prompter.say('');
   prompter.say(
-    'Rocky needs one stable, public HTTPS URL that Linear can POST to. It fronts',
+    'Rocky needs one stable, public HTTPS URL that Linear can POST to.',
   );
   prompter.say(
-    'the webhook and nothing else — never the web UI. Recipes for cloudflared,',
+    'Point your tunnel or reverse proxy at this address on this machine:',
   );
-  prompter.say('ngrok and Tailscale Funnel are in docs/public-endpoint.md.');
+  prompter.say(`  http://127.0.0.1:${String(ingressPort)}`);
+  prompter.say(
+    'This ingress exposes only the Linear webhook, ping and OAuth callback.',
+  );
+  prompter.say(
+    'It starts after you enter the URL and runs as a background service after setup.',
+  );
+  prompter.say(
+    'Never point public traffic at the private daemon/web UI port (7625 by default).',
+  );
+  prompter.say('Tunnel recipes (cloudflared, ngrok and Tailscale Funnel):');
+  prompter.say(
+    'https://github.com/JappyMondo/rocky/blob/main/docs/public-endpoint.md',
+  );
   const publicUrl = await askUntil(
     prompter,
     'Your public URL:',
@@ -165,10 +179,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
   let ingress: Server | undefined;
 
   try {
-    ingress = await startWizardIngress(
-      options.ingressPort ?? 7626,
-      daemon.port,
-    );
+    ingress = await startWizardIngress(ingressPort, daemon.port);
     const redirectUri = oauthRedirectUri(publicUrl);
     const manifest = buildManifest({ developerName, publicUrl, redirectUri });
 

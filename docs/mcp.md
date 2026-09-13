@@ -1,9 +1,9 @@
 # MCP Plumbing And OAuth
 
-NG-599 implements declarations, login, credentials and per-attempt/Preflight
-primitives. It does **not** wire a production `ctx.agent` or Preflight Run.
-Native Harness configuration and child lifetime belong to NG-530/NG-643;
-Agent execution to NG-544; journaled Preflight to NG-605.
+MCP declarations, OAuth credentials, connection management and per-attempt
+resolution are wired into production Agent execution. Session-backed Runs
+refresh stored MCP authentication in journaled preflight. Harness adapters
+translate the resolved configuration and own native child lifetimes.
 
 ## Manage connections in the UI
 
@@ -48,8 +48,10 @@ callbacks are excluded from request logging.
 
 ## Declaration
 
-`.rocky/mcp.json` is JSON, not executable code. No `oauth`, tool policy or
-Rocky-specific keys are accepted:
+Production declarations live in the local profile's `mcp` field and are frozen
+as `snapshot/mcp.json` at admission. The shipped template uses the same JSON
+shape in `content/.rocky/mcp.json`; target-repository declarations are ignored.
+No `oauth`, tool policy or Rocky-specific keys are accepted:
 
 ```json
 {
@@ -84,15 +86,16 @@ into Linear. The raw snapshot remains the source on a later Boot.
 
 ## Login
 
-From the repo root:
+From any directory, select the configured repository whose local profile declares
+the server (the `--repo` flag is required):
 
 ```sh
-rocky mcp login api
-rocky mcp login api --client-id registered-client --callback-port 8765
-rocky mcp login api --client-id registered-client --client-secret secret --callback-port 8765
+rocky mcp login api --repo my-repo
+rocky mcp login api --repo my-repo --client-id registered-client --callback-port 8765
+rocky mcp login api --repo my-repo --client-id registered-client --client-secret secret --callback-port 8765
 ```
 
-Login reads only the selected server from `mcp.json`; unrelated Run-only
+Login reads only the selected server from that local profile; unrelated Run-only
 placeholders do not need values. It never imports the Workflow or starts the
 daemon. It opens the system browser, discovers RFC 9728 protected-resource and
 RFC 8414/OIDC authorization-server metadata, registers a public client when DCR
@@ -118,12 +121,12 @@ quoted into errors or logs.
 `MCP_OAUTH_LIMITS` exports the fixed Rocky v1 resource ceilings (these are not
 maxima prescribed by OAuth):
 
-| Data | Ceiling |
-| --- | --- |
-| One decoded OAuth HTTP response, including resource/AS metadata, DCR, tokens and errors | 256 KiB |
-| Each credential string, including access/refresh tokens, scope and client credentials | 16 KiB UTF-8 |
-| One stored URL-keyed OAuth credential | 64 KiB serialized JSON |
-| The complete MCP credential section written by OAuth | 1 MiB serialized JSON |
+| Data                                                                                    | Ceiling                |
+| --------------------------------------------------------------------------------------- | ---------------------- |
+| One decoded OAuth HTTP response, including resource/AS metadata, DCR, tokens and errors | 256 KiB                |
+| Each credential string, including access/refresh tokens, scope and client credentials   | 16 KiB UTF-8           |
+| One stored URL-keyed OAuth credential                                                   | 64 KiB serialized JSON |
+| The complete MCP credential section written by OAuth                                    | 1 MiB serialized JSON  |
 
 HTTP bytes are counted while consuming the **decompressed** stream, not from
 `Content-Length`; chunked and gzip bodies cannot bypass the ceiling. Storage
@@ -201,7 +204,12 @@ const mcpServers = await resolveMcpServers(config, agentOptions.mcp ?? [], {
 type McpServer = {
   name: string;
   config:
-    | { type: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
+    | {
+        type: 'stdio';
+        command: string;
+        args?: string[];
+        env?: Record<string, string>;
+      }
     | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> };
 };
 ```
@@ -225,7 +233,7 @@ manual headers and stdio env/args, and keep raw Harness configs out of Transcrip
 `~/.rocky/credentials.json` (`ROCKY_HOME` can relocate it) holds `mcp` entries
 keyed by normalized full server URL: scheme/host normalization and default-port
 normalization follow `URL.href`; paths and query remain distinct. A login for
-one repo-local alias updates every alias of that URL. Stdio never gets a token
+one profile-local alias updates every alias of that URL. Stdio never gets a token
 entry. Each entry stores the registered client, bound issuer/resource/token
 endpoint, tokens and absolute expiry. All credential strings participate in the
 existing instance redaction set.
@@ -259,12 +267,10 @@ before returning. Cancellation cannot revoke a token already issued by an
 external authorization server, so cancelling an exchange/refresh can still
 require re-login, just as a crash between issuance and persistence can.
 
-## Remaining Acceptance
+## Verification boundary
 
-Local HTTP fixtures demonstrate OAuth/PKCE/callbacks, safe errors, URL aliases,
-token rotation, Preflight failures, CLI wiring and concurrent OS-process
-refresh. They are not captured real-Harness evidence. NG-599 remains open until
-NG-544, NG-530, NG-643 and NG-605 demonstrate an actual Agent call through both
-Harnesses, snapshot/Journal integration and early Run failure. Live tests that
-expose Rocky publicly also require NG-651. Independent review and green current
-head CI remain required before merge; merge alone does not waive these gates.
+Local HTTP fixtures cover OAuth/PKCE/callbacks, URL aliases, token rotation,
+preflight failures, CLI/UI wiring and concurrent process refresh. Production
+Agent and preflight composition is present. Real account authorization and both
+native harnesses' effective MCP policy still need the relevant live tests; local
+fixtures do not establish external service acceptance. See [Harness verification](harnesses.md).

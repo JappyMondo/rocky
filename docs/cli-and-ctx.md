@@ -1,123 +1,103 @@
 # CLI and Workflow context contract
 
-This reconciles [NG-618](https://linear.app/digimondo/issue/NG-618) against the
-current distribution, Runtime and MCP OAuth slices. It is not a claim that the
-remaining MVP integration already runs. Recheck the tables when the Harness and
-shipped-content lanes land.
+This is the implemented surface of the current checkout. CLI registration is in
+`packages/cli/src/cli.ts`; deliberate failures remain in `commands.ts`.
+The SDK declares Workflow APIs; the daemon implements their behavior.
 
 ## CLI
 
-[ADR 0003](adr/0003-vendored-rocky-upgraded-by-conversation.md) amends NG-578's
-"complete for v1" list with `rocky upgrade`. NG-580's manual Trigger adds
-`rocky trigger <name> <issue>`; retain that scaffolded name and argument order.
+| Command                                                   | Current behavior                                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `rocky setup`                                             | Interactive public endpoint, Linear app/OAuth and model setup; installs and starts daemon and ingress user services |
+| `rocky start [-d]`                                        | Foreground or detached daemon                                                                                       |
+| `rocky stop`, `restart`, `status`                         | Local lifecycle, pidfile and version checks; restart is explicit                                                    |
+| `rocky logs [-f] [-n <count>]`                            | Daemon log, separate from per-Step Transcripts                                                                      |
+| `rocky doctor`                                            | Configuration, endpoint identity and native harness authentication checks                                           |
+| `rocky service install\|uninstall`                        | Install/load or unload/remove daemon and ingress launchd/systemd user units                                         |
+| `rocky repo add <url>`                                    | Clone and create a local default profile and Linear label route; requires explicit model choices                    |
+| `rocky repo list`, `remove <name>`                        | List repositories/groups or remove an instance route                                                                |
+| `rocky repo profile list`, `export <id>`, `import <file>` | Manage portable local profile definitions                                                                           |
+| `rocky repo profile use <repo> <id>`                      | Assign a profile for the matching repository remote                                                                 |
+| `rocky repo profile seed <repo>`                          | Replace a configured repository's profile with installed defaults; requires model choices                           |
+| `rocky repo profile delete <id>`                          | Delete an unassigned profile; assigned profiles are refused                                                         |
+| `rocky mcp login <server> --repo <name>`                  | Authenticate a remote MCP declaration from the repository's assigned local profile                                  |
+| `rocky init`, `rocky upgrade`                             | Failing stubs; legacy content helpers exist but are not registered                                                  |
+| `rocky trigger <name> <issue>`                            | Failing stub; use the local UI/API for manual admission                                                             |
+| `rocky-ingress [--port <port>] [--daemon-port <port>]`    | Loopback webhook/ping/OAuth-callback filter, managed by setup for normal use                                        |
 
-| Command | Current implementation | Contract/owner |
-| --- | --- | --- |
-| `rocky setup` | Implemented wizard | NG-600; stable endpoint first, admin-assisted app creation, local OAuth, then managed daemon and ingress services |
-| `rocky start [-d]` | Implemented | NG-595; foreground or detached daemon |
-| `rocky stop`, `restart`, `status` | Implemented | NG-595; local API, pidfile, explicit restart on version mismatch |
-| `rocky logs [-f]` | Implemented | NG-595; daemon log, not per-Run Transcript |
-| `rocky doctor` | Implemented | NG-595/651; config, local/public ping identity, Harness sign-in; NG-628 owns adapter auth adoption |
-| `rocky service install\|uninstall` | Implemented | NG-595; launches/removes daemon and ingress launchd/systemd user units |
-| `rocky repo add <url>`, `list`, `remove <name>` | Implemented | NG-521; Rocky-owned clones |
-| `rocky init` | Named failing stub | NG-607 implements NG-581's uncommitted default `.rocky/` copy |
-| `rocky upgrade` | Named failing stub | NG-608 implements ADR 0003's interactive comparison, not an automatic merge |
-| `rocky mcp login <server>` | Implemented | NG-599/583; URL-keyed machine OAuth is documented in [MCP OAuth](mcp.md) |
-| `rocky trigger <name> <issue>` | Named failing stub | NG-580; admission/loader/local API wiring follows NG-540/598/609 |
-| `rocky-ingress [--port <port>] [--daemon-port <port>]` | Implemented developer utility | NG-651; managed automatically by setup in normal use; separate webhook/ping/OAuth-callback filter, not a tunnel manager |
+Address options are shown in each command's `--help`. Instance configuration and
+a live pidfile supply omitted addresses. Bind changes require a daemon restart.
+Installing Rocky does not install or authenticate a harness.
 
-The first binary's full lifecycle also accepts `--host`/`--port` where shown by
-`rocky --help` and command help. Config and a live pidfile supply omitted
-addresses. Bind changes require a restart; the public ingress recipe requires
-IPv4 loopback. Installing the package does not install or sign into a Harness.
+### Repository and model setup
 
-### Manual Trigger refusal
+In a terminal, `rocky repo add <url>` and `rocky repo profile seed <repo>` ask for
+a review/implementation selection and a planning selection. Each includes harness, model and variant/effort. Setup choices are suggestions.
+Noninteractive callers must provide `--harness`, `--model` and `--variant` together.
+Planning reuses them unless all three `--fast-harness`, `--fast-model` and
+`--fast-variant` options are supplied. Missing or partial choices fail before
+cloning or writing. The model and variant are passed to the selected native CLI;
+Rocky does not maintain a provider model catalog. These choices initialize the default’s named slots. The UI can change review, implementation and planner independently without rewriting source; see [named models](workflow-models.md).
 
-`<name>` is the registered manual Trigger name; `<issue>` identifies its Linear
-issue. There are no Linear comment commands or PR-review wake events. All
-Triggers share the one-live-Run-per-issue invariant. Any non-terminal Run wins,
-even if a newer ordinal is already terminal (the NG-540 delivery decision).
+`repo add` also accepts `--name`, `--label` and `--base-branch`. It creates local
+profile content, never a target-repository `.rocky/`. Edit commands, prompts and
+MCP grants in **Profiles**. `profile seed` replaces content; it is not a merge of
+customizations. Profile updates apply to new Runs, not existing snapshots.
 
-Once implemented, a refused firing must exit nonzero, write a diagnostic on
-stderr naming the issue and live Run, and neither allocate a Run nor reset the
-issue's branch. It must not print a successful admission. For example:
+### Manual admission
 
-```text
-Refused: NG-123 already has live Run NG-123-1.
-```
+**New run** calls `POST /api/triggers` with `{ trigger, issue, profileId? }`.
+The trigger is a registered manual name and the issue is resolved through Linear,
+including its comment history. An explicit profile selects its whole membership;
+otherwise issue-label routing applies. Admission returns 201, or a named 409
+refusal if the issue already has a live Run. No branch is reset on refusal.
 
-The punctuation is illustrative, not a JSON or wire format. The current stub
-instead exits 1 naming NG-580 as the owner; it does not perform admission. Final
-refusal integration tests belong with the command's real scheduler/API wiring.
+Manual Runs have no Linear Agent Session. They can execute local Agent/shell
+work, but production does not attach session-backed questions, checkpoints,
+Linear posts/comments/state changes, visual-recap publication or SCM services.
+In particular, the shipped `address-pr-conversations` manual Trigger is not an
+end-to-end usable local path merely because it is listed. CLI `trigger` does not
+call this API yet and exits nonzero.
 
 ## Workflow context
 
-The installed `@rocky/sdk` in this slice exports the following types, not their
-daemon implementations:
+| Surface                              | Runtime behavior                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issue`, `branch`, `ports`           | Run/Boot data; new issue snapshots include paginated comment history                                                                         |
+| `models`                             | Immutable named harness/model/effort selections captured in the Run profile; spread `ctx.models.<slot>` into agent options                   |
+| `agent`                              | Named frozen prompt or inline prompt; harness/tools/MCP/model/effort chosen at the call site; validates structured output and adds `summary` |
+| `exec`, `step`, `changedFiles`       | Journaled shell work, arbitrary JSON-returning effects and Git changes                                                                       |
+| `parallel`                           | One parent entry and index-keyed branch journals, with ordered results                                                                       |
+| `stage`                              | Display marker; no journal sequence number                                                                                                   |
+| `question`                           | Durable written clarification; does not approve a merge                                                                                      |
+| `checkpoint`                         | Durable approve/reject/Steer decision; approved answer is required for merge                                                                 |
+| `post`, `comment`, `linear.setState` | Linear activity, explicit durable comment and exact state-name selection                                                                     |
+| `scm`                                | Platform PR/MR, CI, thread, draft, branch-update and approved merge operations                                                               |
+| `visualRecap`                        | Generate, retain and publish a report for a PR, diff or text deliverable                                                                     |
 
-| Surface | Current SDK | Settled source |
-| --- | --- | --- |
-| `issue`, `branch` | Readonly data | NG-574/580; immutable Run snapshot |
-| `agent`, `exec`, `step`, `checkpoint`, `post`, `changedFiles` | Declared | NG-572 as amended by NG-575; effects are journaled |
-| `scm` | Eight declared operations | NG-580; platform API only, git remains `exec`/Agent bash |
-| `linear.setState(name)` | Declared | NG-578; case-insensitive exact state name, named failure on unknown state |
-| `ports`, background `exec`, `parallel`, `stage` | Implemented | NG-597/631; [Run Runtime](run-runtime.md) defines their replay and parking behavior |
+The Linear/control/SCM/report operations above require the session-backed
+production services. SDK declarations alone do not supply those integrations.
+See [execution integration](execution-integration.md), [visual review](visual-review.md)
+and [visual recaps](visual-recap.md).
 
-`ctx.parallel` was **not dropped**. NG-597, informed by NG-577 section 5,
-specifies one parent Journal entry and an index-keyed sub-Journal per branch,
-independent of settlement order and safe to nest. A changed item count is
-divergence; raw concurrent `ctx` calls via `Promise.all` are unsupported and must
-be caught, not silently corrupt the Journal. NG-597 owns the exact callback type,
-branch-local context, result ordering and mixed Parked/failing-branch behavior.
-Do not infer those from a prototype or add a second implementation here.
-
-### Runtime integration
-
-The merged runtime exposes these declaration shapes (named result/options types
-expanded):
-
-```ts
-readonly ports: number[];
-stage(label: string): void;
-exec(cmd: string, opts: { background: true; label?: string }): Promise<{ pid: number }>;
-parallel<T, R>(
-  items: readonly T[],
-  fn: (item: T, index: number) => Promise<R>,
-  opts?: { label?: string },
-): Promise<R[]>;
-```
-
-The callback captures the same `ctx`; it does not receive a second context
-parameter. Async-local routing supplies branch-local Journals. `ports` is a
-readonly property holding a mutable array, not a deeply readonly array. The
-runtime corrects CONTEXT's Step definition to exclude `stage()` and replaces
-ADR 0005's stale member count with the named surface. Its poll Boots retry waits
-without starting new Steps or background commands; working Boots renew those
-resources. The isolated SDK consumer typechecks these members from the packed
-SDK.
-
-A valid example is:
+`ctx.parallel` callbacks capture the same context; async-local routing selects
+the branch journal. Raw concurrent context calls through `Promise.all` are
+unsupported. For example:
 
 ```ts
-const results = await ctx.parallel(['lint', 'test'], async (command, index) => {
-  return ctx.exec(command, { label: `check ${index + 1}` });
-}, { label: 'checks' });
+const results = await ctx.parallel(
+  ['lint', 'test'],
+  async (command, index) => ctx.exec(command, { label: `check ${index + 1}` }),
+  { label: 'checks' },
+);
 ```
 
-`ports` and `stage` are not Steps. Ports are Run data reserved at Boot; `stage`
-is a display-only marker, consuming no sequence number. Background `exec` is an
-explicit exception to replaying an old result: it must respawn rather than
-return a dead PID. NG-597 owns its process-group lifecycle and terminal cleanup.
-Ordinary effectful Steps remain at-least-once, not an exactly-once promise.
+`models`, `ports` and `stage` are not Steps. Background `exec` respawns on working Boots;
+polls do not start new Steps or background commands. Ordinary code between Steps
+runs again from the top on each Boot. Effectful Steps are at-least-once, so use
+idempotent operations and journal outcomes that must survive restart. Eligible
+failed-step retry preserves the snapshot and earlier results; see [Run runtime](run-runtime.md)
+and [Journal retry](journal-writer.md#explicit-step-retry).
 
-No `ctx.interruptions()` (ADR 0005), `ctx.sandbox` (ADR 0001), or `ctx.loop`
-combinator is restored. Ordinary code between Steps may perform I/O and reruns
-on Boot; wrap effects in `step` when their outcome must be journaled.
-
-## Remaining reconciliation
-
-NG-618 remains open while CLI Trigger admission and the Onboarding/upgrade work
-remain unimplemented. Use the existing NG-597/631 tickets, not competing edits,
-for runtime behavior. Re-run the SDK-only consumer typecheck when that surface
-changes. Trigger admission and NG-608 functionality must likewise stop being
-called implemented merely because their command names exist.
+There is no `ctx.interruptions()`, `ctx.sandbox` or `ctx.loop` API. The SDK contains
+types, Trigger builders and Zod, not the shipped default Workflow or daemon.

@@ -1,6 +1,7 @@
 import {
   agentModelSchema,
   workflowModelsSchema,
+  defaultWorkflowModels,
   type AgentModelSelection,
   type WorkflowModels,
   type WorkflowDefaults,
@@ -87,7 +88,7 @@ export async function chooseWorkflowModels(
       throw new Error(
         'Provide --harness, --model and --variant together. Optional helper overrides require --fast-harness, --fast-model and --fast-variant together.',
       );
-    return parsed.data;
+    return defaultWorkflowModels(parsed.data);
   }
   if (!createPrompter && !process.stdin.isTTY)
     throw new Error(
@@ -96,14 +97,18 @@ export async function chooseWorkflowModels(
   const prompter = (createPrompter ?? createConsolePrompter)();
   try {
     prompter.say(
-      'Choose the models saved in this workflow. Later harness default changes will not replace these choices. Use a full model identifier to avoid moving aliases.',
+      'Choose the models saved in this profile. Review and implementation share the main choice initially; you can configure each slot separately in the web UI. Later harness default changes will not replace these choices. Use a full model identifier to avoid moving aliases.',
     );
-    const agent = await askAgentModel(prompter, 'Main agent', defaults);
+    const agent = await askAgentModel(
+      prompter,
+      'Review and implementation',
+      defaults,
+    );
     let same: string;
     do {
       same = (
         await prompter.ask(
-          'Use the same model and variant/effort for helper agents? [Y/n]:',
+          'Use the same model and variant/effort for planning? [Y/n]:',
         )
       )
         .trim()
@@ -111,8 +116,8 @@ export async function chooseWorkflowModels(
     } while (!['', 'y', 'yes', 'n', 'no'].includes(same));
     const fastAgent = ['', 'y', 'yes'].includes(same)
       ? { ...agent }
-      : await askAgentModel(prompter, 'Helper agent', agent);
-    return { agent, fastAgent };
+      : await askAgentModel(prompter, 'Planner', agent);
+    return defaultWorkflowModels({ agent, fastAgent });
   } finally {
     prompter.close();
   }

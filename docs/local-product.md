@@ -7,7 +7,8 @@ Complaint-aware replay behavior.
 ## Registration
 
 `registerLocalApi(app, options)` from `@rocky/daemon` installs an encapsulated
-Fastify plugin. The execution lane owns calling it from production assembly.
+Fastify plugin. `lifecycle/production-composition.ts` registers it with the real
+scheduler, artifacts, profiles, connections and controls.
 Do not register it on public ingress. It creates no listener, scheduler,
 second Run registry, Answer CAS or Steer intake.
 
@@ -28,19 +29,19 @@ the API never guesses cost from output text.
 
 ## HTTP Contract
 
-| Route | Contract |
-| --- | --- |
-| `GET /api/runs` | `RunList`; 2 s active/queued, 30 s idle polling |
-| `GET /api/runs/:id` | `RunDetail`; latest nested Steps, Step-boundary revision |
-| `GET /api/runs/:id/steps/:key/transcript` | SSE, URL-encoded full Step key |
-| `GET /api/runs/:id/diffs/:diffId` | `DiffView` for recorded base/head identities |
-| `GET /api/screenshots/:id` | Confined bytes; not a Linear asset redirect |
-| `POST /api/runs/:id/answer` | `{stepKey,generation,answer}`; 409 includes winner |
-| `POST /api/runs/:id/retry-step` | `{requestId,stepKey,expectedBoot}`; 202 queued, 409 named refusal |
-| `POST /api/runs/:id/steer` | `{requestId,message}`; durable `SteerReceipt` |
-| `POST /api/triggers` | `{trigger,issue}`; 201 admitted, 409 named refusal |
-| `GET /api/settings` | Redacted `SettingsView` with revision and restart hint |
-| `PATCH /api/settings` | `{revision,patch}`; partial known settings sections |
+| Route                                     | Contract                                                          |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `GET /api/runs`                           | `RunList`; 2 s active/queued, 30 s idle polling                   |
+| `GET /api/runs/:id`                       | `RunDetail`; latest nested Steps, Step-boundary revision          |
+| `GET /api/runs/:id/steps/:key/transcript` | SSE, URL-encoded full Step key                                    |
+| `GET /api/runs/:id/diffs/:diffId`         | `DiffView` for recorded base/head identities                      |
+| `GET /api/screenshots/:id`                | Confined bytes; not a Linear asset redirect                       |
+| `POST /api/runs/:id/answer`               | `{stepKey,generation,answer}`; 409 includes winner                |
+| `POST /api/runs/:id/retry-step`           | `{requestId,stepKey,expectedBoot}`; 202 queued, 409 named refusal |
+| `POST /api/runs/:id/steer`                | `{requestId,message}`; durable `SteerReceipt`                     |
+| `POST /api/triggers`                      | `{trigger,issue,profileId?}`; 201 admitted, 409 named refusal     |
+| `GET /api/settings`                       | Redacted `SettingsView` with revision and restart hint            |
+| `PATCH /api/settings`                     | `{revision,patch}`; partial known settings sections               |
 
 Full Step keys alternate root sequence, parallel branch, child sequence:
 `3/0/2`, never a label or a root sequence alone. The current runtime records a
@@ -115,11 +116,12 @@ Run or starting work. The Run view then shows that fresh delegation is enabled
 and asks the user to delegate Rocky again in Linear. Runs without a Linear
 session do not offer this action; live Runs cannot release their session.
 
-Settings only exposes bind/port, retention, concurrency and redacted MCP status.
-It preserves unrelated config keys, serializes API writes and rejects stale
-revisions. Config watchers in production own hot retention/cap application;
-binding changes only persist a restart hint. No OAuth token or Harness credential
-is read by this module. MCP login remains a printed CLI command.
+The settings API exposes bind/port, retention, concurrency and redacted MCP
+status. It preserves unrelated config keys, serializes writes and rejects stale
+revisions. Production config watchers apply hot retention/cap changes; binding
+changes persist a restart hint. The separate **Settings → Connections** surface
+manages Linear and MCP login, testing and profile declarations without returning
+stored credentials. See [MCP connections](mcp.md).
 
 The plugin rejects non-loopback peers, unconfigured Hosts, forwarded headers and
 cross-origin requests. Hosts default to loopback; `server.tailscaleOrigin` can
@@ -138,21 +140,29 @@ live raw file tail. It binds loopback and leaves its printed temporary root for
 evidence. It deliberately supplies no fake Answer/Steer service. This is local
 product evidence, not a real-Harness or live-Linear acceptance claim.
 
-Still owned by downstream composition: non-repairing runtime Journal/index
-accessors, production route registration behind NG-651, shared Checkpoint/Steer
-controls and delivery records, manual admission, MCP status wiring, native
-Transcript/usage registration, and NG-606's exact output-to-annotation renderer.
-Tests of HTTP callback transport do not close those cross-lane gates.
+Production composition supplies non-repairing Journal/index readers, shared
+Question/Checkpoint/Steer controls, retry and session recovery, manual admission,
+profile/connection management and artifact presentation. Native Transcripts and
+usage are registered by production execution. Local manual Runs have no Linear
+Agent Session and lack the session-backed control/SCM/report services; use them
+for suitable local-only Workflows. Deterministic tests cover this wiring without
+proving live account behavior.
 
 ## Profiles with several repositories
 
-**Add profile** loads Rocky's default workflow and asks for a harness, explicit model ID,
-and variant/effort for the main and helper agents. Helpers can use the same selection.
-Setup values are visible suggestions; blank model or variant/effort values cannot be saved. Saving a new profile also stores its default prompts, schemas,
-rules, MCP declaration, and secret references locally. The source is editable
-before saving, and updates preserve existing custom pipeline content.
-`GET /api/profile-defaults` previews the default without creating a profile;
-new `PUT /api/profiles` requests require `models: { agent: { harness, model, effort }, fastAgent: { harness, model, effort } }`. Workflow and grants may be omitted to seed the defaults. Models are written into the workflow declarations, and `models` in profile responses is derived from those declarations without executing the source. Existing profiles with dynamic or incomplete declarations are identified in the UI; they are not automatically rewritten.
+**Add profile** loads Rocky's default workflow and its named model slots: Review,
+Implementation and Planner. Each slot has independent harness, model and
+variant/effort controls under **General**. Setup values are visible suggestions;
+blank selections cannot be saved. Saving stores prompts, schemas, rules, MCP
+configuration and secret references locally alongside the workflow.
+
+A workflow must export a literal `models` object naming its slots. The profile
+stores `models: { [slot]: { harness, model, effort } }` separately from source.
+Responses include `modelSlots` parsed without executing workflow code. Saving
+selections leaves the source unchanged. Editing source refreshes the form to show
+added slots; configure them before saving. New runs require every declared slot.
+Older profiles remain editable and show migration guidance. See [named workflow
+models](workflow-models.md) for the authoring contract, API and migration steps.
 
 In **Profiles**, add each repository with a folder name, Git remote URL, and
 base branch. One profile owns one workflow and its agent configuration. The
@@ -166,8 +176,16 @@ A profile can now store its membership without a separate single `remote`:
   "v": 1,
   "id": "product",
   "repos": [
-    { "name": "web", "url": "git@github.com:acme/web.git", "baseBranch": "main" },
-    { "name": "api", "url": "git@github.com:acme/api.git", "baseBranch": "develop" }
+    {
+      "name": "web",
+      "url": "git@github.com:acme/web.git",
+      "baseBranch": "main"
+    },
+    {
+      "name": "api",
+      "url": "git@github.com:acme/api.git",
+      "baseBranch": "develop"
+    }
   ],
   "workflow": { "source": "...", "triggers": ["implement"] }
 }
@@ -223,12 +241,12 @@ The daemon watches saved profile content, including edits to the external
 `.workflow.ts` file, every two seconds. It waits for edits to settle before
 queuing generation through the profile's configured harness. The auxiliary job
 has no tools or MCP servers and does not start a workflow Run. It uses the
-helper model and effort declared in the workflow. Legacy workflows without literal
+selection for the first declared model slot. Workflows declaring no slots use the profile/instance fallback for this auxiliary job. Legacy workflows without literal
 model declarations retain their existing instance/harness fallback until explicitly updated. Temporary agent data is removed
 when the job completes or is cancelled.
 
 Diagrams are persisted under `~/.rocky/cache/workflow-diagrams/`, keyed by the
-workflow source, trigger names and generator version. Identical workflows share
+workflow source, trigger names, configured model selections and generator version. Identically configured workflows share
 a cached diagram across profiles and daemon restarts. One generation runs at a
 time; superseded queued revisions are skipped, and an older result cannot become
 the current workflow's diagram. Browser drafts are only visualized after saving.

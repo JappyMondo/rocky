@@ -4,14 +4,19 @@ Rocky needs **one stable, public HTTPS URL** that Linear can POST to. You bring
 it; Rocky does not manage a tunnel process, and never will — that was decided in
 [NG-578](https://linear.app/digimondo/issue/NG-578).
 
-This page is the recipes. `rocky setup` asks for the URL before anything else,
-so read this first.
+**Forward your public HTTPS URL to `http://127.0.0.1:7626` on the machine running
+Rocky.** This is the ingress filter. Port `7625` is the private UI/API and must
+not receive public traffic. Setup starts the filter after you enter the URL,
+then installs it as a background service on completion.
+
+`rocky setup` asks for this URL before creating the Linear app. Configure your
+tunnel or reverse proxy using one of the recipes below.
 
 ## Why it has to be stable
 
 Linear fixes an OAuth app's webhook URL **when the app is created**. There is no
 supported way to change it afterwards: the settings UI can, a human can, but the
-only programmatic route is an ALPHA mutation that requires a *managing* OAuth
+only programmatic route is an ALPHA mutation that requires a _managing_ OAuth
 app — a project of its own, and one Rocky deliberately does not take on.
 
 So an ephemeral URL — a `cloudflared` quick tunnel, an ngrok free session — is
@@ -26,18 +31,17 @@ Pick something whose hostname you keep.
 **Only these exact method/path pairs.** Query strings and alternate encodings
 are not part of this protocol:
 
-| Path | What it is |
-| --- | --- |
-| `POST /api/linear/webhook` | Linear's agent-session events |
-| `GET /api/ping` | Rocky's own self-ping; answers an opaque instance id |
-| `GET /api/linear/oauth/callback?...` | Linear's OAuth browser return during setup |
+| Path                                 | What it is                                           |
+| ------------------------------------ | ---------------------------------------------------- |
+| `POST /api/linear/webhook`           | Linear's agent-session events                        |
+| `GET /api/ping`                      | Rocky's own self-ping; answers an opaque instance id |
+| `GET /api/linear/oauth/callback?...` | Linear's OAuth browser return during setup           |
 
 The web UI is **not** on the public endpoint and must not be put there. It has
 no authentication under any binding, and it controls every Run on your machine —
 putting it on the internet behind a guessable URL is exactly what
-[NG-576](https://linear.app/digimondo/issue/NG-576) §4 ruled out. A Checkpoint's
-button points at `http://localhost:<port>`, which is a live link when you are at
-the machine. Away from it, answer in Linear or open the same Run path using the
+[NG-576](https://linear.app/digimondo/issue/NG-576) §4 ruled out. Run links use the configured private Tailscale origin when present, otherwise
+`http://localhost:<port>`. Away from the machine, answer in Linear or use the
 optional private Tailscale UI address below.
 
 Every public-endpoint recipe below **must** target the `rocky-ingress` filter, never

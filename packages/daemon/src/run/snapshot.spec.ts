@@ -114,7 +114,7 @@ it('snapshots only the local profile when a repository tries to supply .rocky', 
     ...newRepositoryProfile({ id: 'local', remote: lead.url }),
     workflow: {
       source:
-        "import { linear } from '@rocky/sdk'; export default [linear.onDelegate(async () => ({ status: 'completed' }))];",
+        "import { linear } from '@rocky/sdk'; export const models = {}; export default [linear.onDelegate(async () => ({ status: 'completed' }))];",
       triggers: [],
     },
     prompts: { worker: 'Local instructions only.' },
@@ -277,4 +277,31 @@ it('keeps top-level validation writes and generated files out of the published s
   expect(await readdir(join(context.paths.root, 'snapshots'))).toEqual([
     snapshot.snapshotDir.split('/').at(-1),
   ]);
+});
+
+it('rejects missing declarations and unconfigured slots before cloning or creating a snapshot', async () => {
+  const { context, lead } = await repository();
+  for (const source of [
+    'export default [];',
+    'export const models = { review: { name: "Review" } }; export default [];',
+  ]) {
+    await expect(
+      prepareProfileSnapshot(
+        context,
+        lead,
+        newRepositoryProfile({
+          id: 'invalid',
+          remote: lead.url,
+          workflow: source,
+        }),
+        { mcp },
+      ),
+    ).rejects.toMatchObject({
+      kind: 'invalid-workflow',
+      fix: expect.stringContaining('configure every slot'),
+    });
+    await expect(readdir(context.paths.root)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  }
 });

@@ -1,25 +1,25 @@
 # Linear Run Mirroring
 
 `packages/daemon/src/linear/mirror.ts` exports the concrete `LinearRunMirror`.
-This is the bounded NG-601 module, not production composition. It implements
+Production execution composes it for session-backed Runs. It implements
 NG-577 section 9 and the amendment to NG-576: persistent activities hold Step
 records, Transcripts stay local, and the two comments are framework-owned.
 
 ## Public API
 
-| Method | Contract |
-| --- | --- |
-| `start()` | Acknowledge the session via `externalUrls` first, then ensure the start comment and maintain the Rocky attachment. |
-| `status({ stepId, title, summary })` | Replace the pending presentation update. Never pass Harness events or Transcript text. |
-| `flushStatus()` | Best-effort send the latest pending update as an ephemeral action. The caller schedules a rate-limited cadence; there is no timer or keepalive. |
-| `settle({ stepId, title, outcome, summary })` | One persistent action per stable Step ID, with the structured frame, Agent summary and local Step Transcript link. |
-| `post(postId, summary)` | One persistent action per stable post ID, never a comment or response. |
-| `comment(commentId, body)` | One explicit Workflow comment per stable ID. Persists attribution before creation and verifies the remote payload; replay preserves the original body. These deliverables do not consume the framework's start/close comment budget. |
-| `setState(stepId, name)` | Persist the state intent and delegate case-insensitive exact-name matching to the client. Unknown-state errors retain the team's real names. |
-| `beforeElicitation()` | Check the comment budget before NG-602 emits an elicitation. Known auto-commenting elicitation raises a spec/API gate. |
-| `setParked(true/false)` | Persist Parked/resumed state and discard pending ephemeral updates. Parked operations cannot touch Linear. |
-| `stop()` | Immediately fence further network calls in this owner and discard pending status. Await it to durably persist the fence before releasing ownership. |
-| `finish(outcome, presentation)` | Assemble the closing content and emit a terminal response/error. Returns no asset URLs or other presentation payload. |
+| Method                                        | Contract                                                                                                                                                                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `start()`                                     | Acknowledge the session via `externalUrls` first, then ensure the start comment and maintain the Rocky attachment.                                                                                                                   |
+| `status({ stepId, title, summary })`          | Replace the pending presentation update. Never pass Harness events or Transcript text.                                                                                                                                               |
+| `flushStatus()`                               | Best-effort send the latest pending update as an ephemeral action. The caller schedules a rate-limited cadence; there is no timer or keepalive.                                                                                      |
+| `settle({ stepId, title, outcome, summary })` | One persistent action per stable Step ID, with the structured frame, Agent summary and local Step Transcript link.                                                                                                                   |
+| `post(postId, summary)`                       | One persistent action per stable post ID, never a comment or response.                                                                                                                                                               |
+| `comment(commentId, body)`                    | One explicit Workflow comment per stable ID. Persists attribution before creation and verifies the remote payload; replay preserves the original body. These deliverables do not consume the framework's start/close comment budget. |
+| `setState(stepId, name)`                      | Persist the state intent and delegate case-insensitive exact-name matching to the client. Unknown-state errors retain the team's real names.                                                                                         |
+| `beforeElicitation()`                         | Check the comment budget before NG-602 emits an elicitation. Known auto-commenting elicitation raises a spec/API gate.                                                                                                               |
+| `setParked(true/false)`                       | Persist Parked/resumed state and discard pending ephemeral updates. Parked operations cannot touch Linear.                                                                                                                           |
+| `stop()`                                      | Immediately fence further network calls in this owner and discard pending status. Await it to durably persist the fence before releasing ownership.                                                                                  |
+| `finish(outcome, presentation)`               | Assemble the closing content and emit a terminal response/error. Returns no asset URLs or other presentation payload.                                                                                                                |
 
 `RunOutcome` supports `completed`, `rejected`, `cancelled`, `giveUp`, and
 `failed` with a required Step ID and reason. Rejection/cancellation are
@@ -105,16 +105,18 @@ restart or an ambiguous create response. This exclusion does not authorize an
 Agent to post directly: use `ctx.comment` so attribution and replay are durable.
 
 Known auto-commenting elicitation is blocked before emission: start + elicitation
-+ terminal would be three. An unexpected existing elicitation artifact blocks
-closure before another comment-producing call. No human/platform comment is
-deleted. Session association identifies artifacts even when present before
-`start`; a baseline excludes historical unrelated comments. New comments without
-association are conservatively unclassified and may block the Run, rather than
-silently assuming they are human. Qualification must establish public attribution
-and visibility. There is no atomic server-side comment budget: external concurrent
-writes or behavior changing after qualification remain a platform/API gate.
 
-The HTTP localhost links are plain Markdown, not an invented HTTPS URL or an
+- terminal would be three. An unexpected existing elicitation artifact blocks
+  closure before another comment-producing call. No human/platform comment is
+  deleted. Session association identifies artifacts even when present before
+  `start`; a baseline excludes historical unrelated comments. New comments without
+  association are conservatively unclassified and may block the Run, rather than
+  silently assuming they are human. Qualification must establish public attribution
+  and visibility. There is no atomic server-side comment budget: external concurrent
+  writes or behavior changing after qualification remain a platform/API gate.
+
+Links use the configured private Tailscale origin or localhost, not the public
+webhook URL or an
 `auth` signal. Attachment/external-URL acceptance and rendering are **unverified
 live dependencies**. A rejected attachment leaves the start Markdown link in
 place and reports the client error; it does not create another comment or claim
@@ -128,7 +130,7 @@ and a fake public client with actual terminal auto-comment behavior. They are no
 evidence of production Journal integration or live Linear qualification.
 
 ```sh
-PATH=/Users/jappy/.nvm/versions/node/v24.15.0/bin:$PATH NX_DAEMON=false pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/linear/mirror.spec.ts
+pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/linear/mirror.spec.ts
 ```
 
 Changed files: `packages/daemon/src/linear/mirror.ts`,

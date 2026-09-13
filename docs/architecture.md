@@ -2,18 +2,12 @@
 
 ## Scope
 
-These two diagrams cover only the Rocky monorepo available in
-`agent-rocky-reviewer`: `packages/cli`, `apps/web`, `packages/daemon`,
-`packages/local-contracts`, `packages/sdk`, and shipped Workflow content.
-No additional Niotix repository was inspected or inferred from `niotix-all`.
-External services below are implemented integration boundaries, not a claim of
-verified live connectivity or coverage of their internal architecture.
-
-Source inspection for NG-692 used base commit `4d7e840` and the existing working
-tree, including its uncommitted profile membership and local-product work.
-That prior work is preserved, not included in this documentation commit.
-Current production composition takes precedence over historical repo-owned
-`.rocky/` descriptions in the README and older design notes.
+This overview describes the current production paths in `packages/cli`,
+`apps/web`, `packages/daemon`, `packages/local-contracts`, `packages/sdk` and
+shipped Workflow content. Source was reconciled against `9f5835c` on 2026-09-13.
+External services are implemented integration boundaries, not a claim of live
+account connectivity. Historical status reports are linked separately in the
+[documentation index](README.md).
 
 ## Architecture
 
@@ -148,21 +142,32 @@ flowchart TB
     workspace -->|workspace paths and frozen Workflow| steps
   end
   subgraph workflow[Configurable shipped Workflow - session-backed main path]
+    clarify[Refine issue and comment history; ask durable questions]
+    delivery{Agreed delivery}
+    comment[Draft, validate and review a Linear comment]
+    publish[Publish verified comment]
     implement[Plan and implement Agents plus shell validation]
+    clarify --> delivery
+    delivery -->|linear-comment| comment
+    comment --> publish
+    delivery -->|pull-request| implement
     review[Compliance, optional UI inspection and code review]
     fix[Fixer: Complaints, Observations, resolutions or Steer]
     pr[Push branch and open or update draft PR / MR]
     ci[CI status and bounded failed-job logs]
-    approval[Ready PR / MR and approval Checkpoint]
-    outcome[Platform merge outcome, rejection, exhaustion or failure]
+    recap[Visual recap and ready PR / MR]
+    approval[Approval Checkpoint when merge is requested]
+    outcome[Completed handoff, merge, rejection, exhaustion or failure]
     implement -->|structured Plan and implementation summary| pr
     pr -->|diff and issue| review
     review -->|Complaints and UI Observations| fix
     fix -->|commits and resolution report; revalidate| pr
     review -->|clean review| ci
     ci -->|failed jobs: fix or retry within cap| fix
-    ci -->|passing validated head| approval
-    approval -->|approve: update branch and request merge; see limit below| outcome
+    ci -->|passing validated head| recap
+    recap -->|merge requested| approval
+    recap -->|PR handoff only| outcome
+    approval -->|approved capability: update branch and request merge| outcome
     approval -->|reject| outcome
     approval -->|Steer| fix
     outcome -->|changed head or recoverable SCM refusal| review
@@ -182,7 +187,7 @@ flowchart TB
     parked -->|scheduled poll or explicit wake| replay
     replay -->|completed Steps reuse results; unsettled Steps resume or retry| steps
   end
-  steps -->|execute frozen Workflow with structured inputs| implement
+  steps -->|execute frozen Workflow with structured inputs| clarify
   steps -->|progress, results and artifact references| evidence
   steps -->|waiting Checkpoint or external operation| parked
   steps -->|coalesced status and terminal summaries| mirror
@@ -216,14 +221,17 @@ a claim that Harness providers or remote MCP tools never receive Agent inputs.
 Artifact retention can prune evidence after a Run ends.
 
 **Limits and Workflow choices:** the shipped main Workflow pushes and opens a
-draft before its review/fix and CI loops, then requests approval. Only configured
+draft before its review/fix and CI loops, then creates a visual recap and
+requests approval when the delivery contract asks for merge. Only configured
 Workflow code requests platform merge; SCM adapters enforce their supported
 head/approval/protection checks. A clean review or successful Run is not by itself
 proof of a merged PR. UI inspection requires configured commands and MCP tools.
-In the inspected shipped main Workflow, `armAutoMerge(pr)` does not pass the
-approved Checkpoint capability required by `scm/context.ts`. That call is refused
-as `not_approved`; the diagram shows the requested SCM boundary, not a verified
-automatic merge path. Correctly authored Workflows must pass the approval value.
+The shipped merge path passes the approved Checkpoint answer to
+`armAutoMerge(pr, answer)`. Changed heads or recoverable platform refusals return
+to validation; a completed handoff or comment Run does not imply a merge.
+The refiner also supports reviewed Linear-comment delivery without PR/CI/merge,
+and a PR-only contract skips merging. SCM preflight is deferred until first use;
+MCP preflight runs before session-backed Workflow content.
 The separate shipped `address-pr-conversations` Trigger reads unresolved SCM
 threads, fixes, pushes and replies; it is not an automatic SCM webhook intake.
 
@@ -233,8 +241,8 @@ preflight, and session-owned Answers/Steers only for session-backed Runs.
 Consequently the shipped SCM-dependent conversation Workflow is not an
 end-to-end supported local-manual path merely because its Trigger is listed.
 Custom local-only Workflows can run Agents and shell Steps without those
-services. No live Linear, SCM, Harness or MCP integration was exercised for this
-documentation. See [local product](local-product.md), [execution integration](execution-integration.md)
+services. This documentation audit did not exercise live Linear, SCM, harness or MCP
+integrations. See [local product](local-product.md), [execution integration](execution-integration.md)
 and [run runtime](run-runtime.md) for more detail, subject to the source scope above.
 
 ## Source Map
@@ -242,11 +250,11 @@ and [run runtime](run-runtime.md) for more detail, subject to the source scope a
 Paths below are relative to the repository root. Tests exercise public seams
 rather than treating older architectural prose as implementation evidence.
 
-| Concern | Implementation | Relevant behavior tests |
-| --- | --- | --- |
-| Public boundary | `packages/cli/src/public-ingress.ts`; `packages/daemon/src/server.ts` | `packages/cli/src/public-ingress.spec.ts`; `packages/daemon/src/linear/webhook.spec.ts` |
-| Production intake and manual limits | `packages/daemon/src/lifecycle/production-composition.ts`; `packages/daemon/src/run/production.ts` | `packages/daemon/src/run/execution-request.spec.ts`; `packages/daemon/src/run/production.spec.ts` |
-| Profile ownership and membership | `packages/daemon/src/config/profiles.ts`; `packages/daemon/src/config/routing.ts`; `packages/daemon/src/run/snapshot.ts`; `packages/daemon/src/run/execution.ts` | `packages/daemon/src/run/execution-default-preparation.spec.ts`; `packages/daemon/src/run/multi-profile.spec.ts` |
-| Admission, workspaces and replay | `packages/daemon/src/run/scheduler.ts`; `packages/daemon/src/run/worker.ts`; `packages/daemon/src/run/replay.ts`; `packages/daemon/src/repos/workspace.ts` | `packages/daemon/src/run/admission.spec.ts`; `packages/daemon/src/run/replay.spec.ts`; `packages/daemon/src/run/worker.spec.ts`; `packages/daemon/src/repos/workspace.spec.ts` |
-| Controls and local evidence | `packages/daemon/src/local-api/index.ts`; `packages/daemon/src/local-api/artifacts.ts`; `packages/daemon/src/linear/control.ts`; `packages/daemon/src/linear/mirror.ts` | `packages/daemon/src/local-api/api.spec.ts`; `packages/daemon/src/linear/control.spec.ts`; `packages/daemon/src/linear/mirror.spec.ts`; `packages/daemon/src/run/agent-durability.spec.ts` |
-| Configurable pipeline and SCM | `packages/daemon/content/.rocky/workflow.ts`; `packages/daemon/src/scm/context.ts` | `packages/daemon/src/scm/context.spec.ts`; `packages/daemon/src/scm/safety.spec.ts` |
+| Concern                             | Implementation                                                                                                                                                          | Relevant behavior tests                                                                                                                                                                    |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public boundary                     | `packages/cli/src/public-ingress.ts`; `packages/daemon/src/server.ts`                                                                                                   | `packages/cli/src/public-ingress.spec.ts`; `packages/daemon/src/linear/webhook.spec.ts`                                                                                                    |
+| Production intake and manual limits | `packages/daemon/src/lifecycle/production-composition.ts`; `packages/daemon/src/run/production.ts`                                                                      | `packages/daemon/src/run/execution-request.spec.ts`; `packages/daemon/src/run/production.spec.ts`                                                                                          |
+| Profile ownership and membership    | `packages/daemon/src/config/profiles.ts`; `packages/daemon/src/config/routing.ts`; `packages/daemon/src/run/snapshot.ts`; `packages/daemon/src/run/execution.ts`        | `packages/daemon/src/run/execution-default-preparation.spec.ts`; `packages/daemon/src/run/multi-profile.spec.ts`                                                                           |
+| Admission, workspaces and replay    | `packages/daemon/src/run/scheduler.ts`; `packages/daemon/src/run/worker.ts`; `packages/daemon/src/run/replay.ts`; `packages/daemon/src/repos/workspace.ts`              | `packages/daemon/src/run/admission.spec.ts`; `packages/daemon/src/run/replay.spec.ts`; `packages/daemon/src/run/worker.spec.ts`; `packages/daemon/src/repos/workspace.spec.ts`             |
+| Controls and local evidence         | `packages/daemon/src/local-api/index.ts`; `packages/daemon/src/local-api/artifacts.ts`; `packages/daemon/src/linear/control.ts`; `packages/daemon/src/linear/mirror.ts` | `packages/daemon/src/local-api/api.spec.ts`; `packages/daemon/src/linear/control.spec.ts`; `packages/daemon/src/linear/mirror.spec.ts`; `packages/daemon/src/run/agent-durability.spec.ts` |
+| Configurable pipeline and SCM       | `packages/daemon/content/.rocky/workflow.ts`; `packages/daemon/src/scm/context.ts`                                                                                      | `packages/daemon/src/scm/context.spec.ts`; `packages/daemon/src/scm/safety.spec.ts`                                                                                                        |

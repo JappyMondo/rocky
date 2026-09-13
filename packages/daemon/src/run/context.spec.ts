@@ -410,3 +410,58 @@ it('routes visual recaps through the current parallel branch and replays their r
   await runBoot({ journalPath, workflow });
   expect(generated).toBe(2);
 });
+
+it('exposes immutable named selections from the run snapshot on every boot and fails loudly for unknown slots', async () => {
+  const { newRepositoryProfile } = await import('../config/profiles.js');
+  const profile = {
+    ...newRepositoryProfile({
+      id: 'model-test',
+      remote: 'github.com/acme/app',
+    }),
+    models: {
+      review: {
+        harness: 'opencode' as const,
+        model: 'review-v1',
+        effort: 'high',
+      },
+      implement: {
+        harness: 'claude-code' as const,
+        model: 'implement-v1',
+        effort: 'low',
+      },
+    },
+  };
+  const frozen = structuredClone({ ...header, profile });
+  for (let boot = 0; boot < 2; boot++) {
+    profile.models.review.model = `live-profile-v${boot + 2}`;
+    const result = await runBoot({
+      journalPath: join(dir, 'models.jsonl'),
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(runner, frozen, {
+          exec: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+          changedFiles: async () => [],
+        });
+        expect({ ...ctx.models.review }).toEqual({
+          harness: 'opencode',
+          model: 'review-v1',
+          effort: 'high',
+        });
+        expect(ctx.models.implement.harness).toBe('claude-code');
+        expect(Object.isFrozen(ctx.models)).toBe(true);
+        expect(Object.isFrozen(ctx.models.review)).toBe(true);
+        expect(() =>
+          Object.assign(ctx.models.review, { model: 'changed' }),
+        ).toThrow();
+        expect(() =>
+          Object.assign(ctx.models, { review: profile.models.review }),
+        ).toThrow();
+        expect(() => ({ ...ctx.models.misspelled })).toThrow(
+          /misspelled.*not configured/,
+        );
+        expect(frozen.profile.models.review.model).toBe('review-v1');
+        return 'completed';
+      },
+    });
+    expect(result).toMatchObject({ status: 'finished', outcome: 'completed' });
+  }
+});

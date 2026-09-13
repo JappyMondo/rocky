@@ -88,7 +88,7 @@ ready-child retention, per-Run isolation, configuration refresh, terminal joins,
 rejected Boots, IPC serialization errors, overlapping Boots, abort delivery and
 a late Parked response during kill. Daemon SIGKILL tests cover both direct
 grandchildren and detached commands owned by `startCommand`, while the Boot
-child is stuck in synchronous code. Parent-service tests cover all four request
-kinds, correlated replies, void results, named handler failures, exact Boot signal
+child is stuck in synchronous code. Parent-service tests cover the request union, correlated replies, void results, named handler failures, exact Boot signal
 identity, and joins that outlive child exit or an early Parked result. Production
-Workflow loading/composition is the coordinator's separate integration seam.
+Workflow loading/composition is implemented in `run/production.ts` and
+`lifecycle/production-composition.ts`.

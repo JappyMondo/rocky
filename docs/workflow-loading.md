@@ -2,18 +2,26 @@
 
 ## Integration Contract
 
-NG-598 owns `run/snapshot.ts` and `run/loading/`. The coordinator owns exports,
-admission, header publication and the production Boot child.
+`run/execution.ts` uses `prepareProfileSnapshot(context, lead, profile, options?)`
+from `run/snapshot.ts`. It checks the profile's canonical remote against the
+lead, refreshes the owned clone and records its default-branch commit, then
+materializes the local profile as `workflow.ts`, `schemas.ts`, `mcp.json`,
+`profile.json`, `agents/` and `rules/` in a staging snapshot. Target-repository
+`.rocky/` content is never consulted in this production path.
 
-`prepareWorkflowSnapshot(context: RepoContext, lead: RepoRef, options?)` refreshes
-the owned clone, resolves `refs/remotes/origin/HEAD` under its shared mutex,
-and copies the contents of `.rocky/` from that immutable commit. It returns
-`{ sourceCommit, snapshotDir, triggers }`. `triggers` contains only
-`{ kind: 'linear.onDelegate' }` or `{ kind: 'manual', name }`, never functions.
-`options.validationTimeoutMs` bounds the validation child (default 10 seconds).
-`options.signal` cancels extraction/validation and cleans staging; the existing
-`ensureClone` fetch API does not accept cancellation, so cancellation during
-that prerequisite is observed immediately after it returns.
+Preparation returns `{ sourceCommit, snapshotDir, triggers }`. Trigger values
+are descriptors (`{ kind: 'linear.onDelegate' }` or `{ kind: 'manual', name }`),
+not functions. `sourceCommit` records the repository revision; the snapshot and
+header's profile retain the actual execution configuration. Validation imports
+a scratch copy with a bounded child (10 seconds by default); failed preparation
+cleans its staging directories. `options.signal` cancels extraction/validation;
+clone refresh observes cancellation after its prerequisite returns.
+
+The older `prepareWorkflowSnapshot(context, lead, options?)` still extracts a
+committed `.rocky/` tree for legacy/injected callers and tests. Its missing-tree
+`onboarding-required` error can select retained built-in Onboarding. Normal
+production profile preparation does not take that path: missing local profiles
+are refused, and `rocky repo add` or profile creation supplies the initial content.
 
 The caller owns the returned staging directory: rename it into
 `runs/<runId>/snapshot` BEFORE publishing the header, or remove it after refused
@@ -25,9 +33,8 @@ recovery scans for published Run headers.
 `resolveSnapshotTrigger(triggers, selector)` (also exported by `snapshot.ts`)
 selects a descriptor or throws a
 named-fix `WorkflowLoadError`. `selector` has the same discriminated shape.
-Missing delegation binding says to add `linear.onDelegate` or fire a manual
-Trigger. `WorkflowLoadError.kind === 'onboarding-required'` is reserved for a
-missing lead `.rocky/`; the coordinator must start only built-in Onboarding.
+Missing delegation binding says to add `linear.onDelegate` to the local profile
+or fire a registered manual Trigger through the local API.
 
 `loadSnapshotWorkflow(snapshotDir, selector): Promise<Workflow>` imports the
 snapshot and returns its selected callable. **Call this only in the disposable
@@ -58,9 +65,11 @@ perform effects at module top level, outside a Run and without `ctx`. Child
 ownership isolates daemon execution/lifetime, not filesystem permissions.
 Workflow code that deliberately starts a new detached process group escapes
 that lifetime ownership; this is not an OS sandbox. Bare third-party imports
-other than SDK/Zod are refused; vendor helper code inside `.rocky/` instead.
+other than SDK/Zod are refused. Imports must resolve within the captured
+content; adding helper files to a target repository does not add them to a
+local profile snapshot.
 
-## Verification And Remaining Wiring
+## Verification
 
 Focused tests live at the agreed preparation and load/resolve seams in
 `run/snapshot.spec.ts` and `run/loading/loader.spec.ts`. They use real Git,
@@ -73,10 +82,10 @@ NG-599 is in `main`. Focused snapshot tests still inject the public
 uses the merged implementation directly and keeps the snapshot loader free of a
 second parser.
 
-Coordinator edits still required: exports, receipt/admission, publication before
-header, trigger/sourceCommit persistence, live-Run refusal, built-in Onboarding
-handoff, group Trigger input, and per-Boot child composition. The loader does
-not claim those end-to-end acceptance criteria.
+Production admission already persists profile/trigger/membership metadata,
+publishes complete snapshots and headers atomically, refuses conflicting live
+Runs, and invokes the loader from owned Boot children. Default-preparation tests
+verify that committed repository content cannot override the local profile.
 
 ## Delivery-specific preflight
 

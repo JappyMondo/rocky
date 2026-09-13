@@ -5,7 +5,8 @@ pass through verbatim; there is no Rocky model registry or configurable third ad
 
 ## Instance Configuration
 
-The Harness block belongs in `~/.rocky/config.json`, not `.rocky/workflow.ts`:
+Native command/environment/storage settings belong in `~/.rocky/config.json`.
+Agent harness/model/effort selections belong in the profile’s `models` map, keyed by the workflow’s [named slots](workflow-models.md):
 
 ```json
 {
@@ -23,8 +24,7 @@ The Harness block belongs in `~/.rocky/config.json`, not `.rocky/workflow.ts`:
 ```
 
 `command` and `env` use Rocky's `${VAR}` expansion. Keep secrets in the environment,
-not literal JSON. Agent prompts, models, Capabilities and named MCP grants are still
-chosen at each Workflow call site.
+not literal JSON. Agent prompts, Capabilities and named MCP grants are chosen at each Workflow call site; spread `ctx.models.<slot>` to use a configured model selection.
 
 `sessionStorage: "rocky" | "opencode"` defaults to `rocky`. OpenCode implements this
 using `OPENCODE_DB`: `rocky` gives each Step `<transcript>.opencode.db`.
@@ -72,8 +72,9 @@ effects, and granting a powerful MCP tool deliberately grants its effects.
 ## Caller Contract
 
 `getHarnessAdapter(name)` returns `HarnessAdapter | undefined`, exposing `run`,
-`resume` and `checkAuth`. Doctor uses its auth-only view. Preflight must call that
-same method; its production wiring belongs to NG-605.
+`resume` and `checkAuth`. Doctor uses its auth-only view. The
+production Agent uses the same adapter; the configured native account still
+needs to pass live authentication and execution checks.
 
 `HarnessInvocation` takes resolved `command`/`env`, `cwd`, `prompt`, optional model,
 Capabilities, resolved MCP servers, `sessionStorage`, a unique Step `transcriptPath`,
@@ -153,4 +154,4 @@ recorded body exactly matches the requested deliverable; they use its actual
 rendered content, not transcript source or an invented preview. A missing browser
 for a required capture stops the capture sequence with the blocked envelope.
 
-Profile creation, workflow seeding and reset require explicit main/helper model and variant/effort selections. They are stored in `workflow.ts` and frozen by Run snapshots; the adapters pass them via `--model` plus OpenCode `--variant` or Claude Code `--effort`. Use full model IDs when avoiding moving aliases. Supported variants remain model-specific ([OpenCode models](https://opencode.ai/docs/models/), [Claude Code model configuration](https://code.claude.com/docs/en/model-config)); Rocky accepts explicit names rather than maintaining a stale model catalog. This pins the selected names, not provider behavior or user-defined variant definitions.
+Profile creation, workflow seeding and reset require explicit harness, model and variant/effort selections for every declared slot. They are stored in the profile `models` map, exposed through `ctx.models`, and frozen by Run snapshots; the adapters pass them via `--model` plus OpenCode `--variant` or Claude Code `--effort`. Use full model IDs when avoiding moving aliases. Supported variants remain model-specific ([OpenCode models](https://opencode.ai/docs/models/), [Claude Code model configuration](https://code.claude.com/docs/en/model-config)); Rocky accepts explicit names rather than maintaining a stale model catalog. This pins the selected names, not provider behavior or user-defined variant definitions.

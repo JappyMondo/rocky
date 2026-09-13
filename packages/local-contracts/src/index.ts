@@ -235,10 +235,12 @@ export interface AgentModelSelection {
   /** OpenCode variant or Claude Code reasoning effort. Always explicit. */
   effort: string;
 }
-export interface WorkflowModels {
-  agent: AgentModelSelection;
-  fastAgent: AgentModelSelection;
-}
+/** Selections keyed by the workflow's exported model slot identifiers. */
+export type WorkflowModels = Record<string, AgentModelSelection>;
+export type WorkflowModelSlots = Record<
+  string,
+  { name: string; description?: string }
+>;
 
 /** Secret-free representation of a machine-local repository profile. */
 export interface RepositoryProfileView {
@@ -247,8 +249,11 @@ export interface RepositoryProfileView {
   /** Absent for legacy single-repository profiles. First member is primary. */
   repos?: Array<{ name: string; url: string; baseBranch: string }>;
   workflow: { source: string; triggers: string[] };
-  /** Derived from literal workflow declarations, never a second source of truth. */
+  /** Saved separately from workflow source and captured in each run. */
   models?: WorkflowModels;
+  modelSlots?: WorkflowModelSlots;
+  /** Invalid or legacy declarations remain editable, but cannot start new runs. */
+  modelError?: string;
   grants: {
     harness: 'claude-code' | 'opencode';
     capabilities: Array<'read' | 'edit' | 'bash'>;
@@ -284,12 +289,9 @@ export interface WorkflowDiagramView {
 
 export type RepositoryProfileDefaults = Pick<
   RepositoryProfileView,
-  'workflow' | 'grants' | 'prompts' | 'rules' | 'secretEnv'
+  'workflow' | 'grants' | 'prompts' | 'rules' | 'secretEnv' | 'modelSlots'
 > & {
-  modelSuggestions?: {
-    agent: Partial<AgentModelSelection>;
-    fastAgent: Partial<AgentModelSelection>;
-  };
+  modelSuggestions?: Record<string, Partial<AgentModelSelection>>;
 };
 
 /** A safe diagnostic for webhook work that failed after Linear received 200. */

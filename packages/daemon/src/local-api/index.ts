@@ -712,6 +712,15 @@ export async function registerLocalApi(
         );
       },
     );
+    local.post('/api/workflow-model-slots', async (request) => {
+      if (!options.profiles)
+        throw new LocalApiError(
+          503,
+          'profiles-unavailable',
+          'Repository profiles are not connected.',
+        );
+      return options.profiles.modelSlots(request.body);
+    });
     local.put('/api/profiles', async (request) => {
       if (!options.profiles)
         throw new LocalApiError(

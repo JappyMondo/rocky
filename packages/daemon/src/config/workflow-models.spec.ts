@@ -2,6 +2,8 @@ import { expect, it } from 'vitest';
 import {
   configureWorkflowModels,
   readWorkflowModels,
+  readWorkflowModelSlots,
+  validateWorkflowModels,
   workflowModelsSchema,
 } from './workflow-models.js';
 import type { WorkflowModels } from '@rocky/local-contracts';
@@ -54,7 +56,49 @@ it('never presents implicit, dynamic or malformed settings as a pinned model cho
         agent: { ...models.agent, effort },
       }).success,
     ).toBe(false);
-  expect(workflowModelsSchema.safeParse({ agent: models.agent }).success).toBe(
-    false,
-  );
+  expect(
+    workflowModelsSchema.safeParse({ reviewer: models.agent }).success,
+  ).toBe(true);
+});
+
+it('reads arbitrary named slots and TypeScript metadata without executing source', () => {
+  const source = `throw new Error('never execute'); export const models = { REVIEW: { name: 'Review', description: 'Read only' }, coding: { name: 'Implement' } } as const satisfies WorkflowModelSlots;`;
+  expect(readWorkflowModelSlots(source)).toEqual({
+    REVIEW: { name: 'Review', description: 'Read only' },
+    coding: { name: 'Implement' },
+  });
+  expect(
+    validateWorkflowModels(source, {
+      REVIEW: models.agent,
+      coding: models.fastAgent,
+    }),
+  ).toEqual({ REVIEW: models.agent, coding: models.fastAgent });
+  expect(() =>
+    validateWorkflowModels(source, { REVIEW: models.agent }),
+  ).toThrow(/coding/);
+  expect(() =>
+    validateWorkflowModels(source, {
+      REVIEW: models.agent,
+      coding: models.fastAgent,
+      typo: models.agent,
+    }),
+  ).toThrow(/Undeclared.*typo/);
+  expect(validateWorkflowModels('export const models = {};', {})).toEqual({});
+});
+it.each([
+  'export default [];',
+  'export let models = {};',
+  'const slots = {}; export { slots as models };',
+  'export const models = getModels();',
+  'export const models = { ...slots };',
+  'export const models = { [id]: { name: "Review" } };',
+  'export const models = { review: { name: label } };',
+  'export const models = { review: { name: "Review", model: "hardcoded" } };',
+  'export const models = { review: { name: "" } };',
+  'export const models = { review: { name: "A" }, review: { name: "B" } };',
+  'export const models = { __proto__: { name: "Unsafe" } };',
+  'export const models = { then: { name: "Reserved" } };',
+  'export const models = { "bad-key": { name: "Invalid identifier" } };',
+])('rejects invalid or dynamic declarations: %s', (source) => {
+  expect(() => readWorkflowModelSlots(source)).toThrow();
 });

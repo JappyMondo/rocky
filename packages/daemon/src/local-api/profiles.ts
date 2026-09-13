@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import {
   listRepositoryProfiles,
-  newSeedRepositoryProfile,
+  newRepositoryProfile,
   defaultProfileContent,
   profileReposSchema,
   canonicalRemote,
@@ -30,8 +30,8 @@ import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
 import { ConfigError } from '../config/schema.js';
 import { parseMcpConfig } from '../mcp/config.js';
 import {
-  configureWorkflowModels,
-  readWorkflowModels,
+  readWorkflowModelSlots,
+  validateWorkflowModels,
   workflowModelsSchema,
 } from '../config/workflow-models.js';
 
@@ -76,13 +76,45 @@ function revision(profile: RepositoryProfile): string {
   return createHash('sha256').update(JSON.stringify(profile)).digest('hex');
 }
 
+function modelMetadata(source: string) {
+  try {
+    return { modelSlots: readWorkflowModelSlots(source) };
+  } catch (error) {
+    return {
+      modelError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function checkedModels(source: string, models: unknown) {
+  try {
+    return validateWorkflowModels(source, models);
+  } catch (error) {
+    throw new LocalApiError(
+      400,
+      'invalid-workflow-models',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 function view(profile: RepositoryProfile): RepositoryProfileView {
+  const metadata = modelMetadata(profile.workflow.source);
+  const slots = metadata.modelSlots;
+  const models = slots
+    ? Object.fromEntries(
+        Object.entries(profile.models ?? {}).filter(([key]) =>
+          Object.hasOwn(slots, key),
+        ),
+      )
+    : profile.models;
   return {
     id: profile.id,
     remote: profile.remote,
     ...(profile.repos ? { repos: profile.repos } : {}),
     workflow: profile.workflow,
-    models: readWorkflowModels(profile.workflow.source),
+    models,
+    ...metadata,
     grants: profile.grants,
     prompts: Object.keys(profile.prompts).sort(),
     rules: Object.keys(profile.rules).sort(),
@@ -255,7 +287,7 @@ export class LocalProfiles {
       throw new LocalApiError(
         400,
         'invalid-profile-reset',
-        'Resetting a workflow requires its current revision and explicit model and variant/effort choices for both agents.',
+        'Resetting a workflow requires its current revision and explicit model and variant/effort choices for every declared slot.',
       );
     return updates.run(this.paths.profile(profileId), async () => {
       const profile = await readRepositoryProfile(this.paths, profileId);
@@ -265,7 +297,9 @@ export class LocalProfiles {
           'profile-changed',
           'This profile changed. Reload it before resetting; your edits were not applied.',
         );
-      const content = await defaultProfileContent(parsed.data.models.agent);
+      const content = await defaultProfileContent(
+        Object.values(parsed.data.models)[0],
+      );
       const source = profile.workflow.source;
       const blocks =
         source.match(
@@ -290,19 +324,37 @@ export class LocalProfiles {
               )
             : content.workflow.source,
       };
-      workflow.source = configureWorkflowModels(
-        workflow.source,
-        parsed.data.models,
-      );
+      const models = checkedModels(workflow.source, parsed.data.models);
       return this.view(
         await writeRepositoryProfile(this.paths, {
           ...profile,
           workflow,
+          models,
           prompts: content.prompts,
           schemas: content.schemas,
         }),
       );
     });
+  }
+
+  modelSlots(input: unknown) {
+    const parsed = z
+      .strictObject({ source: z.string().min(1) })
+      .safeParse(input);
+    if (!parsed.success)
+      throw new LocalApiError(
+        400,
+        'invalid-workflow',
+        'Supply workflow source.',
+      );
+    const metadata = modelMetadata(parsed.data.source);
+    if (metadata.modelError)
+      throw new LocalApiError(
+        400,
+        'invalid-workflow-models',
+        metadata.modelError,
+      );
+    return metadata;
   }
 
   async defaults(): Promise<RepositoryProfileDefaults> {
@@ -319,10 +371,12 @@ export class LocalProfiles {
       prompts: Object.keys(content.prompts).sort(),
       rules: Object.keys(content.rules).sort(),
       secretEnv: content.settings.secretEnv,
-      modelSuggestions: {
-        agent: suggestion,
-        fastAgent: suggestion,
-      },
+      modelSlots: readWorkflowModelSlots(content.workflow.source),
+      modelSuggestions: Object.fromEntries(
+        Object.keys(readWorkflowModelSlots(content.workflow.source)).map(
+          (key) => [key, suggestion],
+        ),
+      ),
     };
   }
 
@@ -466,7 +520,7 @@ export class LocalProfiles {
         throw new LocalApiError(400, 'invalid-profile', error.message);
       throw error;
     }
-    if (!parsed.success || (!parsed.data.remote && !parsed.data.repos))
+    if (!parsed.success)
       throw new LocalApiError(
         400,
         'invalid-profile',
@@ -495,33 +549,41 @@ export class LocalProfiles {
           'profile-changed',
           'This profile no longer exists. Reload before saving.',
         );
+      if (!existing && !parsed.data.remote && !parsed.data.repos)
+        throw new LocalApiError(
+          400,
+          'invalid-profile',
+          'A new profile needs at least one repository.',
+        );
       if (!existing && !parsed.data.models)
         throw new LocalApiError(
           400,
           'model-selection-required',
-          'Choose the harness, model and variant/effort for the main and helper agents before creating a profile.',
+          'Choose the harness, model and variant/effort for every declared model slot before creating a profile.',
         );
-      const base =
-        existing ??
-        (await newSeedRepositoryProfile({
+      const base = existing ?? {
+        ...newRepositoryProfile({
           id: parsed.data.id,
           remote: parsed.data.remote,
           repos: parsed.data.repos,
-          models: workflowModelsSchema.parse(parsed.data.models),
-        }));
+        }),
+        ...(await defaultProfileContent()),
+      };
+      const workflow = parsed.data.workflow ?? base.workflow;
+      // Legacy profiles stay editable until explicitly migrated or reset. New
+      // workflows and model edits must satisfy the named-slot contract.
+      const models =
+        !existing ||
+        parsed.data.models !== undefined ||
+        workflow.source !== base.workflow.source
+          ? checkedModels(workflow.source, parsed.data.models ?? base.models)
+          : base.models;
       const saved = await writeRepositoryProfile(this.paths, {
         ...base,
-        remote: parsed.data.remote,
+        remote: parsed.data.remote ?? base.remote,
         ...(parsed.data.repos ? { repos: parsed.data.repos } : {}),
-        workflow: parsed.data.models
-          ? {
-              ...(parsed.data.workflow ?? base.workflow),
-              source: configureWorkflowModels(
-                (parsed.data.workflow ?? base.workflow).source,
-                parsed.data.models,
-              ),
-            }
-          : (parsed.data.workflow ?? base.workflow),
+        workflow,
+        models,
         grants: parsed.data.grants ?? base.grants,
       });
       return this.view(saved);
