@@ -163,8 +163,22 @@ export async function importSnapshotTriggers(snapshotDir: string): Promise<
     workflow: Workflow;
   }[]
 > {
-  const file = join(snapshotDir, 'workflow.ts');
+  const flowFile = join(snapshotDir, 'workflow.json');
+  const file = existsSync(flowFile)
+    ? flowFile
+    : join(snapshotDir, 'workflow.ts');
   try {
+    if (file === flowFile) {
+      const packed = new URL('./flow-runtime.js', import.meta.url);
+      const compiled = new URL('../../flow/runtime.js', import.meta.url);
+      const runtime = existsSync(packed)
+        ? packed
+        : existsSync(compiled)
+          ? compiled
+          : new URL('../../../dist/flow/runtime.js', import.meta.url);
+      const { flowBindings } = await import(runtime.href);
+      return flowBindings(readFileSync(flowFile, 'utf8'), snapshotDir);
+    }
     const root = realpathSync(snapshotDir);
     const scope = { identity: randomUUID(), root };
     registerSnapshotHooks();

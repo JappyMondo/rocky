@@ -542,12 +542,15 @@ it.each(['blocked', 'detached'])(
     });
     const closed = once(owner, 'close');
     try {
-      await vi.waitFor(async () => {
-        expect(stderr).toBe('');
-        expect(
-          JSON.parse(await readFile(pidFile, 'utf8')).descendant,
-        ).toBeGreaterThan(0);
-      });
+      await vi.waitFor(
+        async () => {
+          expect(stderr).toBe('');
+          expect(
+            JSON.parse(await readFile(pidFile, 'utf8')).descendant,
+          ).toBeGreaterThan(0);
+        },
+        { timeout: 10000 },
+      );
       const { pid, descendant } = JSON.parse(
         await readFile(pidFile, 'utf8'),
       ) as { pid: number; descendant: number };

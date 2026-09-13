@@ -1,12 +1,13 @@
 {
   "name": "web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
   "description": "Rocky's local web UI, served by the daemon on the same port as the API.",
   "type": "module",
   "private": true,
   "dependencies": {
     "@rocky/local-contracts": "workspace:*",
+    "@xyflow/react": "^12.11.6",
     "mermaid": "^12.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

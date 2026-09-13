@@ -1,0 +1,448 @@
+{
+  "version": 1,
+  "name": "Issue to delivery",
+  "models": {
+    "review": {
+      "name": "Review",
+      "description": "Inspections, reviews and visual recaps."
+    },
+    "implementation": {
+      "name": "Implementation",
+      "description": "Implementation, fixes and merge conflicts."
+    },
+    "planner": {
+      "name": "Planner",
+      "description": "Scope clarification, planning and UI triage."
+    }
+  },
+  "settings": {
+    "commands": {
+      "install": "",
+      "test": "",
+      "lint": "",
+      "build": ""
+    },
+    "ui": null,
+    "states": {
+      "started": "In Progress",
+      "review": "In Review",
+      "done": "Done"
+    },
+    "reviewCap": 5,
+    "ciCap": 3,
+    "readiness": {
+      "attempts": 30,
+      "intervalMs": 1000
+    },
+    "ciLogLines": 200,
+    "maxTransitions": 500
+  },
+  "nodes": [
+    {
+      "id": "delegation",
+      "type": "trigger",
+      "name": "Issue delegated",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "parameters": {
+        "kind": "linear.onDelegate"
+      }
+    },
+    {
+      "id": "clarify",
+      "type": "delivery.clarify",
+      "name": "Clarify scope",
+      "position": {
+        "x": 250,
+        "y": 0
+      },
+      "parameters": {}
+    },
+    {
+      "id": "plan",
+      "type": "delivery.plan",
+      "name": "Plan implementation",
+      "position": {
+        "x": 500,
+        "y": 0
+      },
+      "parameters": {}
+    },
+    {
+      "id": "implement",
+      "type": "delivery.implement",
+      "name": "Implement & open draft",
+      "position": {
+        "x": 750,
+        "y": 0
+      },
+      "parameters": {}
+    },
+    {
+      "id": "validate",
+      "type": "delivery.validate",
+      "name": "Validate commands",
+      "position": {
+        "x": 1000,
+        "y": 0
+      },
+      "parameters": {}
+    },
+    {
+      "id": "compliance",
+      "type": "delivery.compliance",
+      "name": "Check acceptance",
+      "position": {
+        "x": 1000,
+        "y": 240
+      },
+      "parameters": {},
+      "direction": "left"
+    },
+    {
+      "id": "ui",
+      "type": "delivery.ui",
+      "name": "Inspect UI",
+      "position": {
+        "x": 750,
+        "y": 240
+      },
+      "parameters": {},
+      "direction": "left"
+    },
+    {
+      "id": "review",
+      "type": "delivery.review",
+      "name": "Review changes",
+      "position": {
+        "x": 500,
+        "y": 240
+      },
+      "parameters": {},
+      "direction": "left"
+    },
+    {
+      "id": "ci",
+      "type": "delivery.ci",
+      "name": "Check CI",
+      "position": {
+        "x": 250,
+        "y": 240
+      },
+      "parameters": {},
+      "direction": "left"
+    },
+    {
+      "id": "recap",
+      "type": "delivery.recap",
+      "name": "Visual recap",
+      "position": {
+        "x": 0,
+        "y": 240
+      },
+      "parameters": {},
+      "direction": "left"
+    },
+    {
+      "id": "publish",
+      "type": "delivery.publish",
+      "name": "Ready for review",
+      "position": {
+        "x": 0,
+        "y": 480
+      },
+      "parameters": {}
+    },
+    {
+      "id": "approval",
+      "type": "delivery.approval",
+      "name": "Approve merge",
+      "position": {
+        "x": 250,
+        "y": 480
+      },
+      "parameters": {}
+    },
+    {
+      "id": "merge",
+      "type": "delivery.merge",
+      "name": "Merge approved PR",
+      "position": {
+        "x": 500,
+        "y": 480
+      },
+      "parameters": {}
+    },
+    {
+      "id": "completed",
+      "type": "finish",
+      "name": "Completed",
+      "position": {
+        "x": 750,
+        "y": 480
+      },
+      "parameters": {
+        "outcome": "completed"
+      }
+    },
+    {
+      "id": "rejected",
+      "type": "finish",
+      "name": "Rejected",
+      "position": {
+        "x": 1000,
+        "y": 480
+      },
+      "parameters": {
+        "outcome": "rejected"
+      }
+    },
+    {
+      "id": "exhausted",
+      "type": "finish",
+      "name": "Needs attention",
+      "position": {
+        "x": 1250,
+        "y": 240
+      },
+      "parameters": {
+        "outcome": "exhausted"
+      }
+    },
+    {
+      "id": "comment",
+      "type": "delivery.deliverable",
+      "name": "Review & deliver comment",
+      "position": {
+        "x": 250,
+        "y": -230
+      },
+      "parameters": {}
+    },
+    {
+      "id": "manual",
+      "type": "trigger",
+      "name": "PR conversations",
+      "position": {
+        "x": 0,
+        "y": 720
+      },
+      "parameters": {
+        "kind": "manual",
+        "name": "address-pr-conversations"
+      }
+    },
+    {
+      "id": "conversations",
+      "type": "delivery.conversations",
+      "name": "Address PR conversations",
+      "position": {
+        "x": 250,
+        "y": 720
+      },
+      "parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_1",
+      "source": "delegation",
+      "target": "clarify",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_2",
+      "source": "clarify",
+      "target": "plan",
+      "sourceHandle": "pr"
+    },
+    {
+      "id": "e_3",
+      "source": "clarify",
+      "target": "comment",
+      "sourceHandle": "comment"
+    },
+    {
+      "id": "e_4",
+      "source": "clarify",
+      "target": "rejected",
+      "sourceHandle": "rejected"
+    },
+    {
+      "id": "e_5",
+      "source": "comment",
+      "target": "completed",
+      "sourceHandle": "completed"
+    },
+    {
+      "id": "e_6",
+      "source": "comment",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_7",
+      "source": "plan",
+      "target": "implement",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_8",
+      "source": "implement",
+      "target": "validate",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_9",
+      "source": "validate",
+      "target": "compliance",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_10",
+      "source": "compliance",
+      "target": "ui",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_11",
+      "source": "ui",
+      "target": "review",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_12",
+      "source": "review",
+      "target": "ci",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_13",
+      "source": "ci",
+      "target": "recap",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_14",
+      "source": "recap",
+      "target": "publish",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_15",
+      "source": "publish",
+      "target": "approval",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_16",
+      "source": "validate",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_17",
+      "source": "validate",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_18",
+      "source": "compliance",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_19",
+      "source": "compliance",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_20",
+      "source": "ui",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_21",
+      "source": "ui",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_22",
+      "source": "review",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_23",
+      "source": "review",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_24",
+      "source": "ci",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_25",
+      "source": "ci",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_26",
+      "source": "publish",
+      "target": "completed",
+      "sourceHandle": "completed"
+    },
+    {
+      "id": "e_27",
+      "source": "approval",
+      "target": "merge",
+      "sourceHandle": "approved"
+    },
+    {
+      "id": "e_28",
+      "source": "approval",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_29",
+      "source": "approval",
+      "target": "rejected",
+      "sourceHandle": "rejected"
+    },
+    {
+      "id": "e_30",
+      "source": "merge",
+      "target": "completed",
+      "sourceHandle": "merged"
+    },
+    {
+      "id": "e_31",
+      "source": "merge",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_32",
+      "source": "manual",
+      "target": "conversations",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_33",
+      "source": "conversations",
+      "target": "completed",
+      "sourceHandle": "completed"
+    }
+  ]
+}

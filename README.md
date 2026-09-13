@@ -13,6 +13,9 @@ this project's `rocky` package on npm.
 - **Linear delegation and durable runs:** issue text and comment history are
   captured at admission. Runs use owned Git clones and per-run worktrees,
   journal their steps, and replay after a daemon restart.
+- **Visual workflows:** build and edit JSON flows on an XYFlow canvas with named
+  branches, node settings, undo/redo, and import/export. The shipped delivery flow
+  includes clarification, comment/PR delivery, review and CI loops, recaps and approval.
 - **Editable local profiles:** one profile owns the workflow, prompts, schemas,
   rules, MCP configuration and repository membership. Profiles can span several
   repositories, with the first member serving as the default SCM target.
@@ -48,7 +51,7 @@ Linux. From the repository root:
 pnpm install --frozen-lockfile
 mkdir -p dist/tarballs
 pnpm --dir packages/cli pack --pack-destination "$PWD/dist/tarballs"
-npm install --global --ignore-scripts "$PWD/dist/tarballs/rocky-0.0.0.tgz"
+npm install --global --ignore-scripts "$PWD/dist/tarballs/rocky-0.1.0.tgz"
 rocky --version
 rocky --help
 ```
@@ -103,7 +106,8 @@ Production execution reads profiles under `~/.rocky` (or `ROCKY_HOME`):
   config.json                # routing, server, harness and instance settings
   credentials.json           # machine credentials
   profiles/<id>.json         # repositories, prompts, schemas, rules, MCP, grants
-  profiles/<id>.workflow.ts  # editable workflow source; overrides JSON source
+  profiles/flows/<id>.json    # editable JSON flow; authoritative for flow profiles
+  profiles/<id>.workflow.ts  # retained only for legacy code profiles
   runs/<runId>/snapshot/     # frozen profile content for this run
   runs/<runId>/workspace/    # sibling repository worktrees
 ```
@@ -112,6 +116,10 @@ Production execution reads profiles under `~/.rocky` (or `ROCKY_HOME`):
 shipped template lives at `packages/daemon/content/.rocky/` and seeds local
 profiles. Legacy repository seeding/onboarding helpers remain in the source,
 but a missing repository `.rocky/` is not the current setup trigger.
+
+Edit the graph in **Profiles → Workflow**. **Flow settings** holds commands, loop
+limits, UI inspection and state names; **General** holds model selections. See
+[configurable flows](docs/flows.md) for node types, data references and migration.
 
 Profile changes apply to future runs. Existing runs, including explicit step
 retries, keep their snapshots. Use the profile editor, or `rocky repo profile`

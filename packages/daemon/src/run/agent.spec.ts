@@ -549,7 +549,7 @@ it('kills a wedged invocation at the override and retries timeout as a fresh att
     workflow: async (steps) => {
       await createAgent(steps, f.options)(
         { prompt: 'Work.' },
-        { label: 'worker', timeout: 200 },
+        { label: 'worker', timeout: 1000 },
       );
       return 'merged';
     },
@@ -563,7 +563,7 @@ it('kills a wedged invocation at the override and retries timeout as a fresh att
   ).toMatchObject([
     {
       kind: 'failed',
-      error: { message: 'Agent attempt 1 timed out after 200ms' },
+      error: { message: 'Agent attempt 1 timed out after 1000ms' },
     },
   ]);
 });

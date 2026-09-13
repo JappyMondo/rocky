@@ -10,13 +10,16 @@ defines the requested work and its review process.
 membership, prompts, schemas, rules, tools and environment references. A run
 captures the selected profile; repository files do not choose the pipeline.
 
-**Workflow**: An imperative pipeline bound to an event by a Trigger. Its content
-chooses the agents, validation, deliverable and human decision points.
+**Workflow**: A configured flow bound to an event by a Trigger. Its nodes and
+connections choose the work, decisions, validation, deliverable and human checkpoints.
 
-**Config block**: The marked portion of a workflow containing its editable
-commands, state names and loop limits. Model selections are stored separately in the Profile.
+**Flow settings**: The commands, state names and loop limits shared by a Workflow.
+Model selections belong to the Profile.
 
-**Model slot**: A named role exported as literal Workflow metadata. The Profile selects its harness, model and effort; a Run exposes the captured selection through `ctx.models`.
+**Flow node**: A configured action, decision or outcome in a Workflow. A connection
+selects the next node for each possible result.
+
+**Model slot**: A named agent role declared by a Workflow. The Profile selects its harness, model and effort; a Run exposes the captured selection through `ctx.models`.
 
 **Trigger**: A binding from Linear delegation or a named manual request to a
 Workflow. _Avoid_: entry point.

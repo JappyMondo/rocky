@@ -61,7 +61,7 @@ From the repository root, build and install the explicit local artifact:
 pnpm install --frozen-lockfile
 mkdir -p dist/tarballs
 pnpm --dir packages/cli pack --pack-destination "$PWD/dist/tarballs"
-npm install --global --ignore-scripts "$PWD/dist/tarballs/rocky-0.0.0.tgz"
+npm install --global --ignore-scripts "$PWD/dist/tarballs/rocky-0.1.0.tgz"
 rocky --version
 rocky --help
 rocky-ingress --help
@@ -75,8 +75,9 @@ user-owned prefix; no `sudo` is needed.
 
 The global commands work outside this repository. This is a built snapshot,
 not a live source link. After pulling code changes, pack and install again,
-then run `rocky restart` if a daemon is running. Development artifacts currently
-share version `0.0.0`, so the version handshake cannot detect every source change.
+then restart the daemon to load the new build. For a managed service, restart it
+through the service manager so its process remains supervised. The config-flow
+build is version `0.1.0`; rebuilding the same version still requires a restart.
 
 Installation itself does not start Rocky or set up accounts. Run `rocky start -d`
 for the local UI, or `rocky setup` for interactive Linear and managed-service
@@ -160,7 +161,7 @@ browser acceptance when changing the packaged UI or its asset layout.
   on the integrated head, and repeat the clean-install smoke test on that exact
   tarball. Only then may they publish that reviewed artifact and record its
   integrity/version. These instructions do not authorize publication.
-- Tarballs at `0.0.0` are local development artifacts. New runtime data files,
+- These private tarballs are local development artifacts. New runtime data files,
   dynamic loaders and subprocess entries must be added to packaging and its
   smoke test when introduced. Packaging success does not replace live integration
   acceptance.

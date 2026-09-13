@@ -6,9 +6,10 @@ composition are implemented; deterministic tests are distinct from live acceptan
 
 ## Assets
 
-The template tree is `packages/daemon/content/.rocky/`, packaged as raw TypeScript
-and Markdown. Production copies its content into machine-local profiles, not
-into target repositories; admission ignores target-repository `.rocky/`. `workflow.ts` imports only Node built-ins, `@rocky/sdk`, and sibling `schemas.ts`. No default Rule is needed, so `rules/` is absent. Only the delimited Config block, optional Playwright MCP declaration, and explicit-doc-derived `rules/conventions.md` vary during seeding.
+The template tree is `packages/daemon/content/.rocky/`, packaged as JSON flow configuration, prompts, schemas, and retained legacy
+TypeScript. `workflow.json` is the default; its delivery nodes use the packaged
+operations in `src/flow/delivery.ts` and their structured schemas. Production copies its content into machine-local profiles, not
+into target repositories; admission ignores target-repository `.rocky/`. `workflow.ts` imports only Node built-ins, `@rocky/sdk`, and sibling `schemas.ts`. No default Rule is needed, so `rules/` is absent. Seeding customizes JSON flow settings and the legacy Config block, optional Playwright MCP declaration, and explicit-doc-derived `rules/conventions.md`.
 
 The two Trigger names are `linear.onDelegate` and `manual("address-pr-conversations")`. Top-level import is effect-free. Schema builders retain their original Zod refinements for Agent validation; the framework injects and returns `summary` without discarding those refinements. Complaint namespaces are deterministic content stage/pass/branch keys. Renderers consume `complaints`, `resolutions`, `checks`, and `results` from the Journal; replay itself does not interpret them.
 

@@ -227,9 +227,15 @@ explicit in the profile. Existing `/profiles` routes remain valid; navigation no
 calls this section **Profiles**. Run lists, repository filters and Run detail show
 all frozen member repositories.
 
-## Workflow diagrams
+## Workflow editor
 
-The **Workflow** tab starts with an agent-generated Mermaid overview of the
+New profiles use the [XYFlow editor](flows.md) with editable JSON graphs, a node
+picker, node parameters, labeled connections, and flow settings. Graphs render
+directly from configuration without an agent generation job.
+
+### Legacy workflow diagrams
+
+For legacy TypeScript profiles, the **Workflow** tab starts with an agent-generated Mermaid overview of the
 saved workflow: stages, decisions, parallel work, approval checkpoints and
 outcomes. Charts run from left to right and initially fit every node inside the
 available viewport, including the expanded view. Use the zoom controls to explore

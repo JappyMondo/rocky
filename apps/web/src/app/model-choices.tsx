@@ -143,7 +143,7 @@ export function ModelChoices({
         <p className={styles.muted}>
           Use full model IDs and a variant or effort supported by that model.
           OpenCode lists IDs with <code>opencode models</code>. Choices are
-          stored in the profile; saving them leaves workflow code unchanged.
+          stored in the profile; saving them leaves the workflow unchanged.
         </p>
       )}
     </section>

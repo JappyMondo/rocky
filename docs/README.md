@@ -6,6 +6,8 @@ files are not execution configuration.
 
 ## Using Rocky
 
+- [Configurable flows](flows.md): XYFlow editor, JSON format, execution and migration.
+
 - [Installation and distribution](distribution.md): local and global tarball installs, packaging and release boundaries.
 - [CLI and Workflow context](cli-and-ctx.md): implemented commands, remaining stubs and runtime services.
 - [Named workflow models](workflow-models.md): declare roles, configure harnesses and models in the UI, and preserve run selections.

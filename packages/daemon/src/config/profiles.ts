@@ -1,3 +1,8 @@
+import {
+  isFlowSource,
+  validateFlow,
+  flowTriggerNames,
+} from '@rocky/local-contracts';
 /**
  * Repository profiles are the complete, machine-local coding pipeline.
  *
@@ -181,6 +186,17 @@ export function parseRepositoryProfile(
   // Parse eagerly so invalid or unsafe MCP input is rejected at profile edit,
   // rather than much later inside an agent attempt.
   parseMcpConfig(parsed.data.mcp, `${file} mcp`);
+  if (isFlowSource(parsed.data.workflow.source)) {
+    try {
+      const flow = validateFlow(parsed.data.workflow.source);
+      parsed.data.workflow.triggers = flowTriggerNames(flow);
+    } catch (error) {
+      throw new ConfigError(
+        file,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   return parsed.data;
 }
 
@@ -245,7 +261,7 @@ export async function defaultProfileContent(
       : new URL('../../content/.rocky/', import.meta.url),
   );
   const [workflow, schemas, mcp, agents, rules] = await Promise.all([
-    readFile(join(directory, 'workflow.ts'), 'utf8'),
+    readFile(join(directory, 'workflow.json'), 'utf8'),
     readFile(join(directory, 'schemas.ts'), 'utf8'),
     readFile(join(directory, 'mcp.json'), 'utf8'),
     readTextDirectory(join(directory, 'agents')),
@@ -313,7 +329,7 @@ export async function readRepositoryProfile(
   try {
     const parsed = parseRepositoryProfile(JSON.parse(text), file);
     const workflow = await readFile(
-      paths.profileWorkflow(parsed.id),
+      profileWorkflowPath(paths, parsed),
       'utf8',
     ).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return undefined;
@@ -341,7 +357,7 @@ export async function writeRepositoryProfile(
   await Promise.all([
     writeAtomic(paths.profile(profile.id), serializeJson(profile), PUBLIC_MODE),
     writeAtomic(
-      paths.profileWorkflow(profile.id),
+      profileWorkflowPath(paths, profile),
       profile.workflow.source,
       PUBLIC_MODE,
     ),
@@ -380,4 +396,14 @@ export function profileMcpConfig(
   file: string,
 ): McpConfig {
   return parseMcpConfig(profile.mcp, file);
+}
+
+/** JSON profiles never consult a leftover TypeScript override. */
+export function profileWorkflowPath(
+  paths: RockyPaths,
+  profile: Pick<RepositoryProfile, 'id' | 'workflow'>,
+): string {
+  return isFlowSource(profile.workflow.source)
+    ? join(paths.profilesDir, 'flows', `${segment.parse(profile.id)}.json`)
+    : paths.profileWorkflow(profile.id);
 }

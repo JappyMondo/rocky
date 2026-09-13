@@ -1,6 +1,15 @@
 # Named workflow models
 
-A workflow declares the roles it needs. The local profile supplies the harness,
+New workflows declare roles in their JSON `models` object. Open **Profiles →
+Workflow → Flow settings → Model slots** to edit them, and **General → Workflow
+models** to choose each harness, model and effort. AI agent nodes select a slot;
+packaged delivery nodes use `review`, `implementation` and `planner`. The runtime
+exposes the captured choices through `ctx.models`.
+
+See [configurable flows](flows.md) for the JSON format. The TypeScript examples
+below describe the retained legacy workflow format and existing run snapshots.
+
+A legacy workflow declares the roles it needs. The local profile supplies the harness,
 model and variant/effort for each role. Changing a selection in **Profiles →
 General → Workflow models** does not change the workflow's source.
 
@@ -115,8 +124,8 @@ provider behavior or provider-side aliases/variant definitions.
 Older profiles remain readable and editable but need migration before starting
 new runs. Add the `models` export, replace inline constants with
 `...ctx.models.<slot>` and configure the slots in the UI. Alternatively use
-**Profiles → Workflow → Reset to default**, which replaces workflow code, prompts
-and schemas while preserving the marked Config block and other profile settings.
+**Profiles → Workflow → Reset to default**, which installs the JSON delivery flow, prompts and schemas while preserving
+literal commands, states and limits from the Config block and other profile settings.
 Existing run snapshots can still resume with their original inline choices.
 
 ## Local API

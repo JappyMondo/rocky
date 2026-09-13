@@ -2195,3 +2195,12 @@
   gap: 8px;
   min-width: 0;
 }
+
+.profileWorkflow.flowWorkspace {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.flowWorkspace > .workflowEditor {
+  padding: 18px 0;
+}

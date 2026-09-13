@@ -1,3 +1,4 @@
+import { isFlowSource, parseFlow } from '@rocky/local-contracts';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -167,6 +168,24 @@ export class WorkflowDiagrams {
   async read(id: string): Promise<WorkflowDiagramView> {
     const profile = await readRepositoryProfile(this.options.paths, id);
     const hash = workflowHash(profile);
+    if (isFlowSource(profile.workflow.source)) {
+      this.observed.delete(id);
+      const flow = parseFlow(profile.workflow.source);
+      const labels = flow.nodes.map(
+        (n) => `${n.id}["${n.name.replace(/[^a-zA-Z0-9 _&-]/g, '')}"]`,
+      );
+      return {
+        sourceHash: hash,
+        status: 'ready',
+        mermaid: [
+          'flowchart LR',
+          ...labels,
+          ...flow.edges.map(
+            (e) => `${e.source} -->|${e.sourceHandle}| ${e.target}`,
+          ),
+        ].join('\n'),
+      };
+    }
     const previous = this.observed.get(id);
     this.observed.set(id, {
       profile,

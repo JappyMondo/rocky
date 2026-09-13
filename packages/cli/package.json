@@ -1,9 +1,9 @@
 {
   "name": "rocky",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
-  "description": "Rocky's CLI — a thin client for the per-developer local daemon.",
+  "description": "Rocky's CLI \u2014 a thin client for the per-developer local daemon.",
   "type": "module",
   "bin": {
     "rocky": "./dist/main.js",

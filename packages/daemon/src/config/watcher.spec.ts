@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { PUBLIC_MODE, writeAtomic } from '../atomic-write.js';
 import { openConfigStore, type ConfigStore } from './watcher.js';
 import { rockyPaths, type RockyPaths } from './paths.js';
 import { route } from './routing.js';
@@ -65,9 +66,13 @@ describe('a repo entry edited while the daemon runs', () => {
     );
 
     const reloaded = opened.nextReload();
-    writeConfig({
-      repos: [repo('niotix', 'rocky'), repo('niota-api', 'rocky-api')],
-    });
+    await writeAtomic(
+      paths.configFile,
+      JSON.stringify({
+        repos: [repo('niotix', 'rocky'), repo('niota-api', 'rocky-api')],
+      }),
+      PUBLIC_MODE,
+    );
     await reloaded;
 
     expect(route(opened.current, { labels: ['rocky-api'] })).toMatchObject({
@@ -149,7 +154,13 @@ describe('a reload that cannot be used', () => {
     const opened = await open(true);
 
     const failed = new Promise<unknown>((resolve) => opened.onError(resolve));
-    writeConfig({ repos: [{ name: 'niotix', url: 'u' }] });
+    // Exercise the atomic save used by the product; in-place writes immediately
+    // after watcher registration can be coalesced with creation on macOS.
+    await writeAtomic(
+      paths.configFile,
+      JSON.stringify({ repos: [{ name: 'niotix', url: 'u' }] }),
+      PUBLIC_MODE,
+    );
 
     expect(String(await failed)).toMatch(/config\.json/);
     expect(opened.current.repos[0].label).toBe('rocky');

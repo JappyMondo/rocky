@@ -1,3 +1,5 @@
+import { isFlowSource, parseFlow, validateFlow } from '@rocky/local-contracts';
+import { flowSettingsFromSource } from '../flow/migration.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { link, rm, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -17,6 +19,7 @@ import {
   listRepositoryProfiles,
   newRepositoryProfile,
   defaultProfileContent,
+  profileWorkflowPath,
   profileReposSchema,
   canonicalRemote,
   readRepositoryProfile,
@@ -303,30 +306,22 @@ export class LocalProfiles {
       const content = await defaultProfileContent(
         Object.values(parsed.data.models)[0],
       );
-      const source = profile.workflow.source;
-      const blocks =
-        source.match(
-          /^\/\/ BEGIN ROCKY CONFIG\r?\n[\s\S]*?^\/\/ END ROCKY CONFIG[ \t]*\r?$/gm,
-        ) ?? [];
-      const markers =
-        source.match(/^\/\/ (?:BEGIN|END) ROCKY CONFIG[ \t]*\r?$/gm) ?? [];
-      if (markers.length && (markers.length !== 2 || blocks.length !== 1))
+      let workflow = content.workflow;
+      try {
+        const flow = parseFlow(content.workflow.source);
+        flow.settings = flowSettingsFromSource(profile.workflow.source);
+        workflow = {
+          ...workflow,
+          source:
+            JSON.stringify(validateFlow(JSON.stringify(flow)), null, 2) + '\n',
+        };
+      } catch (error) {
         throw new LocalApiError(
           409,
           'invalid-workflow-config',
-          'The workflow Config block is malformed. Repair its BEGIN/END ROCKY CONFIG markers before resetting.',
+          error instanceof Error ? error.message : String(error),
         );
-      const block = blocks[0];
-      const workflow = {
-        ...content.workflow,
-        source:
-          block !== undefined
-            ? content.workflow.source.replace(
-                /^\/\/ BEGIN ROCKY CONFIG\r?\n[\s\S]*?^\/\/ END ROCKY CONFIG[ \t]*\r?$/m,
-                () => block,
-              )
-            : content.workflow.source,
-      };
+      }
       const models = checkedModels(workflow.source, parsed.data.models);
       return this.view(
         await writeRepositoryProfile(this.paths, {
@@ -573,6 +568,17 @@ export class LocalProfiles {
         ...(await defaultProfileContent()),
       };
       const workflow = parsed.data.workflow ?? base.workflow;
+      if (isFlowSource(workflow.source)) {
+        try {
+          validateFlow(workflow.source);
+        } catch (error) {
+          throw new LocalApiError(
+            400,
+            'invalid-flow',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
       // Legacy profiles stay editable until explicitly migrated or reset. New
       // workflows and model edits must satisfy the named-slot contract.
       const models =
@@ -624,6 +630,13 @@ export class LocalProfiles {
       await Promise.all([
         rm(this.paths.profile(parsed.data.id)),
         rm(this.paths.profileWorkflow(parsed.data.id), { force: true }),
+        rm(
+          profileWorkflowPath(this.paths, {
+            id: parsed.data.id,
+            workflow: { source: '{}', triggers: [] },
+          }),
+          { force: true },
+        ),
       ]);
     });
   }
@@ -637,7 +650,7 @@ export class LocalProfiles {
         'invalid-editor',
         'Choose a supported local editor.',
       );
-    const file = this.paths.profileWorkflow(profileId);
+    const file = profileWorkflowPath(this.paths, await this.read(profileId));
     await updates.run(this.paths.profile(profileId), async () => {
       const profile = await this.read(profileId);
       // Profiles created before workflow files were introduced still carry
