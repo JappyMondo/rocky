@@ -21,6 +21,7 @@ import {
   defaultProfileContent,
   profileWorkflowPath,
   profileReposSchema,
+  profileSchema,
   canonicalRemote,
   readRepositoryProfile,
   writeRepositoryProfile,
@@ -31,8 +32,13 @@ import { KeyedMutex } from '../repos/mutex.js';
 import { LocalApiError } from './settings.js';
 import { PUBLIC_MODE } from '../atomic-write.js';
 import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
+import {
+  configurationView,
+  mergeConfiguration,
+  configurationPatchSchema,
+} from './configuration.js';
 import { ConfigError } from '../config/schema.js';
-import { parseMcpConfig } from '../mcp/config.js';
+import { parseMcpConfig, mcpConfigSchema } from '../mcp/config.js';
 import {
   readWorkflowModelSlots,
   validateWorkflowModels,
@@ -40,7 +46,7 @@ import {
 } from '../config/workflow-models.js';
 
 const id = z.string().regex(/^[A-Za-z0-9._-]+$/);
-const editable = z
+export const profileEditSchema = z
   .object({
     id,
     remote: z.string().min(1).optional(),
@@ -132,6 +138,67 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
 /** The profile editor deliberately exposes workflow settings, never env values. */
 export class LocalProfiles {
   constructor(private readonly paths: RockyPaths) {}
+
+  async configuration(profileId: string) {
+    const profile = await readRepositoryProfile(this.paths, profileId);
+    return {
+      values: configurationView(profile),
+      revision: revision(profile),
+      schema: z.toJSONSchema(profileSchema, { io: 'input' }),
+      mcpSchema: z.toJSONSchema(mcpConfigSchema),
+    };
+  }
+
+  async configure(profileId: string, input: unknown) {
+    const parsed = configurationPatchSchema.safeParse(input);
+    if (!parsed.success)
+      throw new LocalApiError(
+        400,
+        'invalid-profile',
+        'Supply revision and a JSON merge patch.',
+      );
+    return updates.run(this.paths.profile(profileId), async () => {
+      const existing = await readRepositoryProfile(this.paths, profileId);
+      if (revision(existing) !== parsed.data.revision)
+        throw new LocalApiError(
+          409,
+          'profile-changed',
+          'Profile changed. Read it again before saving.',
+        );
+      let next;
+      try {
+        next = profileSchema.parse(
+          mergeConfiguration(existing, parsed.data.patch),
+        );
+        if (next.id !== profileId) throw new Error('Profile id cannot change.');
+        parseMcpConfig(next.mcp);
+        if (isFlowSource(next.workflow.source))
+          validateFlow(next.workflow.source);
+        if (
+          next.workflow.source !== existing.workflow.source ||
+          JSON.stringify(next.models) !== JSON.stringify(existing.models)
+        )
+          next.models = checkedModels(next.workflow.source, next.models);
+      } catch {
+        throw new LocalApiError(
+          400,
+          'invalid-profile',
+          'Invalid profile. Check its schema, workflow, model slots and MCP declarations.',
+        );
+      }
+      if (
+        revision(await readRepositoryProfile(this.paths, profileId)) !==
+        parsed.data.revision
+      )
+        throw new LocalApiError(
+          409,
+          'profile-changed',
+          'Profile changed while saving. Read it again.',
+        );
+      await writeRepositoryProfile(this.paths, next);
+      return this.configuration(profileId);
+    });
+  }
 
   async mcp(profileId: string): Promise<McpProfileView> {
     const profile = await readRepositoryProfile(this.paths, profileId);
@@ -512,7 +579,7 @@ export class LocalProfiles {
   async save(input: unknown): Promise<RepositoryProfileView> {
     let parsed;
     try {
-      parsed = editable.safeParse(input);
+      parsed = profileEditSchema.safeParse(input);
     } catch (error) {
       if (error instanceof ConfigError)
         throw new LocalApiError(400, 'invalid-profile', error.message);

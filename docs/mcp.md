@@ -5,6 +5,95 @@ resolution are wired into production Agent execution. Session-backed Runs
 refresh stored MCP authentication in journaled preflight. Harness adapters
 translate the resolved configuration and own native child lifetimes.
 
+## Expose Rocky to other agents
+
+Rocky can also act as an MCP server. Start the daemon with `rocky start`, then
+configure your agent's MCP client with:
+
+```json
+{
+  "mcpServers": {
+    "rocky": {
+      "command": "rocky",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+`rocky mcp serve` uses stdio; stdout is reserved for MCP protocol messages. It
+resolves the running daemon's actual address from its live pidfile on each tool
+call, with the instance configuration as fallback. `ROCKY_HOME` selects the
+instance, just as for the CLI. It does not start the daemon or open a public MCP
+HTTP listener. Calls use the private loopback API and its version checks,
+validation, scheduler admission and artifact access rules.
+
+For inspection-only access, use `"args": ["mcp", "serve", "--read-only"]`.
+Mutation tools are absent from discovery and refused at dispatch in this mode.
+Only give the normal mode to agents trusted to edit local configuration and
+execute workflows: workflow triggers may write repositories and external
+services, and connection checks can start configured stdio commands.
+
+| Tools | Available operations |
+| --- | --- |
+| `rocky_status`, `rocky_intake_failures` | Health and failed webhook intake |
+| `rocky_config_get`, `rocky_config_update` | Every instance option: repositories, groups, routing, harnesses, identity, workflow defaults, source control, public URL, server, retention and concurrency |
+| `rocky_profiles_list`, `rocky_profile_defaults`, `rocky_profile_save`, `rocky_profile_delete` | Discover triggers and model slots; create, edit and delete profiles |
+| `rocky_profile_get`, `rocky_profile_update` | Complete profile configuration: repository membership, workflow, models, prompts, rules, schemas, MCP declarations, grants, commands, environment references and secret names |
+| `rocky_profile_routing_get`, `rocky_profile_routing_update` | Linear routing labels and team filters |
+| `rocky_runs_list`, `rocky_run_get` | Active and retained runs, steps, live output, usage, checkpoints, errors, available controls and artifacts |
+| `rocky_run_diff`, `rocky_run_report` | Retained diffs and review reports |
+| `rocky_trigger` | Admit a configured manual trigger for a Linear issue, optionally selecting a profile |
+| `rocky_run_steer`, `rocky_run_retry`, `rocky_run_answer`, `rocky_run_recover_session` | Redirect work, retry a failed step, resolve an authorized checkpoint, or enable redelegation |
+| `rocky_connections_list`, `rocky_connection_check`, `rocky_linear_check` | Connection declarations, authentication state and connectivity tests |
+| `rocky_connection_login`, `rocky_linear_login`, `rocky_login_get`, `rocky_login_cancel` | Begin, inspect or cancel browser authorization |
+
+Read `rocky_config_get` or `rocky_profile_get` first: each returns `values`, a
+JSON input `schema`, and a `revision`. Profile reads also include `mcpSchema`
+for normalized MCP declarations. Update calls require that revision and a
+JSON Merge Patch. Objects merge, arrays replace, and `null` removes a field
+(schema defaults can restore required/defaulted fields). For example:
+
+```json
+{
+  "revision": "<revision returned by rocky_config_get>",
+  "patch": {
+    "concurrency": { "maxRuns": 5 },
+    "identity": { "name": "Rocky" }
+  }
+}
+```
+
+Profile updates also require `profileId`. Profile creation uses
+`rocky_profile_save`; start from `rocky_profile_defaults` and select explicit
+models for each declared slot. Read the new profile before updating its advanced
+options. Routing has its own revision; reload the appropriate view after a
+conflict. Configuration schemas describe structure; the daemon also validates
+routing uniqueness, retention relationships, workflow/model compatibility and
+MCP declarations.
+
+Credentials are not exposed. Literal environment/header values and
+secret-keyed configuration values appear as `[redacted]`; sending that marker
+back preserves the saved value. Prefer `${ENV_NAME}` references when setting
+secrets. Repository arrays preserve masked values by repository name when
+reordered. Configuration changes apply to future snapshots; existing runs retain
+their captured configuration. Instance configuration responses report whether
+host/port changes require `rocky restart`.
+
+Discover trigger names through profiles and pass an issue identifier such as
+`ENG-123` to `rocky_trigger`. Refused admissions and other API failures return
+MCP `isError: true` with the daemon's structured error. A timeout does not prove
+a mutation failed: inspect state before repeating it. Reuse the same UUID for
+retries of a steer or retry-step request. Inspect `rocky_run_get` for the current
+checkpoint generation and available controls. A checkpoint approval can grant
+merge authority; agents must have the human's explicit authorization for the
+decision. OAuth authorization URLs likewise require human browser interaction.
+
+The MCP surface does not expose credential-file reads, daemon shutdown, raw
+transcript SSE streams or screenshot binaries. Run inspection includes current
+live output and artifact metadata; the web UI remains available for streaming
+transcripts and screenshots.
+
 ## Manage connections in the UI
 
 Open **Settings → Connections** in the local Rocky UI. Select a profile to add,

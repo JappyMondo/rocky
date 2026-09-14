@@ -187,3 +187,9 @@ severity gate intact.
 See the [documentation index](docs/README.md) for implementation guides and
 explicitly dated historical material. Tickets are tracked in Linear's Niotix
 Grid team with a repository routing label.
+
+### Use Rocky from another agent
+
+Run `rocky mcp serve` as a stdio MCP server to inspect runs, configure Rocky and
+trigger workflows. Use `rocky mcp serve --read-only` for inspection-only access.
+See [MCP setup and tool reference](docs/mcp.md#expose-rocky-to-other-agents).

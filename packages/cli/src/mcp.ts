@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   loginMcpServer,
+  serveRockyMcp,
   profileMcpConfig,
   readInstanceConfig,
   readRepositoryProfile,
@@ -27,9 +28,21 @@ export function attachMcpCommand(
   paths: RockyPaths,
   options: McpCliOptions = {},
 ): void {
-  program
+  const mcp = program
     .command('mcp')
-    .description('MCP authentication for this machine.')
+    .description(
+      'Serve Rocky to agents or authenticate profile MCP connections.',
+    );
+  mcp
+    .command('serve')
+    .description(
+      'Expose Rocky configuration, runs and controls over MCP stdio. Requires a running daemon for tool calls.',
+    )
+    .option('--read-only', 'Expose inspection tools only.')
+    .action(async (flags: { readOnly?: boolean }) => {
+      await serveRockyMcp({ paths, readOnly: flags.readOnly });
+    });
+  mcp
     .command('login <server>')
     .description(
       'Authenticate a remote server declared in a local repository profile.',

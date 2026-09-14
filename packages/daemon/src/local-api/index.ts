@@ -623,6 +623,39 @@ export async function registerLocalApi(
         );
       },
     );
+    local.get<{ Params: { id: string } }>(
+      '/api/profiles/:id/configuration',
+      (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Profiles unavailable.',
+          );
+        return options.profiles.configuration(
+          parse(segment, request.params.id),
+        );
+      },
+    );
+    local.patch<{ Params: { id: string } }>(
+      '/api/profiles/:id/configuration',
+      (request) => {
+        if (!options.profiles)
+          throw new LocalApiError(
+            503,
+            'profiles-unavailable',
+            'Profiles unavailable.',
+          );
+        return options.profiles.configure(
+          parse(segment, request.params.id),
+          request.body,
+        );
+      },
+    );
+    local.get('/api/configuration', () => options.settings.configuration());
+    local.patch('/api/configuration', (request) =>
+      options.settings.configure(request.body),
+    );
     local.get('/api/settings', () => options.settings.read());
     local.get('/api/profile-defaults', () => {
       if (!options.profiles)

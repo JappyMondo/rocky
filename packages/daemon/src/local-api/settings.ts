@@ -12,6 +12,12 @@ import { sourceControlSchema } from '../config/source-control.js';
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import type { RockyPaths } from '../config/paths.js';
 import { parseInstanceConfig } from '../config/schema.js';
+import {
+  configurationView,
+  mergeConfiguration,
+  configurationPatchSchema,
+} from './configuration.js';
+import { instanceConfigSchema } from '../config/schema.js';
 import { KeyedMutex } from '../repos/mutex.js';
 
 export class LocalApiError extends Error {
@@ -92,6 +98,63 @@ export class LocalSettings {
       config: parseInstanceConfig(JSON.parse(text)),
       revision: createHash('sha256').update(text).digest('hex'),
     };
+  }
+
+  async configuration() {
+    const { config, revision } = await this.current();
+    return {
+      values: configurationView(config),
+      revision,
+      schema: z.toJSONSchema(instanceConfigSchema, { io: 'input' }),
+      restartRequired:
+        config.server.host !== this.options.boundServer.host ||
+        config.server.port !== this.options.boundServer.port,
+    };
+  }
+
+  async configure(input: unknown) {
+    const parsed = configurationPatchSchema.safeParse(input);
+    if (!parsed.success)
+      throw new LocalApiError(
+        400,
+        'invalid-settings',
+        'Supply revision and a JSON merge patch.',
+      );
+    return updates.run(this.options.paths.configFile, async () => {
+      const { config, revision } = await this.current();
+      if (revision !== parsed.data.revision)
+        throw new LocalApiError(
+          409,
+          'settings-changed',
+          'Configuration changed. Read it again before saving.',
+        );
+      let merged;
+      try {
+        merged = parseInstanceConfig(
+          mergeConfiguration(config, parsed.data.patch),
+        );
+        if (!['127.0.0.1', 'localhost', '::1'].includes(merged.server.host))
+          throw new Error('Loopback required.');
+      } catch {
+        throw new LocalApiError(
+          400,
+          'invalid-settings',
+          'Invalid configuration. Check the configuration schema, routing uniqueness, retention limits and loopback host.',
+        );
+      }
+      if ((await this.current()).revision !== revision)
+        throw new LocalApiError(
+          409,
+          'settings-changed',
+          'Configuration changed while saving. Read it again.',
+        );
+      await writeAtomic(
+        this.options.paths.configFile,
+        serializeJson(merged),
+        PUBLIC_MODE,
+      );
+      return this.configuration();
+    });
   }
 
   async read(): Promise<SettingsView> {

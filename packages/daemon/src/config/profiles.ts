@@ -121,7 +121,7 @@ export const profileReposSchema = z
     }
   });
 
-const profileSchema = z
+export const profileSchema = z
   .strictObject({
     v: z.literal(1),
     id: segment,

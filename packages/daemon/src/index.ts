@@ -167,3 +167,9 @@ export {
   resolveSourceControl,
   sourceControlEnv,
 } from './config/source-control.js';
+
+export {
+  createRockyMcpServer,
+  serveRockyMcp,
+  type RockyMcpOptions,
+} from './mcp/control-server.js';

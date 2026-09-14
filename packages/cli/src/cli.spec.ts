@@ -34,6 +34,7 @@ const V1_SURFACE = [
   'init',
   'upgrade',
   'mcp login',
+  'mcp serve',
   'trigger',
 ];
 
