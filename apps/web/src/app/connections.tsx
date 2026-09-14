@@ -9,6 +9,7 @@ import type {
 import { api, apiError } from './api.js';
 import styles from './connections.module.css';
 import { Dialog } from './ui.js';
+import { RockyMcpSetup } from './rocky-mcp-setup.js';
 
 type Editor = {
   name: string;
@@ -241,6 +242,7 @@ export function Connections(p: {
           {error}
         </p>
       )}
+      <RockyMcpSetup />
       {!data ? (
         <p>Loading connections…</p>
       ) : (
