@@ -1,3 +1,4 @@
+import { isFlowSource } from '@rocky/local-contracts';
 import { execFile } from 'node:child_process';
 import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -81,7 +82,13 @@ export async function prepareProfileSnapshot(
     });
     await mkdir(join(snapshotDir, 'agents'), { recursive: true });
     await mkdir(join(snapshotDir, 'rules'), { recursive: true });
-    await writeFile(join(snapshotDir, 'workflow.ts'), profile.workflow.source);
+    await writeFile(
+      join(
+        snapshotDir,
+        isFlowSource(profile.workflow.source) ? 'workflow.json' : 'workflow.ts',
+      ),
+      profile.workflow.source,
+    );
     await writeFile(join(snapshotDir, 'mcp.json'), JSON.stringify(profile.mcp));
     await writeFile(join(snapshotDir, 'profile.json'), JSON.stringify(profile));
     await writeFile(join(snapshotDir, 'schemas.ts'), profile.schemas);

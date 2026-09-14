@@ -75,7 +75,7 @@ describe('local repository profiles', () => {
       'linear.onDelegate',
       'address-pr-conversations',
     ]);
-    expect(profile.workflow.source).toContain('linear.onDelegate(main)');
+    expect(profile.workflow.source).toContain('linear.onDelegate');
     expect(profile.models?.review.harness).toBe('opencode');
     expect(profile.grants.harness).toBe('opencode');
     expect(profile.prompts.planner).toBeTruthy();

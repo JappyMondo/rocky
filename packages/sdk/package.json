@@ -1,8 +1,8 @@
 {
   "name": "@rocky/sdk",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "Types and Trigger builders for a repo's .rocky/ — never behaviour.",
+  "description": "Types and Trigger builders for a repo's .rocky/ \u2014 never behaviour.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

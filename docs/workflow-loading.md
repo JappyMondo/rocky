@@ -5,7 +5,7 @@
 `run/execution.ts` uses `prepareProfileSnapshot(context, lead, profile, options?)`
 from `run/snapshot.ts`. It checks the profile's canonical remote against the
 lead, refreshes the owned clone and records its default-branch commit, then
-materializes the local profile as `workflow.ts`, `schemas.ts`, `mcp.json`,
+materializes the local profile as `workflow.json` (or legacy `workflow.ts`), `schemas.ts`, `mcp.json`,
 `profile.json`, `agents/` and `rules/` in a staging snapshot. Target-repository
 `.rocky/` content is never consulted in this production path.
 
@@ -46,7 +46,10 @@ no captured stdout/stderr pipe for its descendants to keep open. Validation
 runs in a scratch copy, including its cwd, so top-level generated files never
 enter the snapshot admission publishes.
 
-Node 24 strips erasable TypeScript without a consumer build. The loader resolves
+JSON flows are validated and loaded by the packaged flow interpreter. Node and
+edge connections determine execution; see [configurable flows](flows.md).
+
+For legacy snapshots, Node 24 strips erasable TypeScript without a consumer build. The loader resolves
 `@rocky/sdk` and `zod` through Rocky's installed package exports, and resolves
 snapshot-relative helpers including `.js` imports of `.ts` files. It writes no
 loader/config/build artifacts into the snapshot. Each load has an independent

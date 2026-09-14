@@ -48,6 +48,7 @@ const result = await build({
     'validate-child': 'packages/daemon/src/run/loading/validate-child.ts',
     'validate-worker': 'packages/daemon/src/run/loading/validate-worker.ts',
     loader: 'packages/daemon/src/run/loading/loader.ts',
+    'flow-runtime': 'packages/daemon/src/flow/runtime.ts',
     // Seeded workflows import this from the isolated snapshot process.
     sdk: 'packages/sdk/src/index.ts',
   },
@@ -98,6 +99,7 @@ await cp(
   { recursive: true },
 );
 await cp(join(root, 'docs/mcp.md'), join(output, 'docs/mcp.md'));
+await cp(join(root, 'docs/flows.md'), join(output, 'docs/flows.md'));
 await cp(
   join(root, 'docs/source-control.md'),
   join(output, 'docs/source-control.md'),

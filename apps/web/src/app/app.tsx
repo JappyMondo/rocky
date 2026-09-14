@@ -1,3 +1,5 @@
+import { isFlowSource } from '@rocky/local-contracts';
+import { FlowEditor } from './flow-editor.js';
 import { SourceControlFields } from './source-control.js';
 import { RetryStep } from './retry-step.js';
 import { TranscriptPanel } from './transcript-view.js';
@@ -1682,12 +1684,14 @@ function Profiles(p: {
   const [selected, setSelected] = useState<RepositoryProfileView | null>(null);
   const [draft, setDraft] = useState<RepositoryProfileView | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [flowValid, setFlowValid] = useState(true);
   const [resetSlots, setResetSlots] = useState<WorkflowModelSlots>({});
   const [slotError, setSlotError] = useState<string | null>(null);
   const [readingSlots, setReadingSlots] = useState(false);
   const [slotSource, setSlotSource] = useState<string | null>(null);
   const loadDraft = (next: RepositoryProfileView | null) => {
     setDraft(next);
+    setFlowValid(true);
     setSlotSource(next?.workflow.source ?? null);
     setSlotError(null);
     setReadingSlots(false);
@@ -1845,7 +1849,7 @@ function Profiles(p: {
     }
   };
   const save = async () => {
-    if (!draft || p.disabled) return;
+    if (!draft || p.disabled || !flowValid) return;
     if (
       draft.workflow.source !== slotSource ||
       readingSlots ||
@@ -2314,72 +2318,105 @@ function Profiles(p: {
           )}
         </section>
       </div>
-      <div hidden={tab !== 'workflow'} className={styles.profileWorkflow}>
-        {tab === 'workflow' && (
-          <WorkflowDiagram
-            key={selected?.id ?? 'new'}
-            profileId={selected?.id}
-            revision={selected?.revision}
-            unsaved={
-              !!selected &&
-              (draft.workflow.source !== selected.workflow.source ||
-                draft.workflow.triggers.join('\n') !==
-                  selected.workflow.triggers.join('\n'))
-            }
-            disabled={p.disabled}
-            mismatch={p.mismatch}
-          />
-        )}
-        <section className={styles.workflowEditor}>
-          <div>
-            <p className={styles.eyebrow}>Workflow source</p>
-            <h2>workflow.ts</h2>
-            <p>
-              Stored on this machine beside the local profile. Edit it in your
-              usual editor, then return here to refresh the configuration.
-            </p>
-          </div>
-          <div className={styles.openWorkflow}>
-            <select
-              aria-label="Workflow editor"
-              value={editor}
-              disabled={p.disabled || !selected || openingEditor}
-              onChange={(event) => {
-                setEditor(event.target.value);
-                setEditorOpened(false);
-                setEditorError(null);
+      <div
+        hidden={tab !== 'workflow'}
+        className={`${styles.profileWorkflow} ${isFlowSource(draft.workflow.source) ? styles.flowWorkspace : ''}`}
+      >
+        {isFlowSource(draft.workflow.source) ? (
+          tab === 'workflow' && (
+            <FlowEditor
+              key={selected?.id ?? 'new'}
+              source={draft.workflow.source}
+              disabled={p.disabled || resetting}
+              unsaved={
+                !selected || draft.workflow.source !== selected.workflow.source
+              }
+              onChange={(workflow) => {
+                setDraft({ ...draft, workflow });
+                setSaved(false);
               }}
-            >
-              <option value="default">Default text editor</option>
-              <option value="vscode">Visual Studio Code</option>
-              <option value="zed">Zed</option>
-            </select>
-            <button
-              type="button"
-              disabled={p.disabled || !selected || openingEditor}
-              aria-busy={openingEditor}
-              onClick={() => void openWorkflow()}
-            >
-              {openingEditor ? 'Opening…' : 'Open workflow'}
-            </button>
-            {editorOpened && (
-              <span className={styles.saved} role="status">
-                Workflow sent to your editor.
-              </span>
+              onValidityChange={setFlowValid}
+              onSave={() => void save()}
+              saveDisabled={
+                p.disabled ||
+                readingSlots ||
+                !!slotError ||
+                draft.workflow.source !== slotSource ||
+                (!!draft.modelSlots &&
+                  !modelsComplete(draft.models, draft.modelSlots))
+              }
+            />
+          )
+        ) : (
+          <>
+            {tab === 'workflow' && (
+              <WorkflowDiagram
+                key={selected?.id ?? 'new'}
+                profileId={selected?.id}
+                revision={selected?.revision}
+                unsaved={
+                  !!selected &&
+                  (draft.workflow.source !== selected.workflow.source ||
+                    draft.workflow.triggers.join('\n') !==
+                      selected.workflow.triggers.join('\n'))
+                }
+                disabled={p.disabled}
+                mismatch={p.mismatch}
+              />
             )}
-            {editorError && (
-              <p className={styles.error} role="alert">
-                {editorError}
-              </p>
-            )}
-          </div>
-        </section>
+            <section className={styles.workflowEditor}>
+              <div>
+                <p className={styles.eyebrow}>Workflow source</p>
+                <h2>workflow.ts</h2>
+                <p>
+                  Stored on this machine beside the local profile. Edit it in
+                  your usual editor, then return here to refresh the
+                  configuration.
+                </p>
+              </div>
+              <div className={styles.openWorkflow}>
+                <select
+                  aria-label="Workflow editor"
+                  value={editor}
+                  disabled={p.disabled || !selected || openingEditor}
+                  onChange={(event) => {
+                    setEditor(event.target.value);
+                    setEditorOpened(false);
+                    setEditorError(null);
+                  }}
+                >
+                  <option value="default">Default text editor</option>
+                  <option value="vscode">Visual Studio Code</option>
+                  <option value="zed">Zed</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={p.disabled || !selected || openingEditor}
+                  aria-busy={openingEditor}
+                  onClick={() => void openWorkflow()}
+                >
+                  {openingEditor ? 'Opening…' : 'Open workflow'}
+                </button>
+                {editorOpened && (
+                  <span className={styles.saved} role="status">
+                    Workflow sent to your editor.
+                  </span>
+                )}
+                {editorError && (
+                  <p className={styles.error} role="alert">
+                    {editorError}
+                  </p>
+                )}
+              </div>
+            </section>
+          </>
+        )}
         <section className={styles.workflowEditor}>
           <div>
             <h2>Restore the default workflow</h2>
             <p>
-              Replace workflow code, triggers, agent prompts and schemas with
-              Rocky’s current defaults. Keep your Config block and profile
+              Replace the graph, triggers, agent prompts and schemas with
+              Rocky’s current defaults. Keep your commands, limits and profile
               settings. Choose the models to use for the replacement.
             </p>
             {selected && JSON.stringify(draft) !== JSON.stringify(selected) && (
@@ -2428,10 +2465,9 @@ function Profiles(p: {
               disabled={p.disabled || resetting}
             />
             <p>
-              Reset replaces custom workflow code, triggers, prompts, schemas
-              and agent model settings. Other Config values, repositories,
-              tools, rules and credentials are kept. Existing runs keep their
-              snapshots.
+              Reset replaces the workflow, triggers, prompts, schemas and agent
+              model settings. Commands, limits, repositories, tools, rules and
+              credentials are kept. Existing runs keep their snapshots.
             </p>
             <div className={styles.formActions}>
               <button onClick={() => setResetModels(null)}>Cancel reset</button>
@@ -2447,51 +2483,58 @@ function Profiles(p: {
             </div>
           </section>
         )}
-        <label>
-          Manual triggers (one per line)
-          <textarea
-            value={draft.workflow.triggers.join('\n')}
-            disabled={p.disabled}
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                workflow: {
-                  ...draft.workflow,
-                  triggers: event.target.value
-                    .split('\n')
-                    .map((name) => name.trim())
-                    .filter(Boolean),
-                },
-              })
-            }
-            placeholder="custom-workflow"
-          />
-        </label>
-        <details className={styles.webEditor}>
-          <summary>Edit workflow in browser</summary>
-          <label>
-            Workflow source
-            <textarea
-              aria-label="workflow.ts"
-              className={styles.workflowSource}
-              value={draft.workflow.source}
-              disabled={p.disabled}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  workflow: { ...draft.workflow, source: event.target.value },
-                })
-              }
-              spellCheck={false}
-            />
-          </label>
-          {readingSlots && <p role="status">Reading model slots…</p>}
-          {slotError && <p role="alert">{slotError}</p>}
-          <p>
-            Export a literal <code>models</code> object with a name for each
-            slot. Configure new slots on the General tab before saving.
-          </p>
-        </details>
+        {!isFlowSource(draft.workflow.source) && (
+          <>
+            <label>
+              Manual triggers (one per line)
+              <textarea
+                value={draft.workflow.triggers.join('\n')}
+                disabled={p.disabled}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    workflow: {
+                      ...draft.workflow,
+                      triggers: event.target.value
+                        .split('\n')
+                        .map((name) => name.trim())
+                        .filter(Boolean),
+                    },
+                  })
+                }
+                placeholder="custom-workflow"
+              />
+            </label>
+            <details className={styles.webEditor}>
+              <summary>Edit workflow in browser</summary>
+              <label>
+                Workflow source
+                <textarea
+                  aria-label="workflow.ts"
+                  className={styles.workflowSource}
+                  value={draft.workflow.source}
+                  disabled={p.disabled}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      workflow: {
+                        ...draft.workflow,
+                        source: event.target.value,
+                      },
+                    })
+                  }
+                  spellCheck={false}
+                />
+              </label>
+              {readingSlots && <p role="status">Reading model slots…</p>}
+              {slotError && <p role="alert">{slotError}</p>}
+              <p>
+                Export a literal <code>models</code> object with a name for each
+                slot. Configure new slots on the General tab before saving.
+              </p>
+            </details>
+          </>
+        )}
       </div>
       <div hidden={tab !== 'general'} className={styles.profileGeneral}>
         <div className={styles.sectionHeading}>
@@ -2547,6 +2590,7 @@ function Profiles(p: {
           disabled={
             p.disabled ||
             !draft.id ||
+            !flowValid ||
             draft.workflow.source !== slotSource ||
             readingSlots ||
             !!slotError ||

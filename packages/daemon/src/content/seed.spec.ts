@@ -237,6 +237,17 @@ it('seeds installed assets byte-identically outside Config and preserves the dir
       expect(seeded.toString().split('// END ROCKY CONFIG')[1]).toBe(
         original.toString().split('// END ROCKY CONFIG')[1],
       );
+    } else if (file === 'workflow.json') {
+      const before = JSON.parse(original.toString());
+      const after = JSON.parse(seeded.toString());
+      expect({ ...after, settings: before.settings }).toEqual(before);
+      expect(after.settings.commands).toEqual({
+        install: 'pnpm install',
+        test: '',
+        lint: '',
+        build: '',
+      });
+      expect(after.settings.ui).toBeNull();
     } else expect(seeded).toEqual(original);
   }
   expect(await readFile(join(repo, '.git/index'))).toEqual(index);

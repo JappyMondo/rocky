@@ -1,3 +1,4 @@
+import type { VisualRecapOptions } from '@rocky/sdk';
 import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
 import type { ScmPr, WorkflowContext, AgentCallOpts } from '@rocky/sdk';
@@ -83,6 +84,7 @@ export async function generateReport(input: {
   steps: BootContext;
   agent: WorkflowContext['agent'];
   agentOptions: AgentCallOpts;
+  agents?: VisualRecapOptions['agents'];
   artifacts: LocalArtifacts;
   runId: string;
   pr?: ScmPr;
@@ -132,6 +134,7 @@ export async function generateReport(input: {
         steps: input.steps,
         agent: input.agent,
         agentOptions: input.agentOptions,
+        agents: input.agents,
         context,
         diff: input.diff ?? '',
         deliverable: input.deliverable,

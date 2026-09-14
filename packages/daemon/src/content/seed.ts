@@ -1,3 +1,4 @@
+import { parseFlow } from '@rocky/local-contracts';
 import {
   cp,
   lstat,
@@ -202,6 +203,23 @@ export async function seedContent(options: SeedOptions): Promise<string> {
         models,
       ),
     );
+    const flowPath = join(directory, 'workflow.json');
+    const flowSource = await readFile(flowPath, 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      },
+    );
+    if (flowSource) {
+      const flow = parseFlow(flowSource);
+      flow.settings = {
+        ...flow.settings,
+        commands: inspection.commands,
+        ui: inspection.ui,
+        states,
+      };
+      await writeFile(flowPath, JSON.stringify(flow, null, 2) + '\n');
+    }
     if (inspection.ui) {
       const path = join(directory, 'mcp.json');
       const mcp = JSON.parse(await readFile(path, 'utf8'));

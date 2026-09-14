@@ -1,3 +1,4 @@
+import { isFlowSource, parseFlow } from '@rocky/local-contracts';
 import { parse } from '@babel/parser';
 import { z } from 'zod';
 import type {
@@ -142,6 +143,7 @@ const slotsSchema = z
 
 /** Read metadata only. Never import/execute workflow code in the editor. */
 export function readWorkflowModelSlots(source: string): WorkflowModelSlots {
+  if (isFlowSource(source)) return slotsSchema.parse(parseFlow(source).models);
   const program = parse(source, {
     sourceType: 'module',
     plugins: ['typescript'],

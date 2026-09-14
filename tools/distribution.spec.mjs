@@ -159,7 +159,12 @@ test(
     await readFile(join(installed, 'harness', 'adapter.js'), 'utf8');
     // Workflow validation forks these files after the first Agent Step, so
     // the normal CLI smoke cannot exercise their dynamic URL imports.
-    for (const file of ['validate-child.js', 'validate-worker.js', 'loader.js'])
+    for (const file of [
+      'validate-child.js',
+      'validate-worker.js',
+      'loader.js',
+      'flow-runtime.js',
+    ])
       await readFile(join(installed, 'dist', file), 'utf8');
     const syntax = JSON.parse(
       run(
@@ -211,10 +216,10 @@ test(
       { env: { ...env, ROCKY_HOME: seedHome } },
     );
     const pinnedWorkflow = await readFile(
-      join(seedHome, 'profiles/fixture.workflow.ts'),
+      join(seedHome, 'profiles/flows/fixture.json'),
       'utf8',
     );
-    assert.match(pinnedWorkflow, /export const models =/);
+    assert.equal(JSON.parse(pinnedWorkflow).version, 2);
     assert.doesNotMatch(
       pinnedWorkflow,
       /provider\/main-model|claude-helper-model/,
@@ -250,6 +255,65 @@ test(
        console.log(JSON.stringify((await importSnapshotTriggers(${JSON.stringify(seedSnapshot)})).map(({ descriptor }) => descriptor)));`,
     ]);
     assert.match(triggerTable, /linear\.onDelegate/);
+    // Execute a config graph through the packed loader, outside the workspace.
+    const configured = JSON.parse(pinnedWorkflow);
+    configured.models = {};
+    configured.nodes = [
+      {
+        id: 'start',
+        type: 'trigger',
+        name: 'Start',
+        position: { x: 0, y: 0 },
+        parameters: { kind: 'manual', name: 'smoke' },
+      },
+      {
+        id: 'command',
+        type: 'command',
+        name: 'Check',
+        position: { x: 250, y: 0 },
+        parameters: { command: 'printf flow' },
+      },
+      {
+        id: 'end',
+        type: 'finish',
+        name: 'Done',
+        position: { x: 500, y: 0 },
+        parameters: { outcome: 'completed' },
+      },
+    ];
+    configured.edges = [
+      { id: 'start', source: 'start', sourceHandle: 'next', target: 'command' },
+      {
+        id: 'success',
+        source: 'command',
+        sourceHandle: 'success',
+        target: 'end',
+      },
+      {
+        id: 'failure',
+        source: 'command',
+        sourceHandle: 'failure',
+        target: 'end',
+      },
+    ];
+    await writeFile(
+      join(seedSnapshot, 'workflow.json'),
+      JSON.stringify(configured),
+    );
+    const executed = run(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      `const { importSnapshotTriggers } = await import(${JSON.stringify(pathToFileURL(join(installed, 'dist', 'loader.js')).href)});
+       const [binding] = await importSnapshotTriggers(${JSON.stringify(seedSnapshot)});
+       const commands = [];
+       const outcome = await binding.workflow({ issue: {}, stage() {}, exec: async (command) => { commands.push(command); return { exitCode: 0, stdout: 'flow', stderr: '' }; } }, {});
+       console.log(JSON.stringify({ outcome, commands }));`,
+    ]);
+    assert.deepEqual(JSON.parse(executed), {
+      outcome: 'completed',
+      commands: ['cd -- "$ROCKY_LEAD_REPO" && printf flow'],
+    });
+
     for (const file of await readdir(join(installed, 'dist'))) {
       if (file.endsWith('.js'))
         assert.doesNotMatch(

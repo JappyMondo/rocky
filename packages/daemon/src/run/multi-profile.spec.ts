@@ -170,10 +170,13 @@ it('freezes profile membership, creates sibling worktrees and gives each Agent t
         },
       },
     });
-    await vi.waitFor(async () =>
-      expect((await execution.scheduler.get('NG-700-1'))?.status).toBe(
-        'parked',
-      ),
+    // Real Git worktrees and durable journal writes can outlast Vitest's 1s polling default.
+    await vi.waitFor(
+      async () =>
+        expect((await execution.scheduler.get('NG-700-1'))?.status).toBe(
+          'parked',
+        ),
+      { timeout: 10000 },
     );
     const firstDir = paths.run('NG-700-1').workspaceDir;
     expect(seen).toEqual([firstDir]);
@@ -185,10 +188,12 @@ it('freezes profile membership, creates sibling worktrees and gives each Agent t
       profileId: 'product',
     });
     expect(second.kind).toBe('started');
-    await vi.waitFor(async () =>
-      expect((await execution.scheduler.get('NG-701-1'))?.status).toBe(
-        'parked',
-      ),
+    await vi.waitFor(
+      async () =>
+        expect((await execution.scheduler.get('NG-701-1'))?.status).toBe(
+          'parked',
+        ),
+      { timeout: 10000 },
     );
     expect(seen[1]).toBe(paths.run('NG-701-1').workspaceDir);
     for (const member of members) {
@@ -215,10 +220,12 @@ it('freezes profile membership, creates sibling worktrees and gives each Agent t
     execution = await open();
     answered = true;
     await execution.scheduler.poll('NG-700-1');
-    await vi.waitFor(async () =>
-      expect((await execution.scheduler.get('NG-700-1'))?.status).toBe(
-        'finished',
-      ),
+    await vi.waitFor(
+      async () =>
+        expect((await execution.scheduler.get('NG-700-1'))?.status).toBe(
+          'finished',
+        ),
+      { timeout: 10000 },
     );
     expect(
       (await execution.scheduler.get('NG-700-1'))?.execution?.members.map(

@@ -138,7 +138,7 @@ describe('`rocky repo add`', () => {
         .replace(/\.git$/, '')
         .replace(/\/+$/, '')}`,
     );
-    expect(profile.workflow.source).toContain('linear.onDelegate(main)');
+    expect(profile.workflow.source).toContain('linear.onDelegate');
     expect(profile.prompts.implementer).toBeTruthy();
     expect(profile.schemas).toContain('export');
     expect(out).toContain('Added "niotix"');
@@ -282,7 +282,7 @@ describe('`rocky repo profile`', () => {
     expect((await readInstanceConfig(paths)).repos[0]?.profile).toBe('niotix');
     expect(
       (await readRepositoryProfile(paths, 'niotix')).workflow.source,
-    ).toContain('linear.onDelegate(main)');
+    ).toContain('linear.onDelegate');
   });
 
   it('lists, exports and keeps an assigned local profile from deletion', async () => {

@@ -30,6 +30,8 @@ export type {
 
 export type {
   AgentCallOpts,
+  ConfiguredAgent,
+  RecapAgentRole,
   AgentModelSelection,
   WorkflowModelSlots,
   VisualRecapOptions,

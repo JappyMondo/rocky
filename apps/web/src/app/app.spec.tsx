@@ -1,3 +1,4 @@
+import type { RepositoryProfileView } from '@rocky/local-contracts';
 import {
   act,
   cleanup,
@@ -1608,7 +1609,7 @@ describe('Workspace redesign', () => {
 
   it('creates, edits, switches, and removes repository profiles including the last profile', async () => {
     window.history.replaceState({}, '', '/profiles');
-    let stored: import('@rocky/local-contracts').RepositoryProfileView[] = [];
+    let stored: RepositoryProfileView[] = [];
     const mock = daemon({
       profiles: (init) => {
         if (init?.method === 'PUT') {

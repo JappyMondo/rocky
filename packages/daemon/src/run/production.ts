@@ -608,6 +608,7 @@ export function createProductionRuntime(
         const report = await generateReport({
           steps,
           agent: runAgent,
+          agents: recap.agents,
           artifacts,
           runId: run.runId,
           pr,

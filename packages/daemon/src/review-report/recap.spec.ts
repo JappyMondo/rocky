@@ -8,7 +8,8 @@ import { createAgent } from '../run/agent.js';
 import { runBoot } from '../run/replay.js';
 import type { HarnessInvocation } from '../harness/types.js';
 import { generateReport, recapId, reportMarkdown } from './reporter.js';
-import { CaptureFor, RecapNarrative } from './recap.js';
+import { CaptureFor, RecapNarrative, generateRecapContent } from './recap.js';
+import type { ConfiguredAgent, RecapAgentRole } from '@rocky/sdk';
 
 const patch =
   'diff --git a/src/route.ts b/src/route.ts\n--- a/src/route.ts\n+++ b/src/route.ts\n@@ -1 +1 @@\n-deny();\n+allowAdmin();\n';
@@ -233,4 +234,98 @@ it('rejects missing screenshot files and omitted review categories', async () =>
       reviewFocus: narrative.reviewFocus.slice(1),
     }).success,
   ).toBe(false);
+});
+
+it('uses configured agents for every recap subtask and resolves their input at call time', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-recap-config-'));
+  roots.push(root);
+  const roles: RecapAgentRole[] = [
+    'inventory',
+    'narrative',
+    'capture',
+    'audit',
+  ];
+  const seen: Record<string, unknown> = {};
+  const agents = Object.fromEntries(
+    roles.map((role) => [
+      role,
+      (input: unknown): ConfiguredAgent => {
+        seen[role] = input;
+        return {
+          prompt:
+            role === 'audit'
+              ? 'my-audit-prompt'
+              : { prompt: `My ${role} prompt` },
+          options: {
+            harness: 'claude-code',
+            model: `${role}-model`,
+            effort: 'high',
+            tools: [],
+            mcp: ['custom-tools'],
+            input: { custom: input },
+            timeout: 1234,
+          },
+        };
+      },
+    ]),
+  ) as Record<RecapAgentRole, (input: unknown) => ConfiguredAgent>;
+  const agent = vi
+    .fn()
+    .mockResolvedValueOnce({
+      variants: [
+        {
+          id: 'screen',
+          group: 'App',
+          variant: 'Desktop',
+          description: 'The screen',
+          instructions: 'Inspect the screen',
+        },
+      ],
+      exclusions: [],
+    })
+    .mockResolvedValueOnce({ ...narrative, keyChanges: [] })
+    .mockResolvedValueOnce({
+      status: 'unavailable',
+      reason: 'No preview credentials',
+      screenshots: [],
+    })
+    .mockResolvedValueOnce({ problems: [] });
+  await runBoot({
+    journalPath: join(root, 'journal.jsonl'),
+    workflow: async (steps) => {
+      const report = await generateRecapContent({
+        steps,
+        agent,
+        agents,
+        agentOptions: { model: 'must-not-leak', tools: ['bash'] },
+        context: { screenshotDir: root, reportId: 'report' },
+        diff: '',
+        deliverable: 'Explanation',
+      });
+      expect(report.visuals).toHaveLength(1);
+      return 'completed';
+    },
+  }).then((result) => expect(result).toMatchObject({ status: 'finished' }));
+  expect(agent).toHaveBeenCalledTimes(4);
+  for (const [index, role] of roles.entries()) {
+    expect(agent.mock.calls[index][0]).toEqual(
+      role === 'audit' ? 'my-audit-prompt' : { prompt: `My ${role} prompt` },
+    );
+    expect(agent.mock.calls[index][1]).toMatchObject({
+      harness: 'claude-code',
+      model: `${role}-model`,
+      effort: 'high',
+      tools: [],
+      mcp: ['custom-tools'],
+      timeout: 1234,
+      input: { custom: seen[role] },
+    });
+  }
+  expect(seen.capture).toMatchObject({
+    variant: { id: 'screen' },
+    revision: 1,
+  });
+  expect(seen.audit).toMatchObject({
+    content: { visuals: [{ variant: 'Desktop' }] },
+  });
 });

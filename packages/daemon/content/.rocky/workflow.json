@@ -1,0 +1,3570 @@
+{
+  "version": 2,
+  "name": "Issue to delivery",
+  "models": {
+    "review": {
+      "name": "Review",
+      "description": "Inspections, reviews and visual recaps."
+    },
+    "implementation": {
+      "name": "Implementation",
+      "description": "Implementation, fixes and merge conflicts."
+    },
+    "planner": {
+      "name": "Planner",
+      "description": "Scope clarification, planning and UI triage."
+    }
+  },
+  "settings": {
+    "commands": {
+      "install": "",
+      "test": "",
+      "lint": "",
+      "build": ""
+    },
+    "ui": null,
+    "states": {
+      "started": "In Progress",
+      "review": "In Review",
+      "done": "Done"
+    },
+    "reviewCap": 5,
+    "ciCap": 3,
+    "readiness": {
+      "attempts": 30,
+      "intervalMs": 1000
+    },
+    "ciLogLines": 200,
+    "maxTransitions": 500
+  },
+  "nodes": [
+    {
+      "id": "delegation",
+      "type": "trigger",
+      "name": "Issue delegated",
+      "position": {
+        "x": 40,
+        "y": 685
+      },
+      "parameters": {
+        "kind": "linear.onDelegate"
+      },
+      "direction": "right"
+    },
+    {
+      "id": "clarify",
+      "type": "delivery.clarify",
+      "name": "Clarify scope",
+      "position": {
+        "x": 328,
+        "y": 667
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "plan",
+      "type": "delivery.plan",
+      "name": "Plan implementation",
+      "position": {
+        "x": 616,
+        "y": 667
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "implement",
+      "type": "delivery.implement",
+      "name": "Implement & open draft",
+      "position": {
+        "x": 904,
+        "y": 667
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "validate",
+      "type": "delivery.validate",
+      "name": "Validate commands",
+      "position": {
+        "x": 1192,
+        "y": 667
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "compliance",
+      "type": "delivery.compliance",
+      "name": "Check acceptance",
+      "position": {
+        "x": 1480,
+        "y": 428
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "ui",
+      "type": "delivery.ui",
+      "name": "Inspect UI",
+      "position": {
+        "x": 1768,
+        "y": 370
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "review",
+      "type": "delivery.review",
+      "name": "Review changes",
+      "position": {
+        "x": 2056,
+        "y": 556
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "ci",
+      "type": "delivery.ci",
+      "name": "Check CI",
+      "position": {
+        "x": 2344,
+        "y": 788
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "recap",
+      "type": "delivery.recap",
+      "name": "Visual recap",
+      "position": {
+        "x": 2632,
+        "y": 1085
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "publish",
+      "type": "delivery.publish",
+      "name": "Ready for review",
+      "position": {
+        "x": 2920,
+        "y": 1103
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "approval",
+      "type": "delivery.approval",
+      "name": "Approve merge",
+      "position": {
+        "x": 3208,
+        "y": 957
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "merge",
+      "type": "delivery.merge",
+      "name": "Merge approved PR",
+      "position": {
+        "x": 3496,
+        "y": 1213
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "completed",
+      "type": "finish",
+      "name": "Completed",
+      "position": {
+        "x": 3784,
+        "y": 1289
+      },
+      "parameters": {
+        "outcome": "completed"
+      },
+      "direction": "right"
+    },
+    {
+      "id": "rejected",
+      "type": "finish",
+      "name": "Rejected",
+      "position": {
+        "x": 3496,
+        "y": 248
+      },
+      "parameters": {
+        "outcome": "rejected"
+      },
+      "direction": "right"
+    },
+    {
+      "id": "exhausted",
+      "type": "finish",
+      "name": "Needs attention",
+      "position": {
+        "x": 2632,
+        "y": 516
+      },
+      "parameters": {
+        "outcome": "exhausted"
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment",
+      "type": "delivery.deliverable",
+      "name": "Review & deliver comment",
+      "position": {
+        "x": 2344,
+        "y": 1085
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "manual",
+      "type": "trigger",
+      "name": "PR conversations",
+      "position": {
+        "x": 3208,
+        "y": 58
+      },
+      "parameters": {
+        "kind": "manual",
+        "name": "address-pr-conversations"
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations",
+      "type": "delivery.conversations",
+      "name": "Address PR conversations",
+      "position": {
+        "x": 3496,
+        "y": 40
+      },
+      "parameters": {},
+      "direction": "right"
+    },
+    {
+      "id": "clarify_agent",
+      "type": "agent",
+      "name": "Scope agent",
+      "parameters": {},
+      "position": {
+        "x": 272,
+        "y": 875
+      },
+      "direction": "right"
+    },
+    {
+      "id": "clarify_agent_ai_model",
+      "type": "ai.model",
+      "name": "Scope agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "planner"
+      },
+      "position": {
+        "x": 95,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "clarify_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Scope agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "refiner"
+      },
+      "position": {
+        "x": 328,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "clarify_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 561,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "plan_agent",
+      "type": "agent",
+      "name": "Planning agent",
+      "parameters": {},
+      "position": {
+        "x": 560,
+        "y": 875
+      },
+      "direction": "right"
+    },
+    {
+      "id": "plan_agent_ai_model",
+      "type": "ai.model",
+      "name": "Planning agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "planner"
+      },
+      "position": {
+        "x": 383,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "plan_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Planning agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "planner"
+      },
+      "position": {
+        "x": 616,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "plan_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 849,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "implement_agent",
+      "type": "agent",
+      "name": "Implementation agent",
+      "parameters": {},
+      "position": {
+        "x": 848,
+        "y": 875
+      },
+      "direction": "right"
+    },
+    {
+      "id": "implement_agent_ai_model",
+      "type": "ai.model",
+      "name": "Implementation agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 438,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "implement_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Implementation agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "implementer"
+      },
+      "position": {
+        "x": 671,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "implement_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 904,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "implement_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 1137,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "implement_agent_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 1370,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "validate_agent",
+      "type": "agent",
+      "name": "Repair agent",
+      "parameters": {},
+      "position": {
+        "x": 1136,
+        "y": 875
+      },
+      "direction": "right"
+    },
+    {
+      "id": "validate_agent_ai_model",
+      "type": "ai.model",
+      "name": "Repair agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 726,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "validate_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Repair agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "fixer"
+      },
+      "position": {
+        "x": 959,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "validate_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1192,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "validate_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 1425,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "validate_agent_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 1658,
+        "y": 1083
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent",
+      "type": "agent",
+      "name": "Acceptance reviewer",
+      "parameters": {},
+      "position": {
+        "x": 847.5,
+        "y": 636
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_ai_model",
+      "type": "ai.model",
+      "name": "Acceptance reviewer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 670.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Acceptance reviewer instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "compliance-reviewer"
+      },
+      "position": {
+        "x": 903.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1136.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_1",
+      "type": "agent",
+      "name": "Repair agent",
+      "parameters": {},
+      "position": {
+        "x": 1779.5,
+        "y": 636
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_1_ai_model",
+      "type": "ai.model",
+      "name": "Repair agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 1369.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_1_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Repair agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "fixer"
+      },
+      "position": {
+        "x": 1602.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_1_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1835.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_1_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 2068.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "compliance_agent_1_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 2301.5,
+        "y": 844
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent",
+      "type": "agent",
+      "name": "UI triage",
+      "parameters": {},
+      "position": {
+        "x": 120.5,
+        "y": 578
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_ai_model",
+      "type": "ai.model",
+      "name": "UI triage model",
+      "parameters": {
+        "source": "profile",
+        "slot": "planner"
+      },
+      "position": {
+        "x": -56.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "UI triage instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "ui-triage"
+      },
+      "position": {
+        "x": 176.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 409.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_1",
+      "type": "agent",
+      "name": "Test planner",
+      "parameters": {},
+      "position": {
+        "x": 819.5,
+        "y": 578
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_1_ai_model",
+      "type": "ai.model",
+      "name": "Test planner model",
+      "parameters": {
+        "source": "profile",
+        "slot": "planner"
+      },
+      "position": {
+        "x": 642.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_1_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Test planner instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "ui-planner"
+      },
+      "position": {
+        "x": 875.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_1_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1108.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_2",
+      "type": "agent",
+      "name": "UI inspector",
+      "parameters": {},
+      "position": {
+        "x": 1635,
+        "y": 578
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_2_ai_model",
+      "type": "ai.model",
+      "name": "UI inspector model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 1341.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_2_ai_prompt",
+      "type": "ai.prompt",
+      "name": "UI inspector instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "ui-inspector"
+      },
+      "position": {
+        "x": 1574.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_2_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1807.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_2_ai_mcp",
+      "type": "ai.mcp",
+      "name": "playwright tools",
+      "parameters": {
+        "server": "playwright"
+      },
+      "position": {
+        "x": 2040.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_3",
+      "type": "agent",
+      "name": "Issue writer",
+      "parameters": {},
+      "position": {
+        "x": 2450.5,
+        "y": 578
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_3_ai_model",
+      "type": "ai.model",
+      "name": "Issue writer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 2273.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_3_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Issue writer instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "ui-complaint-writer"
+      },
+      "position": {
+        "x": 2506.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_3_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 2739.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_4",
+      "type": "agent",
+      "name": "Repair agent",
+      "parameters": {},
+      "position": {
+        "x": 3382.5,
+        "y": 578
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_4_ai_model",
+      "type": "ai.model",
+      "name": "Repair agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 2972.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_4_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Repair agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "fixer"
+      },
+      "position": {
+        "x": 3205.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_4_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3438.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_4_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 3671.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ui_agent_4_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 3904.5,
+        "y": 786
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent",
+      "type": "agent",
+      "name": "Code reviewer",
+      "parameters": {},
+      "position": {
+        "x": 1423.5,
+        "y": 764
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_ai_model",
+      "type": "ai.model",
+      "name": "Code reviewer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 1246.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Code reviewer instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "reviewer"
+      },
+      "position": {
+        "x": 1479.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1712.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_1",
+      "type": "agent",
+      "name": "Repair agent",
+      "parameters": {},
+      "position": {
+        "x": 2355.5,
+        "y": 764
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_1_ai_model",
+      "type": "ai.model",
+      "name": "Repair agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 1945.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_1_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Repair agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "fixer"
+      },
+      "position": {
+        "x": 2178.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_1_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 2411.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_1_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 2644.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "review_agent_1_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 2877.5,
+        "y": 972
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ci_agent",
+      "type": "agent",
+      "name": "CI repair agent",
+      "parameters": {},
+      "position": {
+        "x": 2288,
+        "y": 996
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ci_agent_ai_model",
+      "type": "ai.model",
+      "name": "CI repair agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 1878,
+        "y": 1204
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ci_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "CI repair agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "ci-fixer"
+      },
+      "position": {
+        "x": 2111,
+        "y": 1204
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ci_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 2344,
+        "y": 1204
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ci_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 2577,
+        "y": 1204
+      },
+      "direction": "right"
+    },
+    {
+      "id": "ci_agent_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 2810,
+        "y": 1204
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent",
+      "type": "agent",
+      "name": "Visual inventory",
+      "parameters": {},
+      "position": {
+        "x": 1517,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_ai_model",
+      "type": "ai.model",
+      "name": "Visual inventory model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 1340,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Visual inventory instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Inventory the visual evidence needed for a finished-work recap. Inspect the supplied immutable diff or deliverable and repository context. Identify every meaningful changed screen, route, dialog, role/access state, loading/empty/error/success state, supported theme, breakpoint, locale and feature variant available for the affected surfaces. Include rendered documents and diagrams if the deliverable contains them. Each variant needs a stable ID, group, clear label, description and actionable capture instructions. Inventory only supported combinations, not hypothetical products. List exclusions with specific evidence: unchanged, redundant, not visual, or unsupported. Missing access is not an exclusion: inventory that variant so capture reports the limitation. Work read-only. Review previous audit problems when provided."
+      },
+      "position": {
+        "x": 1573,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1806,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_1",
+      "type": "agent",
+      "name": "Recap writer",
+      "parameters": {},
+      "position": {
+        "x": 2216,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_1_ai_model",
+      "type": "ai.model",
+      "name": "Recap writer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 2039,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_1_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Recap writer instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Explain the finished work for a human reviewer. Ground each statement in the supplied diff, deliverable and actual repository context; prior agent summaries are not verification evidence. Select the load-bearing key changes, each with a short plain-language summary followed by the exact paths from changedFiles. Code excerpts are attached by Rocky from the real diff; never generate or rewrite code diffs. Add concise annotations anchored to selected files and actual diff lines when useful. Include a problem/solution overview and diagrams only when they clarify real relationships.\nAssess all eight categories exactly once: security (trust boundaries, injection, secrets, dependencies), permissions (roles, grants, authorization checks), routes (new/changed endpoints and access), data (schema/migrations/retention), compatibility (callers/contracts/backwards compatibility), operations (configuration/deployment/rollback), testing (executed checks and gaps), other (remaining important review decisions). Name concrete endpoints and before/after permission changes. Use attention for risks, verified only with evidence, and not-applicable with a reason. Never imply exhaustive security certification. Distinguish tests actually run from recommendations. Explain what the human should inspect first. For a non-code deliverable, return no key changes and review its accuracy/completeness/limitations instead. Work read-only. Resolve previous audit problems if supplied."
+      },
+      "position": {
+        "x": 2272,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_1_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 2505,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_2",
+      "type": "agent",
+      "name": "Screenshot agent",
+      "parameters": {},
+      "position": {
+        "x": 3031.5,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_2_ai_model",
+      "type": "ai.model",
+      "name": "Screenshot agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 2738,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_2_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Screenshot agent instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Capture the requested visual variant for this exact revision. Use available browser tools or local rendering commands. First check agent-browser via bash and read agent-browser skills get core; a browser MCP server and workspace Playwright installation are not required when this CLI is available. Use the dedicated ROCKY_BROWSER_SESSION and close it after capture. When previewUrl is supplied, it points to the exact deliverable already displayed in Rocky: open it, locate the candidate body, activate its Render diagram controls, wait for the diagrams and inspect the rendered output before capturing the requested section. This is a local preview, not proof of publication in Linear. Do not capture duplicate transcript copies or raw diagram source as rendered evidence. If previewUrl is absent, inspect configuration and start a local preview on the reserved port if needed. Reuse an already-running matching preview when possible. Capture actual screenshots of the requested states; include before/after views when the baseline can be shown reliably. Save new images under screenshotDir using reportId, revision and variant ID in the filename. Never reuse an old-head screenshot. Keep repository files, git and external services unchanged; use temporary files for preview/render inputs, and clean up a server you start before finishing. Return every screenshot with an informative caption. If required capture cannot be performed because no browser or renderer is available, stop using the runner's <blocked> envelope so configuration can be fixed before any more capture Steps run. For a variant-specific limitation despite functioning tools (for example an inaccessible role or unsupported state), return status unavailable, no screenshots, and its concrete reason. Never fabricate evidence, substitute a mockup, or claim an unperformed render passed. Rocky hosts these screenshots itself."
+      },
+      "position": {
+        "x": 2971,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_2_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3204,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_2_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 3437,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_3",
+      "type": "agent",
+      "name": "Evidence reviewer",
+      "parameters": {},
+      "position": {
+        "x": 3847,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_3_ai_model",
+      "type": "ai.model",
+      "name": "Evidence reviewer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 3670,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_3_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Evidence reviewer instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Independently audit this recap against the original immutable diff/deliverable, ticket and repository evidence. Check meaningful changed surfaces are inventoried, each inventory variant has a capture or explicit limitation, key-change summaries and code annotations are accurate, added routes and permission changes are explicit, all review categories are evidence-backed, and the result is easy to review. Missing visual access may remain clearly labelled as unavailable; invented evidence and silently omitted variants are blocking. This is a read-only evidence audit. Capture Steps own browser commands and screenshot creation and receive bash; this audit does not. If existing captures are missing or their unavailable claims are disproven by known available tools, return actionable problems requesting a fresh capture pass. The Workflow uses those problems to run the next capture revision. Do not execute captures here or emit a tool-blocked response merely because this audit has no bash. Return only actionable blocking problems; do not repeat cosmetic preferences."
+      },
+      "position": {
+        "x": 3903,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "recap_agent_3_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 4136,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "approval_agent",
+      "type": "agent",
+      "name": "Steering agent",
+      "parameters": {},
+      "position": {
+        "x": 3152,
+        "y": 1165
+      },
+      "direction": "right"
+    },
+    {
+      "id": "approval_agent_ai_model",
+      "type": "ai.model",
+      "name": "Steering agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 2742,
+        "y": 1373
+      },
+      "direction": "right"
+    },
+    {
+      "id": "approval_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Steering agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "fixer"
+      },
+      "position": {
+        "x": 2975,
+        "y": 1373
+      },
+      "direction": "right"
+    },
+    {
+      "id": "approval_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3208,
+        "y": 1373
+      },
+      "direction": "right"
+    },
+    {
+      "id": "approval_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 3441,
+        "y": 1373
+      },
+      "direction": "right"
+    },
+    {
+      "id": "approval_agent_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 3674,
+        "y": 1373
+      },
+      "direction": "right"
+    },
+    {
+      "id": "merge_agent",
+      "type": "agent",
+      "name": "Merge agent",
+      "parameters": {},
+      "position": {
+        "x": 3440,
+        "y": 1421
+      },
+      "direction": "right"
+    },
+    {
+      "id": "merge_agent_ai_model",
+      "type": "ai.model",
+      "name": "Merge agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 3030,
+        "y": 1629
+      },
+      "direction": "right"
+    },
+    {
+      "id": "merge_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Merge agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "merger"
+      },
+      "position": {
+        "x": 3263,
+        "y": 1629
+      },
+      "direction": "right"
+    },
+    {
+      "id": "merge_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3496,
+        "y": 1629
+      },
+      "direction": "right"
+    },
+    {
+      "id": "merge_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 3729,
+        "y": 1629
+      },
+      "direction": "right"
+    },
+    {
+      "id": "merge_agent_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 3962,
+        "y": 1629
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent",
+      "type": "agent",
+      "name": "Writer",
+      "parameters": {},
+      "position": {
+        "x": 513.5,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_ai_model",
+      "type": "ai.model",
+      "name": "Writer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 220,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Writer instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "deliverable-writer"
+      },
+      "position": {
+        "x": 453,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 686,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 919,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_1",
+      "type": "agent",
+      "name": "Reviewer",
+      "parameters": {},
+      "position": {
+        "x": 1445.5,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_1_ai_model",
+      "type": "ai.model",
+      "name": "Reviewer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 1152,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_1_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Reviewer instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "deliverable-reviewer"
+      },
+      "position": {
+        "x": 1385,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_1_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 1618,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_1_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 1851,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_2",
+      "type": "agent",
+      "name": "Visual inventory",
+      "parameters": {},
+      "position": {
+        "x": 2261,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_2_ai_model",
+      "type": "ai.model",
+      "name": "Visual inventory model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 2084,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_2_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Visual inventory instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Inventory the visual evidence needed for a finished-work recap. Inspect the supplied immutable diff or deliverable and repository context. Identify every meaningful changed screen, route, dialog, role/access state, loading/empty/error/success state, supported theme, breakpoint, locale and feature variant available for the affected surfaces. Include rendered documents and diagrams if the deliverable contains them. Each variant needs a stable ID, group, clear label, description and actionable capture instructions. Inventory only supported combinations, not hypothetical products. List exclusions with specific evidence: unchanged, redundant, not visual, or unsupported. Missing access is not an exclusion: inventory that variant so capture reports the limitation. Work read-only. Review previous audit problems when provided."
+      },
+      "position": {
+        "x": 2317,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_2_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 2550,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_3",
+      "type": "agent",
+      "name": "Recap writer",
+      "parameters": {},
+      "position": {
+        "x": 2960,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_3_ai_model",
+      "type": "ai.model",
+      "name": "Recap writer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 2783,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_3_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Recap writer instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Explain the finished work for a human reviewer. Ground each statement in the supplied diff, deliverable and actual repository context; prior agent summaries are not verification evidence. Select the load-bearing key changes, each with a short plain-language summary followed by the exact paths from changedFiles. Code excerpts are attached by Rocky from the real diff; never generate or rewrite code diffs. Add concise annotations anchored to selected files and actual diff lines when useful. Include a problem/solution overview and diagrams only when they clarify real relationships.\nAssess all eight categories exactly once: security (trust boundaries, injection, secrets, dependencies), permissions (roles, grants, authorization checks), routes (new/changed endpoints and access), data (schema/migrations/retention), compatibility (callers/contracts/backwards compatibility), operations (configuration/deployment/rollback), testing (executed checks and gaps), other (remaining important review decisions). Name concrete endpoints and before/after permission changes. Use attention for risks, verified only with evidence, and not-applicable with a reason. Never imply exhaustive security certification. Distinguish tests actually run from recommendations. Explain what the human should inspect first. For a non-code deliverable, return no key changes and review its accuracy/completeness/limitations instead. Work read-only. Resolve previous audit problems if supplied."
+      },
+      "position": {
+        "x": 3016,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_3_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3249,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_4",
+      "type": "agent",
+      "name": "Screenshot agent",
+      "parameters": {},
+      "position": {
+        "x": 3775.5,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_4_ai_model",
+      "type": "ai.model",
+      "name": "Screenshot agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 3482,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_4_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Screenshot agent instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Capture the requested visual variant for this exact revision. Use available browser tools or local rendering commands. First check agent-browser via bash and read agent-browser skills get core; a browser MCP server and workspace Playwright installation are not required when this CLI is available. Use the dedicated ROCKY_BROWSER_SESSION and close it after capture. When previewUrl is supplied, it points to the exact deliverable already displayed in Rocky: open it, locate the candidate body, activate its Render diagram controls, wait for the diagrams and inspect the rendered output before capturing the requested section. This is a local preview, not proof of publication in Linear. Do not capture duplicate transcript copies or raw diagram source as rendered evidence. If previewUrl is absent, inspect configuration and start a local preview on the reserved port if needed. Reuse an already-running matching preview when possible. Capture actual screenshots of the requested states; include before/after views when the baseline can be shown reliably. Save new images under screenshotDir using reportId, revision and variant ID in the filename. Never reuse an old-head screenshot. Keep repository files, git and external services unchanged; use temporary files for preview/render inputs, and clean up a server you start before finishing. Return every screenshot with an informative caption. If required capture cannot be performed because no browser or renderer is available, stop using the runner's <blocked> envelope so configuration can be fixed before any more capture Steps run. For a variant-specific limitation despite functioning tools (for example an inaccessible role or unsupported state), return status unavailable, no screenshots, and its concrete reason. Never fabricate evidence, substitute a mockup, or claim an unperformed render passed. Rocky hosts these screenshots itself."
+      },
+      "position": {
+        "x": 3715,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_4_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3948,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_4_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 4181,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_5",
+      "type": "agent",
+      "name": "Evidence reviewer",
+      "parameters": {},
+      "position": {
+        "x": 4591,
+        "y": 1293
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_5_ai_model",
+      "type": "ai.model",
+      "name": "Evidence reviewer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 4414,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_5_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Evidence reviewer instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Independently audit this recap against the original immutable diff/deliverable, ticket and repository evidence. Check meaningful changed surfaces are inventoried, each inventory variant has a capture or explicit limitation, key-change summaries and code annotations are accurate, added routes and permission changes are explicit, all review categories are evidence-backed, and the result is easy to review. Missing visual access may remain clearly labelled as unavailable; invented evidence and silently omitted variants are blocking. This is a read-only evidence audit. Capture Steps own browser commands and screenshot creation and receive bash; this audit does not. If existing captures are missing or their unavailable claims are disproven by known available tools, return actionable problems requesting a fresh capture pass. The Workflow uses those problems to run the next capture revision. Do not execute captures here or emit a tool-blocked response merely because this audit has no bash. Return only actionable blocking problems; do not repeat cosmetic preferences."
+      },
+      "position": {
+        "x": 4647,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "comment_agent_5_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 4880,
+        "y": 1501
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent",
+      "type": "agent",
+      "name": "Reply agent",
+      "parameters": {},
+      "position": {
+        "x": 2081.5,
+        "y": 248
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_ai_model",
+      "type": "ai.model",
+      "name": "Reply agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "implementation"
+      },
+      "position": {
+        "x": 1671.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Reply agent instructions",
+      "parameters": {
+        "source": "profile",
+        "file": "fixer"
+      },
+      "position": {
+        "x": 1904.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 2137.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Edit files",
+      "parameters": {
+        "capability": "edit"
+      },
+      "position": {
+        "x": 2370.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_ai_tool_2",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 2603.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_1",
+      "type": "agent",
+      "name": "Visual inventory",
+      "parameters": {},
+      "position": {
+        "x": 3013.5,
+        "y": 248
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_1_ai_model",
+      "type": "ai.model",
+      "name": "Visual inventory model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 2836.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_1_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Visual inventory instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Inventory the visual evidence needed for a finished-work recap. Inspect the supplied immutable diff or deliverable and repository context. Identify every meaningful changed screen, route, dialog, role/access state, loading/empty/error/success state, supported theme, breakpoint, locale and feature variant available for the affected surfaces. Include rendered documents and diagrams if the deliverable contains them. Each variant needs a stable ID, group, clear label, description and actionable capture instructions. Inventory only supported combinations, not hypothetical products. List exclusions with specific evidence: unchanged, redundant, not visual, or unsupported. Missing access is not an exclusion: inventory that variant so capture reports the limitation. Work read-only. Review previous audit problems when provided."
+      },
+      "position": {
+        "x": 3069.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_1_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 3302.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_2",
+      "type": "agent",
+      "name": "Recap writer",
+      "parameters": {},
+      "position": {
+        "x": 3712.5,
+        "y": 248
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_2_ai_model",
+      "type": "ai.model",
+      "name": "Recap writer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 3535.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_2_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Recap writer instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Explain the finished work for a human reviewer. Ground each statement in the supplied diff, deliverable and actual repository context; prior agent summaries are not verification evidence. Select the load-bearing key changes, each with a short plain-language summary followed by the exact paths from changedFiles. Code excerpts are attached by Rocky from the real diff; never generate or rewrite code diffs. Add concise annotations anchored to selected files and actual diff lines when useful. Include a problem/solution overview and diagrams only when they clarify real relationships.\nAssess all eight categories exactly once: security (trust boundaries, injection, secrets, dependencies), permissions (roles, grants, authorization checks), routes (new/changed endpoints and access), data (schema/migrations/retention), compatibility (callers/contracts/backwards compatibility), operations (configuration/deployment/rollback), testing (executed checks and gaps), other (remaining important review decisions). Name concrete endpoints and before/after permission changes. Use attention for risks, verified only with evidence, and not-applicable with a reason. Never imply exhaustive security certification. Distinguish tests actually run from recommendations. Explain what the human should inspect first. For a non-code deliverable, return no key changes and review its accuracy/completeness/limitations instead. Work read-only. Resolve previous audit problems if supplied."
+      },
+      "position": {
+        "x": 3768.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_2_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 4001.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_3",
+      "type": "agent",
+      "name": "Screenshot agent",
+      "parameters": {},
+      "position": {
+        "x": 4528,
+        "y": 248
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_3_ai_model",
+      "type": "ai.model",
+      "name": "Screenshot agent model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 4234.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_3_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Screenshot agent instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Capture the requested visual variant for this exact revision. Use available browser tools or local rendering commands. First check agent-browser via bash and read agent-browser skills get core; a browser MCP server and workspace Playwright installation are not required when this CLI is available. Use the dedicated ROCKY_BROWSER_SESSION and close it after capture. When previewUrl is supplied, it points to the exact deliverable already displayed in Rocky: open it, locate the candidate body, activate its Render diagram controls, wait for the diagrams and inspect the rendered output before capturing the requested section. This is a local preview, not proof of publication in Linear. Do not capture duplicate transcript copies or raw diagram source as rendered evidence. If previewUrl is absent, inspect configuration and start a local preview on the reserved port if needed. Reuse an already-running matching preview when possible. Capture actual screenshots of the requested states; include before/after views when the baseline can be shown reliably. Save new images under screenshotDir using reportId, revision and variant ID in the filename. Never reuse an old-head screenshot. Keep repository files, git and external services unchanged; use temporary files for preview/render inputs, and clean up a server you start before finishing. Return every screenshot with an informative caption. If required capture cannot be performed because no browser or renderer is available, stop using the runner's <blocked> envelope so configuration can be fixed before any more capture Steps run. For a variant-specific limitation despite functioning tools (for example an inaccessible role or unsupported state), return status unavailable, no screenshots, and its concrete reason. Never fabricate evidence, substitute a mockup, or claim an unperformed render passed. Rocky hosts these screenshots itself."
+      },
+      "position": {
+        "x": 4467.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_3_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 4700.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_3_ai_tool_1",
+      "type": "ai.tool",
+      "name": "Shell",
+      "parameters": {
+        "capability": "bash"
+      },
+      "position": {
+        "x": 4933.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_4",
+      "type": "agent",
+      "name": "Evidence reviewer",
+      "parameters": {},
+      "position": {
+        "x": 5343.5,
+        "y": 248
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_4_ai_model",
+      "type": "ai.model",
+      "name": "Evidence reviewer model",
+      "parameters": {
+        "source": "profile",
+        "slot": "review"
+      },
+      "position": {
+        "x": 5166.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_4_ai_prompt",
+      "type": "ai.prompt",
+      "name": "Evidence reviewer instructions",
+      "parameters": {
+        "source": "text",
+        "text": "Independently audit this recap against the original immutable diff/deliverable, ticket and repository evidence. Check meaningful changed surfaces are inventoried, each inventory variant has a capture or explicit limitation, key-change summaries and code annotations are accurate, added routes and permission changes are explicit, all review categories are evidence-backed, and the result is easy to review. Missing visual access may remain clearly labelled as unavailable; invented evidence and silently omitted variants are blocking. This is a read-only evidence audit. Capture Steps own browser commands and screenshot creation and receive bash; this audit does not. If existing captures are missing or their unavailable claims are disproven by known available tools, return actionable problems requesting a fresh capture pass. The Workflow uses those problems to run the next capture revision. Do not execute captures here or emit a tool-blocked response merely because this audit has no bash. Return only actionable blocking problems; do not repeat cosmetic preferences."
+      },
+      "position": {
+        "x": 5399.5,
+        "y": 456
+      },
+      "direction": "right"
+    },
+    {
+      "id": "conversations_agent_4_ai_tool",
+      "type": "ai.tool",
+      "name": "Read files",
+      "parameters": {
+        "capability": "read"
+      },
+      "position": {
+        "x": 5632.5,
+        "y": 456
+      },
+      "direction": "right"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_1",
+      "source": "delegation",
+      "target": "clarify",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_2",
+      "source": "clarify",
+      "target": "plan",
+      "sourceHandle": "pr"
+    },
+    {
+      "id": "e_3",
+      "source": "clarify",
+      "target": "comment",
+      "sourceHandle": "comment"
+    },
+    {
+      "id": "e_4",
+      "source": "clarify",
+      "target": "rejected",
+      "sourceHandle": "rejected"
+    },
+    {
+      "id": "e_5",
+      "source": "comment",
+      "target": "completed",
+      "sourceHandle": "completed"
+    },
+    {
+      "id": "e_6",
+      "source": "comment",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_7",
+      "source": "plan",
+      "target": "implement",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_8",
+      "source": "implement",
+      "target": "validate",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_9",
+      "source": "validate",
+      "target": "compliance",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_10",
+      "source": "compliance",
+      "target": "ui",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_11",
+      "source": "ui",
+      "target": "review",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_12",
+      "source": "review",
+      "target": "ci",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_13",
+      "source": "ci",
+      "target": "recap",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_14",
+      "source": "recap",
+      "target": "publish",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_15",
+      "source": "publish",
+      "target": "approval",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_16",
+      "source": "validate",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_17",
+      "source": "validate",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_18",
+      "source": "compliance",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_19",
+      "source": "compliance",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_20",
+      "source": "ui",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_21",
+      "source": "ui",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_22",
+      "source": "review",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_23",
+      "source": "review",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_24",
+      "source": "ci",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_25",
+      "source": "ci",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
+      "id": "e_26",
+      "source": "publish",
+      "target": "completed",
+      "sourceHandle": "completed"
+    },
+    {
+      "id": "e_27",
+      "source": "approval",
+      "target": "merge",
+      "sourceHandle": "approved"
+    },
+    {
+      "id": "e_28",
+      "source": "approval",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_29",
+      "source": "approval",
+      "target": "rejected",
+      "sourceHandle": "rejected"
+    },
+    {
+      "id": "e_30",
+      "source": "merge",
+      "target": "completed",
+      "sourceHandle": "merged"
+    },
+    {
+      "id": "e_31",
+      "source": "merge",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_32",
+      "source": "manual",
+      "target": "conversations",
+      "sourceHandle": "next"
+    },
+    {
+      "id": "e_33",
+      "source": "conversations",
+      "target": "completed",
+      "sourceHandle": "completed"
+    },
+    {
+      "id": "component_clarify_agent_clarify",
+      "kind": "attachment",
+      "source": "clarify_agent",
+      "sourceHandle": "provide",
+      "target": "clarify",
+      "targetHandle": "agent:refiner"
+    },
+    {
+      "id": "component_clarify_agent_ai_model_clarify_agent",
+      "kind": "attachment",
+      "source": "clarify_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "clarify_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_clarify_agent_ai_prompt_clarify_agent",
+      "kind": "attachment",
+      "source": "clarify_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "clarify_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_clarify_agent_ai_tool_clarify_agent",
+      "kind": "attachment",
+      "source": "clarify_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "clarify_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_plan_agent_plan",
+      "kind": "attachment",
+      "source": "plan_agent",
+      "sourceHandle": "provide",
+      "target": "plan",
+      "targetHandle": "agent:planner"
+    },
+    {
+      "id": "component_plan_agent_ai_model_plan_agent",
+      "kind": "attachment",
+      "source": "plan_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "plan_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_plan_agent_ai_prompt_plan_agent",
+      "kind": "attachment",
+      "source": "plan_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "plan_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_plan_agent_ai_tool_plan_agent",
+      "kind": "attachment",
+      "source": "plan_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "plan_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_implement_agent_implement",
+      "kind": "attachment",
+      "source": "implement_agent",
+      "sourceHandle": "provide",
+      "target": "implement",
+      "targetHandle": "agent:implementer"
+    },
+    {
+      "id": "component_implement_agent_ai_model_implement_agent",
+      "kind": "attachment",
+      "source": "implement_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "implement_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_implement_agent_ai_prompt_implement_agent",
+      "kind": "attachment",
+      "source": "implement_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "implement_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_implement_agent_ai_tool_implement_agent",
+      "kind": "attachment",
+      "source": "implement_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "implement_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_implement_agent_ai_tool_1_implement_agent",
+      "kind": "attachment",
+      "source": "implement_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "implement_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_implement_agent_ai_tool_2_implement_agent",
+      "kind": "attachment",
+      "source": "implement_agent_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "implement_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_validate_agent_validate",
+      "kind": "attachment",
+      "source": "validate_agent",
+      "sourceHandle": "provide",
+      "target": "validate",
+      "targetHandle": "agent:fixer"
+    },
+    {
+      "id": "component_validate_agent_ai_model_validate_agent",
+      "kind": "attachment",
+      "source": "validate_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "validate_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_validate_agent_ai_prompt_validate_agent",
+      "kind": "attachment",
+      "source": "validate_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "validate_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_validate_agent_ai_tool_validate_agent",
+      "kind": "attachment",
+      "source": "validate_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "validate_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_validate_agent_ai_tool_1_validate_agent",
+      "kind": "attachment",
+      "source": "validate_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "validate_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_validate_agent_ai_tool_2_validate_agent",
+      "kind": "attachment",
+      "source": "validate_agent_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "validate_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_compliance_agent_compliance",
+      "kind": "attachment",
+      "source": "compliance_agent",
+      "sourceHandle": "provide",
+      "target": "compliance",
+      "targetHandle": "agent:compliance-reviewer"
+    },
+    {
+      "id": "component_compliance_agent_ai_model_compliance_agent",
+      "kind": "attachment",
+      "source": "compliance_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "compliance_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_compliance_agent_ai_prompt_compliance_agent",
+      "kind": "attachment",
+      "source": "compliance_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "compliance_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_compliance_agent_ai_tool_compliance_agent",
+      "kind": "attachment",
+      "source": "compliance_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "compliance_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_compliance_agent_1_compliance",
+      "kind": "attachment",
+      "source": "compliance_agent_1",
+      "sourceHandle": "provide",
+      "target": "compliance",
+      "targetHandle": "agent:fixer"
+    },
+    {
+      "id": "component_compliance_agent_1_ai_model_compliance_agent_1",
+      "kind": "attachment",
+      "source": "compliance_agent_1_ai_model",
+      "sourceHandle": "provide",
+      "target": "compliance_agent_1",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_compliance_agent_1_ai_prompt_compliance_agent_1",
+      "kind": "attachment",
+      "source": "compliance_agent_1_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "compliance_agent_1",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_compliance_agent_1_ai_tool_compliance_agent_1",
+      "kind": "attachment",
+      "source": "compliance_agent_1_ai_tool",
+      "sourceHandle": "provide",
+      "target": "compliance_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_compliance_agent_1_ai_tool_1_compliance_agent_1",
+      "kind": "attachment",
+      "source": "compliance_agent_1_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "compliance_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_compliance_agent_1_ai_tool_2_compliance_agent_1",
+      "kind": "attachment",
+      "source": "compliance_agent_1_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "compliance_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_ui",
+      "kind": "attachment",
+      "source": "ui_agent",
+      "sourceHandle": "provide",
+      "target": "ui",
+      "targetHandle": "agent:ui-triage"
+    },
+    {
+      "id": "component_ui_agent_ai_model_ui_agent",
+      "kind": "attachment",
+      "source": "ui_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "ui_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_ui_agent_ai_prompt_ui_agent",
+      "kind": "attachment",
+      "source": "ui_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "ui_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_ui_agent_ai_tool_ui_agent",
+      "kind": "attachment",
+      "source": "ui_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "ui_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_1_ui",
+      "kind": "attachment",
+      "source": "ui_agent_1",
+      "sourceHandle": "provide",
+      "target": "ui",
+      "targetHandle": "agent:ui-planner"
+    },
+    {
+      "id": "component_ui_agent_1_ai_model_ui_agent_1",
+      "kind": "attachment",
+      "source": "ui_agent_1_ai_model",
+      "sourceHandle": "provide",
+      "target": "ui_agent_1",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_ui_agent_1_ai_prompt_ui_agent_1",
+      "kind": "attachment",
+      "source": "ui_agent_1_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "ui_agent_1",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_ui_agent_1_ai_tool_ui_agent_1",
+      "kind": "attachment",
+      "source": "ui_agent_1_ai_tool",
+      "sourceHandle": "provide",
+      "target": "ui_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_2_ui",
+      "kind": "attachment",
+      "source": "ui_agent_2",
+      "sourceHandle": "provide",
+      "target": "ui",
+      "targetHandle": "agent:ui-inspector"
+    },
+    {
+      "id": "component_ui_agent_2_ai_model_ui_agent_2",
+      "kind": "attachment",
+      "source": "ui_agent_2_ai_model",
+      "sourceHandle": "provide",
+      "target": "ui_agent_2",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_ui_agent_2_ai_prompt_ui_agent_2",
+      "kind": "attachment",
+      "source": "ui_agent_2_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "ui_agent_2",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_ui_agent_2_ai_tool_ui_agent_2",
+      "kind": "attachment",
+      "source": "ui_agent_2_ai_tool",
+      "sourceHandle": "provide",
+      "target": "ui_agent_2",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_2_ai_mcp_ui_agent_2",
+      "kind": "attachment",
+      "source": "ui_agent_2_ai_mcp",
+      "sourceHandle": "provide",
+      "target": "ui_agent_2",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_3_ui",
+      "kind": "attachment",
+      "source": "ui_agent_3",
+      "sourceHandle": "provide",
+      "target": "ui",
+      "targetHandle": "agent:ui-complaint-writer"
+    },
+    {
+      "id": "component_ui_agent_3_ai_model_ui_agent_3",
+      "kind": "attachment",
+      "source": "ui_agent_3_ai_model",
+      "sourceHandle": "provide",
+      "target": "ui_agent_3",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_ui_agent_3_ai_prompt_ui_agent_3",
+      "kind": "attachment",
+      "source": "ui_agent_3_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "ui_agent_3",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_ui_agent_3_ai_tool_ui_agent_3",
+      "kind": "attachment",
+      "source": "ui_agent_3_ai_tool",
+      "sourceHandle": "provide",
+      "target": "ui_agent_3",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_4_ui",
+      "kind": "attachment",
+      "source": "ui_agent_4",
+      "sourceHandle": "provide",
+      "target": "ui",
+      "targetHandle": "agent:fixer"
+    },
+    {
+      "id": "component_ui_agent_4_ai_model_ui_agent_4",
+      "kind": "attachment",
+      "source": "ui_agent_4_ai_model",
+      "sourceHandle": "provide",
+      "target": "ui_agent_4",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_ui_agent_4_ai_prompt_ui_agent_4",
+      "kind": "attachment",
+      "source": "ui_agent_4_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "ui_agent_4",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_ui_agent_4_ai_tool_ui_agent_4",
+      "kind": "attachment",
+      "source": "ui_agent_4_ai_tool",
+      "sourceHandle": "provide",
+      "target": "ui_agent_4",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_4_ai_tool_1_ui_agent_4",
+      "kind": "attachment",
+      "source": "ui_agent_4_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "ui_agent_4",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ui_agent_4_ai_tool_2_ui_agent_4",
+      "kind": "attachment",
+      "source": "ui_agent_4_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "ui_agent_4",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_review_agent_review",
+      "kind": "attachment",
+      "source": "review_agent",
+      "sourceHandle": "provide",
+      "target": "review",
+      "targetHandle": "agent:reviewer"
+    },
+    {
+      "id": "component_review_agent_ai_model_review_agent",
+      "kind": "attachment",
+      "source": "review_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "review_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_review_agent_ai_prompt_review_agent",
+      "kind": "attachment",
+      "source": "review_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "review_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_review_agent_ai_tool_review_agent",
+      "kind": "attachment",
+      "source": "review_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "review_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_review_agent_1_review",
+      "kind": "attachment",
+      "source": "review_agent_1",
+      "sourceHandle": "provide",
+      "target": "review",
+      "targetHandle": "agent:fixer"
+    },
+    {
+      "id": "component_review_agent_1_ai_model_review_agent_1",
+      "kind": "attachment",
+      "source": "review_agent_1_ai_model",
+      "sourceHandle": "provide",
+      "target": "review_agent_1",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_review_agent_1_ai_prompt_review_agent_1",
+      "kind": "attachment",
+      "source": "review_agent_1_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "review_agent_1",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_review_agent_1_ai_tool_review_agent_1",
+      "kind": "attachment",
+      "source": "review_agent_1_ai_tool",
+      "sourceHandle": "provide",
+      "target": "review_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_review_agent_1_ai_tool_1_review_agent_1",
+      "kind": "attachment",
+      "source": "review_agent_1_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "review_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_review_agent_1_ai_tool_2_review_agent_1",
+      "kind": "attachment",
+      "source": "review_agent_1_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "review_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ci_agent_ci",
+      "kind": "attachment",
+      "source": "ci_agent",
+      "sourceHandle": "provide",
+      "target": "ci",
+      "targetHandle": "agent:ci-fixer"
+    },
+    {
+      "id": "component_ci_agent_ai_model_ci_agent",
+      "kind": "attachment",
+      "source": "ci_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "ci_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_ci_agent_ai_prompt_ci_agent",
+      "kind": "attachment",
+      "source": "ci_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "ci_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_ci_agent_ai_tool_ci_agent",
+      "kind": "attachment",
+      "source": "ci_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "ci_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ci_agent_ai_tool_1_ci_agent",
+      "kind": "attachment",
+      "source": "ci_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "ci_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_ci_agent_ai_tool_2_ci_agent",
+      "kind": "attachment",
+      "source": "ci_agent_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "ci_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_recap_agent_recap",
+      "kind": "attachment",
+      "source": "recap_agent",
+      "sourceHandle": "provide",
+      "target": "recap",
+      "targetHandle": "agent:recap-inventory"
+    },
+    {
+      "id": "component_recap_agent_ai_model_recap_agent",
+      "kind": "attachment",
+      "source": "recap_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "recap_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_recap_agent_ai_prompt_recap_agent",
+      "kind": "attachment",
+      "source": "recap_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "recap_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_recap_agent_ai_tool_recap_agent",
+      "kind": "attachment",
+      "source": "recap_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "recap_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_recap_agent_1_recap",
+      "kind": "attachment",
+      "source": "recap_agent_1",
+      "sourceHandle": "provide",
+      "target": "recap",
+      "targetHandle": "agent:recap-narrative"
+    },
+    {
+      "id": "component_recap_agent_1_ai_model_recap_agent_1",
+      "kind": "attachment",
+      "source": "recap_agent_1_ai_model",
+      "sourceHandle": "provide",
+      "target": "recap_agent_1",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_recap_agent_1_ai_prompt_recap_agent_1",
+      "kind": "attachment",
+      "source": "recap_agent_1_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "recap_agent_1",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_recap_agent_1_ai_tool_recap_agent_1",
+      "kind": "attachment",
+      "source": "recap_agent_1_ai_tool",
+      "sourceHandle": "provide",
+      "target": "recap_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_recap_agent_2_recap",
+      "kind": "attachment",
+      "source": "recap_agent_2",
+      "sourceHandle": "provide",
+      "target": "recap",
+      "targetHandle": "agent:recap-capture"
+    },
+    {
+      "id": "component_recap_agent_2_ai_model_recap_agent_2",
+      "kind": "attachment",
+      "source": "recap_agent_2_ai_model",
+      "sourceHandle": "provide",
+      "target": "recap_agent_2",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_recap_agent_2_ai_prompt_recap_agent_2",
+      "kind": "attachment",
+      "source": "recap_agent_2_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "recap_agent_2",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_recap_agent_2_ai_tool_recap_agent_2",
+      "kind": "attachment",
+      "source": "recap_agent_2_ai_tool",
+      "sourceHandle": "provide",
+      "target": "recap_agent_2",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_recap_agent_2_ai_tool_1_recap_agent_2",
+      "kind": "attachment",
+      "source": "recap_agent_2_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "recap_agent_2",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_recap_agent_3_recap",
+      "kind": "attachment",
+      "source": "recap_agent_3",
+      "sourceHandle": "provide",
+      "target": "recap",
+      "targetHandle": "agent:recap-audit"
+    },
+    {
+      "id": "component_recap_agent_3_ai_model_recap_agent_3",
+      "kind": "attachment",
+      "source": "recap_agent_3_ai_model",
+      "sourceHandle": "provide",
+      "target": "recap_agent_3",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_recap_agent_3_ai_prompt_recap_agent_3",
+      "kind": "attachment",
+      "source": "recap_agent_3_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "recap_agent_3",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_recap_agent_3_ai_tool_recap_agent_3",
+      "kind": "attachment",
+      "source": "recap_agent_3_ai_tool",
+      "sourceHandle": "provide",
+      "target": "recap_agent_3",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_approval_agent_approval",
+      "kind": "attachment",
+      "source": "approval_agent",
+      "sourceHandle": "provide",
+      "target": "approval",
+      "targetHandle": "agent:fixer"
+    },
+    {
+      "id": "component_approval_agent_ai_model_approval_agent",
+      "kind": "attachment",
+      "source": "approval_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "approval_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_approval_agent_ai_prompt_approval_agent",
+      "kind": "attachment",
+      "source": "approval_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "approval_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_approval_agent_ai_tool_approval_agent",
+      "kind": "attachment",
+      "source": "approval_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "approval_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_approval_agent_ai_tool_1_approval_agent",
+      "kind": "attachment",
+      "source": "approval_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "approval_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_approval_agent_ai_tool_2_approval_agent",
+      "kind": "attachment",
+      "source": "approval_agent_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "approval_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_merge_agent_merge",
+      "kind": "attachment",
+      "source": "merge_agent",
+      "sourceHandle": "provide",
+      "target": "merge",
+      "targetHandle": "agent:merger"
+    },
+    {
+      "id": "component_merge_agent_ai_model_merge_agent",
+      "kind": "attachment",
+      "source": "merge_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "merge_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_merge_agent_ai_prompt_merge_agent",
+      "kind": "attachment",
+      "source": "merge_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "merge_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_merge_agent_ai_tool_merge_agent",
+      "kind": "attachment",
+      "source": "merge_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "merge_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_merge_agent_ai_tool_1_merge_agent",
+      "kind": "attachment",
+      "source": "merge_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "merge_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_merge_agent_ai_tool_2_merge_agent",
+      "kind": "attachment",
+      "source": "merge_agent_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "merge_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_comment",
+      "kind": "attachment",
+      "source": "comment_agent",
+      "sourceHandle": "provide",
+      "target": "comment",
+      "targetHandle": "agent:deliverable-writer"
+    },
+    {
+      "id": "component_comment_agent_ai_model_comment_agent",
+      "kind": "attachment",
+      "source": "comment_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "comment_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_comment_agent_ai_prompt_comment_agent",
+      "kind": "attachment",
+      "source": "comment_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "comment_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_comment_agent_ai_tool_comment_agent",
+      "kind": "attachment",
+      "source": "comment_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "comment_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_ai_tool_1_comment_agent",
+      "kind": "attachment",
+      "source": "comment_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "comment_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_1_comment",
+      "kind": "attachment",
+      "source": "comment_agent_1",
+      "sourceHandle": "provide",
+      "target": "comment",
+      "targetHandle": "agent:deliverable-reviewer"
+    },
+    {
+      "id": "component_comment_agent_1_ai_model_comment_agent_1",
+      "kind": "attachment",
+      "source": "comment_agent_1_ai_model",
+      "sourceHandle": "provide",
+      "target": "comment_agent_1",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_comment_agent_1_ai_prompt_comment_agent_1",
+      "kind": "attachment",
+      "source": "comment_agent_1_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "comment_agent_1",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_comment_agent_1_ai_tool_comment_agent_1",
+      "kind": "attachment",
+      "source": "comment_agent_1_ai_tool",
+      "sourceHandle": "provide",
+      "target": "comment_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_1_ai_tool_1_comment_agent_1",
+      "kind": "attachment",
+      "source": "comment_agent_1_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "comment_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_2_comment",
+      "kind": "attachment",
+      "source": "comment_agent_2",
+      "sourceHandle": "provide",
+      "target": "comment",
+      "targetHandle": "agent:recap-inventory"
+    },
+    {
+      "id": "component_comment_agent_2_ai_model_comment_agent_2",
+      "kind": "attachment",
+      "source": "comment_agent_2_ai_model",
+      "sourceHandle": "provide",
+      "target": "comment_agent_2",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_comment_agent_2_ai_prompt_comment_agent_2",
+      "kind": "attachment",
+      "source": "comment_agent_2_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "comment_agent_2",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_comment_agent_2_ai_tool_comment_agent_2",
+      "kind": "attachment",
+      "source": "comment_agent_2_ai_tool",
+      "sourceHandle": "provide",
+      "target": "comment_agent_2",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_3_comment",
+      "kind": "attachment",
+      "source": "comment_agent_3",
+      "sourceHandle": "provide",
+      "target": "comment",
+      "targetHandle": "agent:recap-narrative"
+    },
+    {
+      "id": "component_comment_agent_3_ai_model_comment_agent_3",
+      "kind": "attachment",
+      "source": "comment_agent_3_ai_model",
+      "sourceHandle": "provide",
+      "target": "comment_agent_3",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_comment_agent_3_ai_prompt_comment_agent_3",
+      "kind": "attachment",
+      "source": "comment_agent_3_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "comment_agent_3",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_comment_agent_3_ai_tool_comment_agent_3",
+      "kind": "attachment",
+      "source": "comment_agent_3_ai_tool",
+      "sourceHandle": "provide",
+      "target": "comment_agent_3",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_4_comment",
+      "kind": "attachment",
+      "source": "comment_agent_4",
+      "sourceHandle": "provide",
+      "target": "comment",
+      "targetHandle": "agent:recap-capture"
+    },
+    {
+      "id": "component_comment_agent_4_ai_model_comment_agent_4",
+      "kind": "attachment",
+      "source": "comment_agent_4_ai_model",
+      "sourceHandle": "provide",
+      "target": "comment_agent_4",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_comment_agent_4_ai_prompt_comment_agent_4",
+      "kind": "attachment",
+      "source": "comment_agent_4_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "comment_agent_4",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_comment_agent_4_ai_tool_comment_agent_4",
+      "kind": "attachment",
+      "source": "comment_agent_4_ai_tool",
+      "sourceHandle": "provide",
+      "target": "comment_agent_4",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_4_ai_tool_1_comment_agent_4",
+      "kind": "attachment",
+      "source": "comment_agent_4_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "comment_agent_4",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_comment_agent_5_comment",
+      "kind": "attachment",
+      "source": "comment_agent_5",
+      "sourceHandle": "provide",
+      "target": "comment",
+      "targetHandle": "agent:recap-audit"
+    },
+    {
+      "id": "component_comment_agent_5_ai_model_comment_agent_5",
+      "kind": "attachment",
+      "source": "comment_agent_5_ai_model",
+      "sourceHandle": "provide",
+      "target": "comment_agent_5",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_comment_agent_5_ai_prompt_comment_agent_5",
+      "kind": "attachment",
+      "source": "comment_agent_5_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "comment_agent_5",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_comment_agent_5_ai_tool_comment_agent_5",
+      "kind": "attachment",
+      "source": "comment_agent_5_ai_tool",
+      "sourceHandle": "provide",
+      "target": "comment_agent_5",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_conversations",
+      "kind": "attachment",
+      "source": "conversations_agent",
+      "sourceHandle": "provide",
+      "target": "conversations",
+      "targetHandle": "agent:fixer"
+    },
+    {
+      "id": "component_conversations_agent_ai_model_conversations_agent",
+      "kind": "attachment",
+      "source": "conversations_agent_ai_model",
+      "sourceHandle": "provide",
+      "target": "conversations_agent",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_conversations_agent_ai_prompt_conversations_agent",
+      "kind": "attachment",
+      "source": "conversations_agent_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "conversations_agent",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_conversations_agent_ai_tool_conversations_agent",
+      "kind": "attachment",
+      "source": "conversations_agent_ai_tool",
+      "sourceHandle": "provide",
+      "target": "conversations_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_ai_tool_1_conversations_agent",
+      "kind": "attachment",
+      "source": "conversations_agent_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "conversations_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_ai_tool_2_conversations_agent",
+      "kind": "attachment",
+      "source": "conversations_agent_ai_tool_2",
+      "sourceHandle": "provide",
+      "target": "conversations_agent",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_1_conversations",
+      "kind": "attachment",
+      "source": "conversations_agent_1",
+      "sourceHandle": "provide",
+      "target": "conversations",
+      "targetHandle": "agent:recap-inventory"
+    },
+    {
+      "id": "component_conversations_agent_1_ai_model_conversations_agent_1",
+      "kind": "attachment",
+      "source": "conversations_agent_1_ai_model",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_1",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_conversations_agent_1_ai_prompt_conversations_agent_1",
+      "kind": "attachment",
+      "source": "conversations_agent_1_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_1",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_conversations_agent_1_ai_tool_conversations_agent_1",
+      "kind": "attachment",
+      "source": "conversations_agent_1_ai_tool",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_1",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_2_conversations",
+      "kind": "attachment",
+      "source": "conversations_agent_2",
+      "sourceHandle": "provide",
+      "target": "conversations",
+      "targetHandle": "agent:recap-narrative"
+    },
+    {
+      "id": "component_conversations_agent_2_ai_model_conversations_agent_2",
+      "kind": "attachment",
+      "source": "conversations_agent_2_ai_model",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_2",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_conversations_agent_2_ai_prompt_conversations_agent_2",
+      "kind": "attachment",
+      "source": "conversations_agent_2_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_2",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_conversations_agent_2_ai_tool_conversations_agent_2",
+      "kind": "attachment",
+      "source": "conversations_agent_2_ai_tool",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_2",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_3_conversations",
+      "kind": "attachment",
+      "source": "conversations_agent_3",
+      "sourceHandle": "provide",
+      "target": "conversations",
+      "targetHandle": "agent:recap-capture"
+    },
+    {
+      "id": "component_conversations_agent_3_ai_model_conversations_agent_3",
+      "kind": "attachment",
+      "source": "conversations_agent_3_ai_model",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_3",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_conversations_agent_3_ai_prompt_conversations_agent_3",
+      "kind": "attachment",
+      "source": "conversations_agent_3_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_3",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_conversations_agent_3_ai_tool_conversations_agent_3",
+      "kind": "attachment",
+      "source": "conversations_agent_3_ai_tool",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_3",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_3_ai_tool_1_conversations_agent_3",
+      "kind": "attachment",
+      "source": "conversations_agent_3_ai_tool_1",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_3",
+      "targetHandle": "tools"
+    },
+    {
+      "id": "component_conversations_agent_4_conversations",
+      "kind": "attachment",
+      "source": "conversations_agent_4",
+      "sourceHandle": "provide",
+      "target": "conversations",
+      "targetHandle": "agent:recap-audit"
+    },
+    {
+      "id": "component_conversations_agent_4_ai_model_conversations_agent_4",
+      "kind": "attachment",
+      "source": "conversations_agent_4_ai_model",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_4",
+      "targetHandle": "model"
+    },
+    {
+      "id": "component_conversations_agent_4_ai_prompt_conversations_agent_4",
+      "kind": "attachment",
+      "source": "conversations_agent_4_ai_prompt",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_4",
+      "targetHandle": "prompt"
+    },
+    {
+      "id": "component_conversations_agent_4_ai_tool_conversations_agent_4",
+      "kind": "attachment",
+      "source": "conversations_agent_4_ai_tool",
+      "sourceHandle": "provide",
+      "target": "conversations_agent_4",
+      "targetHandle": "tools"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ import type { RunDetail, SettingsView } from '@rocky/local-contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, expect, it, vi } from 'vitest';
 
+import { DAEMON_VERSION } from '../version.js';
 import { rockyPaths } from '../config/paths.js';
 import { readInstanceConfig, writeInstanceConfig } from '../config/store.js';
 import {
@@ -417,7 +418,7 @@ it('previews the configured default and creates its complete local pipeline for 
   expect(preview.statusCode).toBe(200);
   expect(preview.json()).toMatchObject({
     workflow: {
-      source: expect.stringContaining('export const models'),
+      source: expect.stringContaining('"version": 2'),
       triggers: ['linear.onDelegate', 'address-pr-conversations'],
     },
     grants: { harness: 'opencode' },
@@ -519,7 +520,7 @@ it('requires model choices on creation and reset, and replaces old models withou
     models: selected,
   });
   expect(reset.models).toEqual(selected);
-  expect(reset.workflow.source).toContain('const reviewCap = 9;');
+  expect(JSON.parse(reset.workflow.source).settings.reviewCap).toBe(9);
   expect(reset.workflow.source).not.toContain('ambient-changed-model');
   expect(reset.workflow.source).not.toContain('old-model');
 });
@@ -849,7 +850,7 @@ it('renders a real three-Boot Journal, nested identities, and native usage witho
     missing: { inputTokens: 2, usd: 2, outputTokens: 3 },
   });
   expect(detail.usage.reported.outputTokens).toBeUndefined();
-  expect(response.headers['x-rocky-version']).toBe('0.0.0');
+  expect(response.headers['x-rocky-version']).toBe(DAEMON_VERSION);
   expect((await openJournal(paths.run(run.runId).journal)).nextBoot).toBe(4);
 });
 
@@ -880,7 +881,7 @@ it.each([
     ]) {
       const result = await app.inject({ url, ...attack });
       expect(result.statusCode).toBe(403);
-      expect(result.headers['x-rocky-version']).toBe('0.0.0');
+      expect(result.headers['x-rocky-version']).toBe(DAEMON_VERSION);
     }
   },
 );
@@ -1154,7 +1155,7 @@ it('streams durable bytes incrementally, resumes from event offsets and closes w
     `${url}/api/runs/${run.runId}/steps/0/transcript`,
     { signal: abort.signal },
   );
-  expect(response.headers.get('x-rocky-version')).toBe('0.0.0');
+  expect(response.headers.get('x-rocky-version')).toBe(DAEMON_VERSION);
   if (!response.body) throw new Error('Expected a Transcript response body');
   const reader = response.body.getReader();
   let text = '';
@@ -1508,11 +1509,15 @@ it('resets workflow content while preserving config, repositories and integratio
   });
   expect(response.statusCode).toBe(200);
   const saved = await readRepositoryProfile(f.paths, 'product');
-  expect(saved.workflow.source).toContain(
-    'const commands = { test: "custom-test" };',
+  expect(JSON.parse(saved.workflow.source).settings.commands.test).toBe(
+    'custom-test',
   );
   expect(saved.models).toEqual(models);
-  expect(saved.workflow.source).toContain("ctx.agent('refiner'");
+  expect(JSON.parse(saved.workflow.source).nodes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ type: 'delivery.clarify' }),
+    ]),
+  );
   expect(saved.workflow.triggers).toContain('linear.onDelegate');
   expect(saved.prompts).toHaveProperty('deliverable-writer');
   expect(saved.prompts).not.toHaveProperty('custom');
