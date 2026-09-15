@@ -600,10 +600,10 @@ function FlowCanvas(p: {
               .map((edge) => {
                 const connected = highlighted?.edges.has(edge.id);
                 const stroke = connected
-                  ? '#365c42'
+                  ? '#007cb9'
                   : edge.sourceHandle === 'retry'
-                    ? '#b6ad96'
-                    : '#8b9b82';
+                    ? '#aa9060'
+                    : '#6f8ea0';
                 return {
                   ...edge,
                   className:
@@ -627,10 +627,10 @@ function FlowCanvas(p: {
                     : { type: MarkerType.ArrowClosed, color: stroke },
                   labelStyle: {
                     fontSize: 11,
-                    fill: connected ? '#365c42' : '#687461',
+                    fill: connected ? '#00517d' : '#526574',
                     fontWeight: connected ? 600 : 400,
                   },
-                  labelBgStyle: { fill: '#fafbf8' },
+                  labelBgStyle: { fill: '#f7fafc' },
                 };
               })}
             nodeTypes={nodeTypes}
@@ -707,15 +707,15 @@ function FlowCanvas(p: {
             maxZoom={1.5}
             defaultEdgeOptions={{ type: 'smoothstep' }}
           >
-            <Background gap={20} size={1} color="#cbd3c4" />
+            <Background gap={20} size={1} color="#c7dce7" />
             <Controls showInteractive={false} />
             <MiniMap
               nodeColor={(n) =>
                 (n.data.node as FlowNode).type === 'trigger'
-                  ? '#88a479'
-                  : '#dce5d5'
+                  ? '#007cb9'
+                  : '#d7eaf3'
               }
-              maskColor="rgba(240,243,235,.6)"
+              maskColor="rgba(230,243,250,.65)"
               pannable
               zoomable
             />

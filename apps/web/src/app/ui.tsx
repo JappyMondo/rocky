@@ -53,6 +53,7 @@ export function Mark() {
       viewBox="0 0 40 40"
       fill="none"
       aria-hidden="true"
+      style={{ color: '#324d38' }}
     >
       <rect width="40" height="40" rx="12" fill="currentColor" />
       <path d="m9 16 1-7 8 5h4l8-5 1 7 2 7-7 8H14l-7-8 2-7Z" fill="#F3F5ED" />

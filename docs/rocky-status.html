@@ -7,13 +7,13 @@
     <title>Rocky / Where We Are / 07 Sep 2026</title>
     <style>
       :root {
-        --paper: #f5f3ed;
-        --surface: #fdfcf9;
-        --ink: #20332f;
-        --muted: #5d6964;
-        --line: #d6dacf;
-        --green: #275c49;
-        --green-soft: #e0eadd;
+        --paper: #f7fafc;
+        --surface: #ffffff;
+        --ink: #172b3a;
+        --muted: #526574;
+        --line: #d5e3ea;
+        --green: #007cb9;
+        --green-soft: #e6f3fa;
         --amber: #9a571b;
         --amber-soft: #f6e7cf;
         --red: #a33e2e;
@@ -46,7 +46,8 @@
       .masthead { border-bottom: 1px solid var(--line); }
       .masthead-inner { display: flex; align-items: center; justify-content: space-between; min-height: 78px; gap: 20px; }
       .wordmark { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 750; letter-spacing: -1px; }
-      .mark { width: 27px; height: 27px; color: var(--green); }
+      /* The presentation mark is a logo, not a theme accent. */
+      .mark { width: 27px; height: 27px; color: #275c49; }
       .edition { text-align: right; }
       .edition time { display: block; font: 12px/1.5 var(--mono); margin-top: 3px; }
       .nav { position: sticky; top: 0; z-index: 5; background: var(--paper); border-bottom: 1px solid var(--line); }

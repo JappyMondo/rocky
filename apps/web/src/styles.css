@@ -1,18 +1,23 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #28342f;
-  background: #fafbf8;
+  color: #172b3a;
+  background: #f7fafc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --background: #fafbf8;
+  /* RAL 5015-inspired sky blue palette. See docs/branding.md. */
+  --background: #f7fafc;
   --surface: #ffffff;
-  --sidebar: #f0f2eb;
-  --border: #e2e6dd;
-  --text: #28342f;
-  --muted: #727b71;
-  --accent: #365c42;
-  --accent-soft: #e3eadc;
+  --sidebar: #eef6fa;
+  --border: #d5e3ea;
+  --text: #172b3a;
+  --muted: #526574;
+  --accent: #007cb9;
+  --accent-hover: #00679c;
+  --accent-text: #00517d;
+  --accent-soft: #e6f3fa;
+  --accent-border: #b8dcec;
+  --surface-muted: #f1f6f9;
 }
 * {
   box-sizing: border-box;
@@ -50,7 +55,7 @@ summary {
   outline-offset: 3px;
 }
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-text);
 }
 button {
   color: inherit;
@@ -87,8 +92,8 @@ button {
   line-height: 1.4;
 }
 button:hover:not(:disabled) {
-  background: #f0f3eb;
-  border-color: #c4cdbd;
+  background: var(--surface-muted);
+  border-color: var(--accent-border);
 }
 input,
 textarea,
@@ -101,12 +106,13 @@ select {
 }
 input::placeholder,
 textarea::placeholder {
-  color: #90988d;
+  color: #718291;
 }
 input:focus,
 textarea:focus,
 select:focus {
-  border-color: #809778;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #007cb926;
 }
 textarea {
   resize: vertical;
@@ -128,7 +134,7 @@ kbd {
   display: none !important;
 }
 ::selection {
-  background: #dce8ce;
+  background: #cceafa;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
