@@ -157,7 +157,10 @@ export function resolveSnapshotTrigger<T extends TriggerSelector>(
 }
 
 /** Runner-owned child only; hooks are process-global across parked Boots. */
-export async function importSnapshotTriggers(snapshotDir: string): Promise<
+export async function importSnapshotTriggers(
+  snapshotDir: string,
+  continuations = 0,
+): Promise<
   {
     descriptor: TriggerSelector;
     workflow: Workflow;
@@ -177,7 +180,11 @@ export async function importSnapshotTriggers(snapshotDir: string): Promise<
           ? compiled
           : new URL('../../../dist/flow/runtime.js', import.meta.url);
       const { flowBindings } = await import(runtime.href);
-      return flowBindings(readFileSync(flowFile, 'utf8'), snapshotDir);
+      return flowBindings(
+        readFileSync(flowFile, 'utf8'),
+        snapshotDir,
+        continuations,
+      );
     }
     const root = realpathSync(snapshotDir);
     const scope = { identity: randomUUID(), root };
@@ -236,8 +243,9 @@ export async function importSnapshotTriggers(snapshotDir: string): Promise<
 export async function loadSnapshotWorkflow(
   snapshotDir: string,
   selector: TriggerSelector,
+  continuations = 0,
 ): Promise<Workflow> {
-  const bindings = await importSnapshotTriggers(snapshotDir);
+  const bindings = await importSnapshotTriggers(snapshotDir, continuations);
   return resolveSnapshotTrigger(
     bindings.map(({ descriptor, workflow }) => ({ ...descriptor, workflow })),
     selector,

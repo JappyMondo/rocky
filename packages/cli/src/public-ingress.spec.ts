@@ -354,3 +354,65 @@ it('fails closed when the daemon is unavailable', async () => {
   expect((await send(port, 'GET', '/api/ping')).status).toBe(502);
   expect((await send(port, 'POST', '/api/shutdown', '{}')).status).toBe(404);
 });
+
+it('allows exact read-only review routes and strips secrets while rejecting path and method tricks', async () => {
+  const seen: string[] = [];
+  const upstream = await listen(
+    createServer((req, res) => {
+      seen.push(`${req.method} ${req.url}`);
+      expect(req.headers.cookie).toBeUndefined();
+      expect(req.headers.authorization).toBeUndefined();
+      res.writeHead(200, {
+        'content-type': 'text/html',
+        'content-security-policy': "default-src 'self'",
+        'referrer-policy': 'no-referrer',
+        'x-robots-tag': 'noindex, nofollow',
+        'x-rocky-version': 'private',
+      });
+      res.end('Review only');
+    }),
+  );
+  const port = await listen(createPublicIngress(upstream));
+  const token = 'a'.repeat(64);
+  const base = `/reviews/${token}`;
+  for (const path of [
+    base,
+    `${base}/report.json`,
+    `${base}/images/s_${'b'.repeat(32)}`,
+    '/review-assets/assets/review-Ab_12.js',
+    '/review-assets/assets/review-Ab_12.css',
+    '/review-assets/assets/mermaid.core-Ab_12.js',
+  ]) {
+    const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      headers: { cookie: 'private', authorization: 'private' },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'self'",
+    );
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('x-rocky-version')).toBeNull();
+  }
+  const count = seen.length;
+  const denied = [
+    '/reviews',
+    `${base}/`,
+    `${base}?run=private`,
+    `${base}/../report.json`,
+    `${base}/%72eport.json`,
+    `${base}/images/../report.json`,
+    `${base}/images/s_${'c'.repeat(31)}`,
+    '/review-assets/assets/../../index.html',
+    '/review-assets/assets/..%2fmain.js',
+    '/review-assets/assets/main.js.map',
+    '/review-assets/assets/a..b.js',
+    '/review-assets/index.html',
+    '/assets/main.js',
+    '//' + base.slice(1),
+  ];
+  for (const path of denied)
+    expect((await send(port, 'GET', path)).status, path).toBe(404);
+  for (const method of ['POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'])
+    expect((await send(port, method, base)).status).toBe(404);
+  expect(seen).toHaveLength(count);
+});

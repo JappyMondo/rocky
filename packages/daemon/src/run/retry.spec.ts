@@ -10,6 +10,62 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
+it('reruns a final nonzero exec result instead of replaying its cached failure, retaining legacy finalization retries', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const { retryStepKey } = await import('./retry.js');
+  const root = await mkdtemp(join(tmpdir(), 'rocky-retry-exit-'));
+  roots.push(root);
+  const path = join(root, 'journal.jsonl');
+  let commands = 0;
+  let prepared = 0;
+  let fixed = false;
+  const workflow = async (ctx: BootContext) => {
+    await ctx.step('agent', {}, async () => {
+      prepared++;
+      return { status: 'done', result: 'commit ready' };
+    });
+    const result = await ctx.step('exec', {}, async () => {
+      commands++;
+      return {
+        status: 'done',
+        result: {
+          exitCode: fixed ? 0 : 1,
+          stdout: '',
+          stderr: fixed ? '' : 'push rejected',
+        },
+      };
+    });
+    if (result.exitCode !== 0) throw new Error(result.stderr);
+    return 'completed' as const;
+  };
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'failed',
+  );
+  // Old versions retried only $end, leaving the cached exitCode: 1 intact.
+  await appendFile(
+    path,
+    JSON.stringify({
+      v: JOURNAL_FORMAT_VERSION,
+      kind: 'retry',
+      requestId: 'legacy',
+      stepKey: '2',
+      recordedAt: new Date().toISOString(),
+    }) + '\n',
+  );
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'failed',
+  );
+  expect(commands).toBe(1);
+  const history = await readFile(path, 'utf8');
+  expect(retryStepKey((await readJournal(path)).entries)).toBe('1');
+  await (await JournalWriter.open(path)).retry('retry-command', '1');
+  fixed = true;
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'finished',
+  );
+  expect({ commands, prepared }).toEqual({ commands: 2, prepared: 1 });
+  expect((await readFile(path, 'utf8')).startsWith(history)).toBe(true);
+});
 it('retries only failed parallel work, retaining completed Steps and the original failure history', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rocky-retry-'));
   roots.push(root);
@@ -59,7 +115,7 @@ it('retries only failed parallel work, retaining completed Steps and the origina
   });
 });
 
-it('rejects retries of completed Steps, unsafe effects, structural failures, and Steps with downstream work', async () => {
+it('offers explicit retries for failed Steps and finalization, without invalidating downstream work', async () => {
   const { retryStepKey } = await import('./retry.js');
   const base = {
     v: 1,
@@ -73,11 +129,20 @@ it('rejects retries of completed Steps, unsafe effects, structural failures, and
   const end = { ...base, seq: 2, step: '$end', result: { status: 'failed' } };
   expect(retryStepKey([base, end])).toBe('0');
   for (const change of [
-    { status: 'done' as const },
     { step: 'scm:merge' },
+    { status: 'running' as const },
     { error: { name: 'FatalStepError', message: 'no' } },
   ])
-    expect(retryStepKey([{ ...base, ...change }, end])).toBeUndefined();
+    expect(retryStepKey([{ ...base, ...change }, end])).toBe('0');
+  expect(retryStepKey([{ ...base, status: 'done' }, end])).toBe('2');
+  expect(retryStepKey([end])).toBe('2');
+  expect(
+    retryStepKey([
+      { ...base, step: 'exec', status: 'done', result: { exitCode: 1 } },
+      { ...base, seq: 1, status: 'done' },
+      end,
+    ]),
+  ).toBe('2');
   expect(
     retryStepKey([base, { ...base, seq: 1, status: 'done' }, end]),
   ).toBeUndefined();
@@ -85,6 +150,41 @@ it('rejects retries of completed Steps, unsafe effects, structural failures, and
   expect(
     retryStepKey([base, { ...end, result: { status: 'finished' } }]),
   ).toBeUndefined();
+});
+it('retries an unjournaled delivery failure repeatedly, preserving completed work and history', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const { retryStepKey } = await import('./retry.js');
+  const root = await mkdtemp(join(tmpdir(), 'rocky-retry-'));
+  roots.push(root);
+  const path = join(root, 'journal.jsonl');
+  let prepared = 0;
+  let deliveries = 0;
+  const workflow = async (ctx: BootContext) => {
+    await ctx.step('exec', {}, async () => {
+      prepared++;
+      return { status: 'done', result: 'prepared' };
+    });
+    if (++deliveries < 3) throw new Error('push rejected');
+    return 'completed' as const;
+  };
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'failed',
+  );
+  const original = await readFile(path, 'utf8');
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const journal = await readJournal(path);
+    expect(retryStepKey(journal.entries)).toBe(String(journal.end?.seq));
+    const writer = await JournalWriter.open(path);
+    await writer.retry(`delivery-${attempt}`, String(journal.end?.seq));
+    await writer.retry(`delivery-${attempt}`, String(journal.end?.seq));
+    expect((await readJournal(path)).end).toBeUndefined();
+    expect((await readJournal(path)).nextBoot).toBe(attempt + 1);
+    expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+      attempt === 1 ? 'failed' : 'finished',
+    );
+  }
+  expect({ prepared, deliveries }).toEqual({ prepared: 1, deliveries: 3 });
+  expect((await readFile(path, 'utf8')).startsWith(original)).toBe(true);
 });
 it('writer retries are durable, idempotent, and recover a stale terminal header', async () => {
   const { JournalWriter } = await import('./writer.js');

@@ -336,7 +336,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         name === 'compliance-reviewer' ? ticket : undefined,
       ),
     });
-    const complaints = result.complaints;
+    const complaints = result.complaints.filter((item) => item.severity !== 'nit-pick');
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
     const fixed = await ctx.agent('fixer', {
@@ -504,6 +504,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           }),
       );
     }
+    complaints = complaints.filter((item) => item.severity !== 'nit-pick');
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
     const fixed = await ctx.agent('fixer', {

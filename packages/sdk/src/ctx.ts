@@ -234,7 +234,12 @@ export interface WorkflowContext {
 }
 
 export interface WorkflowInput {
-  members: readonly { name: string; path: string; lead: boolean }[];
+  members: readonly {
+    name: string;
+    path: string;
+    lead: boolean;
+    baseBranch?: string;
+  }[];
 }
 
 export type Workflow = (

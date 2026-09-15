@@ -6,14 +6,23 @@ import styles from './app.module.css';
 
 let sequence = 0;
 
-export function Chart({ source }: { source: string }) {
+export function Chart({
+  source,
+  readable = false,
+}: {
+  source: string;
+  readable?: boolean;
+}) {
   const [image, setImage] = useState<string>();
+  const [size, setSize] = useState<{ width: number; height: number }>();
   const [error, setError] = useState(false);
   const [zoom, setZoom] = useState(100);
   const canvas = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let stopped = false;
     setImage(undefined);
+    setSize(undefined);
+    setZoom(100);
     setError(false);
     const container = document.createElement('div');
     container.style.cssText = 'position:fixed;left:-100000px;top:0;';
@@ -47,10 +56,32 @@ export function Chart({ source }: { source: string }) {
           source,
           container,
         );
-        if (!stopped)
+        if (!stopped) {
+          const element = new DOMParser().parseFromString(
+            svg,
+            'image/svg+xml',
+          ).documentElement;
+          const viewBox = element
+            .getAttribute('viewBox')
+            ?.split(/[ ,]+/)
+            .map(Number);
+          const width =
+            viewBox?.[2] ??
+            Number.parseFloat(element.getAttribute('width') ?? '');
+          const height =
+            viewBox?.[3] ??
+            Number.parseFloat(element.getAttribute('height') ?? '');
+          if (
+            Number.isFinite(width) &&
+            Number.isFinite(height) &&
+            width > 0 &&
+            height > 0
+          )
+            setSize({ width, height });
           setImage(
             `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
           );
+        }
       } catch {
         if (!stopped) setError(true);
       } finally {
@@ -88,7 +119,20 @@ export function Chart({ source }: { source: string }) {
         <button
           type="button"
           onClick={() => {
-            setZoom(100);
+            setZoom(
+              readable && size && canvas.current
+                ? Math.max(
+                    1,
+                    Math.floor(
+                      Math.min(
+                        (canvas.current.clientWidth - 40) / size.width,
+                        (canvas.current.clientHeight - 40) / size.height,
+                        1,
+                      ) * 100,
+                    ),
+                  )
+                : 100,
+            );
             if (canvas.current) {
               canvas.current.scrollLeft = 0;
               canvas.current.scrollTop = 0;
@@ -97,6 +141,11 @@ export function Chart({ source }: { source: string }) {
         >
           Fit diagram
         </button>
+        {readable && (
+          <button type="button" onClick={() => setZoom(100)}>
+            Readable size
+          </button>
+        )}
         <span>{zoom}%</span>
         <button
           type="button"
@@ -110,14 +159,21 @@ export function Chart({ source }: { source: string }) {
       <div
         ref={canvas}
         className={styles.diagramCanvas}
+        style={
+          readable && size
+            ? { height: (size.height * zoom) / 100 + 40 }
+            : undefined
+        }
         tabIndex={0}
         aria-label="Workflow chart, scroll to explore"
       >
         <div
           className={styles.diagramStage}
           style={{
-            width: `${zoom}%`,
-            height: `${zoom}%`,
+            width:
+              readable && size ? `${(size.width * zoom) / 100}px` : `${zoom}%`,
+            height:
+              readable && size ? `${(size.height * zoom) / 100}px` : `${zoom}%`,
           }}
         >
           <img src={image} alt="Workflow stages, decisions and outcomes" />

@@ -9,6 +9,7 @@ export const Plan = z
 export const Complaint = z
   .object({
     id: z.string().min(1),
+    severity: z.enum(['nit-pick', 'should-fix', 'must-fix']).optional(),
     file: z
       .string()
       .min(1)

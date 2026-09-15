@@ -22,6 +22,7 @@ import {
   profileWorkflowPath,
   profileReposSchema,
   profileSchema,
+  profilePromptsSchema,
   canonicalRemote,
   readRepositoryProfile,
   writeRepositoryProfile,
@@ -53,6 +54,7 @@ export const profileEditSchema = z
     repos: profileReposSchema.optional(),
     revision: z.string().optional(),
     models: workflowModelsSchema.optional(),
+    promptContents: profilePromptsSchema.optional(),
     sourceControl: sourceControlSchema.optional(),
     workflow: z
       .object({
@@ -128,6 +130,7 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
     ...metadata,
     grants: profile.grants,
     sourceControl: profile.sourceControl,
+    promptContents: profile.prompts,
     prompts: Object.keys(profile.prompts).sort(),
     rules: Object.keys(profile.rules).sort(),
     secretEnv: profile.settings.secretEnv,
@@ -433,6 +436,7 @@ export class LocalProfiles {
     return {
       workflow: content.workflow,
       grants: content.grants,
+      promptContents: content.prompts,
       prompts: Object.keys(content.prompts).sort(),
       rules: Object.keys(content.rules).sort(),
       secretEnv: content.settings.secretEnv,
@@ -662,6 +666,7 @@ export class LocalProfiles {
         workflow,
         models,
         grants: parsed.data.grants ?? base.grants,
+        prompts: parsed.data.promptContents ?? base.prompts,
       });
       return this.view(saved);
     });

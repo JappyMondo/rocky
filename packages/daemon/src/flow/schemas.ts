@@ -9,6 +9,7 @@ export const Plan = z
 export const Complaint = z
   .object({
     id: z.string().min(1),
+    severity: z.enum(['nit-pick', 'should-fix', 'must-fix']).optional(),
     file: z
       .string()
       .min(1)
@@ -41,11 +42,22 @@ export function ComplaintFor(key: string) {
   });
 }
 
-export function ReviewFor(key: string, ticket?: string) {
+export function ReviewFor(
+  key: string,
+  ticket?: string,
+  previous: readonly { id: string }[] = [],
+) {
   const complaint =
     ticket === undefined
-      ? ComplaintFor(key)
+      ? ComplaintFor(key).extend({
+          severity: z
+            .enum(['nit-pick', 'should-fix', 'must-fix'])
+            .default('must-fix'),
+        })
       : ComplaintFor(key).extend({
+          severity: z
+            .enum(['nit-pick', 'should-fix', 'must-fix'])
+            .default('must-fix'),
           quote: z
             .string()
             .min(1)
@@ -60,6 +72,25 @@ export function ReviewFor(key: string, ticket?: string) {
       .refine(
         (items) => new Set(items.map(({ id }) => id)).size === items.length,
         'Complaint ids must be unique',
+      ),
+    previousIssues: z
+      .array(
+        z
+          .object({
+            id: previous.length
+              ? z.enum(previous.map((issue) => issue.id))
+              : z.string(),
+            status: z.enum(['fixed', 'open', 'dismissed']),
+            note: z.string().min(1),
+          })
+          .strict(),
+      )
+      .default([])
+      .refine(
+        (items) =>
+          items.length === previous.length &&
+          new Set(items.map((item) => item.id)).size === previous.length,
+        'Verify every previous issue exactly once using its history id',
       ),
   });
 }

@@ -1,4 +1,3 @@
-import { sameMarkdown } from './markdown.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
@@ -25,14 +24,17 @@ export type LinearMirrorClient = Pick<
 
 export interface LinearRunMirrorOptions {
   runId: string;
+  /** Explicit exhaustion continuations get a new closing report, retaining earlier receipts. */
+  completionAttempt?: number;
+  completionRetry?: string;
   issueId: string;
   sessionId: string;
   teamId: string;
   localOrigin: string;
   /** Optional because Linear rejects some otherwise-valid icon formats (SVG). */
   iconUrl?: string;
-  /** Qualification evidence, not an assumption based on schema availability. */
-  platform: {
+  /** Legacy caller metadata; comment behavior no longer gates execution. */
+  platform?: {
     terminalComments: 'one';
     elicitationComments: 'none' | 'one';
     evidence: string;
@@ -183,20 +185,14 @@ export class LinearRunMirror {
         'Linear mirror requires http://localhost:<port> as localOrigin.',
       );
     }
-    if (
-      options.platform?.terminalComments !== 'one' ||
-      !['none', 'one'].includes(options.platform.elicitationComments) ||
-      !options.platform.evidence.trim()
-    ) {
-      throw new LinearMirroringGateError(
-        'qualify terminal and elicitation auto-comments before starting a Run.',
-      );
-    }
     this.runUrl = `${origin.origin}/runs/${encodeURIComponent(options.runId)}`;
   }
 
   private key(key: string): string {
-    return `linear-mirror:${this.options.runId}:${key}`;
+    const attempt = this.options.completionAttempt ?? 0;
+    const closing =
+      /^(terminal|closing|cancellation|finish|screenshot)(:|$)/.test(key);
+    return `linear-mirror:${this.options.runId}:${closing && attempt > 0 ? `continuation:${attempt}:` : ''}${closing && this.options.completionRetry ? `retry:${this.options.completionRetry}:` : ''}${key}`;
   }
 
   private serialize<T>(work: () => Promise<T>): Promise<T> {
@@ -346,7 +342,7 @@ export class LinearRunMirror {
     });
   }
 
-  /** Explicit Workflow deliverables are outside the framework's start/close budget. */
+  /** Explicit Workflow deliverables retain stable identities across replay. */
   comment(commentId: string, body: string): Promise<void> {
     return this.serialize(async () => {
       await this.allowed('working');
@@ -427,71 +423,9 @@ export class LinearRunMirror {
     );
   }
 
-  private async commentBudget(
-    finalBody?: string,
-    requireFinal = false,
-    access: Exclude<Access, 'final'> = 'working',
-  ): Promise<void> {
-    const start = startSchema.parse(
-      await this.options.store.get(this.key('start')),
-    );
-    const baseline = z
-      .array(z.string())
-      .parse(await this.options.store.get(this.key('baseline')));
-    const comments = await this.network(
-      () => this.options.client.comments(this.options.issueId),
-      access,
-    );
-    // The baseline is the authoritative pre-run boundary. Linear can retain
-    // historical (including subsequently hidden/deleted) activities and can
-    // associate one with a later session, but neither must consume this run's
-    // comment budget. Without public association, new comments are still
-    // conservatively unclassified.
-    const explicit = z
-      .array(z.string())
-      .parse(
-        (await this.options.store.get(this.key('explicit-comments'))) ?? [],
-      );
-    const relevant = comments.filter(
-      (comment) =>
-        !baseline.includes(comment.id) &&
-        !explicit.includes(comment.id) &&
-        (comment.id === start.id ||
-          comment.sessionId === this.options.sessionId ||
-          !comment.sessionId),
-    );
-    const extras = relevant.filter((comment) => comment.id !== start.id);
-    if (
-      extras.length > 1 ||
-      extras.some(
-        (comment) =>
-          finalBody === undefined || !sameMarkdown(comment.body, finalBody),
-      )
-    ) {
-      await this.options.store.put(this.key('comment-budget-gate'), true);
-      throw new LinearMirroringGateError(
-        'an automatic or unclassified comment would cause a third comment; qualify comment attribution/elicitation behavior before continuing.',
-      );
-    }
-    if (requireFinal && (relevant.length !== 2 || extras.length !== 1)) {
-      throw new LinearMirroringGateError(
-        'the terminal activity has not produced exactly one matching closing auto-comment; re-read after platform propagation, never add an explicit close.',
-      );
-    }
-    await this.options.store.put(this.key('comment-budget-gate'), false);
-  }
-
-  /** NG-602 must call before emitting its elicitation, not after parking. */
+  /** Check the lifecycle fence before the control layer emits a question. */
   beforeElicitation(): Promise<void> {
-    return this.serialize(async () => {
-      await this.allowed('working');
-      if (this.options.platform.elicitationComments === 'one') {
-        throw new LinearMirroringGateError(
-          'elicitation would introduce an unavoidable third comment; resolve NG-601/NG-602 with the platform before emitting it.',
-        );
-      }
-      await this.commentBudget();
-    });
+    return this.serialize(() => this.allowed('working'));
   }
 
   finish(outcome: RunOutcome, presentation: RunPresentation): Promise<void> {
@@ -510,15 +444,6 @@ export class LinearRunMirror {
           : 'closing';
       await this.allowed(access);
       if (strictStop) {
-        if (
-          (await this.options.store.get(this.key('comment-budget-gate'))) ===
-            true ||
-          (await this.options.store.get(this.key('start:done'))) !== true
-        ) {
-          throw new LinearMirroringGateError(
-            'the recorded comment budget does not permit a strict-stop closing comment; no post-stop queries or additional comments are allowed.',
-          );
-        }
         if (!this.options.finalResponse)
           throw new LinearMirroringGateError(
             'strict stop requires an explicitly supplied final-response-only transport with independent cancellation scope; do not reuse the aborted product client.',
@@ -535,8 +460,6 @@ export class LinearRunMirror {
         previousTerminal === undefined
           ? undefined
           : terminalSchema.parse(previousTerminal);
-      if (!strictStop)
-        await this.commentBudget(terminal?.content.body, false, 'closing');
       if (!terminal) {
         const prefix =
           outcome.kind === 'cancelled' ? 'cancellation' : 'closing';
@@ -638,7 +561,6 @@ export class LinearRunMirror {
         }
       } else {
         await this.once('terminal', async () => {
-          await this.commentBudget(payload.content.body, false, 'closing');
           const result = await this.network(
             () => this.options.client.ensureActivity(payload),
             'closing',
@@ -646,7 +568,6 @@ export class LinearRunMirror {
           if (!result.success || result.id !== payload.id)
             throw new Error('Linear did not confirm the terminal activity.');
         });
-        await this.commentBudget(terminal.content.body, true, 'closing');
       }
       await this.options.store.put(this.key('mode'), 'terminal');
       await this.options.store.put(this.key('finish:done'), true);
@@ -671,20 +592,12 @@ export class LinearRunMirror {
         if (!result.success || result.id !== ack.sessionId)
           throw new Error('Linear did not acknowledge the session.');
       });
-      await this.frozen('baseline', z.array(z.string()), async () =>
-        (
-          await this.network(() =>
-            this.options.client.comments(this.options.issueId),
-          )
-        ).map((comment) => comment.id),
-      );
       const comment = await this.frozen('start', startSchema, () => ({
         id: randomUUID(),
         issueId: this.options.issueId,
         body: `Rocky started Run ${this.options.runId}.\n\n[Open Run](${this.runUrl})`,
       }));
       await this.once('start', async () => {
-        await this.commentBudget();
         const result = await this.network(() =>
           this.options.client.ensureComment(comment),
         );

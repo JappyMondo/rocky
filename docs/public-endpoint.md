@@ -36,8 +36,12 @@ are not part of this protocol:
 | `POST /api/linear/webhook`           | Linear's agent-session events                        |
 | `GET /api/ping`                      | Rocky's own self-ping; answers an opaque instance id |
 | `GET /api/linear/oauth/callback?...` | Linear's OAuth browser return during setup           |
+| `GET /reviews/<token>` | One shared review wizard |
+| `GET /reviews/<token>/report.json` | That review document |
+| `GET /reviews/<token>/images/<id>` | Images included in that review |
+| `GET /review-assets/assets/<file>` | The standalone reader’s built JS, CSS and fonts |
 
-The web UI is **not** on the public endpoint and must not be put there. It has
+The private control UI is **not** on the public endpoint and must not be put there. It has
 no authentication under any binding, and it controls every Run on your machine —
 putting it on the internet behind a guessable URL is exactly what
 [NG-576](https://linear.app/digimondo/issue/NG-576) §4 ruled out. Run links use the configured private Tailscale origin when present, otherwise
@@ -74,12 +78,31 @@ version or other private headers. Ping exposes only an opaque instance ID, not
 credentials. This is routing identity evidence, not user authentication or
 proof against a malicious endpoint deliberately relaying ping.
 
-Local health, UI/assets, shutdown, Run/settings and artifact APIs stay on the
+Local health, control UI/assets, shutdown, Run/settings and artifact APIs stay on the
 daemon port. The filter forwards the exact OAuth callback route so Linear can
 return the browser to Rocky through the public URL; the callback broker still
 accepts only the setup's pending state. The filter does not add authentication to that port:
 never expose it through a second tunnel, port forward or public bind. A filter
 outage fails closed (connection failure), and a daemon outage returns 502.
+
+## Shared review links
+
+When `publicUrl` is configured, Rocky publishes each recap at
+`https://<public-host>/reviews/<token>` and posts that link to the ticket and PR.
+The link opens the review wizard directly. Teammates need no Rocky account.
+Anyone with the link can read that document and its images.
+
+Each link has a random-key-derived 256-bit token. It grants no access to runs,
+settings, transcripts, approval buttons, or other screenshots. The reader uses a
+separate build. The ingress accepts only exact GET routes for reviews and their
+assets; it still blocks every private API. Reviews prohibit embedding, send no
+referrer, and ask search engines not to index them.
+
+Shared documents and their images are copied under `~/.rocky/shared-reviews`.
+They remain available when local run artifacts are pruned. To revoke a link,
+remove its token directory from that folder. Keep `.key`: replacing it changes
+future link tokens. The local-only endpoint
+`POST /api/runs/<run>/reports/<report>/share` shares an existing saved report.
 
 ## Recipes
 

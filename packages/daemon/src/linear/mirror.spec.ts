@@ -328,27 +328,49 @@ describe('LinearRunMirror', () => {
     expect(f.calls.filter((call) => call === 'upload')).toHaveLength(1);
   });
 
-  it('blocks before closing when automatic elicitation would make a third comment', async () => {
+  it.each(['session-test', null])(
+    'finishes despite an additional comment associated with %s',
+    async (sessionId) => {
+      const f = fixture();
+      const mirror = new LinearRunMirror(f.options);
+      await mirror.start();
+      // Actual platform artifact, not a second explicit Rocky comment.
+      f.comments.push({
+        id: randomUUID(),
+        body: 'Approve this work?',
+        sessionId,
+        issueId: 'issue-test',
+        userId: null,
+        parentId: null,
+        createdAt: '2026-01-01T00:00:01Z',
+      });
+      await mirror.beforeElicitation();
+      const before = f.activities.length;
+      await expect(
+        mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready.' }),
+      ).resolves.toBeUndefined();
+      expect(f.comments).toHaveLength(3);
+      expect(f.activities).toHaveLength(before + 1);
+      expect(f.calls).not.toContain('upload');
+    },
+  );
+
+  it('does not require comment reads to start or finish', async () => {
     const f = fixture();
-    const mirror = new LinearRunMirror(f.options);
+    f.client.comments = async () => {
+      throw new Error('Comment reads unavailable');
+    };
+    const options = { ...f.options, platform: undefined };
+    const mirror = new LinearRunMirror(options);
     await mirror.start();
-    // Actual platform artifact, not a second explicit Rocky comment.
-    f.comments.push({
-      id: randomUUID(),
-      body: 'Approve this work?',
-      sessionId: 'session-test',
-      issueId: 'issue-test',
-      userId: null,
-      parentId: null,
-      createdAt: '2026-01-01T00:00:01Z',
-    });
-    const before = f.activities.length;
-    await expect(
-      mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready.' }),
-    ).rejects.toThrow(/spec\/API gate.*third comment/i);
+    await mirror.beforeElicitation();
+    await mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready.' });
+    await new LinearRunMirror(options).finish(
+      { kind: 'completed' },
+      { changedSummary: 'Retry.' },
+    );
+    expect(f.activities).toHaveLength(1);
     expect(f.comments).toHaveLength(2);
-    expect(f.activities).toHaveLength(before);
-    expect(f.calls).not.toContain('upload');
   });
 
   it('does not let a pre-existing session-associated comment block a fresh run', async () => {
@@ -373,24 +395,19 @@ describe('LinearRunMirror', () => {
     expect(f.comments.at(-1)?.body).toContain('Ready.');
   });
 
-  it('refuses an elicitation known to auto-comment and rejects unqualified platform behavior', async () => {
+  it('allows auto-commenting questions without platform qualification', async () => {
     const f = fixture();
     const mirror = new LinearRunMirror({
       ...f.options,
-      platform: { ...f.options.platform, elicitationComments: 'one' },
+      platform: {
+        ...f.options.platform,
+        elicitationComments: 'one',
+        evidence: '',
+      },
     });
     await mirror.start();
-    await expect(mirror.beforeElicitation()).rejects.toThrow(
-      /spec\/API gate.*third comment/i,
-    );
+    await expect(mirror.beforeElicitation()).resolves.toBeUndefined();
     expect(f.comments).toHaveLength(1);
-    expect(
-      () =>
-        new LinearRunMirror({
-          ...f.options,
-          platform: { ...f.options.platform, evidence: '' },
-        }),
-    ).toThrow(/qualify/);
   });
 
   it('never repairs a missing auto-comment by adding an explicit closing comment', async () => {
@@ -405,7 +422,7 @@ describe('LinearRunMirror', () => {
     await mirror.start();
     await expect(
       mirror.finish({ kind: 'rejected' }, { changedSummary: 'Work retained.' }),
-    ).rejects.toThrow(/spec\/API gate/);
+    ).resolves.toBeUndefined();
     expect(f.comments).toHaveLength(1);
     expect(f.activities.at(-1)?.content.type).toBe('response');
   });
@@ -734,19 +751,14 @@ describe('LinearRunMirror', () => {
     expect(f.comments).toHaveLength(2);
   });
 
-  it('does not bypass a known third-comment gate after stop', async () => {
+  it('ignores a legacy comment-budget gate after stop without querying Linear', async () => {
     const f = fixture();
     const mirror = new LinearRunMirror(f.options);
     await mirror.start();
-    f.comments.push({
-      ...f.comments[0],
-      id: randomUUID(),
-      sessionId: 'session-test',
-      body: 'Automatic elicitation',
-    });
-    await expect(
-      mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready' }),
-    ).rejects.toThrow(/third comment/);
+    await f.options.store.put(
+      'linear-mirror:run-test-1:comment-budget-gate',
+      true,
+    );
     await mirror.stop();
     const before = f.calls.length;
     await expect(
@@ -754,8 +766,8 @@ describe('LinearRunMirror', () => {
         { kind: 'cancelled' },
         { changedSummary: 'Stopped' },
       ),
-    ).rejects.toThrow(/comment budget/);
-    expect(f.calls.slice(before)).toEqual([]);
+    ).resolves.toBeUndefined();
+    expect(f.calls.slice(before)).toEqual(['postActivity:final']);
     expect(f.comments).toHaveLength(2);
   });
 
@@ -827,7 +839,7 @@ describe('LinearRunMirror', () => {
     expect(f.comments).toHaveLength(2);
   });
 
-  it('fences working emissions when cancellation auto-comment verification must be retried', async () => {
+  it('fences working emissions after cancellation even without a visible auto-comment', async () => {
     const f = fixture();
     const mirror = new LinearRunMirror(f.options);
     await mirror.start();
@@ -839,7 +851,7 @@ describe('LinearRunMirror', () => {
     };
     await expect(
       mirror.finish({ kind: 'cancelled' }, { changedSummary: 'Work retained' }),
-    ).rejects.toThrow(/spec\/API gate/);
+    ).resolves.toBeUndefined();
     const before = [...f.calls];
     await expect(
       new LinearRunMirror(f.options).post('late', 'Must not reopen'),
@@ -847,7 +859,7 @@ describe('LinearRunMirror', () => {
     expect(f.calls).toEqual(before);
   });
 
-  it('does not retain a local Parked fence when parking a closing Run is rejected', async () => {
+  it('rejects parking a finished Run even while its auto-comment is still propagating', async () => {
     const f = fixture();
     const mirror = new LinearRunMirror(f.options);
     await mirror.start();
@@ -860,7 +872,7 @@ describe('LinearRunMirror', () => {
     };
     await expect(
       mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready' }),
-    ).rejects.toThrow(/spec\/API gate/);
+    ).resolves.toBeUndefined();
     await expect(mirror.setParked(true)).rejects.toThrow(/terminal/);
     if (hidden) f.comments.push(hidden);
     await mirror.finish({ kind: 'completed' }, { changedSummary: 'Ready' });
@@ -868,7 +880,7 @@ describe('LinearRunMirror', () => {
   });
 });
 
-it('posts scope and report comments once, survives an ambiguous response and preserves the terminal comment budget', async () => {
+it('posts scope and report comments once, survives an ambiguous response and finishes without duplicating comments', async () => {
   const f = fixture();
   const mirror = new LinearRunMirror(f.options);
   await mirror.start();
@@ -945,7 +957,7 @@ it.each([null, 'session-test'])(
   },
 );
 
-it('does not treat an explicit deliverable as evidence of the terminal auto-comment', async () => {
+it('finishes with an explicit deliverable while the terminal auto-comment is not visible', async () => {
   const f = fixture();
   const mirror = new LinearRunMirror(f.options);
   await mirror.start();
@@ -962,7 +974,45 @@ it('does not treat an explicit deliverable as evidence of the terminal auto-comm
       { kind: 'completed' },
       { changedSummary: 'Answer delivered.' },
     ),
-  ).rejects.toThrow(/exactly one matching closing auto-comment/);
+  ).resolves.toBeUndefined();
   expect(f.comments).toHaveLength(2);
   expect(f.comments[1].body).toBe('The requested answer.');
 });
+
+it.each([
+  { completionAttempt: 1 },
+  { completionAttempt: 1, completionRetry: 'retry-checkpoint' },
+])(
+  'publishes a new completion for a recovery without duplicating earlier receipts (%j)',
+  async (recovery) => {
+    const f = fixture();
+    const original = new LinearRunMirror({
+      ...f.options,
+      ...(recovery.completionRetry ? { completionAttempt: 1 } : {}),
+    });
+    await original.start();
+    await original.finish(
+      { kind: 'giveUp' },
+      { changedSummary: 'Review limit reached.' },
+    );
+    const prior = structuredClone(f.activities.at(-1));
+    await f.store.put('linear-mirror:run-test-1:mode', 'active');
+    const options = { ...f.options, ...recovery };
+    await new LinearRunMirror(options).start();
+    await new LinearRunMirror(options).finish(
+      { kind: 'completed' },
+      { changedSummary: 'Repaired after continuation.' },
+    );
+    await new LinearRunMirror(options).finish(
+      { kind: 'completed' },
+      { changedSummary: 'Repeated request.' },
+    );
+    expect(f.comments).toHaveLength(3);
+    expect(f.activities).toHaveLength(2);
+    expect(f.activities[0]).toEqual(prior);
+    expect(f.activities[1].content).toMatchObject({
+      type: 'response',
+      body: expect.stringContaining('Repaired after continuation.'),
+    });
+  },
+);

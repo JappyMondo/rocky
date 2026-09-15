@@ -808,7 +808,13 @@ export function App() {
               submitSteer={submitSteer}
               allowed={mutationsAllowed}
               answer={submitAnswer}
-              retryStep={async (stepKey, requestId, expectedBoot) => {
+              retryStep={async (
+                stepKey,
+                requestId,
+                expectedBoot,
+                recoveryInstructions,
+                continueExhausted,
+              ) => {
                 if (!selectedDetail || !mutationsAllowed) return;
                 const runId = selectedDetail.run.runId;
                 await api(
@@ -817,7 +823,13 @@ export function App() {
                   {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ stepKey, requestId, expectedBoot }),
+                    body: JSON.stringify({
+                      stepKey,
+                      requestId,
+                      expectedBoot,
+                      recoveryInstructions,
+                      continueExhausted,
+                    }),
                   },
                 );
                 await refreshDetail(runId);
@@ -991,6 +1003,8 @@ function RunView(p: {
     stepKey: string,
     requestId: string,
     expectedBoot: number,
+    recoveryInstructions?: string,
+    continueExhausted?: true,
   ) => Promise<void>;
   openDiff: (id: string) => void;
 }) {
@@ -1013,6 +1027,23 @@ function RunView(p: {
   const validationFailure =
     (d.run.error?.name ?? failedStep?.error?.name) === 'ZodError';
   const failure = d.run.error?.message ?? failedStep?.error?.message;
+  const retryStepKey = d.controls.retryStep;
+  const continueReview = d.controls.continueReview;
+  const stoppedStep = d.steps.findLast(
+    (step) => step.status === 'done' && step.step !== '$end',
+  );
+  const stoppedInCi = stoppedStep?.stage === 'CI';
+  const lastAgentResult = d.steps.findLast(
+    (step) => step.status === 'done' && step.step === 'agent',
+  )?.result;
+  const stopSummary =
+    lastAgentResult &&
+    typeof lastAgentResult === 'object' &&
+    'summary' in lastAgentResult &&
+    typeof lastAgentResult.summary === 'string'
+      ? lastAgentResult.summary
+      : undefined;
+
   const canAnswer = checkpointOpen && d.controls.answer && p.allowed;
   const canSteer = d.controls.steer && p.allowed && !terminal(d.run.status);
   const submitOnModifierEnter = (
@@ -1063,18 +1094,54 @@ function RunView(p: {
             </span>
           </p>
         </div>
-        {d.run.pr && (
+        {(d.run.prs?.length
+          ? d.run.prs
+          : d.run.pr
+            ? [{ ...d.run.pr, repo: d.run.repo }]
+            : []
+        ).map((pr) => (
           <a
+            key={pr.url}
             className={styles.buttonLink}
-            href={d.run.pr.url}
+            href={pr.url}
             target="_blank"
             rel="noreferrer"
           >
-            Pull request #{d.run.pr.number}
+            {(d.run.prs?.length ?? 0) > 1 ? `${pr.repo}: ` : ''}Pull request #
+            {pr.number}
             <Icon name="external" size={14} />
           </a>
-        )}
+        ))}
       </header>
+      {d.run.status === 'finished' && d.run.outcome === 'exhausted' && (
+        <section className={styles.runFailure}>
+          <h2>
+            {stoppedInCi ? 'CI needs attention' : 'Workflow needs attention'}
+          </h2>
+          <p>
+            {stoppedInCi
+              ? 'CI did not pass. The run stopped during CI repair; this does not mean the review limit was reached.'
+              : 'The workflow stopped with unresolved work. A review, validation, or repair could not be completed.'}
+          </p>
+          {stopSummary && <p>{stopSummary}</p>}
+          {continueReview && (
+            <RetryStep
+              key={`${d.run.runId}:${d.run.boots}:continue`}
+              disabled={!p.allowed}
+              continueRounds={continueReview.rounds}
+              submit={(requestId) =>
+                p.retryStep(
+                  continueReview.stepKey,
+                  requestId,
+                  d.run.boots,
+                  undefined,
+                  true,
+                )
+              }
+            />
+          )}
+        </section>
+      )}
       {d.run.status === 'failed' && (
         <section role="alert" className={styles.runFailure}>
           <h2>Run failed{failedStep ? ` · ${stepName(failedStep)}` : ''}</h2>
@@ -1093,6 +1160,15 @@ function RunView(p: {
               <pre>{failure}</pre>
             </details>
           )}
+          {retryStepKey !== undefined && (
+            <RetryStep
+              key={`${d.run.runId}:${d.run.boots}:${retryStepKey}`}
+              disabled={!p.allowed}
+              submit={(requestId, instructions) =>
+                p.retryStep(retryStepKey, requestId, d.run.boots, instructions)
+              }
+            />
+          )}
           {failedStep && (
             <button
               onClick={() => {
@@ -1108,6 +1184,26 @@ function RunView(p: {
               Show failed step
             </button>
           )}
+        </section>
+      )}
+      {d.recovery && (
+        <section
+          className={styles.runFailure}
+          aria-label="Error handling agent"
+        >
+          <h2>
+            Error handling agent ·{' '}
+            {d.recovery.status === 'done'
+              ? 'Completed'
+              : d.recovery.status === 'failed'
+                ? 'Failed'
+                : 'Working'}
+          </h2>
+          <p>{d.recovery.summary}</p>
+          <details>
+            <summary>Your instructions</summary>
+            <p>{d.recovery.instructions}</p>
+          </details>
         </section>
       )}
       <div className={styles.runSummary}>
@@ -1311,16 +1407,6 @@ function RunView(p: {
                     <Icon name="chevron" size={16} />
                   </span>
                 </button>
-                {d.controls.retryStep === step.key &&
-                  d.run.status === 'failed' && (
-                    <RetryStep
-                      key={`${d.run.runId}:${d.run.boots}`}
-                      disabled={!p.allowed}
-                      submit={(requestId) =>
-                        p.retryStep(step.key, requestId, d.run.boots)
-                      }
-                    />
-                  )}
                 {!expanded && step.status === 'running' && step.liveSummary && (
                   <p className={styles.livePreview}>{step.liveSummary}</p>
                 )}
@@ -1873,6 +1959,7 @@ function Profiles(p: {
             workflow: draft.workflow,
             grants: draft.grants,
             sourceControl: draft.sourceControl,
+            promptContents: draft.promptContents,
             ...(draft.modelSlots ? { models: draft.models } : {}),
           }),
         },
@@ -2327,9 +2414,21 @@ function Profiles(p: {
             <FlowEditor
               key={selected?.id ?? 'new'}
               source={draft.workflow.source}
+              promptContents={draft.promptContents}
+              onPromptContentsChange={(promptContents) => {
+                setDraft({
+                  ...draft,
+                  promptContents,
+                  prompts: Object.keys(promptContents).sort(),
+                });
+                setSaved(false);
+              }}
               disabled={p.disabled || resetting}
               unsaved={
-                !selected || draft.workflow.source !== selected.workflow.source
+                !selected ||
+                draft.workflow.source !== selected.workflow.source ||
+                JSON.stringify(draft.promptContents) !==
+                  JSON.stringify(selected.promptContents)
               }
               onChange={(workflow) => {
                 setDraft({ ...draft, workflow });

@@ -37,6 +37,8 @@ const segment = z
     'must be letters, digits, dot, dash and underscore only',
   )
   .refine((value) => value !== '.' && value !== '..', 'must not be . or ..');
+export const profilePromptsSchema = z.record(segment, z.string());
+
 const nonEmpty = z.string().min(1);
 
 /** A portable, canonical comparison key for SSH, HTTPS and file remotes. */
@@ -135,7 +137,7 @@ export const profileSchema = z
     }),
     models: workflowModelsSchema.optional(),
     sourceControl: sourceControlSchema.optional(),
-    prompts: z.record(segment, z.string()).default({}),
+    prompts: profilePromptsSchema.default({}),
     schemas: z.string().default(''),
     rules: z.record(segment, z.string()).default({}),
     /** Ecosystem MCP declarations, stored locally alongside the pipeline. */

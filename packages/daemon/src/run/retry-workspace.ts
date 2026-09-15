@@ -16,6 +16,7 @@ export async function prepareRetryWorkspace(
   repos: RepoContext,
   run: RunHeader,
   entries: readonly JournalEntry[],
+  options: { continueExhausted?: true } = {},
 ): Promise<void> {
   if (!run.execution || run.artifactsPruned)
     throw new Error(
@@ -50,6 +51,7 @@ export async function prepareRetryWorkspace(
     {
       runId: run.runId,
       branch: run.branch,
+      ...(options.continueExhausted ? { allowBranchAdvance: true } : {}),
       members: run.execution.members.map((member) => {
         const saved = recorded.data.members.find(
           (item) => item.repo === member.name,

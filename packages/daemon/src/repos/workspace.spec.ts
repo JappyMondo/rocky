@@ -770,3 +770,78 @@ it('refuses to restore a released workspace when its branch has moved', async ()
     }),
   ).rejects.toThrow(/branch has changed/);
 });
+
+it('restores an exhausted run at its retained branch tips, including changes in secondary repositories', async () => {
+  const { restoreRetryWorkspace } = await import('./workspace.js');
+  const workspace = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix, niotaApi],
+    lead: 'niotix',
+  });
+  const tips = new Map<string, string>();
+  for (const member of workspace.members) {
+    await commitInside(member.dir, 'run implementation');
+    tips.set(
+      member.repo,
+      (await git(['rev-parse', 'HEAD'], { cwd: member.dir })).stdout,
+    );
+  }
+  await releaseCleanWorkspace(ctx, workspace.runId);
+  const options = {
+    runId: workspace.runId,
+    branch: BRANCH,
+    members: workspace.members.map((member) => ({
+      name: member.repo,
+      head: member.head,
+    })),
+    allowBranchAdvance: true,
+  };
+  await restoreRetryWorkspace(ctx, options);
+  for (const member of workspace.members) {
+    expect((await git(['rev-parse', 'HEAD'], { cwd: member.dir })).stdout).toBe(
+      tips.get(member.repo),
+    );
+    expect(
+      await readFile(join(member.dir, 'run-implementation.txt'), 'utf8'),
+    ).toBe('work\n');
+  }
+});
+
+it('does not treat an unrelated replacement branch as an exhaustion continuation', async () => {
+  const { restoreRetryWorkspace } = await import('./workspace.js');
+  const workspace = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix],
+    lead: 'niotix',
+  });
+  await releaseCleanWorkspace(ctx, workspace.runId);
+  const clone = paths.repo('niotix');
+  const tree = (await git(['rev-parse', `${BRANCH}^{tree}`], { cwd: clone }))
+    .stdout;
+  const replacement = (
+    await git(
+      [
+        '-c',
+        'commit.gpgsign=false',
+        'commit-tree',
+        tree,
+        '-m',
+        'unrelated history',
+      ],
+      { cwd: clone },
+    )
+  ).stdout;
+  await git(['update-ref', `refs/heads/${BRANCH}`, replacement], {
+    cwd: clone,
+  });
+  await expect(
+    restoreRetryWorkspace(ctx, {
+      runId: workspace.runId,
+      branch: BRANCH,
+      allowBranchAdvance: true,
+      members: [{ name: 'niotix', head: workspace.lead.head }],
+    }),
+  ).rejects.toThrow(/branch has changed/);
+});

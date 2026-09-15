@@ -1,3 +1,9 @@
+import { PublicReviews } from '../review-report/public.js';
+import {
+  recapPullRequests,
+  recapRepositoryEvidence,
+  recapWorkflowEvidence,
+} from '../review-report/evidence.js';
 import {
   sourceControlEnv,
   sourceControlToken,
@@ -39,6 +45,9 @@ import { validateSnapshotTriggers } from './loading/validate.js';
 import { loadMcpRuntime, type McpRuntime } from './mcp-contract.js';
 import { WorkflowRuntime, type WorkflowRuntimeOptions } from './lifecycle.js';
 import type { BootRequest } from './worker.js';
+import { recoverWithAgent } from './recovery-agent.js';
+import { currentRunModels } from './current-models.js';
+import { currentRunSourceControl } from './source-control.js';
 
 function scmProject(url: string): {
   platform: 'github' | 'gitlab';
@@ -170,25 +179,25 @@ export function createProductionRuntime(
   // A mirror has a small in-memory coalescing buffer. Keep one per Run rather
   // than constructing one per effect so streamed status is actually flushed.
   const mirrors = new Map<string, LinearRunMirror>();
+  let continuations = 0;
+  let completionRetry: string | undefined;
   const mirrorFlushes = new Map<string, ReturnType<typeof setTimeout>>();
   const linearClient = createInstanceLinearClient(options.paths);
   const mirrorFor = (
     run: Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0],
   ) => {
     if (!run.linear) throw new Error(`${run.runId}: missing Linear identity`);
-    const existing = mirrors.get(run.runId);
+    const mirrorId = `${run.runId}:${continuations}:${completionRetry ?? ''}`;
+    const existing = mirrors.get(mirrorId);
     if (existing) return existing;
     const mirror = new LinearRunMirror({
       runId: run.runId,
+      completionAttempt: continuations,
+      completionRetry,
       issueId: run.linear.issueId,
       sessionId: run.linear.sessionId,
       teamId: run.linear.teamId,
       localOrigin: `http://localhost:${options.config().server.port}`,
-      platform: {
-        terminalComments: 'one',
-        elicitationComments: 'none',
-        evidence: 'Linear Agent Session qualification recorded by Rocky.',
-      },
       client: linearClient,
       store: {
         get: async (key) => options.request({ kind: 'control-get', key }),
@@ -197,7 +206,7 @@ export function createProductionRuntime(
         },
       },
     });
-    mirrors.set(run.runId, mirror);
+    mirrors.set(mirrorId, mirror);
     return mirror;
   };
   const flushMirrorSoon = (runId: string, mirror: LinearRunMirror) => {
@@ -346,6 +355,17 @@ export function createProductionRuntime(
           `${run.runId}: missing immutable execution metadata; re-delegate through the production admission service`,
         );
       signal.throwIfAborted();
+      if (run.profile) {
+        const [sourceControl, models] = await Promise.all([
+          currentRunSourceControl(options.paths, options.config(), run),
+          currentRunModels(options.paths, run),
+        ]);
+        run.profile = {
+          ...run.profile,
+          sourceControl,
+          ...(models ? { models } : {}),
+        };
+      }
       credentials = await readCredentials(options.paths);
       // Preserve the Step sequence of Runs admitted before split preflight.
       // Both settled and interrupted legacy probes select the old path.
@@ -376,6 +396,15 @@ export function createProductionRuntime(
         ROCKY_PORT: String(run.ports[0] ?? ''),
       };
       mcp = undefined;
+      await recoverWithAgent({
+        paths: options.paths,
+        config: options.config(),
+        run,
+        env,
+        signal,
+        request: options.request,
+        adapterFor: options.adapterFor,
+      });
       if (run.execution.source === 'onboarding') {
         // Content intentionally remains a shipped, inspectable tree rather
         // than part of the daemon's import graph.  Keeping the specifier in a
@@ -405,9 +434,27 @@ export function createProductionRuntime(
           },
         });
       }
+      const latestRetry = await options.request({
+        kind: 'control-get',
+        key: 'retry:latest',
+      });
+      completionRetry =
+        latestRetry &&
+        typeof latestRetry === 'object' &&
+        'requestId' in latestRetry &&
+        typeof latestRetry.requestId === 'string'
+          ? latestRetry.requestId
+          : undefined;
+      continuations = Number(
+        (await options.request({
+          kind: 'control-get',
+          key: 'review:continuations',
+        })) ?? 0,
+      );
       return loadSnapshotWorkflow(
         options.paths.run(run.runId).snapshotDir,
         run.execution.trigger,
+        continuations,
       );
     },
     beforeWorkflow: async (run, steps, signal) => {
@@ -417,9 +464,7 @@ export function createProductionRuntime(
       }));
       if (servicesEnabled) {
         // Onboarding is already an acknowledged Agent Session and reports its
-        // seed PR through ctx.post.  Do not add a second comment before the
-        // seed exists: Linear may have rendered historical session comments
-        // that cannot safely be attributed by the strict two-comment gate.
+        // seed PR through ctx.post; its intake owns the initial acknowledgement.
         if (run.execution?.source !== 'onboarding') {
           const mirror = mirrorFor(run);
           await steps.step('linear.start', {}, async () => {
@@ -542,14 +587,29 @@ export function createProductionRuntime(
           throw new Error(
             'ctx.visualRecap requires a PR, diff, or deliverable',
           );
-        const id = recapId({ ...recap, enhanced });
+        const version = run.execution?.recapVersion ?? 1;
+        const id = recapId({ ...recap, enhanced, version });
         const origin = (
           options.config().server.tailscaleOrigin ||
           `http://localhost:${options.config().server.port}`
         ).replace(/\/$/, '');
-        const result = {
-          id,
-          url: `${origin}/runs/${encodeURIComponent(run.runId)}?report=${id}`,
+        const publicOrigin = options.config().publicUrl;
+        const publicReviews = new PublicReviews(options.paths);
+        const linkFor = async (
+          reportId: string,
+          previouslyPublished: boolean,
+        ) => {
+          const key = `review-report:${reportId}:url`;
+          const saved = await options.request({ kind: 'control-get', key });
+          if (typeof saved === 'string') return { id: reportId, url: saved };
+          // Old runs used private URLs in hashed SCM inputs and checkpoints.
+          // Keep that value on replay; sharing is an independent side effect.
+          const url =
+            publicOrigin && !previouslyPublished
+              ? await publicReviews.url(run.runId, reportId, publicOrigin)
+              : `${origin}/runs/${encodeURIComponent(run.runId)}?report=${reportId}`;
+          await options.request({ kind: 'control-put', key, value: url });
+          return { id: reportId, url };
         };
         const publishedKey = `review-report:${id}:published`;
         const revision = pr
@@ -575,11 +635,32 @@ export function createProductionRuntime(
               (!enhanced &&
                 (await options.request({
                   kind: 'control-get',
-                  key: `review-report:${recapId({ ...recap, enhanced: true })}:published`,
+                  key: `review-report:${recapId({ ...recap, enhanced: true, version })}:published`,
                 })) === true),
           }),
         );
-        if (published) return result;
+        if (published) {
+          // Marking ready can reuse an enhanced report. Its legacy ID has no
+          // artifact, so share and return the report that was actually saved.
+          const reports = await artifacts.listReports(run.runId);
+          const cached =
+            reports.find((report) => report.id === id) ??
+            (!enhanced &&
+              reports.find(
+                (report) =>
+                  report.id === recapId({ ...recap, enhanced: true, version }),
+              ));
+          const report = cached || (await artifacts.readReport(run.runId, id));
+          if (publicOrigin) await publicReviews.publish(report, publicOrigin);
+          return linkFor(report.id, true);
+        }
+        const result = await linkFor(
+          id,
+          (await options.request({
+            kind: 'control-get',
+            key: publishedKey,
+          })) === true,
+        );
         await mkdir(options.paths.run(run.runId).screenshotsDir, {
           recursive: true,
         });
@@ -612,8 +693,23 @@ export function createProductionRuntime(
           artifacts,
           runId: run.runId,
           pr,
+          pullRequests: recapPullRequests(journal.entries),
           ...revision,
           enhanced,
+          version,
+          workflowEvidence:
+            version === 2
+              ? {
+                  ...recapWorkflowEvidence(journal.entries, pr?.headSha),
+                  repositories: await recapRepositoryEvidence({
+                    workspaceDir: options.paths.run(run.runId).workspaceDir,
+                    branch: run.branch,
+                    primaryRepo: pr?.repo,
+                    members: run.execution?.members ?? [],
+                    env,
+                  }),
+                }
+              : undefined,
           deliverable: recap.deliverable,
           title: recap.title,
           issue: run.issue,
@@ -652,7 +748,8 @@ export function createProductionRuntime(
             },
           );
         }
-        const markdown = reportMarkdown(report, origin, images);
+        if (publicOrigin) await publicReviews.publish(report, publicOrigin);
+        const markdown = reportMarkdown(report, origin, images, result.url);
         await steps.step(
           'reviewReport.publish',
           {

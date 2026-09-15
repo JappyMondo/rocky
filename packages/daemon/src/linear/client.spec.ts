@@ -69,6 +69,47 @@ function clientWith(sdk: LinearSdkLike, deps: Record<string, unknown> = {}) {
 }
 
 describe('activities', () => {
+  it('verifies Linear JSON-string button metadata and autolinked checkpoint content without reposting', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const metadata = { options: [{ label: 'Approve', value: 'approve-1' }] };
+    const row = {
+      id,
+      sessionId: 'sess-1',
+      createdAt: '2026-09-07T00:00:00.000Z',
+      content: {
+        type: 'elicitation',
+        body: '[https://gitlab.test/mr/7](<https://gitlab.test/mr/7>)',
+      },
+      ephemeral: false,
+      signal: 'select' as const,
+      signalMetadata: JSON.stringify(metadata),
+    };
+    const sdk = fakeSdk({ activity: vi.fn(async () => row) });
+    const input = {
+      id,
+      sessionId: 'sess-1',
+      content: {
+        type: 'elicitation' as const,
+        body: 'https://gitlab.test/mr/7',
+      },
+      signal: 'select' as const,
+      signalMetadata: metadata,
+    };
+    await expect(clientWith(sdk).ensureActivity(input)).resolves.toEqual({
+      id,
+      success: true,
+    });
+    await expect(
+      clientWith(sdk).ensureActivity({ ...input, sessionId: 'wrong-session' }),
+    ).rejects.toThrow('mismatch');
+    await expect(
+      clientWith(sdk).ensureActivity({
+        ...input,
+        signalMetadata: { options: [{ label: 'Approve', value: 'approve-2' }] },
+      }),
+    ).rejects.toThrow('mismatch');
+    expect(sdk.createAgentActivity).not.toHaveBeenCalled();
+  });
   it('verifies JSON-equivalent optional fields rather than rejecting omitted undefined values', async () => {
     const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const row = {

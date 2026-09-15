@@ -30,7 +30,7 @@ Linear/control owns Checkpoint parking and Answers, durable Steers, activity pos
 
 ## Acceptance Gates
 
-Both SCM platforms, both Harnesses, effective tool policy, Preflight, loader admission/snapshot, actual CI repair, Checkpoint/Steer recovery, platform-controlled merge and the two-comment contract remain live integration gates. No live fixture is designated here; no product PR, CI retry, seed publication, merge, OAuth exchange or package publication is authorized by these tests. Interactive consent/abort must also be demonstrated in each real native CLI. Independent review and current-head CI remain required before merge.
+Both SCM platforms, both Harnesses, effective tool policy, Preflight, loader admission/snapshot, actual CI repair, Checkpoint/Steer recovery, platform-controlled merge and Linear activity delivery remain live integration gates. No live fixture is designated here; no product PR, CI retry, seed publication, merge, OAuth exchange or package publication is authorized by these tests. Interactive consent/abort must also be demonstrated in each real native CLI. Independent review and current-head CI remain required before merge.
 
 ## Delivery and validation
 

@@ -28,6 +28,10 @@ export interface FlowEdge {
   targetHandle?: string;
 }
 export interface FlowSettings {
+  /** Omitted in older frozen workflows, which deliver only the lead repository. */
+  pullRequests?: 'lead' | 'all-changed';
+  /** Explicitly configured members with no CI pipeline. Never inferred from a pending pipeline. */
+  ciSkipRepositories?: string[];
   commands: { install: string; test: string; lint: string; build: string };
   ui: { start: string; url: string } | null;
   states: { started: string; review: string; done: string };
@@ -314,6 +318,7 @@ export const FLOW_NODES: FlowNodeDefinition[] = [
 export const flowNodeDefinition = (type: string) =>
   FLOW_NODES.find((item) => item.type === type);
 export const defaultFlowSettings = (): FlowSettings => ({
+  pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
   states: { started: 'In Progress', review: 'In Review', done: 'Done' },
@@ -404,6 +409,19 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (
+    s.ciSkipRepositories !== undefined &&
+    (!Array.isArray(s.ciSkipRepositories) ||
+      s.ciSkipRepositories.some(
+        (repo) => typeof repo !== 'string' || !/^[A-Za-z0-9._-]+$/.test(repo),
+      ))
+  )
+    throw new Error('ciSkipRepositories must contain repository names.');
+  if (
+    s.pullRequests !== undefined &&
+    !['lead', 'all-changed'].includes(String(s.pullRequests))
+  )
+    throw new Error('pullRequests must be lead or all-changed.');
   for (const [key, max] of [
     ['reviewCap', 100],
     ['ciCap', 100],

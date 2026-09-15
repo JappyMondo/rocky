@@ -8,9 +8,9 @@ import { LocalArtifacts } from '../local-api/artifacts.js';
 import { ReportContent } from './schema.js';
 import { generateRecapContent } from './recap.js';
 
-export const reportPrompt = `Create a visual review report for a human deciding whether to approve a PR/MR. Explain the solved problems and observable before/after behavior in plain language, with Mermaid flowcharts or sequence diagrams of the processing changes. This is an explanation of the change, not a code review. Ground every claim in the supplied immutable diff and verified evidence; never substitute changes in another checkout or rely on an agent's claims about a commit.
+export const reportPrompt = `Create a visual review report for a human deciding whether to approve a PR/MR. Use everyday words and one idea per sentence. Keep the introduction under 30 words in at most two sentences. Put technical references in evidence, not the introduction. Explain the original goal, then observable before/after behavior, with compact Mermaid diagrams when useful. This is an explanation of the change, not a code review. Ground every claim in the supplied immutable diff and verified evidence; never substitute changes in another checkout or rely on an agent's claims about a commit.
 
-Inspect the changed code and documentation, and identify everything that can be reviewed visually: UI, rendered documents, diagrams, charts, emails, etc. Inventory all available variants of the affected surfaces: screens, states, themes, breakpoints, roles, feature variants and locales supported by this change. Group the screenshots by surface and label each variant clearly. Capture the actual result for every available variant using the granted browser tools or local rendering commands, including successful cases. You may start a local preview server on the supplied port, but do not edit product files, commit, push, or modify external services. Save images under screenshotDir, use filenames unique to this report, and return paths relative to screenshotDir. Never invent a screenshot. If a variant cannot be exercised, include it as unavailable and explain the exact missing dependency, access, or command in reason. Document incomplete visual coverage in limitations. The report must be honest about any checks you could not perform. Do not use screenshots from an older head as evidence for this revision. Use simple Mermaid labels; no HTML, directives, click handlers, or external assets. The report output must match the supplied JSON schema.`;
+Inspect the changed code and documentation, and identify actual application UI changes. Backend, configuration, docs and README changes do not require screenshots or a special no-UI section. Capture a document's rendering only when the user explicitly requests that inspection. Inventory all available variants of the affected surfaces: screens, states, themes, breakpoints, roles, feature variants and locales supported by this change. Group the screenshots by surface and label each variant clearly. Capture the actual result for every available variant using the granted browser tools or local rendering commands, including successful cases. You may start a local preview server on the supplied port, but do not edit product files, commit, push, or modify external services. Save images under screenshotDir, use filenames unique to this report, and return paths relative to screenshotDir. Never invent a screenshot. If a variant cannot be exercised, include it as unavailable and explain the exact missing dependency, access, or command in reason. Document incomplete visual coverage in limitations. The report must be honest about any checks you could not perform. Do not use screenshots from an older head as evidence for this revision. Use simple Mermaid labels; no HTML, directives, click handlers, or external assets. The report output must match the supplied JSON schema.`;
 
 export function reportId(
   pr: Pick<ScmPr, 'repo' | 'number' | 'headSha'>,
@@ -27,6 +27,8 @@ export function recapId(input: {
   deliverable?: string;
   title?: string;
   enhanced?: boolean;
+  version?: 1 | 2;
+  refreshKey?: string;
 }): string {
   if (input.pr && !input.enhanced) return reportId(input.pr);
   const subject = input.pr
@@ -35,8 +37,9 @@ export function recapId(input: {
   return `r_${createHash('sha256')
     .update(
       JSON.stringify([
-        input.enhanced ? 'visual-recap-v1' : 'report',
+        input.enhanced ? `visual-recap-v${input.version ?? 2}` : 'report',
         ...subject,
+        ...(input.refreshKey ? [input.refreshKey] : []),
       ]),
     )
     .digest('hex')
@@ -47,15 +50,22 @@ export function reportMarkdown(
   report: ReviewReport,
   origin: string,
   images: Record<string, string> = {},
+  sharedUrl?: string,
 ): string {
-  const url = `${origin}/runs/${encodeURIComponent(report.runId)}?report=${report.id}`;
+  const url =
+    sharedUrl ??
+    `${origin}/runs/${encodeURIComponent(report.runId)}?report=${report.id}`;
   if (report.keyChanges !== undefined)
     return [
       `## ${report.title}`,
       report.summary,
       `[Open visual recap in Rocky](${url})`,
       ...(report.pr ? [`Revision: \`${report.pr.headSha}\``] : []),
-      `Visual coverage: ${report.visuals.filter((v) => v.status === 'captured').length}/${report.visuals.length} variants captured.`,
+      ...(report.visuals.length
+        ? [
+            `Visual coverage: ${report.visuals.filter((v) => v.status === 'captured').length}/${report.visuals.length} variants captured.`,
+          ]
+        : []),
       ...report.limitations.map((limitation) => `- ${limitation}`),
     ].join('\n\n');
   return [
@@ -88,11 +98,15 @@ export async function generateReport(input: {
   artifacts: LocalArtifacts;
   runId: string;
   pr?: ScmPr;
+  pullRequests?: ReviewReport['pullRequests'];
   baseSha?: string;
   diff?: string;
   deliverable?: string;
   title?: string;
   enhanced?: boolean;
+  version?: 1 | 2;
+  refreshKey?: string;
+  workflowEvidence?: unknown;
   issue: unknown;
   screenshotDir: string;
   workspace: unknown;
@@ -128,6 +142,7 @@ export async function generateReport(input: {
     scope: input.scope ?? null,
     reportId: id,
     previewUrl: input.previewUrl ?? null,
+    workflowEvidence: input.workflowEvidence ?? null,
   };
   const content = input.enhanced
     ? await generateRecapContent({
@@ -138,6 +153,7 @@ export async function generateReport(input: {
         context,
         diff: input.diff ?? '',
         deliverable: input.deliverable,
+        version: input.version,
       })
     : await input.agent(
         { prompt: reportPrompt },
@@ -190,6 +206,9 @@ export async function generateReport(input: {
         id,
         runId: input.runId,
         createdAt: new Date().toISOString(),
+        ...(input.pullRequests?.length
+          ? { pullRequests: input.pullRequests }
+          : {}),
         ...(input.pr
           ? {
               pr: {

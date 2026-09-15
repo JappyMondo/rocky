@@ -195,11 +195,14 @@ export class WorkflowRuntime {
             }),
             {
               members:
-                run.execution?.members.map(({ name, path, lead }) => ({
-                  name,
-                  path,
-                  lead,
-                })) ?? [],
+                run.execution?.members.map(
+                  ({ name, path, lead, baseBranch }) => ({
+                    name,
+                    path,
+                    lead,
+                    baseBranch,
+                  }),
+                ) ?? [],
             },
           );
         },

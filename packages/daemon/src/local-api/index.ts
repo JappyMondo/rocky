@@ -1,4 +1,8 @@
-import { retryStepKey, type RetryRequest } from '../run/retry.js';
+import {
+  retryStepKey,
+  exhaustedStepKey,
+  type RetryRequest,
+} from '../run/retry.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
@@ -58,11 +62,17 @@ export interface LocalApiOptions {
     journal(runId: string): Promise<readonly JournalEntry[]>;
   };
   artifacts: LocalArtifacts;
+  deliveryRepairEntries?: (runId: string) => Promise<readonly JournalEntry[]>;
+  shareReport?: (
+    report: import('@rocky/local-contracts').ReviewReport,
+  ) => Promise<string>;
   settings: LocalSettings;
   profiles?: LocalProfiles;
   connections?: LocalConnections;
   diagrams?: Pick<WorkflowDiagrams, 'read' | 'retry'>;
   retryStep?: (runId: string, input: RetryRequest) => Promise<void>;
+  continuationRounds?: (run: RunHeader) => Promise<number | undefined>;
+  recovery?: (runId: string) => Promise<RunDetail['recovery']>;
   currentCheckpoint?: (runId: string) => Promise<Checkpoint | undefined>;
   answer?: (
     runId: string,
@@ -397,6 +407,7 @@ export async function registerLocalApi(
       async (request): Promise<RunDetail> => {
         const run = await getRun(request.params.id);
         const entries = await options.runs.journal(run.runId);
+        const recovery = await options.recovery?.(run.runId);
         const steps = await Promise.all(
           journalSteps(entries).map(
             async ({ key, parentKey, entry }): Promise<StepView> => {
@@ -498,22 +509,45 @@ export async function registerLocalApi(
             },
           ),
         );
-        const pullRequest = steps
-          .map((step) => step.result)
-          .findLast(
-            (
-              value,
-            ): value is { number: number; url: string; headSha: string } =>
-              !!value &&
-              typeof value === 'object' &&
-              'number' in value &&
-              typeof value.number === 'number' &&
-              'url' in value &&
-              typeof value.url === 'string' &&
-              /^https?:\/\//.test(value.url) &&
-              'headSha' in value &&
-              typeof value.headSha === 'string',
-          );
+        const pullRequests = new Map<
+          string,
+          { repo: string; number: number; url: string; headSha: string }
+        >();
+        for (const step of [
+          ...steps,
+          ...((await options.deliveryRepairEntries?.(run.runId)) ?? []),
+        ]) {
+          if (!step.step.startsWith('scm.')) continue;
+          const result = step.result;
+          const value =
+            result && typeof result === 'object' && 'pr' in result
+              ? result.pr
+              : result;
+          if (
+            !value ||
+            typeof value !== 'object' ||
+            !('number' in value) ||
+            typeof value.number !== 'number' ||
+            !('url' in value) ||
+            typeof value.url !== 'string' ||
+            !/^https?:\/\//.test(value.url) ||
+            !('headSha' in value) ||
+            typeof value.headSha !== 'string'
+          )
+            continue;
+          const repo =
+            'repo' in value && typeof value.repo === 'string'
+              ? value.repo
+              : run.repo;
+          pullRequests.set(repo, {
+            repo,
+            number: value.number,
+            url: value.url,
+            headSha: value.headSha,
+          });
+        }
+        const pullRequest =
+          pullRequests.get(run.repo) ?? pullRequests.values().next().value;
         const checkpoint = await options.currentCheckpoint?.(run.runId);
         const diffs = await options.artifacts.listDiffs(run.runId);
         const reports = (await options.artifacts.listReports(run.runId)).map(
@@ -533,6 +567,17 @@ export async function registerLocalApi(
         )
           controls.retryStep = retryStepKey(entries);
         if (
+          options.retryStep &&
+          run.status === 'finished' &&
+          run.outcome === 'exhausted' &&
+          !run.artifactsPruned
+        ) {
+          const stepKey = exhaustedStepKey(entries);
+          const rounds = await options.continuationRounds?.(run);
+          if (stepKey !== undefined && rounds !== undefined)
+            controls.continueReview = { stepKey, rounds };
+        }
+        if (
           options.recoverSession &&
           run.linear &&
           (run.status === 'failed' || run.status === 'cancelled')
@@ -548,12 +593,14 @@ export async function registerLocalApi(
               checkpoint,
               steers,
               controls,
+              recovery,
             }),
           )
           .digest('hex');
         return {
           run: {
             ...summary(run),
+            ...(pullRequests.size ? { prs: [...pullRequests.values()] } : {}),
             ...(pullRequest
               ? {
                   pr: {
@@ -572,6 +619,7 @@ export async function registerLocalApi(
           usage: sumUsage(steps),
           diffs,
           controls,
+          recovery,
         };
       },
     );
@@ -611,6 +659,21 @@ export async function registerLocalApi(
           .header('content-security-policy', "default-src 'none'; sandbox")
           .type(artifact.contentType)
           .send(artifact.bytes);
+      },
+    );
+    local.post<{ Params: { id: string; reportId: string } }>(
+      '/api/runs/:id/reports/:reportId/share',
+      async (request, reply) => {
+        if (!options.shareReport)
+          return reply
+            .code(503)
+            .send({ error: 'Review sharing is unavailable.' });
+        await getRun(request.params.id);
+        const report = await options.artifacts.readReport(
+          request.params.id,
+          request.params.reportId,
+        );
+        return { url: await options.shareReport(report) };
       },
     );
     local.get<{ Params: { id: string; reportId: string } }>(
@@ -843,12 +906,25 @@ export async function registerLocalApi(
           z
             .object({
               requestId: z.string().uuid(),
+              continueExhausted: z.literal(true).optional(),
               stepKey: z.string().regex(/^\d+$/),
               expectedBoot: z.number().int().min(1),
+              recoveryInstructions: z
+                .string()
+                .trim()
+                .min(1)
+                .max(12000)
+                .optional(),
             })
             .strict(),
           request.body,
         );
+        if (input.continueExhausted && input.recoveryInstructions)
+          throw new LocalApiError(
+            400,
+            'invalid-continuation',
+            'Continue review does not accept failed-step recovery instructions.',
+          );
         if (!options.retryStep)
           throw new LocalApiError(
             503,

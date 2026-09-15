@@ -5,37 +5,42 @@ export const retryRecordSchema = z
   .object({
     v: z.number().int(),
     kind: z.literal('retry'),
+    continueExhausted: z.literal(true).optional(),
     requestId: z.string().min(1).max(200),
     stepKey: z.string().regex(/^\d+$/),
     recordedAt: z.string().datetime(),
     resetControls: z.array(z.string().min(1)).optional(),
+    recovery: z
+      .object({
+        instructions: z.string().trim().min(1).max(12000),
+        context: z.string(),
+      })
+      .optional(),
   })
   .strict();
 export type RetryRequest = {
   requestId: string;
   stepKey: string;
   expectedBoot: number;
+  recoveryInstructions?: string;
+  continueExhausted?: true;
 };
-const forbidden = new Set([
-  'DivergenceError',
-  'CrashLoopError',
-  'FatalStepError',
-  'JournalFormatError',
-]);
 const latest = (entries: readonly JournalEntry[]) => [
   ...new Map(entries.map((entry) => [entry.seq, entry])).values(),
 ];
-function retryable(entry: JournalEntry): boolean {
-  if (entry.status === 'done') return true;
-  if (entry.status !== 'failed' || forbidden.has(entry.error?.name ?? ''))
-    return false;
-  if (entry.parallel)
-    return entry.parallel.branches.every((branch) =>
-      latest(branch).every(retryable),
-    );
-  return entry.step === 'agent' || entry.step === 'exec';
+/** ctx.exec returns nonzero exits as values so workflows can inspect them. */
+function failedCommand(entry: JournalEntry): boolean {
+  return (
+    entry.step === 'exec' &&
+    entry.status === 'done' &&
+    typeof entry.result === 'object' &&
+    entry.result !== null &&
+    'exitCode' in entry.result &&
+    typeof entry.result.exitCode === 'number' &&
+    entry.result.exitCode !== 0
+  );
 }
-/** Only the final failed root Step; downstream outcomes must never be invalidated. */
+/** Resume failed work without invalidating completed downstream outcomes. */
 export function retryStepKey(
   entries: readonly JournalEntry[],
 ): string | undefined {
@@ -52,8 +57,45 @@ export function retryStepKey(
     (a, b) => a.seq - b.seq,
   );
   const step = steps.at(-1);
-  if (step?.status === 'failed' && retryable(step)) return String(step.seq);
+  if (step && (step.status !== 'done' || failedCommand(step)))
+    return String(step.seq);
+  // An integration or workflow can throw between journaled Steps. Reopen the
+  // terminal barrier without manufacturing a failed Step or rerunning successes.
+  if (steps.every((entry) => entry.status === 'done')) return String(end.seq);
   return undefined;
+}
+/** Exhaustion continuation reopens only the terminal barrier; all Steps replay. */
+export function exhaustedStepKey(
+  entries: readonly JournalEntry[],
+): string | undefined {
+  const end = entries.at(-1);
+  const result = end?.result;
+  if (
+    end?.step === '$end' &&
+    result &&
+    typeof result === 'object' &&
+    'status' in result &&
+    result.status === 'finished' &&
+    'outcome' in result &&
+    result.outcome === 'exhausted'
+  )
+    return String(end.seq);
+  return undefined;
+}
+/** Older markers reopened only $end after a nonzero command; retain that history. */
+export function isRecordedRetryTarget(
+  entries: readonly JournalEntry[],
+  key: string,
+): boolean {
+  const target = retryStepKey(entries);
+  if (target === key) return true;
+  return (
+    target !== undefined &&
+    key === String(entries.at(-1)?.seq) &&
+    latest(entries.filter((entry) => entry.step !== '$end')).every(
+      (entry) => entry.status === 'done',
+    )
+  );
 }
 /** A retry marker changes the replay projection; original bytes are never edited. */
 export function retryEntry(
@@ -61,13 +103,24 @@ export function retryEntry(
   recordedAt: string,
 ): JournalEntry {
   const {
-    error,
+    error: recordedError,
     result: _result,
     progress: _progress,
     sessionId: _session,
     ms,
     ...rest
   } = entry;
+  const command = failedCommand(entry)
+    ? (entry.result as { exitCode: number; stderr?: string })
+    : undefined;
+  const error =
+    recordedError ??
+    (command
+      ? {
+          name: 'Error',
+          message: `Command exited with code ${command.exitCode}${command.stderr ? `: ${command.stderr}` : ''}`,
+        }
+      : undefined);
   const attempts = [...(entry.attempts ?? [])];
   if (error && attempts.at(-1)?.kind !== 'failed')
     attempts.push({

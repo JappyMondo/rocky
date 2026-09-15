@@ -48,14 +48,24 @@ effects or power-loss fault injection were used in these tests.
 ## Explicit Step retry
 
 `JournalWriter.retry(requestId, stepKey, resetControls?)` is the sole exception to
-the terminal barrier. The scheduler authorizes it only for the final failed Agent
-or exec Step, including a failed parallel group whose completed branches can be
-reused. Structural failures, older Runs superseded by another Run for the same
-issue, cancelled/finished/live Runs, and stale Boot numbers are refused. A frozen
-terminal Linear response also prevents retry, preserving its publication identity.
+the terminal barrier. The scheduler authorizes it for the final unfinished Step,
+including a failed parallel group whose completed branches can be reused. If all
+Steps completed, the failed `$end` is the retry target: replay reuses completed
+Steps and resumes workflow code, including delivery operations between Steps.
+If the final Step is an `exec` result with a nonzero exit code, retry reopens
+that command instead of reusing its cached output. `ctx.exec` still returns exit
+codes normally so workflows can handle expected failures. Earlier commands and
+commands with downstream work are not invalidated. Historical markers that only
+reopened `$end` remain readable and preserve their original replay behavior.
+Explicit retries are available regardless of Step type or recorded error name;
+unresolved problems may fail again. Older Runs superseded by another Run for the
+same issue, cancelled/finished/live Runs, and stale Boot numbers are refused.
+Frozen terminal Linear payloads and publication receipts are retained: a local
+retry does not replace a previously published terminal response.
 
 A flushed `kind: "retry"` record follows the prior failed `$end`. The old bytes
-remain intact. Readers project that marker as a waiting Step, clear only specified
+remain intact. Readers project that marker as a waiting Step (or remove only the
+active terminal barrier for a `$end` retry), clear only specified
 integration closing guards, and preserve earlier outcomes, completed branches and
 failure attempts. Agent retries carry previous human directions into a fresh
 conversation. The next Boot continues the same Workflow snapshot. A marker
@@ -67,3 +77,26 @@ whose clean workspace was already released, Rocky can restore local worktrees on
 if their branches still match recorded revisions. It never resets a branch or
 replaces a retained worktree. Retry cannot recreate removed non-repository files
 or external services; use a new Run when earlier results depend on those.
+
+## Continuing exhausted reviews
+
+A retry record with `continueExhausted: true` reopens only the `$end` of a
+finished, exhausted Run. It increments the durable `review:continuations`
+allowance and keeps every completed Step and the original journal bytes.
+The scheduler checks the expected Boot, rejects active or superseded Runs,
+and deduplicates request IDs. Only retained JSON delivery flows support this
+operation; their frozen review limit determines the new batch size.
+
+The delivery runtime replays each prior batch, including its exhaustion effects,
+before consuming one allowance. It repairs the outstanding complaints, resets
+review and CI counters, and starts another bounded batch. Comment deliverables
+retain their last draft and review feedback. Planning, implementation and prior
+publication effects are reused. Each explicit continuation has its own frozen
+closing report and screenshot identities; previous reports remain unchanged.
+
+When exhaustion continuation restores a released worktree, the issue branch may
+have advanced from the initial workspace Step through the Run's own commits.
+It restores that retained descendant tip without resetting it; the new batch
+refreshes the PR revision and runs fresh validation and review. Ordinary failed
+Step retries still require the recorded revision when restoring a released
+worktree. Unrelated replacement histories remain ineligible for either path.

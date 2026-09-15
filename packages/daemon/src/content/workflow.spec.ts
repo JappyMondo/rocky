@@ -1,3 +1,5 @@
+import { readJournal } from '../run/journal.js';
+import { JournalWriter } from '../run/writer.js';
 import { flowBindings } from '../flow/runtime.js';
 import { parseFlow } from '@rocky/local-contracts';
 import { createJiti } from 'jiti';
@@ -76,6 +78,267 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  function repositoryFixture(options: Parameters<typeof fixture>[0] = {}) {
+    const flow = JSON.parse(flowSource);
+    flow.settings.pullRequests = 'all-changed';
+    return fixture({
+      ...options,
+      triggers:
+        options.triggers ??
+        flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      members: [
+        { name: 'fixture', path: 'app', lead: true, baseBranch: 'development' },
+        { name: 'settings', path: 'settings', lead: false, baseBranch: 'main' },
+      ],
+      exec: (command) =>
+        options.exec?.(command) ??
+        (command.includes('status --porcelain')
+          ? { exitCode: 0, stdout: '', stderr: '' }
+          : command.includes('branch --show-current')
+            ? { exitCode: 0, stdout: 'test-1', stderr: '' }
+            : undefined),
+      scm: (operation, count, args) => {
+        const custom = options.scm?.(operation, count, args);
+        if (custom !== undefined) return custom;
+        if (operation === 'openPr') {
+          const repo = (args[0] as { repo?: string }).repo ?? 'fixture';
+          return {
+            repo,
+            id: repo,
+            number: repo === 'fixture' ? 1 : 2,
+            url: `https://example.test/${repo}/pr/1`,
+            sourceBranch: 'test-1',
+            baseBranch: repo === 'fixture' ? 'development' : 'main',
+            headSha: 'abc',
+            state: 'open',
+            draft: true,
+          };
+        }
+        if (operation === 'markDraft')
+          return { ...(args[0] as object), draft: args[1] };
+        if (operation === 'updateBranch')
+          return { status: 'clean', pr: args[0] };
+        if (operation === 'armAutoMerge')
+          return {
+            status: 'merged',
+            pr: { ...(args[0] as object), state: 'merged' },
+          };
+        return undefined;
+      },
+    });
+  }
+  const calledRepos = (f: ReturnType<typeof fixture>, operation: string) =>
+    f.scmCalls
+      .filter((c) => c.operation === operation)
+      .map((c) => (c.args[0] as { repo?: string }).repo ?? 'fixture');
+
+  it.skipIf(mode === 'legacy')(
+    'opens, reviews and checks every changed repository before one approval, then merges both',
+    async () => {
+      const f = repositoryFixture();
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'openPr')).toEqual(['fixture', 'settings']);
+      expect(calledRepos(f, 'waitForCi')).toEqual(['fixture', 'settings']);
+      expect(f.trace.filter((t) => t === 'visualRecap')).toHaveLength(2);
+      expect(f.checkpointBodies.at(-1)).toContain(
+        'https://example.test/settings/pr/1',
+      );
+      expect(f.checkpointBodies.at(-1)).toContain(
+        'https://example.test/fixture/pr/1',
+      );
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+      expect(f.calls.find((c) => c.name === 'reviewer')?.input).toMatchObject({
+        reviewScope: { repositories: { fixture: 'abc', settings: 'abc' } },
+      });
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(calledRepos(f, 'updateBranch')).toEqual(['fixture', 'settings']);
+      expect(calledRepos(f, 'armAutoMerge')).toEqual(['fixture', 'settings']);
+      expect(f.trace.lastIndexOf('updateBranch')).toBeLessThan(
+        f.trace.indexOf('armAutoMerge'),
+      );
+      expect(f.trace.at(-1)).toBe('Done');
+      // A completed replay cannot open, publish or merge either PR twice.
+      const before = f.scmCalls.length;
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(f.scmCalls).toHaveLength(before);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'blocks the whole delivery when companion CI cannot pass',
+    async () => {
+      const f = repositoryFixture({
+        scm: (operation, _count, args) =>
+          operation === 'waitForCi' &&
+          (args[0] as { repo: string }).repo === 'settings'
+            ? { status: 'failed', headSha: 'abc', failedJobs: [] }
+            : undefined,
+        agent: (name) =>
+          name === 'ci-fixer' ? { action: 'unresolved' } : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calledRepos(f, 'waitForCi')).toEqual(['fixture', 'settings']);
+      expect(f.calls.find((c) => c.name === 'ci-fixer')?.input.repository).toBe(
+        'settings',
+      );
+      expect(f.checkpointBodies).toEqual([]);
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+      expect(
+        f.scmCalls
+          .filter((c) => c.operation === 'markDraft')
+          .every((c) => c.args[1] === true),
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'can deliver only a changed companion without creating an empty lead PR',
+    async () => {
+      const f = repositoryFixture({
+        exec: (command) =>
+          command.startsWith("cd -- 'app'") && command.includes('git diff')
+            ? { exitCode: 0, stdout: '', stderr: '' }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'openPr')).toEqual(['settings']);
+      expect(calledRepos(f, 'waitForCi')).toEqual(['settings']);
+      expect(f.trace.filter((t) => t === 'visualRecap')).toHaveLength(1);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'preserves lead-only steps for frozen flows without the new setting',
+    async () => {
+      const flow = JSON.parse(flowSource);
+      delete flow.settings.pullRequests;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'openPr')).toEqual(['fixture']);
+      expect(f.trace.some((c) => c.includes("cd -- 'settings'"))).toBe(false);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'discovers a companion first changed by a CI repair and rechecks the full set',
+    async () => {
+      let settingsChanged = false;
+      const f = repositoryFixture({
+        exec: (command) =>
+          !settingsChanged &&
+          command.startsWith("cd -- 'settings'") &&
+          command.includes('git diff')
+            ? { exitCode: 0, stdout: '', stderr: '' }
+            : undefined,
+        scm: (operation, count) =>
+          operation === 'waitForCi' && count === 1
+            ? { status: 'failed', headSha: 'abc', failedJobs: [] }
+            : undefined,
+        agent: (name) => {
+          if (name !== 'ci-fixer') return undefined;
+          settingsChanged = true;
+          return { action: 'fixed' };
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'openPr')).toEqual(['fixture', 'settings']);
+      expect(calledRepos(f, 'waitForCi')).toEqual([
+        'fixture',
+        'fixture',
+        'settings',
+      ]);
+      expect(f.checkpointBodies.at(-1)).toContain(
+        'https://example.test/settings/pr/1',
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'requires new checks and approval if either branch changes after approval',
+    async () => {
+      let settingsHead = 'abc';
+      const f = repositoryFixture({
+        exec: (command) =>
+          command.startsWith("cd -- 'settings'") &&
+          command.includes('rev-parse HEAD')
+            ? { exitCode: 0, stdout: settingsHead, stderr: '' }
+            : undefined,
+        scm: (operation, count, args) => {
+          if (operation === 'waitForCi')
+            return {
+              status: 'passed',
+              headSha: (args[0] as { headSha: string }).headSha,
+              failedJobs: [],
+            };
+          if (operation === 'updateBranch' && count === 2) {
+            settingsHead = 'def';
+            return {
+              status: 'updated',
+              pr: { ...(args[0] as object), headSha: settingsHead },
+            };
+          }
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      f.approve();
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+      expect(calledRepos(f, 'waitForCi')).toEqual([
+        'fixture',
+        'settings',
+        'fixture',
+        'settings',
+      ]);
+      expect(f.checkpointBodies.at(-1)).toContain('(def)');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(calledRepos(f, 'armAutoMerge')).toEqual(['fixture', 'settings']);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'skips CI only for explicitly configured repositories and reports that in approval',
+    async () => {
+      const flow = JSON.parse(flowSource);
+      flow.settings.ciSkipRepositories = ['settings'];
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'waitForCi')).toEqual(['fixture']);
+      expect(f.checkpointBodies.at(-1)).toContain(
+        'settings: no CI pipeline configured',
+      );
+    },
+  );
+
   it('ships the complete editable default tree without default Rules', async () => {
     const shipped = new URL('../../content/.rocky/', import.meta.url);
     const agents = await readdir(new URL('./agents/', shipped));
@@ -112,6 +375,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   function fixture(
     options: {
       comments?: import('@rocky/sdk').IssueComment[];
+      members?: import('@rocky/sdk').WorkflowInput['members'];
       agent?: (
         name: string,
         input: Record<string, unknown>,
@@ -121,8 +385,9 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         command: string,
       ) => { exitCode: number; stdout: string; stderr: string } | undefined;
       comment?: (body: string) => void;
-      scm?: (operation: string, count: number) => unknown;
+      scm?: (operation: string, count: number, args: unknown[]) => unknown;
       triggers?: Triggers;
+      continuation?: boolean;
     } = {},
   ) {
     const trace: string[] = [];
@@ -133,6 +398,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     }[] = [];
     const scmCalls: { operation: string; args: unknown[] }[] = [];
     const answers: RawCheckpointAnswer[] = [];
+    const checkpointBodies: string[] = [];
     let merged = false;
     const pr = {
       repo: 'fixture',
@@ -254,6 +520,26 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                             : n.includes('reviewer')
                               ? { complaints: [] }
                               : {});
+                    if (
+                      mode === 'flow' &&
+                      (n === 'compliance-reviewer' || n === 'reviewer') &&
+                      !('previousIssues' in data)
+                    ) {
+                      Object.assign(data, {
+                        previousIssues: (
+                          (input.reviewHistory ?? []) as {
+                            id: string;
+                            status: string;
+                          }[]
+                        )
+                          .filter((item) => item.status !== 'ignored')
+                          .map((item) => ({
+                            id: item.id,
+                            status: 'fixed',
+                            note: 'Verified in this fixture.',
+                          })),
+                      });
+                    }
                     return {
                       status: 'done',
                       result: Object.assign(opts?.schema?.parse(data) ?? data, {
@@ -263,6 +549,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                   }),
                 checkpoint: async (checkpoint) => {
                   trace.push('checkpoint');
+                  checkpointBodies.push(checkpoint.body);
                   const answer = answers.shift();
                   return answer
                     ? { status: 'done', result: answer }
@@ -317,6 +604,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                             scmCalls.filter(
                               (call) => call.operation === operation,
                             ).length,
+                            args,
                           ) ??
                           (operation === 'openPr' || operation === 'markDraft'
                             ? pr
@@ -337,15 +625,31 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
               }),
             },
           );
-          const binding = (options.triggers ?? triggers).find(
-            (trigger) => trigger.kind === 'linear.onDelegate',
-          );
+          const continuedTriggers = options.continuation
+            ? flowBindings(
+                flowSource,
+                new URL('../../content/.rocky/', import.meta.url).pathname,
+                Number(
+                  (await readJournal(join(dir, 'journal.jsonl'))).getControl(
+                    'review:continuations',
+                  ) ?? 0,
+                ),
+              ).map(({ descriptor, workflow }) => ({ ...descriptor, workflow }))
+            : undefined;
+          const binding = (
+            continuedTriggers ??
+            options.triggers ??
+            triggers
+          ).find((trigger) => trigger.kind === 'linear.onDelegate');
           if (!binding) throw new Error('Missing delegation Trigger');
-          return binding.workflow(ctx as WorkflowContext, { members: [] });
+          return binding.workflow(ctx as WorkflowContext, {
+            members: options.members ?? [],
+          });
         },
       });
     return {
       trace,
+      checkpointBodies,
       calls,
       scmCalls,
       boot,
@@ -401,6 +705,209 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     });
     expect(f.trace.at(-1)).toBe('Done');
   });
+
+  it.skipIf(mode !== 'flow').each([false, true])(
+    'continues exhausted reviews for exactly another five rounds and survives replay (legacy results=%s)',
+    async (legacy) => {
+      const f = fixture({
+        continuation: true,
+        agent: (name, input) => {
+          if (name === 'compliance-reviewer')
+            return {
+              complaints: [
+                {
+                  id: `${input.namespace}/c1`,
+                  file: 'src/a.ts',
+                  text: 'Empty input crashes.',
+                  quote: 'Return an empty list.',
+                },
+              ],
+            };
+          if (name === 'fixer')
+            return {
+              resolutions: (input.complaints as { id: string }[]).map(
+                ({ id }) => ({ id, status: 'fixed', note: 'Patched.' }),
+              ),
+            };
+          return undefined;
+        },
+      });
+      const path = join(dir, 'journal.jsonl');
+      const first = await f.boot();
+      if (first.status === 'failed') throw new Error(JSON.stringify(first));
+      expect(first).toMatchObject({ status: 'finished', outcome: 'exhausted' });
+      if (legacy) {
+        const rows = (await readFile(path, 'utf8'))
+          .trimEnd()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+        for (const row of rows) {
+          if (row.step === 'agent' && Array.isArray(row.result?.complaints)) {
+            delete row.result.previousIssues;
+            for (const complaint of row.result.complaints)
+              delete complaint.severity;
+          }
+        }
+        await writeFile(
+          path,
+          rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
+        );
+      }
+      const history = await readFile(path, 'utf8');
+      const count = (name: string) =>
+        f.calls.filter((call) => call.name === name).length;
+      expect(count('compliance-reviewer')).toBe(5);
+      const before = f.calls.length;
+      const writer = await JournalWriter.open(path);
+      await writer.retry(
+        'continue-1',
+        String((await readJournal(path)).end?.seq),
+        [],
+        undefined,
+        true,
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(count('compliance-reviewer')).toBe(10);
+      expect(count('implementer')).toBe(1);
+      expect(count('planner')).toBe(1);
+      expect(f.calls[before].name).toBe('fixer');
+      expect(f.calls[before].input.complaints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'Empty input crashes.' }),
+        ]),
+      );
+      expect(
+        f.calls
+          .filter((call) => call.name === 'compliance-reviewer')
+          .slice(5)
+          .map((call) => call.options?.label),
+      ).toEqual([
+        'compliance-reviewer 1/5',
+        'compliance-reviewer 2/5',
+        'compliance-reviewer 3/5',
+        'compliance-reviewer 4/5',
+        'compliance-reviewer 5/5',
+      ]);
+      expect((await readFile(path, 'utf8')).startsWith(history)).toBe(true);
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(count('compliance-reviewer')).toBe(10);
+      await (
+        await JournalWriter.open(path)
+      ).retry(
+        'continue-2',
+        String((await readJournal(path)).end?.seq),
+        [],
+        undefined,
+        true,
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(count('compliance-reviewer')).toBe(15);
+      expect((await readJournal(path)).getControl('review:continuations')).toBe(
+        2,
+      );
+    },
+  );
+
+  it.skipIf(mode !== 'flow')(
+    'reviews all severities together, ignores nit picks, and shares verified history across incremental reviews',
+    async () => {
+      const f = fixture({
+        exec: (command) =>
+          command.includes("git diff 'abc'..HEAD")
+            ? { exitCode: 0, stdout: 'only newer commits', stderr: '' }
+            : undefined,
+        agent: (name, input, count) => {
+          if (name === 'compliance-reviewer' && count === 1)
+            return {
+              complaints: [
+                {
+                  id: `${input.namespace}/must`,
+                  file: 'a.ts',
+                  text: 'Loses data.',
+                  quote: 'Return an empty list.',
+                  severity: 'must-fix',
+                },
+                {
+                  id: `${input.namespace}/should`,
+                  file: 'b.ts',
+                  text: 'Retries unnecessarily.',
+                  quote: 'Return an empty list.',
+                  severity: 'should-fix',
+                },
+                {
+                  id: `${input.namespace}/nit`,
+                  file: 'c.ts',
+                  text: 'Prefer another name.',
+                  quote: 'Return an empty list.',
+                  severity: 'nit-pick',
+                },
+              ],
+            };
+          if (name === 'reviewer' && count === 1)
+            return {
+              complaints: [
+                {
+                  id: `${input.namespace}/new`,
+                  file: 'a.ts',
+                  text: 'A regression in the fix.',
+                  severity: 'should-fix',
+                },
+              ],
+            };
+          if (name === 'fixer')
+            return {
+              resolutions: (input.complaints as { id: string }[]).map(
+                ({ id }) => ({
+                  id,
+                  status: 'fixed',
+                  note: 'Fixed and checked.',
+                }),
+              ),
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const fixers = f.calls.filter((call) => call.name === 'fixer');
+      expect(fixers).toHaveLength(2);
+      expect(fixers[0].input.complaints).toEqual([
+        expect.objectContaining({ severity: 'must-fix' }),
+        expect.objectContaining({ severity: 'should-fix' }),
+      ]);
+      expect(fixers[0].input.reviewHistory).toHaveLength(3);
+      expect(fixers[1].input.reviewHistory).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 'fixed',
+            resolutions: [
+              expect.objectContaining({ note: 'Fixed and checked.' }),
+            ],
+          }),
+          expect.objectContaining({ status: 'ignored' }),
+        ]),
+      );
+      for (const name of ['compliance-reviewer', 'reviewer']) {
+        const passes = f.calls.filter((call) => call.name === name);
+        expect(passes[0].input.reviewScope).toMatchObject({ kind: 'initial' });
+        expect(passes[1].input).toMatchObject({
+          diff: 'only newer commits',
+          reviewScope: { kind: 'incremental', base: 'abc' },
+        });
+      }
+      const calls = f.calls.length;
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(f.calls).toHaveLength(calls);
+    },
+  );
 
   it('bounds a disagreement loop, keeps compliance rule-free, and exposes unresolved blocking Complaints', async () => {
     const f = fixture({
@@ -477,6 +984,51 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     ).toHaveLength(2);
     expect(f.trace).not.toContain('armAutoMerge');
   });
+
+  it.skipIf(mode !== 'flow')(
+    'refreshes CI on continuation instead of invoking an unconnected review fixer',
+    async () => {
+      let repaired = false;
+      const f = fixture({
+        continuation: true,
+        agent: (name) =>
+          name === 'ci-fixer'
+            ? { action: 'unresolved', summary: 'No child logs.' }
+            : undefined,
+        scm: (operation) =>
+          operation === 'waitForCi' && !repaired
+            ? {
+                status: 'failed',
+                headSha: 'abc',
+                failedJobs: [
+                  { id: '9', name: 'Pipeline 9', failedSteps: [], logTail: '' },
+                ],
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      repaired = true;
+      const path = join(dir, 'journal.jsonl');
+      const writer = await JournalWriter.open(path);
+      await writer.retry(
+        'continue-ci',
+        String((await readJournal(path)).end?.seq),
+        [],
+        undefined,
+        true,
+      );
+      const resumed = await f.boot();
+      if (resumed.status === 'failed') throw new Error(JSON.stringify(resumed));
+      expect(resumed).toMatchObject({ status: 'parked' });
+      expect(f.calls.filter((call) => call.name === 'fixer')).toHaveLength(0);
+      expect(
+        f.scmCalls.filter((call) => call.operation === 'waitForCi'),
+      ).toHaveLength(2);
+    },
+  );
 
   it('spends at most three CI repair attempts and never readies failed CI', async () => {
     const f = fixture({
@@ -1039,6 +1591,58 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(f.trace.at(-1)).toBe('In Review');
     expect(f.scmCalls).toEqual([]);
   });
+
+  it.skipIf(mode !== 'flow')(
+    'continues an exhausted deliverable with its previous draft and review feedback',
+    async () => {
+      const f = fixture({
+        continuation: true,
+        agent: (name) => {
+          if (name === 'refiner') return commentScope;
+          if (name === 'deliverable-writer') return { body: 'Incomplete' };
+          if (name === 'deliverable-reviewer')
+            return {
+              assessments: [
+                {
+                  criterion: 'Explain the architecture.',
+                  evidence: 'Missing.',
+                  problems: ['Missing architecture.'],
+                },
+              ],
+              problems: [],
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      const path = join(dir, 'journal.jsonl');
+      await (
+        await JournalWriter.open(path)
+      ).retry(
+        'continue-comment',
+        String((await readJournal(path)).end?.seq),
+        [],
+        undefined,
+        true,
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      const drafts = f.calls.filter(
+        (call) => call.name === 'deliverable-writer',
+      );
+      expect(drafts).toHaveLength(10);
+      expect(drafts[5].input.previous).toMatchObject({
+        body: 'Incomplete',
+        problems: expect.arrayContaining(['Missing architecture.']),
+      });
+      expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([]);
+    },
+  );
 
   it('exhausts comment review without publishing an unapproved deliverable', async () => {
     const f = fixture({

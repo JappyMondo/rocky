@@ -1470,6 +1470,36 @@ it('exposes live agent settings, execution timing, profile and the PR from durab
   });
   detail = (await app.inject(`/api/runs/${run.runId}`)).json<RunDetail>();
   expect(detail.run.pr).toEqual(pr);
+  const companion = {
+    repo: 'config',
+    number: 43,
+    url: 'https://github.com/example/config/pull/43',
+    headSha: 'b'.repeat(40),
+  };
+  await appendEntry(paths.run(run.runId).journal, {
+    ...entry,
+    seq: 2,
+    step: 'scm.openPr:config:hash',
+    status: 'done',
+    result: companion,
+  });
+  await appendEntry(paths.run(run.runId).journal, {
+    ...entry,
+    seq: 3,
+    step: 'scm.updateBranch:config:hash',
+    status: 'done',
+    result: {
+      status: 'updated',
+      pr: { ...companion, headSha: 'c'.repeat(40) },
+    },
+  });
+  detail = (await app.inject(`/api/runs/${run.runId}`)).json<RunDetail>();
+  expect(detail.run.pr).toEqual(pr);
+  expect(detail.run.prs).toEqual([
+    { ...pr, repo: run.repo },
+    { ...companion, headSha: 'c'.repeat(40) },
+  ]);
+
   expect(detail.steps[0]).toMatchObject({
     ms: 2400,
     transcript: 'available',
@@ -1557,70 +1587,99 @@ it('refuses to reset a malformed Config block without replacing content', async 
   expect(await readRepositoryProfile(f.paths, 'product')).toEqual(original);
 });
 
-it('advertises failed Step retries and validates retry requests at the local API', async () => {
-  const retryStep = vi.fn(async () => undefined);
-  const { app, run, paths } = await setup({ retryStep });
-  const entry: JournalEntry = {
-    v: 1,
-    seq: 0,
-    step: 'agent',
-    status: 'failed',
-    boot: 1,
-    startedAt: '2026-09-11T10:00:00Z',
-    error: { name: 'Error', message: 'transient' },
-  };
-  await mkdir(paths.run(run.runId).dir, { recursive: true });
-  await writeFile(
-    paths.run(run.runId).journal,
-    [
-      entry,
-      {
-        ...entry,
-        seq: 1,
-        step: '$end',
-        result: { status: 'failed', error: entry.error },
-      },
-    ]
-      .map((item) => JSON.stringify(item))
-      .join('\n') + '\n',
-  );
-  await writeRunHeader(paths, { ...run, status: 'failed', boots: 1 });
-  expect(
-    (await app.inject(`/api/runs/${run.runId}`)).json().controls.retryStep,
-  ).toBe('0');
-  const payload = {
-    requestId: '11111111-1111-4111-8111-111111111111',
-    stepKey: '0',
-    expectedBoot: 1,
-  };
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: `/api/runs/${run.runId}/retry-step`,
-        payload,
-      })
-    ).statusCode,
-  ).toBe(202);
-  expect(retryStep).toHaveBeenCalledWith(run.runId, payload);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: `/api/runs/${run.runId}/retry-step`,
-        payload: { ...payload, stepKey: '../0' },
-      })
-    ).statusCode,
-  ).toBe(400);
-  retryStep.mockRejectedValueOnce(new Error('Workspace was released'));
-  const refused = await app.inject({
-    method: 'POST',
-    url: `/api/runs/${run.runId}/retry-step`,
-    payload,
-  });
-  expect(refused.statusCode).toBe(409);
-  expect(refused.json().error).toContain('Workspace was released');
-});
+it.each(['failed', 'done'] as const)(
+  'advertises retry after a %s Step and validates requests',
+  async (status) => {
+    const retryStep = vi.fn(async () => undefined);
+    const { app, run, paths } = await setup({ retryStep });
+    const entry: JournalEntry = {
+      v: 1,
+      seq: 0,
+      step: 'agent',
+      status,
+      boot: 1,
+      startedAt: '2026-09-11T10:00:00Z',
+      error: { name: 'Error', message: 'transient' },
+    };
+    await mkdir(paths.run(run.runId).dir, { recursive: true });
+    await writeFile(
+      paths.run(run.runId).journal,
+      [
+        entry,
+        {
+          ...entry,
+          seq: 1,
+          step: '$end',
+          status: 'failed',
+          result: { status: 'failed', error: entry.error },
+        },
+      ]
+        .map((item) => JSON.stringify(item))
+        .join('\n') + '\n',
+    );
+    await writeRunHeader(paths, { ...run, status: 'failed', boots: 1 });
+    expect(
+      (await app.inject(`/api/runs/${run.runId}`)).json().controls.retryStep,
+    ).toBe(status === 'failed' ? '0' : '1');
+    const payload = {
+      requestId: '11111111-1111-4111-8111-111111111111',
+      stepKey: status === 'failed' ? '0' : '1',
+      expectedBoot: 1,
+    };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/runs/${run.runId}/retry-step`,
+          payload,
+        })
+      ).statusCode,
+    ).toBe(202);
+    expect(retryStep).toHaveBeenCalledWith(run.runId, payload);
+    const recoveryPayload = {
+      ...payload,
+      recoveryInstructions: 'Use the updated Git identity',
+    };
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/runs/${run.runId}/retry-step`,
+          payload: recoveryPayload,
+        })
+      ).statusCode,
+    ).toBe(202);
+    expect(retryStep).toHaveBeenLastCalledWith(run.runId, recoveryPayload);
+    for (const recoveryInstructions of ['', '   ', 'x'.repeat(12001)]) {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/api/runs/${run.runId}/retry-step`,
+            payload: { ...payload, recoveryInstructions },
+          })
+        ).statusCode,
+      ).toBe(400);
+    }
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/runs/${run.runId}/retry-step`,
+          payload: { ...payload, stepKey: '../0' },
+        })
+      ).statusCode,
+    ).toBe(400);
+    retryStep.mockRejectedValueOnce(new Error('Workspace was released'));
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${run.runId}/retry-step`,
+      payload,
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain('Workspace was released');
+  },
+);
 
 it('configures arbitrary workflow slots without rewriting source, persists choices, and rejects stale or incomplete updates', async () => {
   const f = await setup();
@@ -1778,4 +1837,114 @@ it('persists source control references through settings and profiles, with reset
     payload: { revision: saved.json().revision, patch: { sourceControl: {} } },
   });
   expect(cleared.json().values.sourceControl).toEqual({});
+});
+
+it('saves flow prompt contents with revision protection and preserves omitted prompts', async () => {
+  const f = await setup();
+  const profiles = new LocalProfiles(f.paths);
+  f.options.profiles = profiles;
+  const created = await profiles.save({
+    id: 'prompt-editor',
+    remote: 'github.com/acme/web',
+    models,
+  });
+  expect(JSON.parse(created.workflow.source).version).toBe(2);
+  expect(created.promptContents).toEqual(
+    (await profiles.defaults()).promptContents,
+  );
+  const promptContents = {
+    ...created.promptContents,
+    planner: 'Custom instructions\n',
+  };
+  const response = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: { id: created.id, revision: created.revision, promptContents },
+  });
+  expect(response.statusCode).toBe(200);
+  const saved = response.json();
+  expect(saved.promptContents).toEqual(promptContents);
+  expect((await readRepositoryProfile(f.paths, created.id)).prompts).toEqual(
+    promptContents,
+  );
+  expect(saved.workflow).toEqual(created.workflow);
+  expect(saved.models).toEqual(created.models);
+  const stale = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: { id: created.id, revision: created.revision, promptContents },
+  });
+  expect(stale.statusCode).toBe(409);
+  for (const name of ['../escape', '..', '.', 'nested/file']) {
+    const invalid = await f.app.inject({
+      method: 'PUT',
+      url: '/api/profiles',
+      payload: {
+        id: created.id,
+        revision: saved.revision,
+        promptContents: { [name]: 'bad' },
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+  }
+  const retained = await profiles.save({
+    id: created.id,
+    revision: saved.revision,
+  });
+  expect(retained.promptContents).toEqual(promptContents);
+});
+
+it('offers another review batch on exhausted runs and forwards the explicit grant', async () => {
+  const retryStep = vi.fn(async () => undefined);
+  const { app, paths, run } = await setup({
+    retryStep,
+    continuationRounds: async () => 5,
+  });
+  await runBoot({
+    journalPath: paths.run(run.runId).journal,
+    workflow: async () => 'exhausted',
+  });
+  await writeRunHeader(paths, {
+    ...run,
+    status: 'finished',
+    outcome: 'exhausted',
+    boots: 1,
+  });
+  expect(
+    (await app.inject(`/api/runs/${run.runId}`)).json().controls,
+  ).toMatchObject({ continueReview: { stepKey: '0', rounds: 5 } });
+  const payload = {
+    requestId: '11111111-1111-4111-8111-111111111111',
+    stepKey: '0',
+    expectedBoot: 1,
+    continueExhausted: true,
+  };
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.runId}/retry-step`,
+        payload,
+      })
+    ).statusCode,
+  ).toBe(202);
+  expect(retryStep).toHaveBeenCalledWith(run.runId, payload);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.runId}/retry-step`,
+        payload: { ...payload, recoveryInstructions: 'fix' },
+      })
+    ).statusCode,
+  ).toBe(400);
+  await writeRunHeader(paths, {
+    ...run,
+    status: 'finished',
+    outcome: 'completed',
+    boots: 1,
+  });
+  expect(
+    (await app.inject(`/api/runs/${run.runId}`)).json().controls.continueReview,
+  ).toBeUndefined();
 });

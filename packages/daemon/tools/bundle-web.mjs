@@ -2,6 +2,7 @@
  * Copy the built web shell into the daemon package, so one published artifact
  * carries both halves of the port the daemon serves.
  */
+import { build } from 'vite';
 import { cpSync, existsSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,10 @@ if (!existsSync(source)) {
   );
   process.exit(1);
 }
+
+await build({
+  configFile: resolve(packageRoot, '../../apps/web/vite.review.config.mts'),
+});
 
 rmSync(target, { recursive: true, force: true });
 cpSync(source, target, { recursive: true });

@@ -1,9 +1,11 @@
+import { reviewContinuationRounds } from './continuation.js';
 import { readCredentials } from '../config/store.js';
 import {
   resolveSourceControl,
   sourceControlEnv,
 } from '../config/source-control.js';
 import { prepareRetryWorkspace } from './retry-workspace.js';
+import { currentRunSourceControl } from './source-control.js';
 import { rm } from 'node:fs/promises';
 import { createWorkspace, releaseCleanWorkspace } from '../repos/workspace.js';
 import type { Issue } from '@rocky/sdk';
@@ -104,7 +106,7 @@ export function createExecutionRequestHandler(
   options: Pick<
     ExecutionOptions,
     'paths' | 'repos' | 'agentSteer' | 'checkpoint'
-  >,
+  > & { config?: ExecutionOptions['config'] },
   getRun: (runId: string) => Promise<RunHeader | undefined>,
   writer: (path: string) => Promise<JournalWriter>,
 ): ExecutionRequestHandler {
@@ -161,16 +163,19 @@ export function createExecutionRequestHandler(
         return options.agentSteer.close(runId, request.stepKey);
       }
       case 'workspace': {
+        const sourceControl = options.config
+          ? await currentRunSourceControl(options.paths, options.config(), run)
+          : run.profile?.sourceControl;
         if (!run.execution)
           throw new Error(
             `${runId}: missing frozen repo membership; re-delegate through production admission`,
           );
         const workspace = await createWorkspace(
-          run.profile?.sourceControl
+          sourceControl
             ? {
                 ...options.repos,
-                sourceControl: run.profile?.sourceControl,
-                env: sourceControlEnv(run.profile?.sourceControl, {
+                sourceControl,
+                env: sourceControlEnv(sourceControl, {
                   ...process.env,
                   ...(await readCredentials(options.paths)).repos[run.repo],
                 }),
@@ -225,19 +230,44 @@ export async function openExecution(options: ExecutionOptions) {
     onError: options.onError,
     retryStep: async (run, input) => {
       const journal = await writer(options.paths.run(run.runId).journal);
-      if (await journal.get(`linear-mirror:${run.runId}:terminal`))
+      if (
+        input.continueExhausted &&
+        !(await reviewContinuationRounds(options.paths, run))
+      )
         throw new Error(
-          'This Run already prepared or published a terminal Linear response. Start a new Run instead of retrying its effects.',
+          'This Run does not have a supported review flow to continue.',
         );
+      // A closed Linear session must not prevent local work from resuming.
+      // Keep frozen publication payloads and receipts: a retry does not create
+      // a second terminal response or change an already published response.
       await prepareRetryWorkspace(
         options.repos,
-        run,
+        run.profile
+          ? {
+              ...run,
+              profile: {
+                ...run.profile,
+                sourceControl: await currentRunSourceControl(
+                  options.paths,
+                  options.config(),
+                  run,
+                ),
+              },
+            }
+          : run,
         (await journal.read()).entries,
+        { continueExhausted: input.continueExhausted },
       );
-      await journal.retry(input.requestId, input.stepKey, [
-        `linear-mirror:${run.runId}:mode`,
-        `linear-mirror:${run.runId}:closing`,
-      ]);
+      await journal.retry(
+        input.requestId,
+        input.stepKey,
+        [
+          `linear-mirror:${run.runId}:mode`,
+          `linear-mirror:${run.runId}:closing`,
+        ],
+        input.recoveryInstructions,
+        input.continueExhausted,
+      );
     },
     releaseTerminalWorkspace: async (run) => {
       if (run.status === 'failed') return;
@@ -397,6 +427,7 @@ export async function openExecution(options: ExecutionOptions) {
             ...(request.linear === undefined ? {} : { linear: request.linear }),
             execution: {
               reviewReports: true,
+              recapVersion: 2,
               source,
               sourceCommit: prepared.sourceCommit,
               trigger: prepared.trigger,

@@ -83,6 +83,13 @@ it('requires retained execution metadata, a snapshot, and a recorded revision fo
     branch: 'issue',
     members: [{ name: 'repo', head: 'b'.repeat(40) }],
   });
+  await prepareRetryWorkspace(repos, run, [entry], { continueExhausted: true });
+  expect(restoreRetryWorkspace).toHaveBeenLastCalledWith(repos, {
+    runId: run.runId,
+    branch: 'issue',
+    members: [{ name: 'repo', head: 'b'.repeat(40) }],
+    allowBranchAdvance: true,
+  });
   await expect(
     prepareRetryWorkspace(repos, { ...run, artifactsPruned: true }, [entry]),
   ).rejects.toThrow(/execution artifacts/);

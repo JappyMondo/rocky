@@ -59,7 +59,10 @@ export interface RunHeader {
   branch: string;
   /** Lead repo used for retention. Immutable for the Run's life. */
   repo: string;
-  /** Resolved local profile copied at admission; never re-read from Git. */
+  /**
+   * Local profile content fixed at admission. Named model selections are
+   * deliberately omitted and are read from this profile on each Boot.
+   */
   profile?: RepositoryProfile;
   /** Reserved again before a working Boot; poll Boots reuse these values. */
   ports: number[];
@@ -90,6 +93,7 @@ export interface RunLinearIdentity {
 
 export interface RunExecution {
   reviewReports?: boolean;
+  recapVersion?: 2;
   source: 'repository' | 'onboarding';
   sourceCommit: string;
   trigger: { kind: 'linear.onDelegate' } | { kind: 'manual'; name: string };
@@ -146,6 +150,7 @@ const executionMemberSchema = z.object({
 
 const executionSchema = z.object({
   reviewReports: z.boolean().optional(),
+  recapVersion: z.literal(2).optional(),
   source: z.enum(['repository', 'onboarding']),
   sourceCommit: z.string().min(1),
   trigger: z.discriminatedUnion('kind', [
@@ -236,6 +241,12 @@ export function newRunHeader(opts: {
   trigger?: string;
   now: string;
 }): RunHeader {
+  const profile =
+    opts.profile &&
+    (() => {
+      const { models: _models, ...snapshot } = opts.profile;
+      return structuredClone(snapshot);
+    })();
   return {
     v: RUN_HEADER_VERSION,
     runId: opts.runId,
@@ -243,9 +254,7 @@ export function newRunHeader(opts: {
     issue: opts.issue,
     branch: opts.branch,
     repo: opts.repo,
-    ...(opts.profile === undefined
-      ? {}
-      : { profile: structuredClone(opts.profile) }),
+    ...(profile === undefined ? {} : { profile }),
     ports: [],
     // A Run is admitted before it works: `queued` is a real state, so a Run
     // asleep for three days does not jump the cap (NG-574 §8).

@@ -103,6 +103,10 @@ export function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const elements = () =>
@@ -114,11 +118,11 @@ export function Dialog({
     (
       ref.current?.querySelector<HTMLInputElement>('input:not(:disabled)') ??
       ref.current
-    )?.focus();
+    )?.focus({ preventScroll: true });
     const keys = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        close.current();
       }
       if (event.key === 'Tab') {
         const items = elements();
@@ -140,9 +144,9 @@ export function Dialog({
     document.addEventListener('keydown', keys);
     return () => {
       document.removeEventListener('keydown', keys);
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className={styles.overlay}>
       <div

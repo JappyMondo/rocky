@@ -177,7 +177,7 @@ export interface LinearRunControlOptions {
   issueId: string;
   appUserId: string;
   runUrl: string;
-  /** NG-601's total-comment budget gate, before any elicitation is emitted. */
+  /** Lifecycle fence checked before any elicitation is emitted. */
   beforeElicitation(): Promise<void>;
   parked?(waiting: boolean): Promise<void>;
   now?: () => number;

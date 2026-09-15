@@ -18,7 +18,11 @@ import { resolveFlowValue } from './values.js';
 export { resolveFlowValue } from './values.js';
 import { configuredFlowAgent, invokeAgent, deliveryAgents } from './agents.js';
 
-export function flowBindings(source: string, snapshotDir: string) {
+export function flowBindings(
+  source: string,
+  snapshotDir: string,
+  continuations = 0,
+) {
   const flow = validateFlow(source);
   // Invalid output schemas must fail admission, before any effects run.
   for (const node of flow.nodes)
@@ -32,7 +36,14 @@ export function flowBindings(source: string, snapshotDir: string) {
           ? { kind: 'manual' as const, name: String(node.parameters.name) }
           : { kind: 'linear.onDelegate' as const },
       workflow: ((ctx, input) =>
-        executeFlow(flow, node.id, ctx, input, snapshotDir)) satisfies Workflow,
+        executeFlow(
+          flow,
+          node.id,
+          ctx,
+          input,
+          snapshotDir,
+          continuations,
+        )) satisfies Workflow,
     }));
 }
 
@@ -42,6 +53,7 @@ export async function executeFlow(
   ctx: WorkflowContext,
   workspace: WorkflowInput,
   snapshotDir: string,
+  continuations = 0,
 ): Promise<RunOutcome> {
   // Validate at this boundary too: embedders cannot accidentally execute an invalid graph.
   flow = validateFlow(JSON.stringify(flow));
@@ -61,7 +73,7 @@ export async function executeFlow(
   let merged = false;
   for (
     let transitions = 0;
-    transitions < flow.settings.maxTransitions;
+    transitions < flow.settings.maxTransitions * (continuations + 1);
     transitions++
   ) {
     const node = nodes.get(current)!;
@@ -151,6 +163,7 @@ export async function executeFlow(
           workspace,
           flow.settings,
           snapshotDir,
+          continuations,
         );
         port = await delivery(
           node.type.slice('delivery.'.length),

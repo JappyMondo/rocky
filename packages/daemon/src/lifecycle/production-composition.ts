@@ -1,3 +1,8 @@
+import {
+  PublicReviews,
+  registerPublicReviews,
+} from '../review-report/public.js';
+import { reviewContinuationRounds } from '../run/continuation.js';
 /**
  * The production composition root.  This is deliberately the only place that
  * knows about both the daemon's HTTP seams and the durable Run machinery.
@@ -262,15 +267,51 @@ export async function createProductionComposition(options: {
           app.log.warn('Workflow diagram cache could not be refreshed.'),
       });
       app.addHook('onClose', () => diagrams.close());
+      const publicReviews = new PublicReviews(options.paths);
+      await registerPublicReviews(app, publicReviews);
       await registerLocalApi(app, {
+        deliveryRepairEntries: async (runId) => {
+          try {
+            return (
+              await readJournal(
+                join(
+                  options.paths.run(runId).dir,
+                  'delivery-repair',
+                  'journal.jsonl',
+                ),
+              )
+            ).entries;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+            throw error;
+          }
+        },
+        shareReport: async (report) => {
+          const origin = options.config.current.publicUrl;
+          if (!origin)
+            throw new Error('Configure a public URL before sharing reviews.');
+          return publicReviews.publish(report, origin);
+        },
         tailscaleOrigin: () => options.config.current.server.tailscaleOrigin,
         runs: {
           list: () => execution.scheduler.list(),
           get: async (id) => {
             const run = await execution.scheduler.get(id);
             if (!run || run.status !== 'failed') return run;
-            const terminal = (await runJournal(id)).getControl(
-              `linear-mirror:${id}:terminal`,
+            const journal = await runJournal(id);
+            const continuation = Number(
+              journal.getControl('review:continuations') ?? 0,
+            );
+            const latestRetry = journal.getControl('retry:latest');
+            const completionRetry =
+              latestRetry &&
+              typeof latestRetry === 'object' &&
+              'requestId' in latestRetry &&
+              typeof latestRetry.requestId === 'string'
+                ? latestRetry.requestId
+                : undefined;
+            const terminal = journal.getControl(
+              `linear-mirror:${id}:${continuation ? `continuation:${continuation}:` : ''}${completionRetry ? `retry:${completionRetry}:` : ''}terminal`,
             );
             if (
               terminal &&
@@ -306,12 +347,18 @@ export async function createProductionComposition(options: {
         profiles: new LocalProfiles(options.paths),
         connections,
         diagrams,
+        continuationRounds: (run) =>
+          reviewContinuationRounds(options.paths, run),
         retryStep: async (id, input) => {
           await execution.scheduler.retryStep(id, input);
           void execution.scheduler
             .drain()
             .catch((error) => app.log.error(error, 'Retry scheduling failed'));
         },
+        recovery: async (id) =>
+          (await runJournal(id)).getControl(
+            'recovery:latest',
+          ) as import('@rocky/local-contracts').RunDetail['recovery'],
         currentCheckpoint: async (id) => (await controlView(id)).checkpoint,
         answer: async (id, input) => {
           const control = await controlFor(id);

@@ -1,0 +1,16 @@
+.public-review {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 24px 24px 48px;
+}
+.public-review-brand {
+  margin: 0 0 28px;
+  color: #62684e;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+@media (max-width: 600px) {
+  .public-review {
+    padding: 18px 14px 32px;
+  }
+}

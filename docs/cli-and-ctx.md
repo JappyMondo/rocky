@@ -64,7 +64,7 @@ call this API yet and exits nonzero.
 | Surface                              | Runtime behavior                                                                                                                             |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `issue`, `branch`, `ports`           | Run/Boot data; new issue snapshots include paginated comment history                                                                         |
-| `models`                             | Immutable named harness/model/effort selections captured in the Run profile; spread `ctx.models.<slot>` into agent options                   |
+| `models`                             | Current named harness/model/effort selections read from the local profile at Boot; immutable during that Boot; spread `ctx.models.<slot>` into agent options                   |
 | `agent`                              | Named frozen prompt or inline prompt; harness/tools/MCP/model/effort chosen at the call site; validates structured output and adds `summary` |
 | `exec`, `step`, `changedFiles`       | Journaled shell work, arbitrary JSON-returning effects and Git changes                                                                       |
 | `parallel`                           | One parent entry and index-keyed branch journals, with ordered results                                                                       |

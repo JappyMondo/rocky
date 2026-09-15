@@ -749,3 +749,72 @@ it('serializes duplicate Step retries and refuses stale, live, and superseded Ru
   expect(retry).toHaveBeenCalledTimes(1);
   await reopened.close();
 });
+
+it('grants one continuation per request only to an exhausted Run, including after restart', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const run = stored('NG-901');
+  await writeRunHeader(paths, run);
+  const journalPath = paths.run(run.runId).journal;
+  await runBoot({ journalPath, workflow: async () => 'exhausted' });
+  const writer = await JournalWriter.open(journalPath);
+  const retry = vi.fn(async (_run, input) =>
+    writer.retry(
+      input.requestId,
+      input.stepKey,
+      [],
+      undefined,
+      input.continueExhausted,
+    ),
+  );
+  const scheduler = await RunScheduler.open({
+    paths,
+    boot: vi.fn(),
+    retryStep: retry,
+  });
+  const request = {
+    requestId: 'continue',
+    stepKey: '0',
+    expectedBoot: 1,
+    continueExhausted: true as const,
+  };
+  try {
+    await expect(
+      scheduler.retryStep(run.runId, { ...request, expectedBoot: 2 }),
+    ).rejects.toThrow(/Refresh/);
+    await expect(
+      scheduler.retryStep(run.runId, {
+        ...request,
+        continueExhausted: undefined,
+      }),
+    ).rejects.toThrow(/settled failed/);
+    await Promise.all([
+      scheduler.retryStep(run.runId, request),
+      scheduler.retryStep(run.runId, request),
+    ]);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect((await writer.read()).getControl('review:continuations')).toBe(1);
+    await expect(
+      scheduler.retryStep(run.runId, { ...request, requestId: 'another' }),
+    ).rejects.toThrow(/settled exhausted/);
+    await expect(
+      scheduler.retryStep(run.runId, {
+        ...request,
+        continueExhausted: undefined,
+      }),
+    ).rejects.toThrow(/different action/);
+  } finally {
+    await scheduler.close();
+  }
+  const reopened = await RunScheduler.open({
+    paths,
+    boot: vi.fn(),
+    retryStep: retry,
+  });
+  try {
+    await reopened.retryStep(run.runId, request);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect((await reopened.get(run.runId))?.status).toBe('queued');
+  } finally {
+    await reopened.close();
+  }
+});

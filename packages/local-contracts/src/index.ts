@@ -47,6 +47,7 @@ export interface RunSummary {
   endedAt?: string;
   artifactsPruned?: boolean;
   pr?: { number: number; url: string; headSha: string };
+  prs?: Array<{ repo: string; number: number; url: string; headSha: string }>;
 }
 
 export interface RunList {
@@ -110,6 +111,12 @@ export interface RunDetail {
   /** Hash of recorded Step state; raw Transcript growth does not change it. */
   revision: string;
   steps: StepView[];
+  recovery?: {
+    requestId: string;
+    instructions: string;
+    status: 'running' | 'done' | 'failed';
+    summary: string;
+  };
   checkpoint?: Checkpoint;
   steers: SteerReceipt[];
   usage: UsageTotal;
@@ -119,6 +126,8 @@ export interface RunDetail {
     steer: boolean;
     /** Final failed root Step; completed parallel branches are reused. */
     retryStep?: string;
+    /** One explicit new batch of review rounds for an exhausted delivery flow. */
+    continueReview?: { stepKey: string; rounds: number };
     /** Omitted when this Run has no supported Linear session recovery. */
     linearDelegation?: 'available' | 'enabled';
   };
@@ -278,7 +287,9 @@ export interface RepositoryProfileView {
     capabilities: Array<'read' | 'edit' | 'bash'>;
     mcp: string[];
   };
-  /** File names only; prompt bodies and environment values stay local. */
+  /** Local prompt bodies for editing references from flow nodes. */
+  promptContents?: Record<string, string>;
+  /** Prompt and rule names. Environment values are never exposed. */
   prompts: string[];
   rules: string[];
   secretEnv: string[];
@@ -308,7 +319,13 @@ export interface WorkflowDiagramView {
 
 export type RepositoryProfileDefaults = Pick<
   RepositoryProfileView,
-  'workflow' | 'grants' | 'prompts' | 'rules' | 'secretEnv' | 'modelSlots'
+  | 'workflow'
+  | 'grants'
+  | 'prompts'
+  | 'rules'
+  | 'secretEnv'
+  | 'modelSlots'
+  | 'promptContents'
 > & {
   modelSuggestions?: Record<string, Partial<AgentModelSelection>>;
 };
@@ -330,6 +347,25 @@ export interface ApiError {
 }
 
 export interface ReviewReport {
+  goal?: string;
+  decision?: {
+    status: 'ready' | 'needs-attention' | 'blocked';
+    summary: string;
+    actions: string[];
+  };
+  requirements?: Array<{
+    label?: string;
+    criterion: string;
+    status: 'supported' | 'gap' | 'unverified' | 'waived';
+    evidence: string[];
+  }>;
+  behavior?: Array<{
+    scenario: string;
+    before: string;
+    after: string;
+    evidence: string[];
+  }>;
+  ui?: { changed: boolean; summary: string };
   id: string;
   runId: string;
   createdAt: string;
@@ -341,6 +377,12 @@ export interface ReviewReport {
     baseSha: string;
   };
   deliverable?: string;
+  pullRequests?: Array<{
+    repo: string;
+    number: number;
+    url: string;
+    headSha: string;
+  }>;
   files?: Array<{ path: string; status: string }>;
   keyChanges?: Array<{
     title: string;

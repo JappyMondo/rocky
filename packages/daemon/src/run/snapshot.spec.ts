@@ -157,6 +157,11 @@ it('validates the runnable shipped profile without loading repository .rocky', a
   expect(
     await readFile(join(snapshot.snapshotDir, 'agents/planner.md'), 'utf8'),
   ).not.toBe('');
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'profile.json'), 'utf8'),
+    ),
+  ).not.toHaveProperty('models');
 });
 
 it('routes and snapshots one default-branch commit, preserving binary bytes and ignoring live edits', async () => {

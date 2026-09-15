@@ -1,5 +1,5 @@
 import { readJournal } from './journal.js';
-import { retryStepKey, type RetryRequest } from './retry.js';
+import { retryStepKey, exhaustedStepKey, type RetryRequest } from './retry.js';
 import {
   cp,
   mkdir,
@@ -256,6 +256,10 @@ export class RunScheduler {
         this.mutate(async () => {
           const run = this.runs.get(runId);
           if (!run) throw new Error(`Unknown Run ${runId}`);
+          if (input.continueExhausted && input.recoveryInstructions)
+            throw new Error(
+              'Review continuation cannot also retry a failed Step.',
+            );
           if (this.closed || !this.options.retryStep)
             throw new Error('Step retry is unavailable.');
           const journal = await readJournal(
@@ -263,6 +267,20 @@ export class RunScheduler {
           );
           const receipt = journal.getControl(`retry:${input.requestId}`);
           if (receipt) {
+            if (
+              (receipt as { continueExhausted?: true }).continueExhausted !==
+              input.continueExhausted
+            )
+              throw new Error(
+                'Request ID was already used for a different action.',
+              );
+            if (
+              (receipt as { recovery?: { instructions: string } }).recovery
+                ?.instructions !== input.recoveryInstructions
+            )
+              throw new Error(
+                'Retry request ID was already used with different recovery instructions.',
+              );
             if ((receipt as { stepKey: string }).stepKey !== input.stepKey)
               throw new Error(
                 'Retry request ID was already used for a different Step.',
@@ -270,15 +288,23 @@ export class RunScheduler {
             return structuredClone(run);
           }
           if (
-            run.status !== 'failed' ||
+            (input.continueExhausted
+              ? run.status !== 'finished' || run.outcome !== 'exhausted'
+              : run.status !== 'failed') ||
             run.cancelRequestedAt ||
             this.active.has(runId) ||
             this.pendingHeaders.has(runId)
           )
-            throw new Error('Only a settled failed Run can retry a Step.');
+            throw new Error(
+              input.continueExhausted
+                ? 'Only a settled exhausted Run can continue.'
+                : 'Only a settled failed Run can retry a Step.',
+            );
           if (
             run.boots !== input.expectedBoot ||
-            retryStepKey(journal.entries) !== input.stepKey
+            (input.continueExhausted
+              ? exhaustedStepKey(journal.entries)
+              : retryStepKey(journal.entries)) !== input.stepKey
           )
             throw new Error(
               'This Step is no longer retryable. Refresh the Run.',

@@ -24,3 +24,28 @@ it('accepts Linear link and heading normalization without accepting different co
     ),
   ).toBe(false);
 });
+
+it('accepts Linear autolinking bare URLs without losing changed targets or code', () => {
+  expect(
+    sameMarkdown(
+      'See https://gitlab.test/mr/7 now.',
+      'See [https://gitlab.test/mr/7](<https://gitlab.test/mr/7>) now.',
+    ),
+  ).toBe(true);
+  expect(
+    sameMarkdown(
+      'https://gitlab.test/mr/7',
+      '[https://gitlab.test/mr/7](https://evil.test)',
+    ),
+  ).toBe(false);
+  expect(
+    sameMarkdown(
+      '`https://gitlab.test/mr/7`',
+      '[https://gitlab.test/mr/7](https://gitlab.test/mr/7)',
+    ),
+  ).toBe(false);
+});
+
+it('does not equate relative links with ordinary text', () => {
+  expect(sameMarkdown('approve', '[approve](approve)')).toBe(false);
+});

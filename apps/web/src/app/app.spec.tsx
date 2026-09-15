@@ -917,48 +917,219 @@ describe('Inbox behavior', () => {
     ).toBe('true');
   });
 
-  it('offers failed Step retry, preserves the request ID after a lost response, and refreshes the Run', async () => {
-    const requests: Array<{
-      requestId: string;
-      stepKey: string;
-      expectedBoot: number;
-    }> = [];
+  it('shows the CI stop and fixer explanation without claiming the review limit was reached', async () => {
     daemon({
       detail: () => ({
         body: detail(
-          { ...r1, status: requests.length >= 2 ? 'queued' : 'failed' },
+          { ...r1, status: 'finished', outcome: 'exhausted' },
           {
             checkpoint: undefined,
             steps: [
               agent({
-                status: 'failed',
-                error: { name: 'Error', message: 'database locked' },
+                status: 'done',
+                stage: 'CI',
+                label: 'ci-fixer 2/3',
+                result: {
+                  action: 'unresolved',
+                  summary: 'Child pipeline logs were unavailable.',
+                },
               }),
             ],
-            controls: { answer: false, steer: false, retryStep: '0' },
+          },
+        ),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    expect(
+      await screen.findByRole('heading', { name: 'CI needs attention' }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByText('Child pipeline logs were unavailable.').length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('Review limit reached')).toBeNull();
+  });
+
+  it('offers exhausted runs a new review batch and submits the explicit continuation', async () => {
+    const requests: unknown[] = [];
+    daemon({
+      detail: () => ({
+        body: detail(
+          {
+            ...r1,
+            status: requests.length ? 'queued' : 'finished',
+            outcome: 'exhausted',
+          },
+          {
+            checkpoint: undefined,
+            controls: {
+              answer: false,
+              steer: false,
+              continueReview: { stepKey: '37', rounds: 5 },
+            },
           },
         ),
       }),
       retryStep: (init) => {
         requests.push(JSON.parse(String(init?.body)));
-        return requests.length === 1
-          ? { reject: new Error('lost response') }
-          : { body: { runId: 'r1' } };
+        return { body: { runId: 'r1' } };
       },
     });
     render(<App />);
     await loaded();
-    fireEvent.click(screen.getByRole('button', { name: 'Retry failed step' }));
-    await screen.findByText('Step could not be retried.');
-    fireEvent.click(screen.getByRole('button', { name: 'Retry failed step' }));
+    expect(
+      screen.getByRole('heading', { name: 'Workflow needs attention' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('Review limit reached')).toBeNull();
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Continue for another 5 rounds',
+      }),
+    );
+    await waitFor(() =>
+      expect(requests).toEqual([
+        {
+          requestId: expect.any(String),
+          stepKey: '37',
+          expectedBoot: 2,
+          continueExhausted: true,
+        },
+      ]),
+    );
     await waitFor(() =>
       expect(
-        screen.queryByRole('button', { name: 'Retry failed step' }),
+        screen.queryByRole('button', { name: 'Continue for another 5 rounds' }),
       ).toBeNull(),
     );
-    expect(requests).toHaveLength(2);
-    expect(requests[0]).toEqual(requests[1]);
-    expect(requests[0]).toMatchObject({ stepKey: '0', expectedBoot: 2 });
+  });
+
+  it.each(['agent', '$end'])(
+    'offers %s retry in the failure panel, preserves the request ID after a lost response, and refreshes the Run',
+    async (step) => {
+      const requests: Array<{
+        requestId: string;
+        stepKey: string;
+        expectedBoot: number;
+      }> = [];
+      daemon({
+        detail: () => ({
+          body: detail(
+            { ...r1, status: requests.length >= 2 ? 'queued' : 'failed' },
+            {
+              checkpoint: undefined,
+              steps: [
+                agent({
+                  step,
+                  status: 'failed',
+                  error: { name: 'Error', message: 'database locked' },
+                }),
+              ],
+              controls: { answer: false, steer: false, retryStep: '0' },
+            },
+          ),
+        }),
+        retryStep: (init) => {
+          requests.push(JSON.parse(String(init?.body)));
+          return requests.length === 1
+            ? { reject: new Error('lost response') }
+            : { body: { runId: 'r1' } };
+        },
+      });
+      render(<App />);
+      await loaded();
+      expect(
+        within(screen.getByRole('alert')).getByRole('button', {
+          name: 'Retry failed step',
+        }),
+      ).toBeTruthy();
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Retry failed step' }),
+      );
+      await screen.findByText('Step could not be retried.');
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Retry failed step' }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('button', { name: 'Retry failed step' }),
+        ).toBeNull(),
+      );
+      expect(requests).toHaveLength(2);
+      expect(requests[0]).toEqual(requests[1]);
+      expect(requests[0]).toMatchObject({ stepKey: '0', expectedBoot: 2 });
+    },
+  );
+
+  it('sends recovery instructions and displays the error handling agent result', async () => {
+    let recovered = false;
+    const request = vi.fn(() => {
+      recovered = true;
+      return {};
+    });
+    const mock = daemon({
+      retryStep: request,
+      detail: () => ({
+        body: detail(
+          { ...r1, status: recovered ? 'running' : 'failed' },
+          {
+            checkpoint: undefined,
+            controls: { answer: false, steer: false, retryStep: '0' },
+            recovery: recovered
+              ? {
+                  requestId: 'recovery',
+                  instructions: 'Use my new Git identity',
+                  status: 'done',
+                  summary: 'Repaired the unpublished commit.',
+                }
+              : undefined,
+          },
+        ),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: 'Solve with agent' }));
+    fireEvent.change(
+      screen.getByLabelText('Instructions for the error handling agent'),
+      { target: { value: 'Use my new Git identity' } },
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start agent and retry' }),
+    );
+    await screen.findByText('Repaired the unpublished commit.');
+    const submitted = mock.mock.calls.find(([path]) =>
+      String(path).endsWith('/retry-step'),
+    );
+    expect(JSON.parse(String(submitted?.[1]?.body))).toMatchObject({
+      stepKey: '0',
+      expectedBoot: 2,
+      recoveryInstructions: 'Use my new Git identity',
+    });
+  });
+
+  it.each([
+    { status: 'failed' as const, retryStep: undefined },
+    { status: 'running' as const, retryStep: '0' },
+    { status: 'finished' as const, retryStep: '0' },
+    { status: 'cancelled' as const, retryStep: '0' },
+  ])('hides retry for an ineligible Run: %j', async ({ status, retryStep }) => {
+    daemon({
+      detail: () => ({
+        body: detail(
+          { ...r1, status },
+          {
+            checkpoint: undefined,
+            steps: [agent({ status: 'failed' })],
+            controls: { answer: false, steer: false, retryStep },
+          },
+        ),
+      }),
+    });
+    render(<App />);
+    await loaded();
+    expect(
+      screen.queryByRole('button', { name: 'Retry failed step' }),
+    ).toBeNull();
   });
 
   it('renders a recorded OpenCode tool event as readable activity instead of JSONL', async () => {
@@ -1475,7 +1646,25 @@ describe('Workspace redesign', () => {
 
   it('finds a multi-repository run by any member and shows all members in its detail', async () => {
     window.history.replaceState({}, '', '/');
-    const run = { ...r1, repos: ['rocky', 'api'], profileId: 'product' };
+    const run = {
+      ...r1,
+      repos: ['rocky', 'api'],
+      profileId: 'product',
+      prs: [
+        {
+          repo: 'rocky',
+          number: 1,
+          url: 'https://example.test/rocky/pr/1',
+          headSha: 'a',
+        },
+        {
+          repo: 'api',
+          number: 2,
+          url: 'https://example.test/api/pr/2',
+          headSha: 'b',
+        },
+      ],
+    };
     daemon({ runs: [run], detail: () => ({ body: detail(run) }) });
     render(<App />);
     await screen.findByRole('button', { name: 'Open run r1' });
@@ -1486,6 +1675,16 @@ describe('Workspace redesign', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open run r1' }));
     await loaded();
     expect(screen.getByText('rocky, api')).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: 'rocky: Pull request #1' })
+        .getAttribute('href'),
+    ).toBe(run.prs[0].url);
+    expect(
+      screen
+        .getByRole('link', { name: 'api: Pull request #2' })
+        .getAttribute('href'),
+    ).toBe(run.prs[1].url);
   });
 
   it('starts a run with an explicitly selected multi-repository profile', async () => {

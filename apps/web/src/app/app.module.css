@@ -1912,6 +1912,8 @@
 .reviewReport {
   max-width: 1100px;
   width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .reviewReport header {
   border-bottom: 1px solid #dce2d5;
@@ -1928,13 +1930,177 @@
   font-size: 30px;
   line-height: 1.2;
 }
+.reportReaderHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.reportReaderHeader h1 {
+  margin: 8px 0 0;
+}
+.reportDecisionBadge {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: 1px solid #dcc992;
+  border-radius: 20px;
+  background: #fffaee;
+  color: #655020;
+}
+.reportSteps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 20px 0;
+  border-bottom: 1px solid #dce2d5;
+}
+.reportSteps button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #526249;
+  font-size: 13px;
+}
+.reportSteps button span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #eaf0e3;
+}
+.reportSteps button[aria-current='step'],
+.reportSteps button[aria-current='step']:hover:not(:disabled) {
+  background: #253b21;
+  color: white;
+}
+.reportSteps button[aria-current='step'] span {
+  background: #526249;
+}
+.reviewReport .reportPage {
+  min-height: 280px;
+  margin: 30px 0;
+}
+.reportPage > h2 {
+  font-size: 26px;
+  margin: 8px 0 20px;
+}
+.reportPage > h2:focus {
+  outline: none;
+}
+.reviewReport .reportLead {
+  font-size: 20px;
+  line-height: 1.5;
+  max-width: 65ch;
+}
+.reportScenarios {
+  display: grid;
+  gap: 16px;
+}
+.reportScenarios > article {
+  border: 1px solid #dce2d5;
+  border-radius: 12px;
+  padding: 18px 22px;
+}
+.reportScenarios h3 {
+  margin: 0 0 16px;
+}
+.reportBeforeAfter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 20px;
+}
+.reportBeforeAfter p {
+  margin: 6px 0;
+}
+.reportBeforeAfter > div:last-child {
+  color: #253b21;
+}
+.reportArrow {
+  align-self: center;
+  font-size: 24px;
+  color: #7b8c72;
+}
+.reportEvidence {
+  margin: 16px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.reviewReport summary {
+  cursor: pointer;
+}
+.reportChecklist > details {
+  border-bottom: 1px solid #dce2d5;
+  padding: 12px 0;
+}
+.reportChecklist summary {
+  display: list-item;
+  padding-right: 8px;
+}
+.reportRequirementStatus {
+  float: right;
+  margin-left: 12px;
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: #eaf0e3;
+  color: #33482a;
+  font-size: 12px;
+}
+.reportRequirementStatus[data-status='gap'],
+.reportRequirementStatus[data-status='unverified'] {
+  background: #fff0cf;
+  color: #735517;
+}
+.reportRequirementStatus[data-status='waived'] {
+  background: #eef0f3;
+  color: #525b69;
+}
+.reportCaveats {
+  margin: 24px 0;
+}
+.reportFootnote {
+  font-size: 13px;
+  color: #617056;
+}
+.reportNavigation {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #dce2d5;
+  padding: 16px 0;
+  background: var(--background);
+}
+.reportNavigation button {
+  padding: 10px 16px;
+  border: 1px solid #cad5c1;
+  border-radius: 8px;
+  background: #fff;
+}
+.reportNavigation button:last-child {
+  background: #253b21;
+  color: #fff;
+}
+.reportNavigation > span {
+  color: #617056;
+  white-space: nowrap;
+  font-size: 12px;
+}
 .reviewReport pre {
   overflow: auto;
   max-width: 100%;
 }
 .visualGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 .visualGrid article {
@@ -1960,6 +2126,37 @@
 }
 .reviewReport .diagramCanvas {
   height: min(360px, 50vh);
+}
+.reviewReport .diagramZoom {
+  flex-wrap: wrap;
+}
+.reviewReport li {
+  overflow-wrap: anywhere;
+  margin-bottom: 6px;
+}
+.reportTableScroll {
+  overflow-x: auto;
+}
+.reportRequirements {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.reportRequirements th,
+.reportRequirements td {
+  padding: 12px;
+  border-bottom: 1px solid #dce2d5;
+  text-align: left;
+  vertical-align: top;
+  min-width: 100px;
+}
+.reportRequirements th[scope='row'] {
+  width: 36%;
+  font-weight: 500;
+}
+.reportRequirements ul {
+  padding-left: 18px;
+  margin: 0;
 }
 
 .failureDetails {
@@ -2103,6 +2300,31 @@
   color: #617056;
 }
 @media (max-width: 600px) {
+  .reportSteps {
+    gap: 4px;
+  }
+  .reportSteps button {
+    font-size: 12px;
+    padding: 6px;
+  }
+  .reportBeforeAfter {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .reportArrow {
+    display: none;
+  }
+  .reportRequirementStatus {
+    float: none;
+    display: table;
+    margin: 6px 0 0 16px;
+  }
+  .reportScenarios > article {
+    padding: 16px;
+  }
+  .reportNavigation button {
+    padding: 10px;
+  }
   .reportOverview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

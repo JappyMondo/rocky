@@ -27,6 +27,11 @@ const jobSchema = z.object({
   status: z.string(),
   allow_failure: z.boolean(),
 });
+const bridgeSchema = jobSchema.extend({
+  downstream_pipeline: pipelineSchema
+    .extend({ project_id: z.number().int() })
+    .nullable(),
+});
 const mrSchema = z.object({
   id: z.number().int(),
   iid: z.number().int(),
@@ -127,6 +132,81 @@ export function createGitLabScm(options: ScmAdapterOptions) {
     });
     return projectPromise;
   };
+  // Trigger jobs are not included in GitLab's pipeline jobs endpoint.
+  // Follow failed bridges to preserve the actual failing job and project.
+  async function failedPipelineJobs(
+    pipeline: z.infer<typeof pipelineSchema>,
+    pipelineRoot = root,
+    prefix = '',
+    visited = new Set<string>(),
+  ): Promise<{
+    failures: {
+      root: string;
+      job: z.infer<typeof jobSchema>;
+      diagnostic?: string;
+    }[];
+    pending: boolean;
+  }> {
+    const key = `${pipelineRoot}/${pipeline.id}`;
+    if (visited.has(key)) return { failures: [], pending: false };
+    if (visited.size >= 100)
+      throw new Error(
+        'GitLab downstream pipeline traversal exceeded 100 pipelines.',
+      );
+    visited.add(key);
+    const jobs = await http.list(
+      `${pipelineRoot}/pipelines/${pipeline.id}/jobs?include_retried=false`,
+      jobSchema,
+    );
+    const pending = jobs.some(
+      (job) =>
+        !job.allow_failure &&
+        !['success', 'skipped', 'failed', 'canceled'].includes(job.status),
+    );
+    const failures: {
+      root: string;
+      job: z.infer<typeof jobSchema>;
+      diagnostic?: string;
+    }[] = jobs
+      .filter(
+        (job) =>
+          !job.allow_failure && ['failed', 'canceled'].includes(job.status),
+      )
+      .map((job) => ({
+        root: pipelineRoot,
+        job: { ...job, name: prefix + job.name },
+      }));
+    if (!['failed', 'canceled'].includes(pipeline.status))
+      return { failures, pending };
+    const bridges = await http.list(
+      `${pipelineRoot}/pipelines/${pipeline.id}/bridges`,
+      bridgeSchema,
+    );
+    for (const bridge of bridges.filter(
+      (job) =>
+        !job.allow_failure && ['failed', 'canceled'].includes(job.status),
+    )) {
+      const child = bridge.downstream_pipeline;
+      const nested = child
+        ? await failedPipelineJobs(
+            child,
+            `/projects/${child.project_id}`,
+            `${prefix}${bridge.name} / `,
+            visited,
+          )
+        : { failures: [], pending: false };
+      if (nested.failures.length) failures.push(...nested.failures);
+      else
+        failures.push({
+          root: pipelineRoot,
+          job: { ...bridge, name: prefix + bridge.name },
+          diagnostic: child
+            ? `Downstream pipeline ${child.id} is ${child.status}, but exposes no failed jobs.`
+            : `Trigger job ${bridge.id} is ${bridge.status}; no downstream pipeline was created.`,
+        });
+    }
+    return { failures, pending };
+  }
   const handle = (mr: z.infer<typeof mrSchema>): Pr => ({
     repo: options.repo.id,
     id: String(mr.id),
@@ -711,23 +791,19 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         throw new Error('logTailLines must be between 0 and 10000');
       const pipeline = await currentPipeline(pr);
       if (!pipeline) return { status: 'waiting' };
-      const jobs = await http.list(
-        `${root}/pipelines/${pipeline.id}/jobs?include_retried=false`,
-        jobSchema,
-      );
+      const { failures, pending } = await failedPipelineJobs(pipeline);
       const failedJobs: FailedJob[] = [];
-      for (const job of jobs.filter(
-        (job) =>
-          !job.allow_failure && ['failed', 'canceled'].includes(job.status),
-      ))
+      for (const { root: jobRoot, job, diagnostic } of failures)
         failedJobs.push({
           id: String(job.id),
           name: job.name,
           failedSteps: [],
-          logTail: await http.logTail(
-            `${root}/jobs/${job.id}/trace`,
-            input.logTailLines,
-          ),
+          logTail:
+            diagnostic ??
+            (await http.logTail(
+              `${jobRoot}/jobs/${job.id}/trace`,
+              input.logTailLines,
+            )),
         });
       if (
         !failedJobs.length &&
@@ -745,13 +821,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           status: 'done',
           result: { status: 'failed', headSha: pr.headSha, failedJobs },
         };
-      if (
-        pipeline.status !== 'success' ||
-        jobs.some(
-          (job) =>
-            !job.allow_failure && !['success', 'skipped'].includes(job.status),
-        )
-      )
+      if (pipeline.status !== 'success' || pending)
         return { status: 'waiting' };
       return {
         status: 'done',
@@ -776,14 +846,8 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           'Re-add the MR in the bounded merge loop to create a new train pipeline.',
           pr,
         );
-      const jobs = await http.list(
-        `${root}/pipelines/${pipeline.id}/jobs?include_retried=false`,
-        jobSchema,
-      );
-      for (const job of jobs.filter(
-        (job) =>
-          !job.allow_failure && ['failed', 'canceled'].includes(job.status),
-      )) {
+      const { failures } = await failedPipelineJobs(pipeline);
+      for (const { root: jobRoot, job } of failures) {
         const current = handle(await read(pr));
         if (current.state !== 'open')
           throw refuse(
@@ -796,7 +860,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
         checkHead(pr, current);
         await http.request(
           'POST',
-          `${root}/jobs/${job.id}/retry`,
+          `${jobRoot}/jobs/${job.id}/retry`,
           z.object({ id: z.number() }),
         );
       }

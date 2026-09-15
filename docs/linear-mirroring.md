@@ -3,7 +3,7 @@
 `packages/daemon/src/linear/mirror.ts` exports the concrete `LinearRunMirror`.
 Production execution composes it for session-backed Runs. It implements
 NG-577 section 9 and the amendment to NG-576: persistent activities hold Step
-records, Transcripts stay local, and the two comments are framework-owned.
+records and Transcripts stay local. Comment counts do not gate execution.
 
 ## Public API
 
@@ -14,9 +14,9 @@ records, Transcripts stay local, and the two comments are framework-owned.
 | `flushStatus()`                               | Best-effort send the latest pending update as an ephemeral action. The caller schedules a rate-limited cadence; there is no timer or keepalive.                                                                                      |
 | `settle({ stepId, title, outcome, summary })` | One persistent action per stable Step ID, with the structured frame, Agent summary and local Step Transcript link.                                                                                                                   |
 | `post(postId, summary)`                       | One persistent action per stable post ID, never a comment or response.                                                                                                                                                               |
-| `comment(commentId, body)`                    | One explicit Workflow comment per stable ID. Persists attribution before creation and verifies the remote payload; replay preserves the original body. These deliverables do not consume the framework's start/close comment budget. |
+| `comment(commentId, body)`                    | One explicit Workflow comment per stable ID. Persists attribution before creation and verifies the remote payload; replay preserves the original body. |
 | `setState(stepId, name)`                      | Persist the state intent and delegate case-insensitive exact-name matching to the client. Unknown-state errors retain the team's real names.                                                                                         |
-| `beforeElicitation()`                         | Check the comment budget before NG-602 emits an elicitation. Known auto-commenting elicitation raises a spec/API gate.                                                                                                               |
+| `beforeElicitation()`                         | Check the lifecycle fence before the control layer emits an elicitation. Automatic comments do not block questions.                                                                                                               |
 | `setParked(true/false)`                       | Persist Parked/resumed state and discard pending ephemeral updates. Parked operations cannot touch Linear.                                                                                                                           |
 | `stop()`                                      | Immediately fence further network calls in this owner and discard pending status. Await it to durably persist the fence before releasing ownership.                                                                                  |
 | `finish(outcome, presentation)`               | Assemble the closing content and emit a terminal response/error. Returns no asset URLs or other presentation payload.                                                                                                                |
@@ -83,37 +83,22 @@ Cancellation skips uploads even when screenshots were supplied.
   lane owns resolving that permalink to the latest Run. Direct Run and Step
   links remain in the comments/activities.
 
-## Spec/API Gates
+## Comment delivery
 
-`platform` is required: `terminalComments: 'one'`,
-`elicitationComments: 'none' | 'one'`, and nonempty qualification `evidence`.
-The supported terminal mode requires **both response and error activities** to
-produce exactly one readable matching comment. There is no permissive default,
-explicit-close fallback, or "two explicit comments" interpretation.
+Rocky posts one start comment and one terminal response/error activity, using
+stable IDs and frozen payloads to avoid duplicates on replay. Explicit Workflow
+deliverables use `ctx.comment` for the same durable delivery guarantees.
 
-The terminal activity carries the framework-assembled closing body. Its
-automatically mirrored comment is the closing comment; Rocky never separately
-creates one. The module reads public comments before additional comments and
-verifies the matching closing body after terminal emission. A missing or delayed
-auto-comment raises `LinearMirroringGateError`; retry after propagation only
-re-reads when the terminal effect is already recorded. It does not add a close.
+There is no two-comment budget. Human replies, automatic question comments and
+unclassified comments cannot block questions, completion or failure reporting.
+The terminal activity's verified acknowledgement is the completion signal;
+a missing or delayed automatically mirrored comment does not fail the Run and
+does not trigger an extra explicit closing comment.
 
-The two-comment budget applies to framework-owned start and closing comments.
-Explicit Workflow comments, including a ticket's requested deliverable, are
-tracked by persisted remote IDs and excluded from that budget, even after a
-restart or an ambiguous create response. This exclusion does not authorize an
-Agent to post directly: use `ctx.comment` so attribution and replay are durable.
-
-Known auto-commenting elicitation is blocked before emission: start + elicitation
-
-- terminal would be three. An unexpected existing elicitation artifact blocks
-  closure before another comment-producing call. No human/platform comment is
-  deleted. Session association identifies artifacts even when present before
-  `start`; a baseline excludes historical unrelated comments. New comments without
-  association are conservatively unclassified and may block the Run, rather than
-  silently assuming they are human. Qualification must establish public attribution
-  and visibility. There is no atomic server-side comment budget: external concurrent
-  writes or behavior changing after qualification remain a platform/API gate.
+Legacy `platform` metadata is optional and ignored. Existing baseline and
+comment-budget gate records are ignored, including after stop. Cancellation
+still fences product calls and requires the independent final-response transport.
+Actual API failures and unconfirmed mutations still surface as errors.
 
 Links use the configured private Tailscale origin or localhost, not the public
 webhook URL or an

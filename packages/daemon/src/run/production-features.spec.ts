@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { z } from 'zod';
@@ -132,7 +132,12 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
-async function fixture(workflow: Workflow, tailscaleOrigin?: string) {
+async function fixture(
+  workflow: Workflow,
+  tailscaleOrigin?: string,
+  recapVersion?: 2,
+  publicUrl?: string,
+) {
   const root = await mkdtemp(join(tmpdir(), 'rocky-features-'));
   roots.push(root);
   const paths = rockyPaths(root);
@@ -167,6 +172,7 @@ async function fixture(workflow: Workflow, tailscaleOrigin?: string) {
     source: 'repository',
     sourceCommit: 'frozen',
     reviewReports: true,
+    recapVersion,
     trigger: { kind: 'linear.onDelegate' },
     members: [
       {
@@ -206,13 +212,17 @@ async function fixture(workflow: Workflow, tailscaleOrigin?: string) {
     if (message.kind === 'checkpoint') return spies.checkpoint(message);
     throw new Error(`Unexpected request ${message.kind}`);
   });
+  const config = parseInstanceConfig({
+    server: { tailscaleOrigin },
+    publicUrl,
+  });
   const runtime = createProductionRuntime({
     paths,
-    config: () => parseInstanceConfig({ server: { tailscaleOrigin } }),
+    config: () => config,
     request,
     adapterFor: () => ({ run: spies.agent, resume: spies.agent }),
   });
-  return { paths, run, runtime, request };
+  return { paths, run, runtime, request, config, records };
 }
 
 it.each(['question', 'checkpoint'] as const)(
@@ -315,6 +325,42 @@ it('automatically saves visual evidence and posts the same report to Linear and 
     );
     await f.runtime.boot(f.run, 'run', new AbortController().signal);
     expect(spies.agent).toHaveBeenCalledTimes(1);
+    expect(spies.postReport).toHaveBeenCalledTimes(1);
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('publishes a standalone public review link to both the PR and ticket when a public origin is configured', async () => {
+  const f = await fixture(
+    async (ctx) => {
+      await ctx.scm.markDraft({ ...pr, draft: true }, false);
+      return 'completed';
+    },
+    undefined,
+    undefined,
+    'https://rocky.example.test',
+  );
+  try {
+    expect(
+      await f.runtime.boot(f.run, 'run', new AbortController().signal),
+    ).toMatchObject({ status: 'finished' });
+    const markdown = spies.postReport.mock.calls[0][1] as string;
+    expect(markdown).toMatch(
+      /https:\/\/rocky.example.test\/reviews\/[0-9a-f]{64}/,
+    );
+    expect(markdown).not.toContain('localhost');
+    expect(markdown).not.toContain('/runs/');
+    expect(spies.comment).toHaveBeenCalledWith(expect.any(String), markdown);
+    const token = /\/reviews\/([0-9a-f]{64})/.exec(markdown)![1];
+    const saved = JSON.parse(
+      await readFile(
+        join(f.paths.root, 'shared-reviews', token, 'report.json'),
+        'utf8',
+      ),
+    );
+    expect(saved.report.title).toBe(content.title);
+    await f.runtime.boot(f.run, 'run', new AbortController().signal);
     expect(spies.postReport).toHaveBeenCalledTimes(1);
   } finally {
     await f.runtime.close();
@@ -704,6 +750,27 @@ function enhancedRecapAgent() {
         ? { problems: [] }
         : {
             ...content,
+            decision: {
+              status: 'needs-attention',
+              summary: 'Review the evidence.',
+              actions: ['Confirm delivery.'],
+            },
+            requirements: [
+              {
+                criterion: 'Explain the outcome.',
+                status: 'supported',
+                evidence: ['Supplied subject.'],
+              },
+            ],
+            behavior: [
+              {
+                scenario: 'Review the outcome',
+                before: 'Unexplained.',
+                after: 'Explained.',
+                evidence: ['Supplied subject.'],
+              },
+            ],
+            ui: { changed: false, summary: 'Internal classification.' },
             keyChanges: [],
             reviewFocus: [
               'security',
@@ -729,6 +796,35 @@ function enhancedRecapAgent() {
     };
   });
 }
+
+it('passes workflow evidence through the production v2 recap and retains its decision fields', async () => {
+  enhancedRecapAgent();
+  const f = await fixture(
+    async (ctx) => {
+      await ctx.visualRecap({ deliverable: 'Explain the outcome.' });
+      return 'completed';
+    },
+    undefined,
+    2,
+  );
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+    });
+    const [report] = await new LocalArtifacts(f.paths).listReports(f.run.runId);
+    expect(report.decision?.status).toBe('needs-attention');
+    expect(report.requirements?.[0].criterion).toBe('Explain the outcome.');
+    expect(spies.agent.mock.calls[1][0].prompt).toContain('"workflowEvidence"');
+    expect(spies.agent.mock.calls[1][0].prompt).toContain('"repositories"');
+  } finally {
+    await f.runtime.close();
+  }
+});
 
 it('hosts a deliverable recap without SCM and publishes its Tailscale link once across replay', async () => {
   enhancedRecapAgent();
@@ -775,32 +871,69 @@ it('hosts a deliverable recap without SCM and publishes its Tailscale link once 
   }
 });
 
-it('does not duplicate an explicit PR recap when the PR is marked ready', async () => {
-  enhancedRecapAgent();
-  const f = await fixture(async (ctx) => {
-    await ctx.visualRecap({ pr });
-    await ctx.scm.markDraft({ ...pr, draft: true }, false);
-    return 'completed';
-  });
-  try {
-    const result = await f.runtime.boot(
-      f.run,
-      'run',
-      new AbortController().signal,
+it.each([undefined, 'https://rocky.example.test'])(
+  'reuses an explicit PR recap when marking ready (public origin: %s)',
+  async (publicUrl) => {
+    enhancedRecapAgent();
+    const f = await fixture(
+      async (ctx) => {
+        const recap = await ctx.visualRecap({ pr });
+        await ctx.scm.markDraft({ ...pr, draft: true }, false, {
+          body: recap.url,
+        });
+        return 'completed';
+      },
+      undefined,
+      undefined,
+      publicUrl,
     );
-    expect(result, JSON.stringify(result)).toMatchObject({
-      status: 'finished',
-    });
-    expect(
-      await new LocalArtifacts(f.paths).listReports(f.run.runId),
-    ).toHaveLength(1);
-    expect(spies.postReport).toHaveBeenCalledTimes(1);
-    expect(spies.comment).toHaveBeenCalledTimes(1);
-    expect(spies.upload).not.toHaveBeenCalled();
-  } finally {
-    await f.runtime.close();
-  }
-});
+    try {
+      const result = await f.runtime.boot(
+        f.run,
+        'run',
+        new AbortController().signal,
+      );
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'finished',
+      });
+      expect(
+        await new LocalArtifacts(f.paths).listReports(f.run.runId),
+      ).toHaveLength(1);
+      expect(spies.postReport).toHaveBeenCalledTimes(1);
+      expect(spies.comment).toHaveBeenCalledTimes(1);
+      expect(spies.upload).not.toHaveBeenCalled();
+      const calls = spies.agent.mock.calls.length;
+      if (!publicUrl) {
+        // Simulate an already published run from before URLs were persisted.
+        for (const key of f.records.keys())
+          if (key.endsWith(':url')) f.records.delete(key);
+        f.config.publicUrl = 'https://rocky.example.test';
+      }
+      expect(
+        await f.runtime.boot(f.run, 'run', new AbortController().signal),
+      ).toMatchObject({ status: 'finished' });
+      expect(spies.agent).toHaveBeenCalledTimes(calls);
+      expect(spies.postReport).toHaveBeenCalledTimes(1);
+      if (publicUrl) {
+        const markdown = spies.postReport.mock.calls[0][1] as string;
+        const token = /\/reviews\/([0-9a-f]{64})/.exec(markdown)![1];
+        const saved = JSON.parse(
+          await readFile(
+            join(f.paths.root, 'shared-reviews', token, 'report.json'),
+            'utf8',
+          ),
+        );
+        const [report] = await new LocalArtifacts(f.paths).listReports(
+          f.run.runId,
+        );
+        expect(saved.report.id).toBe(report.id);
+        expect(saved.report.keyChanges).toBeDefined();
+      }
+    } finally {
+      await f.runtime.close();
+    }
+  },
+);
 
 it('refuses to publish a recap if the pushed PR revision changes during capture', async () => {
   enhancedRecapAgent();

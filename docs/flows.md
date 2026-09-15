@@ -42,6 +42,15 @@ reference a snapshotted profile prompt by name. Each workspace tool grants read,
 edit or bash; an MCP tools node grants a named configured server. No tool
 connections means no tool grants. The profile's runtime policy still applies.
 
+Select a Prompt component with **Prompt source → profile** to edit its
+**Profile prompt instructions** in place. **Save profile** saves the prompt
+alongside the flow for future runs. Every node referencing the same profile
+prompt shares those edits. A missing prompt can be created from this panel.
+**Use inline copy** copies the current instructions into the selected component,
+where they can be customized independently and included in JSON exports. Graph
+undo restores the reference; edits to shared profile instructions remain in the
+profile draft. Concurrent profile saves reject stale revisions.
+
 Use the node settings dropdowns to create, reuse, replace or disconnect a
 component, or connect its top socket to a matching socket on its consumer. Dashed
 component connections are dependencies, not execution branches. A provider may
@@ -66,12 +75,28 @@ The shipped `packages/daemon/content/.rocky/workflow.json` ports the previous
 default. Delegation first clarifies scope and records the agreed delivery
 contract. It then chooses reviewed Linear comment delivery or PR delivery.
 
-The PR path plans, implements and opens a draft, then validates commands,
-acceptance criteria, UI evidence, code review and CI. Repairs return to validation
-within the configured cap. A visual recap precedes publication and the human
-merge checkpoint. Steering and branch updates require revalidation. Requests
-that prohibit merge end at PR handoff. The manual `address-pr-conversations`
-trigger retains the review-thread repair and recap path.
+The PR path plans and implements the work, then opens a draft PR in each changed
+repository. Each repository uses its configured target branch. Unchanged
+repositories get no PR. Reviewers see the combined changes with repository names
+on file paths. CI and a recap are required for each PR before the set is ready.
+One checkpoint lists every PR and the reviewed revisions. All branch checks run
+before merging starts. Rocky marks the issue Done only after every PR merges.
+Merges happen one at a time; separate repositories cannot merge atomically.
+
+Repairs return to validation within the configured cap. Steering and branch
+updates require fresh checks and approval. Requests that prohibit merge end at
+PR handoff. The manual `address-pr-conversations` trigger reads review threads
+across the changed repositories and refreshes their recaps after repairs.
+
+**Flow settings → Pull requests** chooses **Every changed repository** or
+**Main repository only**. New flows default to every changed repository. Flows
+saved before this option keep their old behavior until updated. Running and
+paused runs keep their frozen setting so their recorded steps remain replayable.
+Updating a profile applies to future runs.
+
+**Repositories without CI** lists members that have no pipeline. Rocky skips
+CI only for those named repositories and records the reason in validation.
+A pending or missing pipeline in any other repository still blocks delivery.
 
 Delivery nodes are packaged Rocky coordinators. Their agent roles resolve only
 the agents connected in the graph. The default graph explicitly connects profile
@@ -131,8 +156,9 @@ JSON as `runs/<id>/snapshot/workflow.json`, alongside the profile and prompts.
 The loader selects JSON when present and otherwise loads legacy TypeScript.
 The interpreter reconstructs node outputs and delivery state on every boot by
 replaying the normal journaled context operations; it never wraps a whole node
-in a non-parkable step. Retries and existing runs retain their captured graph and
-model selections. Node IDs remain stable when renamed or repositioned.
+in a non-parkable step. Retries and existing runs retain their captured graph,
+while model selections come from the current local profile at each Boot. Node
+IDs remain stable when renamed or repositioned.
 
 Legacy TypeScript profiles remain executable and editable for compatibility.
 **Reset to default** installs the new JSON graph and shipped prompts/schemas,
@@ -154,3 +180,33 @@ Tests exercise default-flow parity against the legacy implementation, generic
 branching/data mapping, durable checkpoint replay, profile persistence/conflicts,
 JSON child loading and editor mutations. `pnpm test:distribution` also loads a
 JSON flow through the packed runtime outside the workspace.
+
+An exhausted delivery flow can be continued from its Run page for another batch
+of the snapshotted `reviewCap` rounds. Existing work, review complaints and draft
+content survive. The continuation allowance is journaled; it does not edit the
+profile or snapshot. Each batch remains bounded and needs another explicit
+continuation if it also exhausts its allowance. A CI continuation revalidates the
+current branch and polls fresh CI before dispatching any repair. It does not
+send the previous pipeline failure to the review fixer.
+
+### Review severity, history and incremental scope
+
+Code reviewers report all findings together and classify each as `nit-pick`,
+`should-fix` or `must-fix`. The delivery runtime removes nit picks from the active
+complaints; they cannot invoke a fixer or exhaust a review batch. Both remaining
+categories require resolution before the flow proceeds.
+
+Every code reviewer and fixer receives the shared `reviewHistory`, including
+issues from other review roles, fixer notes, and independent verification results.
+History IDs remain unique when old continuation batches reused complaint IDs.
+A fixer's `fixed` resolution records a claim; a reviewer must independently verify
+it. Reviewers assess each non-ignored prior issue as `fixed`, `open` or `dismissed`
+using its history ID. Open issues return to the fixer under that ID instead of
+being reported as new findings. Prior results without these fields remain replayable.
+
+Each reviewer gets the full diff on its first pass. Later passes receive only
+`git diff <last-reviewed-head>..HEAD`, with the boundary in `reviewScope`. New
+findings must arise from these changes or behavior they affect. Unchanged code
+is context for checking known issues, not a fresh whole-PR review. The history
+and revision boundaries rebuild from existing journaled results across restarts
+and exhaustion continuations; no completed Step is invalidated by this protocol.

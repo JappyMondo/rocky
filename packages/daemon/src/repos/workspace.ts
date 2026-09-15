@@ -358,13 +358,15 @@ export async function releaseCleanWorkspace(
   return children;
 }
 
-/** Recover only unchanged local branches; never fetch, reset, or adopt other work. */
+/** Restore retained local work without fetching or resetting any branch. */
 export async function restoreRetryWorkspace(
   ctx: RepoContext,
   options: {
     runId: string;
     branch: string;
     members: { name: string; head: string }[];
+    /** Explicit continuation runs fresh validation/review of retained descendant commits. */
+    allowBranchAdvance?: boolean;
   },
 ): Promise<void> {
   for (const member of options.members) {
@@ -386,7 +388,16 @@ export async function restoreRetryWorkspace(
         ['rev-parse', '--verify', `refs/heads/${options.branch}`],
         { cwd: clone },
       );
-      if (head.stdout.trim() !== member.head)
+      if (
+        head.stdout.trim() !== member.head &&
+        !(
+          options.allowBranchAdvance &&
+          (await gitOk(
+            ['merge-base', '--is-ancestor', member.head, head.stdout.trim()],
+            { cwd: clone },
+          ))
+        )
+      )
         throw new WorkspaceError(
           options.runId,
           `${member.name}: the workspace was released and its branch has changed. Start a new Run to avoid reusing stale Step results.`,

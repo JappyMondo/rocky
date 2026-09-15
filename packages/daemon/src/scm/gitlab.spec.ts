@@ -849,6 +849,7 @@ it('reports failed GitLab jobs with capped traces, then retries only failed jobs
         { id: 13, name: 'lint', status: 'success', allow_failure: false },
       ],
     },
+    { path: `${root}/pipelines/9/bridges?per_page=100&page=1`, value: [] },
     { path: `${root}/jobs/12/trace`, text: 'old\nassertion\nfailed\n' },
     {
       path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
@@ -859,6 +860,7 @@ it('reports failed GitLab jobs with capped traces, then retries only failed jobs
       path: `${root}/pipelines/9/jobs?include_retried=false&per_page=100&page=1`,
       value: [{ id: 12, name: 'test', status: 'failed', allow_failure: false }],
     },
+    { path: `${root}/pipelines/9/bridges?per_page=100&page=1`, value: [] },
     {
       path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
       value: { ...mr, head_pipeline: pipeline },
@@ -900,6 +902,7 @@ it('does not retry a job after a concurrent MR closure', async () => {
       path: `${root}/pipelines/9/jobs?include_retried=false&per_page=100&page=1`,
       value: [{ id: 12, name: 'test', status: 'failed', allow_failure: false }],
     },
+    { path: `${root}/pipelines/9/bridges?per_page=100&page=1`, value: [] },
     {
       path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
       value: { ...mr, state: 'closed', head_pipeline: pipeline },
@@ -1422,6 +1425,7 @@ it('reports a failed GitLab pipeline even when its only jobs are allowed to fail
         { id: 12, name: 'optional', status: 'failed', allow_failure: true },
       ],
     },
+    { path: `${root}/pipelines/9/bridges?per_page=100&page=1`, value: [] },
     {
       path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
       value: { ...mr, head_pipeline: pipeline },
@@ -1534,4 +1538,69 @@ it('posts one revision report note and recovers its existing marker on retry', a
   await adapter.postReviewReport(pr, 'A visual report', 'run:revision');
   await adapter.postReviewReport(pr, 'A visual report', 'run:revision');
   transport.done();
+});
+
+it('reads failed child pipeline traces and retries the actual child jobs', async () => {
+  const pipeline = { id: 9, sha: 'abc', ref: 'ng-524', status: 'failed' };
+  const childRoot = '/api/v4/projects/5';
+  const calls: string[] = [];
+  const fetcher: typeof fetch = async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    calls.push(`${init?.method ?? 'GET'} ${path}`);
+    if (path === root) return Response.json({ id: 5 });
+    if (path.endsWith('/merge_requests/7'))
+      return Response.json({ ...mr, head_pipeline: pipeline });
+    if (path.endsWith('/merge_requests/7/pipelines'))
+      return Response.json([pipeline]);
+    if (path === `${root}/pipelines/9/jobs`) return Response.json([]);
+    if (path === `${root}/pipelines/9/bridges`)
+      return Response.json([
+        {
+          id: 10,
+          name: 'grid',
+          status: 'failed',
+          allow_failure: false,
+          downstream_pipeline: {
+            ...pipeline,
+            id: 11,
+            project_id: 5,
+            sha: 'merged-result',
+          },
+        },
+      ]);
+    if (path === `${childRoot}/pipelines/11/jobs`)
+      return Response.json([
+        {
+          id: 12,
+          name: 'Integration Tests',
+          status: 'failed',
+          allow_failure: false,
+        },
+      ]);
+    if (path === `${childRoot}/pipelines/11/bridges`) return Response.json([]);
+    if (path === `${childRoot}/jobs/12/trace`)
+      return new Response('old\nClickHouse error\n');
+    if (path === `${childRoot}/jobs/12/retry` && init?.method === 'POST')
+      return Response.json({ id: 13 });
+    throw new Error(`Unexpected ${path}`);
+  };
+  const adapter = createGitLabScm({ ...options, fetch: fetcher });
+  await expect(
+    adapter.waitForCi(pr, { logTailLines: 1 }),
+  ).resolves.toMatchObject({
+    status: 'done',
+    result: {
+      status: 'failed',
+      headSha: 'abc',
+      failedJobs: [
+        {
+          id: '12',
+          name: 'grid / Integration Tests',
+          logTail: 'ClickHouse error',
+        },
+      ],
+    },
+  });
+  await adapter.retryFailedJobs(pr);
+  expect(calls).toContain(`POST ${childRoot}/jobs/12/retry`);
 });

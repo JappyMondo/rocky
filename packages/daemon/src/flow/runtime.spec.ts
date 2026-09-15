@@ -333,6 +333,21 @@ it('rejects broken connections, unknown operations, ambiguous outputs and forged
   expect(() => parseFlow(JSON.stringify(flow))).toThrow('unsupported node');
 });
 
+it('defaults new flows to all changed repositories while preserving an omitted frozen setting', () => {
+  const flow = simple();
+  expect(flow.settings.pullRequests).toBe('all-changed');
+  expect(() =>
+    parseFlow(
+      JSON.stringify({
+        ...flow,
+        settings: { ...flow.settings, pullRequests: 'multiple' },
+      }),
+    ),
+  ).toThrow('pullRequests');
+  delete flow.settings.pullRequests;
+  expect(parseFlow(JSON.stringify(flow)).settings.pullRequests).toBeUndefined();
+});
+
 it('validates identifiers, settings, triggers, model slots and tools', () => {
   const flow = simple();
   flow.nodes.push({ ...flow.nodes[0] });

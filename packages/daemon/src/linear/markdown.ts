@@ -1,13 +1,46 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { isDeepStrictEqual } from 'node:util';
 
+function plainUrl(node: {
+  type: string;
+  url?: string;
+  title?: string | null;
+  children?: { type: string; value?: string }[];
+}) {
+  const text = node.children?.[0];
+  return node.type === 'link' &&
+    /^https?:\/\//i.test(node.url ?? '') &&
+    !node.title &&
+    node.children?.length === 1 &&
+    text?.type === 'text' &&
+    text.value === node.url
+    ? { type: 'text', value: node.url }
+    : node;
+}
+
 /** Linear normalizes Markdown when persisting it. Compare syntax, preserving code and link targets. */
 export function sameMarkdown(left: string, right: string): boolean {
   const tree = (text: string) =>
     JSON.parse(
-      JSON.stringify(fromMarkdown(text), (key, value) =>
-        key === 'position' ? undefined : value,
-      ),
+      JSON.stringify(fromMarkdown(text), (key, value) => {
+        if (key === 'position') return undefined;
+        if (key !== 'children' || !Array.isArray(value)) return value;
+        // Linear autolinks plain URLs. Flatten only links whose visible text
+        // exactly equals their destination; retain named links and code nodes.
+        const children = value.map(plainUrl);
+        return children.reduce<typeof children>((result, child) => {
+          const previous = result.at(-1);
+          if (
+            child.type === 'text' &&
+            previous?.type === 'text' &&
+            'value' in child &&
+            'value' in previous
+          )
+            previous.value = String(previous.value) + String(child.value);
+          else result.push(child);
+          return result;
+        }, []);
+      }),
     );
   return left === right || isDeepStrictEqual(tree(left), tree(right));
 }

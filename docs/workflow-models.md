@@ -4,7 +4,7 @@ New workflows declare roles in their JSON `models` object. Open **Profiles →
 Workflow → Flow settings → Model slots** to edit them, and **General → Workflow
 models** to choose each harness, model and effort. AI agent nodes select a slot;
 packaged delivery nodes use `review`, `implementation` and `planner`. The runtime
-exposes the captured choices through `ctx.models`.
+exposes the current profile choices through `ctx.models`.
 
 See [configurable flows](flows.md) for the JSON format. The TypeScript examples
 below describe the retained legacy workflow format and existing run snapshots.
@@ -112,14 +112,17 @@ for new profiles, not live overrides of configured slots.
 ## Runs, retries and migration
 
 Admission validates the declaration and requires exactly one complete selection
-per slot before preparing a snapshot. The profile, including selections, is
-copied into the run. `ctx.models` and each selection are immutable. Reading an
-unknown slot throws a configuration error instead of silently selecting a
-harness default. Reading selections creates no journal Step.
+per slot before preparing a snapshot. The workflow records its slot names, but
+not their harness, model, or variant/effort selections. Before every Boot,
+Rocky reads those selections from the current local profile and exposes an
+immutable per-Boot view through `ctx.models`. Reading an unknown slot throws a
+configuration error instead of silently selecting a harness default. Reading
+selections creates no journal Step.
 
-Profile changes affect new runs. Resume, replay and failed-step retry keep the
-run's captured settings, including harness choice. Full IDs pin names, not
-provider behavior or provider-side aliases/variant definitions.
+Profile model changes apply to the next Agent invocation, including resume,
+replay, and failed-step retry. A call already in progress keeps the selection it
+started with. Full IDs pin names, not provider behavior or provider-side
+aliases/variant definitions.
 
 Older profiles remain readable and editable but need migration before starting
 new runs. Add the `models` export, replace inline constants with

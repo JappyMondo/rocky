@@ -11,10 +11,20 @@ export function createPublicIngress(daemonPort: number) {
         req.method === 'GET' &&
         (req.url === '/api/linear/oauth/callback' ||
           req.url?.startsWith('/api/linear/oauth/callback?'));
+      const review =
+        req.method === 'GET' &&
+        !req.url?.includes('..') &&
+        (/^\/reviews\/[0-9a-f]{64}(?:\/report\.json|\/images\/s_[0-9a-f]{32})?$/.test(
+          req.url ?? '',
+        ) ||
+          /^\/review-assets\/assets\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}\.(?:js|css|woff2)$/.test(
+            req.url ?? '',
+          ));
       if (!(
         (req.method === 'GET' && req.url === '/api/ping') ||
         (req.method === 'POST' && req.url === '/api/linear/webhook') ||
-        oauthCallback
+        oauthCallback ||
+        review
       )) {
         res.writeHead(404, { connection: 'close' }).end();
         return;
@@ -39,7 +49,19 @@ export function createPublicIngress(daemonPort: number) {
           signal: AbortSignal.timeout(10_000),
         },
         (reply) => {
+          const publicHeaders: OutgoingHttpHeaders = {};
+          if (review)
+            for (const name of [
+              'content-security-policy',
+              'referrer-policy',
+              'x-content-type-options',
+              'x-robots-tag',
+            ]) {
+              if (reply.headers[name] !== undefined)
+                publicHeaders[name] = reply.headers[name];
+            }
           res.writeHead(reply.statusCode ?? 502, {
+            ...publicHeaders,
             'content-type': reply.headers['content-type'] ?? 'application/json',
             'cache-control': 'no-store',
           });

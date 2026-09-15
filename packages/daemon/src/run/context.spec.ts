@@ -411,7 +411,7 @@ it('routes visual recaps through the current parallel branch and replays their r
   expect(generated).toBe(2);
 });
 
-it('exposes immutable named selections from the run snapshot on every boot and fails loudly for unknown slots', async () => {
+it('exposes immutable named selections for each Boot and accepts refreshed selections on the next Boot', async () => {
   const { newRepositoryProfile } = await import('../config/profiles.js');
   const profile = {
     ...newRepositoryProfile({
@@ -431,19 +431,31 @@ it('exposes immutable named selections from the run snapshot on every boot and f
       },
     },
   };
-  const frozen = structuredClone({ ...header, profile });
   for (let boot = 0; boot < 2; boot++) {
-    profile.models.review.model = `live-profile-v${boot + 2}`;
+    const current = {
+      ...profile,
+      models: {
+        ...profile.models,
+        review: {
+          ...profile.models.review,
+          model: `live-profile-v${boot + 1}`,
+        },
+      },
+    };
     const result = await runBoot({
       journalPath: join(dir, 'models.jsonl'),
       workflow: async (runner) => {
-        const ctx = createWorkflowContext(runner, frozen, {
-          exec: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
-          changedFiles: async () => [],
-        });
+        const ctx = createWorkflowContext(
+          runner,
+          { ...header, profile: current },
+          {
+            exec: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+            changedFiles: async () => [],
+          },
+        );
         expect({ ...ctx.models.review }).toEqual({
           harness: 'opencode',
-          model: 'review-v1',
+          model: `live-profile-v${boot + 1}`,
           effort: 'high',
         });
         expect(ctx.models.implement.harness).toBe('claude-code');
@@ -458,7 +470,7 @@ it('exposes immutable named selections from the run snapshot on every boot and f
         expect(() => ({ ...ctx.models.misspelled })).toThrow(
           /misspelled.*not configured/,
         );
-        expect(frozen.profile.models.review.model).toBe('review-v1');
+        expect(current.models.review.model).toBe(`live-profile-v${boot + 1}`);
         return 'completed';
       },
     });

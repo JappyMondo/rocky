@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { retryRecordSchema, retryStepKey } from './retry.js';
+import { retryRecordSchema, retryStepKey, exhaustedStepKey } from './retry.js';
 
 import {
   END_STEP,
@@ -73,19 +73,47 @@ export class JournalWriter {
     requestId: string,
     stepKey: string,
     resetControls: string[] = [],
+    recoveryInstructions?: string,
+    continueExhausted?: true,
   ): Promise<void> {
     return this.schedule(() => async () => {
       const journal = await readJournal(this.path);
       if (journal.getControl(`retry:${requestId}`)) return;
-      if (!this.ended || retryStepKey(journal.entries) !== stepKey)
+      if (
+        !this.ended ||
+        (continueExhausted
+          ? exhaustedStepKey(journal.entries)
+          : retryStepKey(journal.entries)) !== stepKey
+      )
         throw new JournalFormatError('This Step cannot be retried');
       const record = retryRecordSchema.parse({
         v: JOURNAL_FORMAT_VERSION,
         kind: 'retry',
+        ...(continueExhausted ? { continueExhausted } : {}),
         resetControls,
         requestId,
         stepKey,
         recordedAt: new Date().toISOString(),
+        ...(recoveryInstructions === undefined
+          ? {}
+          : {
+              recovery: {
+                instructions: recoveryInstructions,
+                context: JSON.stringify(
+                  journal.entries.slice(-20).map((entry) => ({
+                    key: entry.seq,
+                    step: entry.step,
+                    label: entry.label,
+                    status: entry.status,
+                    error: entry.error?.message.slice(0, 6000),
+                    result:
+                      entry.status === 'done'
+                        ? JSON.stringify(entry.result)?.slice(0, 2000)
+                        : undefined,
+                  })),
+                ),
+              },
+            }),
       });
       await appendFile(this.path, `${JSON.stringify(record)}\n`, {
         flush: true,

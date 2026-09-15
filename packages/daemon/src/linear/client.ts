@@ -71,7 +71,7 @@ export interface LinearSessionActivity {
   content: Record<string, unknown> & { type: string };
   ephemeral: boolean;
   signal?: LinearActivitySignal;
-  signalMetadata?: Record<string, unknown>;
+  signalMetadata?: Record<string, unknown> | string;
   sourceCommentId?: string;
 }
 
@@ -716,13 +716,21 @@ export class RockyLinearClient {
           )
         );
     }
+    let actualMetadata: unknown = row.signalMetadata;
+    if (typeof actualMetadata === 'string') {
+      try {
+        actualMetadata = JSON.parse(actualMetadata);
+      } catch {
+        /* Invalid JSON remains a mismatch, never an acknowledged effect. */
+      }
+    }
     if (
       row.id !== options.id ||
       row.sessionId !== options.sessionId ||
       !sameActivityContent(row.content, content) ||
       row.ephemeral !== (options.ephemeral ?? false) ||
       row.signal !== options.signal ||
-      !isDeepStrictEqual(row.signalMetadata, signalMetadata)
+      !isDeepStrictEqual(actualMetadata, signalMetadata)
     ) {
       throw new Error(
         `Linear activity ${options.id} payload/session mismatch; inspect the persisted effect before retrying.`,

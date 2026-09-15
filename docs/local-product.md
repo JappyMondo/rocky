@@ -57,12 +57,25 @@ Transcript files are capped at 100 MiB. Disconnect/shutdown releases readers.
 Diffs, lists and structured results do not stream. `x-rocky-version` is present
 on local responses, including errors/SSE.
 
-Failed Runs expose **Retry failed step** when the final Step supports replay.
-It re-executes failed Agent/exec work, reuses earlier results and successful
-parallel branches, and continues the Workflow. The request is idempotent and
+Failed Runs expose **Retry failed step** in the failure panel. It re-executes
+unfinished work of any Step type, reuses earlier results and successful parallel
+branches, and continues the Workflow. Failures between Steps, such as delivery
+failures, can also be retried without rerunning completed Steps. The request is idempotent and
 checks the displayed Boot against current state. Retry failures keep the request
 ID and display the server's explanation. See [journal retry](journal-writer.md)
 for durability and workspace restrictions.
+
+**Solve with agent** opens a freeform instruction field beside Retry. Submitting
+queues the same Run with a durable recovery request. Before workflow replay, an
+error handling agent receives the instructions, recent Step results and errors,
+issue and workspace details, and current Git identity settings. It uses the
+current profile's implementation model (or first configured model), with read,
+edit and shell tools. It repairs locally; the workflow owns publication and is
+retried after the agent finishes. Progress, the final summary and the submitted
+instructions appear in the Run view. A failed agent leaves the Run failed and
+retryable. Recovery journals and transcripts are kept under the Run's `recovery/`
+directory, separate from positional workflow Steps; completed recovery is reused
+after daemon restart. Earlier workflow results and failure history remain intact.
 
 ## Reading Step output
 
@@ -264,3 +277,12 @@ or **Retry diagram** is selected. **Regenerate** also replaces a completed chart
 through `POST /api/profiles/:id/diagram/retry`. Generation has a two-minute timeout;
 daemon shutdown cancels its child process. Mermaid renders with strict settings
 and the resulting SVG is displayed as an image.
+
+Exhausted delivery Runs show **Workflow needs attention** (or **CI needs attention**
+when the last operation was in CI), the last agent summary, and a **Continue for another
+N rounds** action, where N comes from the frozen flow's review limit. The action
+resets the counter to zero, retains existing work and feedback, and queues one
+new batch. It uses the retry endpoint with `continueExhausted: true`; request IDs
+and expected Boot checks prevent duplicate or stale grants. It is unavailable
+for completed, cancelled, pruned, or unsupported legacy Runs. A continuation
+requires an explicit click; the limit does not reset automatically.

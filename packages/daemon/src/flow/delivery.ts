@@ -1,6 +1,9 @@
+import { DeliveryRepositories } from './repositories.js';
+import { ReviewHistory, reviewPolicy } from './review-history.js';
 import type { DeliveryAgents } from './agents.js';
 import {
   type WorkflowContext,
+  type AgentCallOpts,
   type ScmPr,
   type ScmRefusal,
   type WorkflowInput,
@@ -113,10 +116,19 @@ export function createDeliveryOperations(
   workspace: WorkflowInput,
   settings: FlowSettings,
   snapshotDir: string,
+  continuations = 0,
 ) {
   const { commands, ui, states, reviewCap, ciCap, readiness, ciLogLines } =
     settings;
+  const repositories =
+    settings.pullRequests === 'all-changed' && workspace.members.length
+      ? new DeliveryRepositories(ctx, workspace)
+      : undefined;
+  const reviewedRepositoryHeads = new Map<string, Record<string, string>>();
+  const recaps = new Map<string, { url: string }>();
   let actors: DeliveryAgents;
+  const history = new ReviewHistory();
+  const reviewedHeads = new Map<string, string>();
   let scope!: Extract<z.infer<typeof Refinement>, { status: 'clear' }>;
   let delivery!: typeof scope.delivery;
   let issue = ctx.issue;
@@ -127,17 +139,70 @@ export function createDeliveryOperations(
   const changes: string[] = [];
   let ciAttempts = 0;
   let checks: Check[] | undefined;
-  let uiSummary = 'No frontend change.';
+  let uiSummary = repositories ? '' : 'No frontend change.';
   let validationSummary =
     'No local validation commands configured; see CI and review evidence.';
   let server: { pid: number } | undefined;
   let revision = 0;
   let recap!: { url: string };
   let answer!: CheckpointAnswer;
-  const diff = () => shell(ctx, 'git diff origin/HEAD...HEAD');
+  const diff = () =>
+    repositories
+      ? repositories.diff()
+      : shell(ctx, 'git diff origin/HEAD...HEAD');
   async function push() {
+    if (repositories) {
+      await repositories.sync(
+        `${issue.identifier}: ${issue.title}`,
+        description,
+      );
+      pr = repositories.current[0];
+      return;
+    }
     await shell(ctx, 'git push origin HEAD');
     pr = { ...pr, headSha: await shell(ctx, 'git rev-parse HEAD') };
+  }
+
+  async function exhaust(complaints: readonly Complaint[]) {
+    // Replay the original exhaustion effects before consuming a new allowance.
+    // This keeps old journals positional and preserves their published receipts.
+    const outcome = repositories
+      ? await (async () => {
+          await repositories.markDraft(true);
+          await ctx.post(
+            `Unresolved Complaints:\n${JSON.stringify(complaints, null, 2)}`,
+          );
+          return 'exhausted' as const;
+        })()
+      : await giveUp(ctx, pr, complaints);
+    if (continuations === 0) return outcome;
+    continuations--;
+    revision = 0;
+    ciAttempts = 0;
+    ctx.stage('Continue review');
+    // Restored worktrees can include commits made after the initial workspace
+    // Step. Refresh the PR revision even if the fixer disagrees with all complaints.
+    if (repositories) await push();
+    else pr = { ...pr, headSha: await shell(ctx, 'git rev-parse HEAD') };
+    // CI nodes bind ci-fixer, not the review fixer. Revalidate the current head
+    // and poll fresh CI before asking for repairs; the old failure may already
+    // be fixed and its journaled logs must not drive another blind edit.
+    if (complaints.length && complaints.every(({ id }) => id.startsWith('ci/')))
+      return 'retry';
+    const fixed = await actors.call('fixer', {
+      label: 'Repair outstanding complaints before the next review batch',
+      input: { issue, delivery, complaints, commands },
+      schema: FixReportFor(complaints),
+    });
+    changes.push(fixed.summary);
+    if (fixed.resolutions.some(({ status }) => status === 'fixed'))
+      await push();
+    complianceState = {
+      complaints: [...complaints],
+      resolutions: fixed.resolutions,
+    };
+    reviewerState = complianceState;
+    return 'retry';
   }
 
   async function review(
@@ -156,12 +221,28 @@ export function createDeliveryOperations(
         if (!complaint) throw new Error(`Missing complaint ${id}.`);
         return { id, text: complaint.text, why: note };
       });
+    const previousHead = reviewedHeads.get(name);
+    const reviewHistory = history.snapshot();
     const result = await actors.call(name, {
       label: `${name} ${revision}/${reviewCap}`,
       input: {
         issue,
         delivery,
-        diff: await diff(),
+        diff: repositories
+          ? await repositories.diff(reviewedRepositoryHeads.get(name))
+          : previousHead
+            ? await shell(ctx, `git diff ${quote(previousHead)}..HEAD`)
+            : await diff(),
+        reviewScope: {
+          kind: previousHead ? 'incremental' : 'initial',
+          base:
+            previousHead ??
+            (repositories
+              ? 'Each repository’s configured target branch'
+              : 'origin/HEAD'),
+          head: repositories?.revision ?? pr.headSha,
+          ...(repositories ? { repositories: repositories.heads } : {}),
+        },
         namespace,
         disagreements,
         ...(rules === undefined ? {} : { rules }),
@@ -169,9 +250,16 @@ export function createDeliveryOperations(
       schema: ReviewFor(
         namespace,
         name === 'compliance-reviewer' ? ticket : undefined,
+        reviewHistory.filter((issue) => issue.status !== 'ignored'),
       ),
     });
-    const complaints = result.complaints;
+    reviewedHeads.set(name, repositories?.revision ?? pr.headSha);
+    if (repositories) reviewedRepositoryHeads.set(name, repositories.heads);
+    const complaints = history.review(
+      result,
+      name,
+      repositories?.revision ?? pr.headSha,
+    );
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
     const fixed = await actors.call('fixer', {
@@ -185,11 +273,11 @@ export function createDeliveryOperations(
     return { complaints, resolutions: fixed.resolutions };
   }
 
-  async function checkCi() {
+  async function checkCi(candidate: ScmPr = pr) {
     let ci = requireScm(
-      await ctx.scm.waitForCi(pr, { logTailLines: ciLogLines }),
+      await ctx.scm.waitForCi(candidate, { logTailLines: ciLogLines }),
     );
-    if (ci.headSha !== pr.headSha)
+    if (ci.headSha !== candidate.headSha)
       throw new Error(
         'CI returned another head. Refresh the branch and run validation again.',
       );
@@ -197,7 +285,13 @@ export function createDeliveryOperations(
       ciAttempts++;
       const fix = await actors.call('ci-fixer', {
         label: `ci-fixer ${ciAttempts}/${ciCap}`,
-        input: { issue, delivery, failedJobs: ci.failedJobs, commands },
+        input: {
+          issue,
+          delivery,
+          failedJobs: ci.failedJobs,
+          commands,
+          ...(repositories ? { repository: candidate.repo } : {}),
+        },
         schema: CiFix,
       });
       changes.push(fix.summary);
@@ -206,11 +300,11 @@ export function createDeliveryOperations(
         await push();
         return { changed: true, complaints: [] };
       }
-      requireScm(await ctx.scm.retryFailedJobs(pr));
+      requireScm(await ctx.scm.retryFailedJobs(candidate));
       ci = requireScm(
-        await ctx.scm.waitForCi(pr, { logTailLines: ciLogLines }),
+        await ctx.scm.waitForCi(candidate, { logTailLines: ciLogLines }),
       );
-      if (ci.headSha !== pr.headSha)
+      if (ci.headSha !== candidate.headSha)
         throw new Error(
           'CI returned another head. Refresh the branch and run validation again.',
         );
@@ -223,7 +317,7 @@ export function createDeliveryOperations(
           : [
               {
                 id: `ci/${ciAttempts}/failed`,
-                file: '.',
+                file: repositories ? candidate.repo : '.',
                 text: `CI did not pass: ${JSON.stringify(ci)}`,
               },
             ],
@@ -331,6 +425,10 @@ export function createDeliveryOperations(
           }),
       );
     }
+    history.add(complaints, 'ui', pr.headSha);
+    complaints = complaints.filter(
+      (complaint) => complaint.severity !== 'nit-pick',
+    );
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
     const fixed = await actors.call('fixer', {
@@ -342,6 +440,129 @@ export function createDeliveryOperations(
     if (fixed.resolutions.some(({ status }) => status === 'fixed'))
       await push();
     return { complaints, resolutions: fixed.resolutions };
+  }
+
+  async function repositoryConversations() {
+    if (!repositories)
+      throw new Error('Repository delivery is not configured.');
+    await repositories.sync(ctx.issue.title, ctx.issue.url);
+    const threads = [];
+    for (const candidate of repositories.open) {
+      const found = requireScm(await ctx.scm.reviewThreads(candidate));
+      threads.push(
+        ...found
+          .filter((thread) => !thread.resolved)
+          .map((thread) => ({ thread, repo: candidate.repo })),
+      );
+    }
+    const complaints = threads.map(({ thread, repo }, index) =>
+      Complaint.parse({
+        id: `threads/${index}/c1`,
+        file: thread.path ? `${repo}/${thread.path}` : repo,
+        ...(thread.line === undefined ? {} : { line: thread.line }),
+        text: thread.body,
+      }),
+    );
+    if (!complaints.length) return 'completed';
+    const fixed = await actors.call('fixer', {
+      input: { issue: ctx.issue, complaints, commands },
+      schema: FixReportFor(complaints),
+    });
+    await repositories.sync(ctx.issue.title, ctx.issue.url);
+    for (const [index, { thread, repo }] of threads.entries()) {
+      const resolution = fixed.resolutions.find(
+        (r) => r.id === complaints[index].id,
+      );
+      if (!resolution)
+        throw new Error(`Missing resolution for ${complaints[index].id}`);
+      requireScm(
+        await ctx.scm.replyToThread(
+          thread,
+          resolution.status === 'fixed'
+            ? `Fixed in ${repositories.heads[repo]}. ${resolution.note}`
+            : resolution.note,
+        ),
+      );
+    }
+    for (const candidate of repositories.open)
+      await ctx.visualRecap({
+        pr: candidate,
+        scope: {
+          issue: ctx.issue,
+          resolutions: fixed.resolutions,
+          pullRequests: repositories.current,
+        },
+        agents: actors.recap(),
+      });
+    return 'completed';
+  }
+
+  async function mergeRepositories() {
+    if (!repositories || answer?.decision !== 'approve')
+      throw new Error('Merge requires approval of the complete PR set.');
+    let revalidate = false;
+    // Check all branches before asking any platform to merge one.
+    for (const candidate of repositories.open) {
+      const update = requireScm(await ctx.scm.updateBranch(candidate));
+      const adoptSource =
+        update.status === 'updated' || update.pr.headSha !== candidate.headSha;
+      repositories.set(update.pr);
+      if (update.status === 'clean' && !adoptSource) continue;
+      revalidate = true;
+      await repositories.markDraft(true);
+      await repositories.shell(candidate.repo, 'git fetch origin');
+      const result = await repositories.exec(
+        candidate.repo,
+        `git merge --no-edit -- ${quote(`refs/remotes/origin/${adoptSource ? update.pr.sourceBranch : update.pr.baseBranch}`)}`,
+      );
+      const conflicts = await repositories.shell(
+        candidate.repo,
+        'git diff --name-only --diff-filter=U',
+      );
+      if (update.status === 'conflict' || conflicts) {
+        const fixed = await actors.call('merger', {
+          input: {
+            issue,
+            delivery,
+            repository: candidate.repo,
+            update,
+            conflicts,
+            commands,
+          },
+        });
+        changes.push(fixed.summary);
+      } else if (result.exitCode !== 0)
+        throw new Error(
+          `${candidate.repo}: could not adopt the branch update: ${result.stderr}`,
+        );
+    }
+    if (revalidate) {
+      await push();
+      return 'retry';
+    }
+    for (const candidate of repositories.open) {
+      const result = await ctx.scm.armAutoMerge(candidate, answer);
+      if ('refused' in result) {
+        await ctx.post(`${result.message}\n${result.fix}`);
+        if (
+          ![
+            'ci_must_pass',
+            'need_rebase',
+            'conflict',
+            'head_changed',
+            'train_pipeline_dropped',
+          ].includes(result.reason)
+        )
+          requireScm(result);
+        if (result.pr) repositories.set(result.pr);
+        await repositories.markDraft(true);
+        pr = repositories.current[0];
+        return 'retry';
+      }
+      repositories.set({ ...result.pr, state: 'merged' });
+    }
+    if (delivery.stateChanges) await ctx.linear.setState(states.done);
+    return 'merged';
   }
 
   let complianceState: ReviewState = { complaints: [], resolutions: [] };
@@ -400,7 +621,15 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       // Check installed validation support before spending any drafting/review turns.
       await validateDiagrams(ctx, '');
       let previous: { body: string; problems: string[] } | undefined;
-      for (let revision = 1; revision <= reviewCap; revision++) {
+      for (let revision = 1; ; revision++) {
+        if (revision > reviewCap) {
+          await ctx.post(
+            `Deliverable review exhausted; nothing published.\n${previous?.problems.join('\n')}`,
+          );
+          if (continuations === 0) return 'exhausted';
+          continuations--;
+          revision = 1;
+        }
         ctx.stage('Prepare deliverable');
         const draft = await actors.call('deliverable-writer', {
           input: {
@@ -466,10 +695,6 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         }
         previous = { body: draft.body, problems };
       }
-      await ctx.post(
-        `Deliverable review exhausted; nothing published.\n${previous?.problems.join('\n')}`,
-      );
-      return 'exhausted';
     },
     async plan() {
       ctx.stage('Plan');
@@ -488,15 +713,17 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       const implementation = await actors.call('implementer', {
         input: { issue, workspace, delivery, plan, commands },
       });
-      await shell(ctx, 'git push origin HEAD');
+      if (!repositories) await shell(ctx, 'git push origin HEAD');
       description = `${issue.url}\n\n${plan.summary}`;
-      pr = requireScm(
-        await ctx.scm.openPr({
-          title: `${issue.identifier}: ${issue.title}`,
-          body: description,
-          draft: true,
-        }),
-      );
+      if (repositories) await push();
+      else
+        pr = requireScm(
+          await ctx.scm.openPr({
+            title: `${issue.identifier}: ${issue.title}`,
+            body: description,
+            draft: true,
+          }),
+        );
 
       changes.push(implementation.summary);
       return 'next';
@@ -504,7 +731,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     async validate() {
       revision++;
       if (revision > reviewCap)
-        return giveUp(ctx, pr, [
+        return exhaust([
           {
             id: 'checkpoint/cap',
             file: '.',
@@ -536,7 +763,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         validations.join('\n') ||
         'No local validation commands configured; see CI and review evidence.';
       if (validationProblems.length) {
-        if (revision === reviewCap) return giveUp(ctx, pr, validationProblems);
+        if (revision === reviewCap) return exhaust(validationProblems);
         const fixed = await actors.call('fixer', {
           label: `Validation fixer ${revision}/${reviewCap}`,
           input: { issue, delivery, complaints: validationProblems, commands },
@@ -557,8 +784,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         complianceState,
       );
       if (compliance.complaints.length) {
-        if (revision === reviewCap)
-          return giveUp(ctx, pr, compliance.complaints);
+        if (revision === reviewCap) return exhaust(compliance.complaints);
         complianceState = compliance;
         return 'retry';
       }
@@ -569,13 +795,18 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     async ui() {
       ctx.stage('UI');
       const triage = await actors.call('ui-triage', {
-        input: { changedFiles: await ctx.changedFiles(), diff: await diff() },
+        input: {
+          changedFiles: repositories
+            ? await repositories.changedFiles()
+            : await ctx.changedFiles(),
+          diff: await diff(),
+        },
         schema: UiTriage,
       });
       if (triage.isFrontend) {
         const ui = await inspectUi(revision, uiExplanations);
         if (ui.complaints.length) {
-          if (revision === reviewCap) return giveUp(ctx, pr, ui.complaints);
+          if (revision === reviewCap) return exhaust(ui.complaints);
           uiExplanations = ui.resolutions
             .filter(({ status }) => status === 'disagreed')
             .map(({ id, note }) => {
@@ -603,8 +834,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         await loadRules(ctx, snapshotDir),
       );
       if (reviewResult.complaints.length) {
-        if (revision === reviewCap)
-          return giveUp(ctx, pr, reviewResult.complaints);
+        if (revision === reviewCap) return exhaust(reviewResult.complaints);
         reviewerState = reviewResult;
         return 'retry';
       }
@@ -615,23 +845,70 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async ci() {
       ctx.stage('CI');
-      const ci = await checkCi();
-      if (ci.complaints.length) return giveUp(ctx, pr, ci.complaints);
-      if (ci.changed) return 'retry';
+      for (const candidate of repositories?.open ?? [pr]) {
+        if (
+          repositories &&
+          settings.ciSkipRepositories?.includes(candidate.repo)
+        ) {
+          const note = `${candidate.repo}: no CI pipeline configured (profile setting).`;
+          if (!validationSummary.includes(note))
+            validationSummary += `\n${note}`;
+          continue;
+        }
+        const ci = await checkCi(candidate);
+        if (ci.complaints.length) return exhaust(ci.complaints);
+        if (ci.changed) return 'retry';
+      }
 
       return 'next';
     },
     async recap() {
       ctx.stage('Visual recap');
-      recap = await ctx.visualRecap({
-        pr,
-        scope: { issue, validationSummary, uiSummary },
-        agents: actors.recap(),
-      });
+      for (const candidate of repositories?.open ?? [pr]) {
+        const result = await ctx.visualRecap({
+          pr: candidate,
+          scope: {
+            issue,
+            validationSummary,
+            uiSummary,
+            ...(repositories
+              ? { ...scope, pullRequests: repositories.current }
+              : {}),
+          },
+          agents: actors.recap(),
+        });
+        recaps.set(candidate.repo, result);
+        if (candidate.repo === pr.repo) recap = result;
+      }
+      if (!recap) {
+        const first = recaps.values().next().value;
+        if (!first)
+          throw new Error('No review report was generated for this delivery.');
+        recap = first;
+      }
 
       return 'next';
     },
     async publish() {
+      if (repositories) {
+        await repositories.markDraft(false, (candidate) =>
+          [
+            description,
+            repositories.links(),
+            `[Visual recap](${recaps.get(candidate.repo)!.url})`,
+            changes.join('\n\n'),
+            `## Validation\n${validationSummary}`,
+            ...(uiSummary ? [`## UI sweep\n${uiSummary}`] : []),
+          ].join('\n\n'),
+        );
+        pr = repositories.current[0];
+        if (delivery.stateChanges) await ctx.linear.setState(states.review);
+        if (delivery.kind !== 'pull-request' || !delivery.merge) {
+          await ctx.comment(`Ready for review:\n${repositories.links()}`);
+          return 'completed';
+        }
+        return 'next';
+      }
       const validatedHead = pr.headSha;
       pr = requireScm(
         await ctx.scm.markDraft(pr, false, {
@@ -656,14 +933,25 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       ctx.stage('Checkpoint');
       answer = await ctx.checkpoint({
         title: 'Approve this change?',
-        body: `${pr.url}\n\n[Visual recap](${recap.url})\n\n${changes.join('\n\n')}\n\n${validationSummary}\n\n${uiSummary}`,
+        body: repositories
+          ? [
+              repositories.links(),
+              ...repositories.open.map(
+                (p) => `[${p.repo} recap](${recaps.get(p.repo)!.url})`,
+              ),
+              validationSummary,
+              ...(uiSummary ? [uiSummary] : []),
+            ].join('\n\n')
+          : `${pr.url}\n\n[Visual recap](${recap.url})\n\n${changes.join('\n\n')}\n\n${validationSummary}\n\n${uiSummary}`,
       });
       if (answer.decision === 'reject') {
-        requireScm(await ctx.scm.markDraft(pr, true));
+        if (repositories) await repositories.markDraft(true);
+        else requireScm(await ctx.scm.markDraft(pr, true));
         return 'rejected';
       }
       if (answer.decision === 'steer') {
-        pr = requireScm(await ctx.scm.markDraft(pr, true));
+        if (repositories) await repositories.markDraft(true);
+        else pr = requireScm(await ctx.scm.markDraft(pr, true));
         issue = {
           ...issue,
           description: `${issue.description}\n\n### Human steering\n${answer.message}`,
@@ -674,6 +962,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           input: { issue, delivery, steer: answer.message, commands },
         });
         changes.push(fix.summary);
+        if (repositories) await push();
         return 'retry';
       }
 
@@ -681,6 +970,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async merge() {
       ctx.stage('Merge');
+      if (repositories) return mergeRepositories();
       const update = requireScm(await ctx.scm.updateBranch(pr));
       const adoptSource =
         update.status === 'updated' || update.pr.headSha !== pr.headSha;
@@ -735,6 +1025,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       return 'retry';
     },
     async conversations() {
+      if (repositories) return repositoryConversations();
       const pr = requireScm(
         await ctx.scm.openPr({ title: ctx.issue.title, body: ctx.issue.url }),
       );
@@ -789,7 +1080,62 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     operation: string,
     connectedAgents: DeliveryAgents,
   ): Promise<string> => {
-    actors = connectedAgents;
+    actors = {
+      ...connectedAgents,
+      call: (async (role: string, options: AgentCallOpts = {}) => {
+        const needsHistory =
+          /reviewer|fixer|ui-inspector|ui-complaint-writer/.test(role);
+        const input =
+          options.input &&
+          typeof options.input === 'object' &&
+          !Array.isArray(options.input)
+            ? (options.input as Record<string, unknown>)
+            : {};
+        if (role === 'fixer' && Array.isArray(input.complaints))
+          history.forFixer(
+            input.complaints as Complaint[],
+            options.label ?? role,
+          );
+        const result = await connectedAgents.call(role, {
+          ...options,
+          ...(repositories
+            ? {
+                input: {
+                  ...input,
+                  workspace,
+                  pullRequests: repositories.current,
+                  repositoryPaths:
+                    'Diff and complaint paths include the repository name. Review the delivery across all changed repositories. Keep commits local; the Workflow pushes and opens each PR. Do not change repositories whose PR is already merged.',
+                },
+              }
+            : {}),
+          ...(needsHistory
+            ? {
+                input: {
+                  ...input,
+                  ...(repositories
+                    ? {
+                        workspace,
+                        pullRequests: repositories.current,
+                        repositoryPaths:
+                          'Paths include the repository name. Assess all changed repositories together; do not change repositories whose PR is already merged.',
+                      }
+                    : {}),
+                  reviewHistory: history.snapshot(),
+                  reviewPolicy,
+                },
+              }
+            : {}),
+        });
+        if (
+          role === 'fixer' &&
+          'resolutions' in result &&
+          Array.isArray(result.resolutions)
+        )
+          history.resolved(result.resolutions as Resolution[]);
+        return result;
+      }) as DeliveryAgents['call'],
+    };
     const run = operations[operation];
     if (!run) throw new Error(`Unknown delivery operation: ${operation}`);
     if (!['clarify', 'conversations'].includes(operation) && !scope)

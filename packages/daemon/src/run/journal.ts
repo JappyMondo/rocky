@@ -22,7 +22,12 @@ import { dirname } from 'node:path';
 
 import type { RunOutcome } from '@rocky/sdk';
 import { z } from 'zod';
-import { retryEntry, retryRecordSchema, retryStepKey } from './retry.js';
+import {
+  retryEntry,
+  exhaustedStepKey,
+  retryRecordSchema,
+  isRecordedRetryTarget,
+} from './retry.js';
 
 /**
  * Bumped when the entry shape changes incompatibly. A journal carrying any
@@ -307,6 +312,7 @@ function parseLines(
   controls: Map<string, unknown>;
   truncated: boolean;
   keptBytes: number;
+  highestBoot: number;
 } {
   const segments = text.split('\n');
   // A file ending in a newline leaves '' here; anything else is a line the
@@ -343,24 +349,32 @@ function parseLines(
   const entries: JournalEntry[] = [];
   const controls = new Map<string, unknown>();
   let terminal = false;
+  let highestBoot = 0;
   for (const [index, value] of raw.entries()) {
     const retry = retryRecordSchema.safeParse(value);
     if (retry.success) {
       if (
         !terminal ||
-        retryStepKey(entries) !== retry.data.stepKey ||
+        !(retry.data.continueExhausted
+          ? exhaustedStepKey(entries) === retry.data.stepKey
+          : isRecordedRetryTarget(entries, retry.data.stepKey)) ||
         controls.has(`retry:${retry.data.requestId}`)
       )
         throw new JournalFormatError(`${at(index)}: invalid Step retry`);
-      entries.pop(); // The prior $end remains on disk, outside the active replay.
+      const end = entries.pop(); // The prior $end remains on disk, outside the active replay.
       const previous = entries.findLast(
         (entry) => String(entry.seq) === retry.data.stepKey,
       );
-      if (!previous)
+      if (!previous && String(end?.seq) !== retry.data.stepKey)
         throw new JournalFormatError(`${at(index)}: missing retry Step`);
-      entries.push(retryEntry(previous, retry.data.recordedAt));
+      if (previous) entries.push(retryEntry(previous, retry.data.recordedAt));
       controls.set(`retry:${retry.data.requestId}`, retry.data);
       controls.set('retry:latest', retry.data);
+      if (retry.data.continueExhausted)
+        controls.set(
+          'review:continuations',
+          Number(controls.get('review:continuations') ?? 0) + 1,
+        );
       for (const key of retry.data.resetControls ?? []) controls.delete(key);
       terminal = false;
       continue;
@@ -374,6 +388,7 @@ function parseLines(
     }
     const parsed = entrySchema.safeParse(value);
     if (parsed.success) {
+      highestBoot = Math.max(highestBoot, parsed.data.boot);
       entries.push(parsed.data);
       terminal = parsed.data.step === END_STEP;
       continue;
@@ -388,7 +403,7 @@ function parseLines(
     'utf8',
   );
 
-  return { entries, controls, truncated, keptBytes };
+  return { entries, controls, truncated, keptBytes, highestBoot };
 }
 
 /**
@@ -424,7 +439,10 @@ async function readJournalFile(
     }
   }
 
-  const { entries, controls, truncated, keptBytes } = parseLines(path, text);
+  const { entries, controls, truncated, keptBytes, highestBoot } = parseLines(
+    path,
+    text,
+  );
   let terminal = false;
   let highestSeq = -1;
   for (const entry of entries) {
@@ -444,7 +462,6 @@ async function readJournalFile(
 
   const byLast = new Map<number, JournalEntry>();
   const bySeq = new Map<number, JournalEntry[]>();
-  let highestBoot = 0;
   let end: JournalEntry | undefined;
 
   for (const entry of entries) {
@@ -455,7 +472,6 @@ async function readJournalFile(
     } else {
       bySeq.set(entry.seq, [entry]);
     }
-    highestBoot = Math.max(highestBoot, entry.boot);
     if (entry.step === END_STEP) {
       end = entry;
     }

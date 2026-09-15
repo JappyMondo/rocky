@@ -6,11 +6,14 @@ import type { Workflow } from '@rocky/sdk';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { rockyPaths } from '../config/paths.js';
-import { newRepositoryProfile } from '../config/profiles.js';
+import {
+  newRepositoryProfile,
+  writeRepositoryProfile,
+} from '../config/profiles.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { writeCredentials } from '../config/store.js';
 import { appendEntry, readJournal } from './journal.js';
-import { newRunHeader, writeRunHeader } from './header.js';
+import { newRunHeader, writeRunHeader, readRunHeader } from './header.js';
 import {
   createProductionRuntime,
   type ProductionRuntimeOptions,
@@ -32,82 +35,257 @@ afterEach(async () => {
   );
 });
 
-it('passes snapshot Agent MCP configuration through the production Boot seam', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rocky-production-agent-'));
+it.each([false, true])(
+  'passes snapshot MCP and refreshes current Git settings when available (%s)',
+  async (refreshGit) => {
+    const root = await mkdtemp(join(tmpdir(), 'rocky-production-agent-'));
+    roots.push(root);
+    const paths = rockyPaths(root);
+    const runId = 'NG-544-1';
+    const runPaths = paths.run(runId);
+    await mkdir(runPaths.workspaceDir, { recursive: true });
+    await mkdir(join(runPaths.snapshotDir, 'agents'), { recursive: true });
+    await writeFile(
+      join(runPaths.snapshotDir, 'agents', 'worker.md'),
+      'Inspect.',
+    );
+    await writeFile(
+      join(runPaths.snapshotDir, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          api: {
+            type: 'http',
+            url: 'https://example.test/mcp',
+            headers: { Authorization: 'Bearer snapshot-only-secret' },
+          },
+        },
+      }),
+    );
+    await writeCredentials(paths, {
+      repos: { app: { BOT_GH: 'bot-gh-token' } },
+    });
+
+    const config = parseInstanceConfig({
+      repos: [
+        {
+          name: 'app',
+          label: 'app',
+          url: 'https://example.test/app.git',
+          baseBranch: 'main',
+        },
+      ],
+      harnesses: {
+        'claude-code': {
+          command: 'claude-custom',
+          env: { GH_TOKEN: 'personal-token', SSH_AUTH_SOCK: '/personal-agent' },
+        },
+        opencode: { sessionStorage: 'opencode' },
+      },
+    });
+    const run = newRunHeader({
+      runId,
+      issue: {
+        identifier: 'NG-544',
+        title: 'Run an Agent',
+        description: 'Frozen issue text',
+        url: 'https://linear.app/issue/NG-544',
+        labels: ['app'],
+      },
+      branch: 'ng-544-agent',
+      repo: 'app',
+      profile: newRepositoryProfile({
+        id: 'app',
+        remote: 'https://example.test/app.git',
+      }),
+      trigger: 'linear.onDelegate',
+      now: '2026-09-07T00:00:00.000Z',
+    });
+    if (!run.profile) throw new Error('Missing fixture profile');
+    run.profile.sourceControl = {
+      git: {
+        sshAgent: '/snapshot-agent',
+        signingFormat: 'ssh',
+        signingKey: '/snapshot.pub',
+      },
+      github: { tokenEnv: 'BOT_GH' },
+    };
+    run.linear = {
+      issueId: 'issue',
+      teamId: 'team',
+      organizationId: 'organization',
+      appUserId: 'app-user',
+      sessionId: 'session',
+    };
+    run.execution = {
+      source: 'repository',
+      sourceCommit: 'immutable-commit',
+      trigger: { kind: 'linear.onDelegate' },
+      members: [
+        {
+          name: 'app',
+          path: 'app',
+          lead: true,
+          url: 'https://example.test/app.git',
+          baseBranch: 'main',
+        },
+      ],
+    };
+    await writeRunHeader(paths, run);
+    await writeRepositoryProfile(paths, run.profile);
+
+    if (refreshGit) {
+      config.sourceControl = {
+        git: { name: 'Updated User', email: 'verified@example.test' },
+      };
+      const current = newRepositoryProfile({
+        id: 'app',
+        remote: 'https://example.test/app.git',
+      });
+      current.sourceControl = {
+        git: { sshAgent: '/updated-agent' },
+        github: { tokenEnv: 'BOT_GH' },
+      };
+      await writeRepositoryProfile(paths, current);
+    }
+
+    const invoke = vi.fn(
+      async (_input: AgentHarnessInvocation): Promise<AgentHarnessResult> => ({
+        text: '<result>{"summary":"inspected"}</result>',
+        events: [],
+        sessionId: 'agent-session',
+      }),
+    );
+    const request: ProductionRuntimeOptions['request'] = async (message) => {
+      if (message.kind === 'append') {
+        await appendEntry(runPaths.journal, message.entry, message.options);
+        return undefined;
+      }
+      if (
+        message.kind === 'control-get' &&
+        ['review:continuations', 'retry:latest'].includes(message.key)
+      )
+        return 0;
+      if (message.kind === 'workspace') return undefined;
+      throw new Error(`Unexpected Boot request ${message.kind}`);
+    };
+    const runtime = createProductionRuntime({
+      paths,
+      config: () => config,
+      request,
+      adapterFor: (name) =>
+        name === 'claude-code' || name === 'opencode'
+          ? {
+              run: invoke,
+              resume: async (input) => invoke(input),
+            }
+          : undefined,
+    });
+
+    const workflow: Workflow = async (ctx) => {
+      await ctx.agent('worker', {
+        label: 'default-harness',
+        tools: ['read'],
+      });
+      await ctx.agent('worker', {
+        label: 'worker',
+        harness: 'opencode',
+        tools: ['read'],
+        mcp: ['api'],
+      });
+      if (refreshGit) {
+        expect(
+          (await ctx.exec('printf %s "$GIT_COMMITTER_EMAIL"')).stdout,
+        ).toBe('verified@example.test');
+      }
+      return 'completed';
+    };
+    loadSnapshotWorkflow.mockResolvedValue(workflow);
+
+    await expect(
+      runtime.boot(run, 'run', new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'finished', outcome: 'completed' });
+    expect(loadSnapshotWorkflow).toHaveBeenCalledWith(
+      runPaths.snapshotDir,
+      {
+        kind: 'linear.onDelegate',
+      },
+      0,
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilities: ['read'],
+        mcpServers: [
+          {
+            name: 'api',
+            config: {
+              type: 'http',
+              url: 'https://example.test/mcp',
+              headers: { Authorization: 'Bearer snapshot-only-secret' },
+            },
+          },
+        ],
+        sessionStorage: 'opencode',
+      }),
+    );
+    const invocation = invoke.mock.calls.find(
+      ([input]) => input.command === 'claude-custom',
+    )?.[0];
+    expect(invocation?.sessionStorage).toBe('rocky');
+    expect(invocation?.env.GH_TOKEN).toBe('bot-gh-token');
+    expect(invocation?.env.SSH_AUTH_SOCK).toBe(
+      refreshGit ? '/updated-agent' : '/snapshot-agent',
+    );
+    if (refreshGit) {
+      expect(invocation?.env.GIT_COMMITTER_EMAIL).toBe('verified@example.test');
+      expect(invocation?.env.GIT_AUTHOR_EMAIL).toBe('verified@example.test');
+    }
+    expect((await readRunHeader(paths, runId)).profile?.sourceControl).toEqual(
+      run.profile.sourceControl,
+    );
+    expect(
+      JSON.stringify((await readJournal(runPaths.journal)).entries),
+    ).not.toContain('snapshot-only-secret');
+  },
+);
+
+it('loads the latest model selections into the workflow context on a retry Boot', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-production-models-'));
   roots.push(root);
   const paths = rockyPaths(root);
-  const runId = 'NG-544-1';
-  const runPaths = paths.run(runId);
-  await mkdir(join(runPaths.snapshotDir, 'agents'), { recursive: true });
-  await writeFile(
-    join(runPaths.snapshotDir, 'agents', 'worker.md'),
-    'Inspect.',
-  );
-  await writeFile(
-    join(runPaths.snapshotDir, 'mcp.json'),
-    JSON.stringify({
-      mcpServers: {
-        api: {
-          type: 'http',
-          url: 'https://example.test/mcp',
-          headers: { Authorization: 'Bearer snapshot-only-secret' },
-        },
-      },
+  const runId = 'NG-544-models';
+  const source = [
+    'export const models = { review: { name: "Review" } };',
+    'export default [];',
+  ].join('\n');
+  const snapshotProfile = {
+    ...newRepositoryProfile({
+      id: 'app',
+      remote: 'https://example.test/app.git',
     }),
-  );
-  await writeCredentials(paths, { repos: { app: { BOT_GH: 'bot-gh-token' } } });
-
-  const config = parseInstanceConfig({
-    repos: [
-      {
-        name: 'app',
-        label: 'app',
-        url: 'https://example.test/app.git',
-        baseBranch: 'main',
+    workflow: { source, triggers: [] },
+    models: {
+      review: {
+        harness: 'opencode' as const,
+        model: 'openai/old-model',
+        effort: 'low',
       },
-    ],
-    harnesses: {
-      'claude-code': {
-        command: 'claude-custom',
-        env: { GH_TOKEN: 'personal-token', SSH_AUTH_SOCK: '/personal-agent' },
-      },
-      opencode: { sessionStorage: 'opencode' },
     },
-  });
+  };
   const run = newRunHeader({
     runId,
     issue: {
       identifier: 'NG-544',
       title: 'Run an Agent',
-      description: 'Frozen issue text',
+      description: '',
       url: 'https://linear.app/issue/NG-544',
       labels: ['app'],
     },
-    branch: 'ng-544-agent',
+    branch: 'ng-544-models',
     repo: 'app',
-    profile: newRepositoryProfile({
-      id: 'app',
-      remote: 'https://example.test/app.git',
-    }),
+    profile: snapshotProfile,
     trigger: 'linear.onDelegate',
-    now: '2026-09-07T00:00:00.000Z',
+    now: '2026-09-15T00:00:00.000Z',
   });
-  if (!run.profile) throw new Error('Missing fixture profile');
-  run.profile.sourceControl = {
-    git: {
-      sshAgent: '/snapshot-agent',
-      signingFormat: 'ssh',
-      signingKey: '/snapshot.pub',
-    },
-    github: { tokenEnv: 'BOT_GH' },
-  };
-  run.linear = {
-    issueId: 'issue',
-    teamId: 'team',
-    organizationId: 'organization',
-    appUserId: 'app-user',
-    sessionId: 'session',
-  };
   run.execution = {
     source: 'repository',
     sourceCommit: 'immutable-commit',
@@ -122,86 +300,53 @@ it('passes snapshot Agent MCP configuration through the production Boot seam', a
       },
     ],
   };
+  await mkdir(paths.run(runId).workspaceDir, { recursive: true });
   await writeRunHeader(paths, run);
+  await writeCredentials(paths, { repos: {} });
 
-  const invoke = vi.fn(
-    async (_input: AgentHarnessInvocation): Promise<AgentHarnessResult> => ({
-      text: '<result>{"summary":"inspected"}</result>',
-      events: [],
-      sessionId: 'agent-session',
-    }),
-  );
-  const request: ProductionRuntimeOptions['request'] = async (message) => {
-    if (message.kind === 'append') {
-      await appendEntry(runPaths.journal, message.entry, message.options);
-      return undefined;
-    }
-    if (message.kind === 'workspace') return undefined;
-    throw new Error(`Unexpected Boot request ${message.kind}`);
+  const currentProfile = {
+    ...snapshotProfile,
+    models: {
+      review: {
+        harness: 'claude-code' as const,
+        model: 'claude-current',
+        effort: 'high',
+      },
+    },
   };
-  const runtime = createProductionRuntime({
-    paths,
-    config: () => config,
-    request,
-    adapterFor: (name) =>
-      name === 'claude-code' || name === 'opencode'
-        ? {
-            run: invoke,
-            resume: async (input) => invoke(input),
-          }
-        : undefined,
-  });
+  await writeRepositoryProfile(paths, currentProfile);
+  expect(run.profile?.models).toBeUndefined();
 
   const workflow: Workflow = async (ctx) => {
-    await ctx.agent('worker', {
-      label: 'default-harness',
-      tools: ['read'],
-    });
-    await ctx.agent('worker', {
-      label: 'worker',
-      harness: 'opencode',
-      tools: ['read'],
-      mcp: ['api'],
-    });
+    expect(ctx.models.review).toEqual(currentProfile.models.review);
     return 'completed';
   };
   loadSnapshotWorkflow.mockResolvedValue(workflow);
-
-  await expect(
-    runtime.boot(run, 'run', new AbortController().signal),
-  ).resolves.toMatchObject({ status: 'finished', outcome: 'completed' });
-  expect(loadSnapshotWorkflow).toHaveBeenCalledWith(runPaths.snapshotDir, {
-    kind: 'linear.onDelegate',
+  const runtime = createProductionRuntime({
+    paths,
+    config: () => parseInstanceConfig({}),
+    request: async (message) => {
+      if (message.kind === 'append') {
+        await appendEntry(
+          paths.run(runId).journal,
+          message.entry,
+          message.options,
+        );
+        return undefined;
+      }
+      if (message.kind === 'workspace') return undefined;
+      if (message.kind === 'control-get') return 0;
+      throw new Error(`Unexpected Boot request ${message.kind}`);
+    },
   });
-  expect(invoke).toHaveBeenCalledWith(
-    expect.objectContaining({
-      capabilities: ['read'],
-      mcpServers: [
-        {
-          name: 'api',
-          config: {
-            type: 'http',
-            url: 'https://example.test/mcp',
-            headers: { Authorization: 'Bearer snapshot-only-secret' },
-          },
-        },
-      ],
-      sessionStorage: 'opencode',
-    }),
-  );
-  expect(invoke).toHaveBeenCalledWith(
-    expect.objectContaining({
-      command: 'claude-custom',
-      sessionStorage: 'rocky',
-      env: expect.objectContaining({
-        GH_TOKEN: 'bot-gh-token',
-        SSH_AUTH_SOCK: '/snapshot-agent',
-      }),
-    }),
-  );
-  expect(
-    JSON.stringify((await readJournal(runPaths.journal)).entries),
-  ).not.toContain('snapshot-only-secret');
+  try {
+    await expect(
+      runtime.boot(run, 'run', new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'finished', outcome: 'completed' });
+    expect((await readRunHeader(paths, runId)).profile?.models).toBeUndefined();
+  } finally {
+    await runtime.close();
+  }
 });
 
 it('refuses a Run missing immutable execution before importing its Workflow', async () => {

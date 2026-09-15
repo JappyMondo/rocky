@@ -160,3 +160,12 @@ This inherits the agent socket and signing format/enablement from Rocky defaults
 selects different authentication/signing keys, and uses the work GitHub CLI store
 instead of any Rocky-wide token reference. Authenticate with
 `rocky exec --profile work -- gh auth login --hostname github.com`.
+
+Existing Runs refresh source-control settings from the current instance settings
+and their local profile at each Boot, including retries. This covers agent and
+shell Git identity, signing, SSH and SCM authentication. Workflow code, model
+choices, prompts, repository membership and recorded results remain snapshotted.
+Workspace creation and retry recovery use the same current connection settings.
+If a local profile was removed, its recorded connection overrides remain available
+for older/imported Runs. Updating identity does not rewrite commits already made;
+those unpublished commits still need an explicit repair before pushing.

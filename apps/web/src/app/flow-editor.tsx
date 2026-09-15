@@ -1,3 +1,4 @@
+import { ProfilePromptSettings } from './flow-prompt-settings.js';
 import {
   Component,
   useCallback,
@@ -311,6 +312,8 @@ function FlowCanvas(p: {
   unsaved: boolean;
   onChange: (workflow: { source: string; triggers: string[] }) => void;
   onValidityChange: (valid: boolean) => void;
+  promptContents?: Record<string, string>;
+  onPromptContentsChange?: (prompts: Record<string, string>) => void;
   onSave?: () => void;
   saveDisabled?: boolean;
 }) {
@@ -901,6 +904,18 @@ function FlowCanvas(p: {
                         onError={fieldError}
                       />
                     ))}
+                  {selected.type === 'ai.prompt' &&
+                    selected.parameters.source === 'profile' && (
+                      <ProfilePromptSettings
+                        name={String(selected.parameters.file ?? '')}
+                        prompts={p.promptContents}
+                        disabled={p.disabled}
+                        onChange={p.onPromptContentsChange}
+                        onInline={(text) =>
+                          updateNode({ parameters: { source: 'text', text } })
+                        }
+                      />
+                    )}
                   {selected.type.startsWith('delivery.') && (
                     <div className={styles.callout}>
                       Connected agents handle the AI work. This coordinator
@@ -1117,6 +1132,50 @@ function FlowCanvas(p: {
                       </label>
                     ),
                   )}
+                  <label className={styles.field}>
+                    Pull requests
+                    <select
+                      value={flow.settings.pullRequests ?? 'lead'}
+                      disabled={p.disabled}
+                      onChange={(e) =>
+                        updateSettings({
+                          pullRequests:
+                            e.target.value === 'all-changed'
+                              ? 'all-changed'
+                              : 'lead',
+                        })
+                      }
+                    >
+                      <option value="all-changed">
+                        Every changed repository
+                      </option>
+                      <option value="lead">Main repository only</option>
+                    </select>
+                  </label>
+                  <label>
+                    Repositories without CI
+                    <input
+                      aria-label="Repositories without CI"
+                      key={(flow.settings.ciSkipRepositories ?? []).join(',')}
+                      defaultValue={(
+                        flow.settings.ciSkipRepositories ?? []
+                      ).join(', ')}
+                      placeholder="Repository names, separated by commas"
+                      onBlur={(event) =>
+                        updateSettings({
+                          ciSkipRepositories: event.target.value
+                            .split(',')
+                            .map((value) => value.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                    />
+                    <small>
+                      Skip CI only for these repositories. Use this when no
+                      pipeline is configured.
+                    </small>
+                  </label>
+
                   <h3>UI inspection</h3>
                   <label className={styles.checkbox}>
                     <input

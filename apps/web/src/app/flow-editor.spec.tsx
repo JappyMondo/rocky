@@ -164,9 +164,14 @@ function Editor({
   source?: string;
 }) {
   const [workflow, setWorkflow] = useState(source);
+  const [prompts, setPrompts] = useState<Record<string, string>>({
+    shared: 'Original instructions',
+  });
   return (
     <FlowEditor
       source={workflow}
+      promptContents={prompts}
+      onPromptContentsChange={setPrompts}
       disabled={disabled}
       unsaved={workflow !== source}
       onChange={(value) => {
@@ -325,6 +330,12 @@ it('configures commands, UI checks, review limits, states and portable model slo
   render(<Editor />);
   click('Flow settings');
   fill('Flow name', 'Delivery');
+  expect((label('Pull requests') as HTMLSelectElement).value).toBe(
+    'all-changed',
+  );
+  fill('Pull requests', 'lead');
+  fill('Repositories without CI', 'settings, docs');
+  fireEvent.blur(label('Repositories without CI'));
   for (const key of ['install', 'test', 'lint', 'build'])
     fill(key, `pnpm ${key}`);
   fireEvent.click(label('Start an app for UI checks'));
@@ -348,6 +359,8 @@ it('configures commands, UI checks, review limits, states and portable model slo
     models: { writer: { name: 'Writer' } },
     settings: {
       commands: { test: 'pnpm test' },
+      pullRequests: 'lead',
+      ciSkipRepositories: ['settings', 'docs'],
       reviewCap: 8,
       ciCap: 4,
       ciLogLines: 250,
@@ -647,4 +660,44 @@ it('reports an unsupported flow without crashing the profile screen', () => {
   expect(screen.queryByRole('alert')).toBeNull();
   expect(screen.getByText('Example flow')).toBeTruthy();
   log.mockRestore();
+});
+
+it('edits referenced profile prompts and makes an independent inline copy with undo', () => {
+  render(<Editor />);
+  click('+ Add node');
+  fill('Search nodes', 'AI agent');
+  fireEvent.click(
+    screen.getByRole('button', { name: /AI agent Coordinate a connected/ }),
+  );
+  fill('Connect Prompt', 'new:ai.prompt');
+  fill('Prompt source', 'profile');
+  fill('Profile prompt name', 'shared');
+  expect(
+    (label('Profile prompt instructions') as HTMLTextAreaElement).value,
+  ).toBe('Original instructions');
+  fill('Profile prompt instructions', 'Updated instructions\n');
+  click('Use inline copy');
+  expect((label('Instructions') as HTMLTextAreaElement).value).toBe(
+    'Updated instructions\n',
+  );
+  fill('Instructions', 'Independent copy');
+  click('↶');
+  click('↶');
+  expect(
+    (label('Profile prompt instructions') as HTMLTextAreaElement).value,
+  ).toBe('Updated instructions\n');
+  fill('Profile prompt name', '../bad');
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Create profile prompt',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fill('Profile prompt name', 'new-prompt');
+  click('Create profile prompt');
+  fill('Profile prompt instructions', 'New instructions');
+  expect(
+    (label('Profile prompt instructions') as HTMLTextAreaElement).value,
+  ).toBe('New instructions');
 });

@@ -121,8 +121,7 @@ requeue of the reject Answer.
 Do not claim live Linear app-token authority from the user's MCP. Local tests
 never mutate real issues. Real session discovery, localhost rendering, automatic
 comment behavior, final image rendering and authenticated both-Harness
-continuations remain separately qualified integration gates. An elicitation
-that creates an unavoidable third framework-owned comment is a spec/API blocker, not
-permission to promise two explicit comments. NG-651 review precedes any live
+continuations remain separately qualified integration gates. Automatic elicitation
+comments do not block questions or Run completion. NG-651 review precedes any live
 inbound/outage fixture. Known session + valid credentials + reachable outbound
 Linear is the boundary of the dead-endpoint recovery claim.

@@ -8,7 +8,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { WorkflowDiagram } from './workflow-diagram.js';
+import { Chart, WorkflowDiagram } from './workflow-diagram.js';
 
 const mermaid = vi.hoisted(() => ({ initialize: vi.fn(), render: vi.fn() }));
 vi.mock('mermaid', () => ({ default: mermaid }));
@@ -44,6 +44,28 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+it('opens tall report diagrams at native readable size and can restore that size after fitting', async () => {
+  mermaid.render.mockResolvedValueOnce({
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 586 1386"><text>Readable flow</text></svg>',
+  });
+  render(<Chart source="flowchart TD\nA --> B" readable />);
+  const image = await screen.findByAltText(
+    'Workflow stages, decisions and outcomes',
+  );
+  expect(image.parentElement?.style.width).toBe('586px');
+  expect(image.parentElement?.style.height).toBe('1386px');
+  const canvas = screen.getByLabelText('Workflow chart, scroll to explore');
+  Object.defineProperties(canvas, {
+    clientWidth: { value: 1100 },
+    clientHeight: { value: 300 },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Fit diagram' }));
+  expect(screen.getByText('18%')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Readable size' }));
+  expect(image.parentElement?.style.height).toBe('1386px');
+  expect(screen.getByText('100%')).toBeTruthy();
 });
 
 it('renders a cached chart as an isolated image with source, zoom and an expanded view', async () => {

@@ -1,3 +1,4 @@
+import { recapReadabilityProblems } from './recap.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,7 +26,30 @@ const categories = [
 ];
 const narrative = {
   title: 'Admin access',
+  goal: 'Let administrators use the route.',
   summary: 'Allow administrators to access the route.',
+  decision: {
+    status: 'needs-attention',
+    summary: 'Verify administrator access.',
+    actions: ['Confirm mobile access.'],
+  },
+  requirements: [
+    {
+      label: 'Administrator access',
+      criterion: 'Allow administrators.',
+      status: 'supported',
+      evidence: ['src/route.ts:1 implements the gate.'],
+    },
+  ],
+  behavior: [
+    {
+      scenario: 'An administrator opens the route',
+      before: 'Access is denied.',
+      after: 'Access is permitted.',
+      evidence: ['Source inspection of src/route.ts:1.'],
+    },
+  ],
+  ui: { changed: true, summary: 'Administrator route changes.' },
   problems: [
     {
       problem: 'Admins were denied.',
@@ -61,7 +85,7 @@ afterEach(async () => {
 });
 
 async function fixture(
-  options: { deliverable?: string; auditFails?: boolean } = {},
+  options: { deliverable?: string; auditFails?: boolean; version?: 1 | 2 } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'rocky-recap-'));
   roots.push(root);
@@ -90,12 +114,17 @@ async function fixture(
       };
     else if (
       request.prompt.includes('Explain the finished work for a human reviewer')
-    )
+    ) {
+      expect(request.prompt).toContain('"visuals"');
+      if (!options.deliverable && options.version !== 1)
+        expect(request.prompt).toContain('Desktop admin screen');
       result = {
         ...narrative,
         keyChanges: options.deliverable ? [] : narrative.keyChanges,
       };
-    else if (request.prompt.includes('Capture the requested visual variant')) {
+    } else if (
+      request.prompt.includes('Capture the requested visual variant')
+    ) {
       expect(request.prompt).toContain('agent-browser skills get core');
       expect(request.prompt).toContain('previewUrl');
       expect(request.capabilities).toEqual(['read', 'bash']);
@@ -155,6 +184,7 @@ async function fixture(
           artifacts,
           runId: 'TEST-1-1',
           enhanced: true,
+          version: options.version,
           diff: options.deliverable ? '' : patch,
           deliverable: options.deliverable,
           title: 'Admin access',
@@ -175,6 +205,8 @@ it('inventories variants, captures evidence, attaches actual diffs and saves an 
   expect(first, JSON.stringify(first)).toMatchObject({ status: 'finished' });
   expect(f.invoke).toHaveBeenCalledTimes(5);
   const [report] = await f.artifacts.listReports('TEST-1-1');
+  expect(report.goal).toBe(narrative.goal);
+  expect(report.requirements?.[0].label).toBe('Administrator access');
   expect(report.keyChanges?.[0].diff).toBe(patch);
   expect(report.files).toEqual([{ path: 'src/route.ts', status: 'modified' }]);
   expect(report.visuals).toHaveLength(2);
@@ -201,6 +233,30 @@ it('does not save a recap that still fails its independent audit after two passe
   });
   expect(f.invoke).toHaveBeenCalledTimes(10);
   expect(await f.artifacts.listReports('TEST-1-1')).toEqual([]);
+});
+
+it('preserves the old narrative-before-capture order and report identity for legacy replay', async () => {
+  const f = await fixture({ version: 1 });
+  expect(await f.boot()).toMatchObject({ status: 'finished' });
+  expect(f.invoke.mock.calls[1][0].prompt).toContain(
+    'Explain the finished work',
+  );
+  expect(f.invoke.mock.calls[2][0].prompt).toContain(
+    'Capture the requested visual',
+  );
+  await f.boot();
+  expect(f.invoke).toHaveBeenCalledTimes(5);
+  expect(
+    recapId({
+      pr: {
+        repo: 'niotix',
+        number: 6396,
+        headSha: '75300ee4ec6264d059afded3d3aac28f71d0f68e',
+      },
+      enhanced: true,
+      version: 1,
+    }),
+  ).toBe('r_078dff0733d2bd46aecbe255cb402f82');
 });
 
 it('stores comment deliverables without inventing a PR or code diff', async () => {
@@ -283,12 +339,12 @@ it('uses configured agents for every recap subtask and resolves their input at c
       ],
       exclusions: [],
     })
-    .mockResolvedValueOnce({ ...narrative, keyChanges: [] })
     .mockResolvedValueOnce({
       status: 'unavailable',
       reason: 'No preview credentials',
       screenshots: [],
     })
+    .mockResolvedValueOnce({ ...narrative, keyChanges: [] })
     .mockResolvedValueOnce({ problems: [] });
   await runBoot({
     journalPath: join(root, 'journal.jsonl'),
@@ -307,7 +363,9 @@ it('uses configured agents for every recap subtask and resolves their input at c
     },
   }).then((result) => expect(result).toMatchObject({ status: 'finished' }));
   expect(agent).toHaveBeenCalledTimes(4);
-  for (const [index, role] of roles.entries()) {
+  for (const [index, role] of (
+    ['inventory', 'capture', 'narrative', 'audit'] as const
+  ).entries()) {
     expect(agent.mock.calls[index][0]).toEqual(
       role === 'audit' ? 'my-audit-prompt' : { prompt: `My ${role} prompt` },
     );
@@ -328,4 +386,25 @@ it('uses configured agents for every recap subtask and resolves their input at c
   expect(seen.audit).toMatchObject({
     content: { visuals: [{ variant: 'Desktop' }] },
   });
+});
+
+it('rejects a wall of text above a diagram even when the content audit accepts it', () => {
+  expect(
+    recapReadabilityProblems({
+      diagrams: [
+        { title: 'Recovery', description: Array(31).fill('word').join(' ') },
+      ],
+    }),
+  ).toHaveLength(1);
+  expect(
+    recapReadabilityProblems({
+      diagrams: [
+        {
+          title: 'Recovery',
+          description:
+            'Check earlier requests before starting another rewrite.',
+        },
+      ],
+    }),
+  ).toEqual([]);
 });
