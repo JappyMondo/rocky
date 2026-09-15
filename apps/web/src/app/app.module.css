@@ -1989,7 +1989,7 @@
   padding: 18px;
   border-radius: 12px;
   background: #f2f6e9;
-  color: #526249;
+  color: var(--muted);
   font-size: 13px;
 }
 .reportOverview strong {

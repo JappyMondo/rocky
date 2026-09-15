@@ -428,6 +428,28 @@
     </main>
     <script>
       document.getElementById('print-report').addEventListener('click', () => window.print());
+
+      // Mermaid's checked-in SVGs carry inline !important styles, so update the
+      // serialized artifacts before they are painted rather than relying on CSS.
+      const diagramColors = new Map([
+        ['#275c49', '#007cb9'],
+        ['#e0eadd', '#e6f3fa'],
+        ['#20332f', '#172b3a'],
+        ['#899784', '#5b91ae'],
+        ['#72836b', '#5b91ae'],
+        ['#efefe8', '#f1f6f9'],
+        ['#a3aca0', '#9db7c5'],
+        ['#46554b', '#526574'],
+        ['rgb(32, 51, 47)', 'rgb(23, 43, 58)'],
+        ['rgb(70, 85, 75)', 'rgb(82, 101, 116)'],
+      ]);
+      for (const svg of document.querySelectorAll('.diagram svg')) {
+        let serialized = svg.outerHTML;
+        for (const [legacy, replacement] of diagramColors) {
+          serialized = serialized.replaceAll(legacy, replacement);
+        }
+        svg.outerHTML = serialized;
+      }
     </script>
   </body>
 </html>
