@@ -1,21 +1,21 @@
 .viewer {
-  --bg: #fafbf8;
+  --bg: #f7fafc;
   --panel: #fff;
-  --line: #e2e6dd;
-  --muted: #697662;
+  --line: #d5e3ea;
+  --muted: #526574;
   position: fixed;
   inset: 20px;
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow:
-    0 0 0 25px #273a2c55,
-    0 20px 100px #203c2655;
+    0 0 0 25px #173a5055,
+    0 20px 100px #173a5055;
   z-index: 10;
   display: flex;
   height: calc(100dvh - 40px);
   flex-direction: column;
   overflow: hidden;
-  color: #28342f;
+  color: #172b3a;
   background: var(--bg);
   font:
     13px/1.45 ui-sans-serif,
@@ -24,7 +24,7 @@
   outline: none;
 }
 .viewer:focus-visible {
-  outline: 2px solid #6f895c;
+  outline: 2px solid var(--accent-text);
   outline-offset: -2px;
 }
 .topbar {
@@ -44,7 +44,7 @@
   margin: 0;
 }
 .eyebrow {
-  color: #697662;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -76,7 +76,7 @@
 }
 .complaintControls button,
 .close {
-  border: 1px solid #d5ddcc;
+  border: 1px solid var(--line);
   border-radius: 5px;
   background: #fff;
   color: #334155;
@@ -86,15 +86,15 @@
 }
 .complaintControls button:hover,
 .close:hover {
-  background: #f0f4e9;
-  border-color: #b6c7a5;
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
 }
 .complaintControls button:disabled {
   color: #98a2b3;
   cursor: not-allowed;
 }
 .key {
-  color: #697662;
+  color: var(--muted);
   font:
     10px ui-monospace,
     monospace;
@@ -115,7 +115,7 @@
 .treeTitle {
   margin: 0;
   padding: 0 12px 7px;
-  color: #697662;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -131,7 +131,7 @@
   gap: 6px;
   border: 0;
   background: transparent;
-  color: #405039;
+  color: #29495d;
   cursor: pointer;
   padding: 11px 10px;
   text-align: left;
@@ -141,8 +141,8 @@
   background: #f0f4f8;
 }
 .tree button.selected {
-  background: #e8efdf;
-  color: #426239;
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 .kind {
   width: 10px;
@@ -188,7 +188,7 @@
   overflow-wrap: anywhere;
 }
 .meta {
-  color: #697662;
+  color: var(--muted);
   font-size: 11px;
   margin-top: 3px;
 }
@@ -205,7 +205,7 @@
 .hunkHeader {
   padding: 5px 12px;
   color: #697662;
-  background: #f0f3eb;
+  background: var(--surface-muted);
   font:
     11px ui-monospace,
     SFMono-Regular,
@@ -241,7 +241,7 @@
   color: #8d2626;
 }
 .context {
-  color: #405039;
+  color: #29495d;
 }
 .annotation {
   margin: 6px 14px 7px 104px;
@@ -249,12 +249,12 @@
   border-left: 2px solid #a05a00;
   border-radius: 0 5px 5px 0;
   background: #fffaf0;
-  color: #28342f;
+  color: #172b3a;
   outline: none;
   font-size: 12px;
 }
 .annotation:focus-visible {
-  outline: 2px solid #6f895c;
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 .annotation strong {
@@ -269,13 +269,13 @@
   color: #4b5565;
 }
 .annotationContext {
-  color: #697662 !important;
+  color: var(--muted) !important;
   font-style: italic;
 }
 .annotation a {
   display: block;
   margin-top: 5px;
-  color: #446b35;
+  color: var(--accent-text);
 }
 .open {
   border-color: #c53335;
@@ -296,7 +296,7 @@
 .noHunks,
 .empty {
   padding: 14px 18px;
-  color: #697662;
+  color: var(--muted);
 }
 .fileSelectLabel {
   display: none;
@@ -306,7 +306,7 @@
   margin: 0;
   padding: 7px 16px;
   border-top: 1px solid var(--line);
-  color: #697662;
+  color: var(--muted);
   background: #fff;
   font-size: 11px;
 }
@@ -327,7 +327,7 @@
 .complaintControls button:focus-visible,
 .close:focus-visible,
 .fileSelectLabel select:focus-visible {
-  outline: 2px solid #6f895c;
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 @media (max-width: 760px) {
@@ -365,7 +365,7 @@
     align-items: center;
     padding: 8px 12px;
     border-bottom: 1px solid var(--line);
-    color: #697662;
+    color: var(--muted);
     font-size: 11px;
   }
   .diffPane {
@@ -374,10 +374,10 @@
   .fileSelectLabel select {
     min-width: 0;
     flex: 1;
-    border: 1px solid #d5ddcc;
+    border: 1px solid var(--line);
     border-radius: 5px;
     background: #fff;
-    color: #28342f;
+    color: #172b3a;
     padding: 5px;
   }
   .annotation {

@@ -11,7 +11,7 @@
   inset: 16px;
   z-index: 100;
   width: auto;
-  box-shadow: 0 0 0 30px #28342f55;
+  box-shadow: 0 0 0 30px #173a5055;
   display: flex;
   flex-direction: column;
 }
@@ -41,7 +41,7 @@
 }
 .flowMark {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
   width: 36px;
   height: 36px;
   display: grid;
@@ -77,7 +77,7 @@
   flex: 1;
   min-width: 0;
   position: relative;
-  background: #f8faf5;
+  background: #f4f9fc;
 }
 .canvas :global(.react-flow__node) {
   border-radius: 10px;
@@ -90,26 +90,26 @@
   opacity: 0.2;
 }
 .connected .node {
-  box-shadow: 0 0 0 3px #365c4225;
+  box-shadow: 0 0 0 3px #007cb925;
 }
 .connected .node:not(.invalid) {
   border-color: var(--accent);
-  background: #f1f5eb;
+  background: var(--accent-soft);
 }
 .canvas :global(.react-flow__handle) {
   width: 9px;
   height: 9px;
-  border: 2px solid #718566;
+  border: 2px solid #5d8195;
   background: #fff;
 }
 .canvas :global(.react-flow__handle:hover) {
-  background: #365c42;
+  background: var(--accent);
 }
 .canvas :global(.react-flow__controls) {
   border: 1px solid var(--border);
   border-radius: 7px;
   overflow: hidden;
-  box-shadow: 0 2px 8px #273f2610;
+  box-shadow: 0 2px 8px #173a5010;
 }
 .canvas :global(.react-flow__controls-button) {
   border-radius: 0;
@@ -131,14 +131,14 @@
   min-height: 72px;
   padding: 14px;
   background: #fff;
-  border: 1.5px solid #c6d0be;
+  border: 1.5px solid var(--accent-border);
   border-radius: 11px;
-  box-shadow: 0 3px 8px #293d2110;
+  box-shadow: 0 3px 8px #173a5010;
   position: relative;
 }
 .node.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px #365c4217;
+  box-shadow: 0 0 0 4px #007cb917;
 }
 .node.invalid {
   border-color: #c79057;
@@ -149,8 +149,8 @@
   flex: 0 0 31px;
   height: 33px;
   border-radius: 8px;
-  color: #526c42;
-  background: #edf2e7;
+  color: var(--accent-text);
+  background: var(--accent-soft);
   font-size: 20px;
 }
 .triggers {
@@ -184,7 +184,7 @@
   position: absolute;
   top: 3px;
   right: 8px;
-  color: #879174;
+  color: #668092;
 }
 .panel {
   width: 330px;
@@ -221,7 +221,7 @@
   font-size: 12px;
 }
 .panelBody h3 {
-  color: #5e7054;
+  color: var(--accent-text);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -266,7 +266,7 @@
 .field .code {
   font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 10px;
-  background: #fafbf8;
+  background: var(--background);
 }
 .required {
   color: #a28962;
@@ -280,7 +280,7 @@
   padding: 4px 7px;
   border-radius: 5px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 10px;
 }
 .paletteItem {
@@ -290,7 +290,7 @@
   width: 100%;
   padding: 10px 0;
   border: 0;
-  border-bottom: 1px solid #edf0e9;
+  border-bottom: 1px solid #e3edf2;
   border-radius: 0;
   background: transparent;
 }
@@ -307,7 +307,7 @@
   line-height: 1.45;
 }
 .paletteItem:hover {
-  background: #f4f7f0;
+  background: var(--accent-soft);
 }
 .callout {
   padding: 11px;
@@ -455,7 +455,7 @@
 }
 .resourceNode {
   border-radius: 18px;
-  background: #fcfdf9;
+  background: #fbfdff;
 }
 .nodePorts {
   position: absolute;
@@ -466,10 +466,10 @@
   justify-content: space-around;
   align-items: center;
   min-height: 28px;
-  border-top: 1px solid #e7ece2;
+  border-top: 1px solid #dce9ef;
   border-radius: 0 0 9px 9px;
-  background: #f6f8f2;
-  color: #627455;
+  background: var(--surface-muted);
+  color: var(--accent-text);
   font-size: 8px;
   text-align: center;
 }
@@ -494,7 +494,7 @@
   border-radius: 9px;
   font-size: 11px;
   color: var(--muted);
-  box-shadow: 0 2px 8px #273f2610;
+  box-shadow: 0 2px 8px #173a5010;
 }
 .breadcrumb button {
   font-size: 11px;
@@ -514,11 +514,11 @@
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fafbf8;
+  background: var(--background);
 }
 .componentPort > strong {
   font-size: 11px;
-  color: #53684a;
+  color: var(--accent-text);
 }
 .componentPort select {
   width: 100%;

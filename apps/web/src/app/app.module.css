@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #324d38;
+  color: var(--accent-text);
   border: 0;
   padding: 0 10px;
   background: transparent;
@@ -31,7 +31,7 @@
   letter-spacing: -1.6px;
 }
 .brandPeriod {
-  color: #6b7855;
+  color: var(--accent);
 }
 .workspaceLabel {
   display: flex;
@@ -39,9 +39,9 @@
   align-items: center;
   padding: 13px 10px;
   margin: 34px 0 26px;
-  border: 1px solid #dce1d4;
+  border: 1px solid var(--accent-border);
   border-radius: 8px;
-  background: #f8f9f5;
+  background: #f8fbfd;
 }
 .workspaceAvatar {
   display: grid;
@@ -49,10 +49,10 @@
   width: 29px;
   height: 29px;
   border-radius: 7px;
-  border: 1px solid #dce1d4;
-  background: #e8ecdf;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
   font-size: 12px;
-  color: #5c6f50;
+  color: var(--accent-text);
   font-weight: 650;
 }
 .workspaceLabel strong {
@@ -69,7 +69,7 @@
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.095em;
-  color: #6f7567;
+  color: var(--muted);
   margin: 0 10px 10px;
 }
 .navigation {
@@ -85,17 +85,17 @@
   background: transparent;
   padding: 10px 11px;
   font-size: 13px;
-  color: #6d7669;
+  color: var(--muted);
   font-weight: 500;
 }
 .navigation button[aria-current='page'] {
-  background: #e1e8d8;
-  color: #314c31;
+  background: var(--accent-soft);
+  color: var(--accent-text);
   font-weight: 650;
 }
 .navCount {
   margin-left: auto;
-  color: #69775e;
+  color: var(--accent-text);
   font-size: 11px;
 }
 .recentRuns {
@@ -149,7 +149,7 @@
   margin-top: 6px;
 }
 .recentRuns button[aria-current='page'] {
-  background: #e6eadf;
+  background: #eaf5fa;
 }
 .sidebarFooter {
   margin-top: auto;
@@ -205,7 +205,7 @@
   gap: 16px;
   padding: 0 40px;
   border-bottom: 1px solid var(--border);
-  background: #fdfefb;
+  background: #fbfdff;
   font-size: 11px;
   color: #6e746a;
 }
@@ -218,7 +218,7 @@
 .topbar button {
   border: 0;
   background: transparent;
-  color: #4d5b4c;
+  color: var(--accent-text);
   padding: 0;
   font-size: 11px;
 }
@@ -276,7 +276,7 @@
   font-weight: 650;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #6e7667;
+  color: var(--muted);
   margin: 0 0 6px;
 }
 .primary,
@@ -290,14 +290,14 @@
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-  box-shadow: 0 1px 2px #203c2612;
+  box-shadow: 0 1px 2px #173a5012;
 }
 .primary:hover:not(:disabled),
 .answer button:first-child:hover:not(:disabled),
 .compose > button:hover:not(:disabled),
 .checkpointCompose > button:hover:not(:disabled) {
-  background: #284b33;
-  border-color: #284b33;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .primary {
   padding: 10px 14px;
@@ -343,8 +343,8 @@
   height: 38px;
   width: 38px;
   border-radius: 10px;
-  background: #f2f4ee;
-  color: #6c7662;
+  background: var(--surface-muted);
+  color: var(--accent-text);
 }
 .summaryIcon[data-tone='blue'] {
   color: #627683;
@@ -399,14 +399,14 @@
 }
 .filters button span {
   font-size: 11px;
-  background: #f1f3ee;
+  background: var(--surface-muted);
   border-radius: 4px;
   padding: 1px 5px;
   color: #6d7467;
 }
 .filters button[aria-pressed='true'] span {
-  background: #e9efdf;
-  color: #5c744f;
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 .toolbar {
   display: flex;
@@ -434,7 +434,7 @@
   outline: 0;
 }
 .search:focus-within {
-  outline: 2px solid #bccdac;
+  outline: 2px solid var(--accent-text);
   outline-offset: 1px;
 }
 .search > svg {
@@ -457,7 +457,7 @@
 }
 .tableHeader {
   min-height: 37px;
-  background: #fafbf8;
+  background: var(--background);
   border-top: 1px solid #f0f2ec;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
@@ -472,7 +472,7 @@
   border-bottom: 0;
 }
 .tableRow:hover {
-  background: #fbfcf8;
+  background: #f8fbfd;
 }
 .issueCell {
   min-width: 0;
@@ -606,8 +606,8 @@
   gap: 6px;
   padding: 3px 7px;
   border-radius: 5px;
-  background: #f3f4ef;
-  color: #6c7464;
+  background: var(--surface-muted);
+  color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
   line-height: 1.5;
@@ -735,15 +735,15 @@
   margin-top: 11px;
   border: 0;
   border-radius: 5px;
-  background: #edf0e7;
-  accent-color: #879e6e;
+  background: var(--surface-muted);
+  accent-color: var(--accent);
 }
 .runSummary progress::-webkit-progress-bar {
-  background: #edf0e7;
+  background: var(--surface-muted);
   border-radius: 5px;
 }
 .runSummary progress::-webkit-progress-value {
-  background: #879e6e;
+  background: var(--accent);
   border-radius: 5px;
 }
 .sectionHeading {
@@ -861,7 +861,7 @@
 .rawResult summary {
   padding: 8px 11px;
   cursor: pointer;
-  background: #f9fbf5;
+  background: var(--surface-muted);
 }
 .result,
 .rawResult pre,
@@ -2186,14 +2186,114 @@
   padding: 18px;
   border-radius: 12px;
   background: #f2f6e9;
-  color: #526249;
+  color: var(--muted);
   font-size: 13px;
 }
 .reportOverview strong {
   display: block;
   font-size: 26px;
-  color: #253b21;
+  color: var(--accent-text);
   margin-bottom: 6px;
+}
+
+/* Shared blue treatments for presentation surfaces that previously inherited
+   the green/cream base palette. Semantic status and error colors stay distinct. */
+.connection,
+.connection summary,
+.topbar,
+.topbar button,
+.localLabel,
+.recentRuns strong small,
+.recentRuns em,
+.sidebarFootnote,
+.eyebrow,
+.search,
+.toolbar select,
+.tableHeader,
+.issueMeta,
+.repoCell,
+.dateCell,
+.iconButton,
+.tableFooter,
+.overviewHint,
+.runIdentity,
+.runMeta,
+.runSummary strong,
+.runSummary span,
+.sectionHeading p,
+.sectionHeading > span,
+.boot,
+.stepTitle small,
+.stepTiming,
+.expandIcon,
+.stepUsage,
+.prior,
+.plan,
+.rawResult,
+.values dt,
+.livePreview,
+.settings label,
+.profiles label,
+.trigger label,
+.groupIntro svg,
+.groupIntro p,
+.integration code,
+.workflowEditor p:not(.eyebrow),
+.webEditor summary,
+.placeholder,
+.emptyState p,
+.muted,
+.dialogIntro,
+.trigger small {
+  color: var(--muted);
+}
+.connection,
+.localLabel,
+.summaryStrip > div,
+.tableHeader,
+.tableRow,
+.stepBody,
+.rawResult,
+.profileRouting,
+.diagramCanvas,
+.dialog,
+.reviewReport header,
+.visualGrid article,
+.visualGrid img {
+  border-color: var(--border);
+}
+.result,
+.rawResult pre,
+.workflowSource,
+.stepMetadata,
+.diagramCanvas,
+.diagramPlaceholder,
+.profileRouting,
+.emptyIcon,
+.reportLinks,
+.reportOverview > span {
+  background: var(--surface-muted);
+}
+.result,
+.rawResult pre,
+.transcript {
+  color: var(--text);
+}
+.rawResult {
+  border-color: var(--border);
+}
+.steerActivity {
+  color: var(--muted);
+}
+.steerActivity blockquote {
+  border-left-color: var(--accent-border);
+  color: var(--accent-text);
+}
+.overlay {
+  background: #173a5055;
+}
+.dialog {
+  box-shadow: 0 24px 100px #173a5029;
 }
 .reportTabs {
   display: flex;
@@ -2205,18 +2305,18 @@
   flex: 0 0 auto;
   max-width: 280px;
   padding: 12px 18px;
-  border: 1px solid #cad5c1;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   text-align: left;
 }
 .reportTabs button[aria-selected='true'] {
-  background: #253b21;
+  background: var(--accent-hover);
   color: #fff;
-  border-color: #253b21;
+  border-color: var(--accent-hover);
 }
 .reportChange {
-  border: 1px solid #dce2d5;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 22px;
   min-width: 0;
@@ -2234,8 +2334,8 @@
   overflow-wrap: anywhere;
 }
 .reportDiff {
-  background: #f7f9f5;
-  border: 1px solid #dce2d5;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.7;
@@ -2267,7 +2367,7 @@
 }
 .reportFocus,
 .reportAttention {
-  border: 1px solid #dce2d5;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
   overflow-wrap: anywhere;
@@ -2279,7 +2379,7 @@
 .reportFiles {
   list-style: none;
   padding: 0;
-  border: 1px solid #dce2d5;
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -2289,7 +2389,7 @@
   justify-content: space-between;
   gap: 8px 20px;
   padding: 10px 16px;
-  border-bottom: 1px solid #e7ebe2;
+  border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
   font-size: 13px;
 }
@@ -2297,7 +2397,7 @@
   border-bottom: 0;
 }
 .reportFiles span {
-  color: #617056;
+  color: var(--muted);
 }
 @media (max-width: 600px) {
   .reportSteps {
@@ -2356,7 +2456,7 @@
   padding: 22px;
   border: 1px solid var(--line, #ddd);
   border-radius: 14px;
-  background: var(--panel, #fafbf8);
+  background: var(--panel, var(--background));
 }
 .modelChoices h3 {
   margin-top: 0;
