@@ -41,7 +41,7 @@
 }
 .flowMark {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
   width: 36px;
   height: 36px;
   display: grid;
@@ -280,7 +280,7 @@
   padding: 4px 7px;
   border-radius: 5px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 10px;
 }
 .paletteItem {

@@ -44,7 +44,7 @@
   font-size: 11px;
 }
 .segment button[aria-pressed='true'] {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
   border-color: var(--accent-border);
 }

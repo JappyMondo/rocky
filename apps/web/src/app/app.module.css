@@ -736,7 +736,7 @@
   border: 0;
   border-radius: 5px;
   background: var(--surface-muted);
-  accent-color: #879e6e;
+  accent-color: var(--accent);
 }
 .runSummary progress::-webkit-progress-bar {
   background: var(--surface-muted);
@@ -861,7 +861,7 @@
 .rawResult summary {
   padding: 8px 11px;
   cursor: pointer;
-  background: #f9fbf5;
+  background: var(--surface-muted);
 }
 .result,
 .rawResult pre,
@@ -1995,7 +1995,7 @@
 .reportOverview strong {
   display: block;
   font-size: 26px;
-  color: #253b21;
+  color: var(--accent-text);
   margin-bottom: 6px;
 }
 
@@ -2082,6 +2082,16 @@
 .transcript {
   color: var(--text);
 }
+.rawResult {
+  border-color: var(--border);
+}
+.steerActivity {
+  color: var(--muted);
+}
+.steerActivity blockquote {
+  border-left-color: var(--accent-border);
+  color: var(--accent-text);
+}
 .overlay {
   background: #173a5055;
 }
@@ -2098,18 +2108,18 @@
   flex: 0 0 auto;
   max-width: 280px;
   padding: 12px 18px;
-  border: 1px solid #cad5c1;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   text-align: left;
 }
 .reportTabs button[aria-selected='true'] {
-  background: #253b21;
+  background: var(--accent-hover);
   color: #fff;
-  border-color: #253b21;
+  border-color: var(--accent-hover);
 }
 .reportChange {
-  border: 1px solid #dce2d5;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 22px;
   min-width: 0;
@@ -2127,8 +2137,8 @@
   overflow-wrap: anywhere;
 }
 .reportDiff {
-  background: #f7f9f5;
-  border: 1px solid #dce2d5;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.7;
@@ -2160,7 +2170,7 @@
 }
 .reportFocus,
 .reportAttention {
-  border: 1px solid #dce2d5;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
   overflow-wrap: anywhere;
@@ -2172,7 +2182,7 @@
 .reportFiles {
   list-style: none;
   padding: 0;
-  border: 1px solid #dce2d5;
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -2182,7 +2192,7 @@
   justify-content: space-between;
   gap: 8px 20px;
   padding: 10px 16px;
-  border-bottom: 1px solid #e7ebe2;
+  border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
   font-size: 13px;
 }
@@ -2190,7 +2200,7 @@
   border-bottom: 0;
 }
 .reportFiles span {
-  color: #617056;
+  color: var(--muted);
 }
 @media (max-width: 600px) {
   .reportOverview {

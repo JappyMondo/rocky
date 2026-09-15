@@ -90,7 +90,7 @@
   white-space: nowrap;
 }
 .badge[data-state='connected'] {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .badge[data-state='login-required'],
 .error,
