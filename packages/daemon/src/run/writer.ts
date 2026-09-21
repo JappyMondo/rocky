@@ -75,8 +75,13 @@ export class JournalWriter {
     resetControls: string[] = [],
     recoveryInstructions?: string,
     continueExhausted?: true,
+    configurationRepair?: import('@rocky/local-contracts').FlowConfigurationRepair,
   ): Promise<void> {
     return this.schedule(() => async () => {
+      if (configurationRepair && !continueExhausted)
+        throw new JournalFormatError(
+          'Configuration repair requires continuation',
+        );
       const journal = await readJournal(this.path);
       if (journal.getControl(`retry:${requestId}`)) return;
       if (
@@ -90,6 +95,7 @@ export class JournalWriter {
         v: JOURNAL_FORMAT_VERSION,
         kind: 'retry',
         ...(continueExhausted ? { continueExhausted } : {}),
+        ...(configurationRepair ? { configurationRepair } : {}),
         resetControls,
         requestId,
         stepKey,

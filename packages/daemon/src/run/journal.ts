@@ -376,6 +376,19 @@ function parseLines(
           Number(controls.get('review:continuations') ?? 0) + 1,
         );
       for (const key of retry.data.resetControls ?? []) controls.delete(key);
+      if (retry.data.configurationRepair) {
+        if (!retry.data.continueExhausted)
+          throw new JournalFormatError(
+            `${at(index)}: configuration repair requires continuation`,
+          );
+        controls.set('flow:repairs', [
+          ...((controls.get('flow:repairs') as unknown[]) ?? []),
+          {
+            continuation: controls.get('review:continuations'),
+            settings: retry.data.configurationRepair,
+          },
+        ]);
+      }
       terminal = false;
       continue;
     }

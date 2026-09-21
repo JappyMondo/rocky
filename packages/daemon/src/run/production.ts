@@ -475,6 +475,10 @@ export function createProductionRuntime(
         options.paths.run(run.runId).snapshotDir,
         run.execution.trigger,
         continuations,
+        ((await options.request({
+          kind: 'control-get',
+          key: 'flow:repairs',
+        })) ?? []) as import('@rocky/local-contracts').FlowRepairRevision[],
       );
     },
     beforeWorkflow: async (run, steps, signal) => {

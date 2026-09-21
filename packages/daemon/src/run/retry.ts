@@ -1,11 +1,54 @@
 import { z } from 'zod';
 import type { JournalEntry } from './journal.js';
+import type { FlowConfigurationRepair } from '@rocky/local-contracts';
+
+export const configurationRepairSchema = z
+  .object({
+    readiness: z
+      .object({
+        attempts: z.number().int().min(1).max(600),
+        intervalMs: z.number().int().min(1).max(10000),
+      })
+      .strict()
+      .optional(),
+    ui: z
+      .object({
+        start: z.string().trim().min(1).max(12000),
+        url: z
+          .string()
+          .url()
+          .refine(
+            (url) => /^https?:\/\//.test(url),
+            'Use an HTTP or HTTPS URL',
+          ),
+      })
+      .strict()
+      .optional(),
+    commands: z
+      .object({
+        install: z.string().max(12000).optional(),
+        test: z.string().max(12000).optional(),
+        lint: z.string().max(12000).optional(),
+        build: z.string().max(12000).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.ui !== undefined ||
+      value.readiness !== undefined ||
+      Object.keys(value.commands ?? {}).length > 0,
+    'Supply a configuration repair',
+  );
 
 export const retryRecordSchema = z
   .object({
     v: z.number().int(),
     kind: z.literal('retry'),
     continueExhausted: z.literal(true).optional(),
+    configurationRepair: configurationRepairSchema.optional(),
     requestId: z.string().min(1).max(200),
     stepKey: z.string().regex(/^\d+$/),
     recordedAt: z.string().datetime(),
@@ -24,6 +67,7 @@ export type RetryRequest = {
   expectedBoot: number;
   recoveryInstructions?: string;
   continueExhausted?: true;
+  configurationRepair?: FlowConfigurationRepair;
 };
 const latest = (entries: readonly JournalEntry[]) => [
   ...new Map(entries.map((entry) => [entry.seq, entry])).values(),

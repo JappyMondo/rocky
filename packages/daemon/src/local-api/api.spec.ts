@@ -2121,6 +2121,41 @@ it('offers another review batch on exhausted runs and forwards the explicit gran
     ).statusCode,
   ).toBe(202);
   expect(retryStep).toHaveBeenCalledWith(run.runId, payload);
+  const configurationRepair = {
+    ui: { start: 'npm run dev', url: 'http://localhost/' },
+  };
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.runId}/retry-step`,
+        payload: { ...payload, configurationRepair },
+      })
+    ).statusCode,
+  ).toBe(202);
+  expect(retryStep).toHaveBeenLastCalledWith(run.runId, {
+    ...payload,
+    configurationRepair,
+  });
+  for (const invalid of [
+    { ...payload, configurationRepair: {} },
+    { ...payload, configurationRepair, continueExhausted: undefined },
+    {
+      ...payload,
+      configurationRepair: {
+        ui: { start: 'npm run dev', url: 'file:///tmp/index.html' },
+      },
+    },
+  ])
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/runs/${run.runId}/retry-step`,
+          payload: invalid,
+        })
+      ).statusCode,
+    ).toBe(400);
   expect(
     (
       await app.inject({

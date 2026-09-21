@@ -636,6 +636,11 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                     'review:continuations',
                   ) ?? 0,
                 ),
+                (await readJournal(join(dir, 'journal.jsonl'))).getControl(
+                  'flow:repairs',
+                ) as
+                  | import('@rocky/local-contracts').FlowRepairRevision[]
+                  | undefined,
               ).map(({ descriptor, workflow }) => ({ ...descriptor, workflow }))
             : undefined;
           const binding = (
@@ -1463,8 +1468,98 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       );
       expect(f.trace.join('\n')).toContain('"file": "Flow settings"');
       expect(f.trace.join('\n')).toContain(
-        'Configure both in Flow settings and start a new Run.',
+        'Use Repair configuration and resume',
       );
+    },
+  );
+
+  it.skipIf(mode !== 'flow').each([false, true])(
+    'repairs missing UI settings at the stop boundary without repeating implementation or compliance (catalog=%s)',
+    async (catalog) => {
+      vi.stubGlobal('fetch', async () => ({ ok: true }));
+      vi.stubEnv('ROCKY_SCREENSHOT_DIR', dir);
+      vi.stubEnv('ROCKY_RUN_DIR', dir);
+      const source = parseFlow(flowSource);
+      source.settings.uiConfigurationVersion = 1;
+      if (catalog) source.settings.execution = [];
+      const f = fixture({
+        continuation: true,
+        continuationSource: JSON.stringify(source),
+        agent: (name, input) => {
+          if (name === 'ui-triage')
+            return 'services' in input
+              ? {
+                  isFrontend: true,
+                  selected: [],
+                  reason: 'Frontend changed.',
+                }
+              : { isFrontend: true };
+          if (name === 'ui-planner')
+            return {
+              checks: [
+                {
+                  id: 'desktop',
+                  url: '/',
+                  action: 'Open desktop.',
+                  expected: 'Button visible.',
+                },
+              ],
+            };
+          if (name === 'ui-inspector')
+            return {
+              results: [
+                {
+                  id: 'desktop',
+                  verdict: 'ok',
+                  note: 'Visible.',
+                  screenshots: [],
+                  observations: [],
+                },
+              ],
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      // Even an ordinary boot must replay the new configuration stop, not enter the legacy UI path.
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      const path = join(dir, 'journal.jsonl');
+      const before = await readFile(path, 'utf8');
+      await (
+        await JournalWriter.open(path)
+      ).retry(
+        'repair-1',
+        String((await readJournal(path)).end?.seq),
+        [],
+        undefined,
+        true,
+        {
+          ui: { start: 'test-server', url: 'http://127.0.0.1' },
+          commands: { install: 'install-frontend' },
+        },
+      );
+      const resumed = await f.boot();
+      if (resumed.status === 'failed') throw Error(JSON.stringify(resumed));
+      expect(resumed).toMatchObject({ status: 'parked' });
+      expect((await readFile(path, 'utf8')).startsWith(before)).toBe(true);
+      const count = (name: string) =>
+        f.calls.filter((call) => call.name === name).length;
+      expect(count('implementer')).toBe(1);
+      expect(count('compliance-reviewer')).toBe(1);
+      expect(count('fixer')).toBe(0);
+      expect(count('ui-inspector')).toBe(1);
+      expect(f.trace.some((line) => line.includes('install-frontend'))).toBe(
+        true,
+      );
+      const calls = f.calls.length;
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(f.calls).toHaveLength(calls);
     },
   );
 

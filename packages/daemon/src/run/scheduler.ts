@@ -1,5 +1,11 @@
 import { readJournal } from './journal.js';
-import { retryStepKey, exhaustedStepKey, type RetryRequest } from './retry.js';
+import { isDeepStrictEqual } from 'node:util';
+import {
+  retryStepKey,
+  exhaustedStepKey,
+  configurationRepairSchema,
+  type RetryRequest,
+} from './retry.js';
 import {
   cp,
   mkdir,
@@ -250,12 +256,21 @@ export class RunScheduler {
   }
 
   async retryStep(runId: string, input: RetryRequest): Promise<RunHeader> {
+    if (input.configurationRepair)
+      input = {
+        ...input,
+        configurationRepair: configurationRepairSchema.parse(
+          input.configurationRepair,
+        ),
+      };
     return this.admissions.run(
       (await this.get(runId))?.issue.identifier ?? runId,
       () =>
         this.mutate(async () => {
           const run = this.runs.get(runId);
           if (!run) throw new Error(`Unknown Run ${runId}`);
+          if (input.configurationRepair && !input.continueExhausted)
+            throw new Error('Configuration repair requires an exhausted Run.');
           if (input.continueExhausted && input.recoveryInstructions)
             throw new Error(
               'Review continuation cannot also retry a failed Step.',
@@ -267,6 +282,15 @@ export class RunScheduler {
           );
           const receipt = journal.getControl(`retry:${input.requestId}`);
           if (receipt) {
+            if (
+              !isDeepStrictEqual(
+                (receipt as RetryRequest).configurationRepair,
+                input.configurationRepair,
+              )
+            )
+              throw new Error(
+                'Retry request ID was already used with different configuration.',
+              );
             if (
               (receipt as { continueExhausted?: true }).continueExhausted !==
               input.continueExhausted

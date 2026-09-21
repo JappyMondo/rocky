@@ -1,5 +1,6 @@
 import {
   retryStepKey,
+  configurationRepairSchema,
   exhaustedStepKey,
   type RetryRequest,
 } from '../run/retry.js';
@@ -959,6 +960,7 @@ export async function registerLocalApi(
             .object({
               requestId: z.string().uuid(),
               continueExhausted: z.literal(true).optional(),
+              configurationRepair: configurationRepairSchema.optional(),
               stepKey: z.string().regex(/^\d+$/),
               expectedBoot: z.number().int().min(1),
               recoveryInstructions: z
@@ -976,6 +978,12 @@ export async function registerLocalApi(
             400,
             'invalid-continuation',
             'Continue review does not accept failed-step recovery instructions.',
+          );
+        if (input.configurationRepair && !input.continueExhausted)
+          throw new LocalApiError(
+            400,
+            'invalid-repair',
+            'Configuration repair requires an exhausted Run.',
           );
         if (!options.retryStep)
           throw new LocalApiError(

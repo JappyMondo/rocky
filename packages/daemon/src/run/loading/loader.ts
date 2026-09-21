@@ -160,6 +160,7 @@ export function resolveSnapshotTrigger<T extends TriggerSelector>(
 export async function importSnapshotTriggers(
   snapshotDir: string,
   continuations = 0,
+  repairs: import('@rocky/local-contracts').FlowRepairRevision[] = [],
 ): Promise<
   {
     descriptor: TriggerSelector;
@@ -184,6 +185,7 @@ export async function importSnapshotTriggers(
         readFileSync(flowFile, 'utf8'),
         snapshotDir,
         continuations,
+        repairs,
       );
     }
     const root = realpathSync(snapshotDir);
@@ -244,8 +246,13 @@ export async function loadSnapshotWorkflow(
   snapshotDir: string,
   selector: TriggerSelector,
   continuations = 0,
+  repairs: import('@rocky/local-contracts').FlowRepairRevision[] = [],
 ): Promise<Workflow> {
-  const bindings = await importSnapshotTriggers(snapshotDir, continuations);
+  const bindings = await importSnapshotTriggers(
+    snapshotDir,
+    continuations,
+    repairs,
+  );
   return resolveSnapshotTrigger(
     bindings.map(({ descriptor, workflow }) => ({ ...descriptor, workflow })),
     selector,

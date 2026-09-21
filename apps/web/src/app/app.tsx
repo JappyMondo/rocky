@@ -12,6 +12,7 @@ import {
 import { FlowEditor } from './flow-editor.js';
 import { SourceControlFields } from './source-control.js';
 import { RetryStep } from './retry-step.js';
+import { ConfigurationRepair } from './configuration-repair.js';
 import { TranscriptPanel } from './transcript-view.js';
 import { CodeOutput, OutputValue, Prose } from './output-view.js';
 import {
@@ -824,6 +825,7 @@ export function App() {
                 expectedBoot,
                 recoveryInstructions,
                 continueExhausted,
+                configurationRepair,
               ) => {
                 if (!selectedDetail || !mutationsAllowed) return;
                 const runId = selectedDetail.run.runId;
@@ -839,6 +841,7 @@ export function App() {
                       expectedBoot,
                       recoveryInstructions,
                       continueExhausted,
+                      configurationRepair,
                     }),
                   },
                 );
@@ -1015,6 +1018,7 @@ function RunView(p: {
     expectedBoot: number,
     recoveryInstructions?: string,
     continueExhausted?: true,
+    configurationRepair?: import('@rocky/local-contracts').FlowConfigurationRepair,
   ) => Promise<void>;
   openDiff: (id: string) => void;
 }) {
@@ -1134,6 +1138,22 @@ function RunView(p: {
               : 'The workflow stopped with unresolved work. A review, validation, or repair could not be completed.'}
           </p>
           {stopSummary && <p>{stopSummary}</p>}
+          {continueReview && (
+            <ConfigurationRepair
+              key={`${d.run.runId}:${d.run.boots}:repair`}
+              disabled={!p.allowed}
+              submit={(requestId, repair) =>
+                p.retryStep(
+                  continueReview.stepKey,
+                  requestId,
+                  d.run.boots,
+                  undefined,
+                  true,
+                  repair,
+                )
+              }
+            />
+          )}
           {continueReview && (
             <RetryStep
               key={`${d.run.runId}:${d.run.boots}:continue`}
@@ -2761,7 +2781,8 @@ function Profiles(p: {
               {slotError && <p role="alert">{slotError}</p>}
               <p>
                 Export a literal <code>models</code> object with a name for each
-                slot. Configure new slots under Agents &amp; access before saving.
+                slot. Configure new slots under Agents &amp; access before
+                saving.
               </p>
             </details>
           </>

@@ -278,6 +278,7 @@ export async function openExecution(options: ExecutionOptions) {
         ],
         input.recoveryInstructions,
         input.continueExhausted,
+        input.configurationRepair,
       );
     },
     releaseTerminalWorkspace: async (run) => {

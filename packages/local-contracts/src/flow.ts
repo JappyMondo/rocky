@@ -49,6 +49,16 @@ export interface FlowSettings {
   ciLogLines: number;
   maxTransitions: number;
 }
+/** Explicit, journaled repair applied after one exhausted delivery attempt. */
+export interface FlowConfigurationRepair {
+  readiness?: { attempts: number; intervalMs: number };
+  ui?: { start: string; url: string };
+  commands?: Partial<FlowSettings['commands']>;
+}
+export interface FlowRepairRevision {
+  continuation: number;
+  settings: FlowConfigurationRepair;
+}
 export interface RepositoryRecipes {
   commands?: Partial<{
     install: string;

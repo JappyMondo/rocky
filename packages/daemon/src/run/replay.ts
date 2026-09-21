@@ -97,6 +97,7 @@ export interface BootContext {
   readonly boot: number;
   /** True while the next workflow Step has a recorded result to replay. */
   readonly replaying: boolean;
+  readonly replayStep?: string;
   /**
    * Display-only stage marker: takes no seq, is never journaled as a Step of
    * its own, and stamps `stage` on every entry created after it. The runner
@@ -299,6 +300,9 @@ class BootRunner implements BootContext {
 
   get replaying(): boolean {
     return this.journal.latest(this.seq) !== undefined;
+  }
+  get replayStep(): string | undefined {
+    return this.journal.latest(this.seq)?.step;
   }
 
   stage(label: string): void {

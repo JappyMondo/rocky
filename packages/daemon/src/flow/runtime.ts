@@ -28,6 +28,7 @@ export function flowBindings(
   source: string,
   snapshotDir: string,
   continuations = 0,
+  repairs: import('@rocky/local-contracts').FlowRepairRevision[] = [],
 ) {
   const flow = validateFlow(source);
   // Invalid output schemas must fail admission, before any effects run.
@@ -49,6 +50,7 @@ export function flowBindings(
           input,
           snapshotDir,
           continuations,
+          repairs,
         )) satisfies Workflow,
     }));
 }
@@ -60,6 +62,7 @@ export async function executeFlow(
   workspace: WorkflowInput,
   snapshotDir: string,
   continuations = 0,
+  repairs: import('@rocky/local-contracts').FlowRepairRevision[] = [],
 ): Promise<RunOutcome> {
   // Validate at this boundary too: embedders cannot accidentally execute an invalid graph.
   flow = validateFlow(JSON.stringify(flow));
@@ -215,6 +218,7 @@ export async function executeFlow(
           flow.settings,
           snapshotDir,
           continuations,
+          repairs,
         );
         port = await delivery(
           node.type.slice('delivery.'.length),

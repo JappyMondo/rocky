@@ -750,71 +750,95 @@ it('serializes duplicate Step retries and refuses stale, live, and superseded Ru
   await reopened.close();
 });
 
-it('grants one continuation per request only to an exhausted Run, including after restart', async () => {
-  const { JournalWriter } = await import('./writer.js');
-  const run = stored('NG-901');
-  await writeRunHeader(paths, run);
-  const journalPath = paths.run(run.runId).journal;
-  await runBoot({ journalPath, workflow: async () => 'exhausted' });
-  const writer = await JournalWriter.open(journalPath);
-  const retry = vi.fn(async (_run, input) =>
-    writer.retry(
-      input.requestId,
-      input.stepKey,
-      [],
-      undefined,
-      input.continueExhausted,
-    ),
-  );
-  const scheduler = await RunScheduler.open({
-    paths,
-    boot: vi.fn(),
-    retryStep: retry,
-  });
-  const request = {
-    requestId: 'continue',
-    stepKey: '0',
-    expectedBoot: 1,
-    continueExhausted: true as const,
-  };
-  try {
-    await expect(
-      scheduler.retryStep(run.runId, { ...request, expectedBoot: 2 }),
-    ).rejects.toThrow(/Refresh/);
-    await expect(
-      scheduler.retryStep(run.runId, {
-        ...request,
-        continueExhausted: undefined,
-      }),
-    ).rejects.toThrow(/settled failed/);
-    await Promise.all([
-      scheduler.retryStep(run.runId, request),
-      scheduler.retryStep(run.runId, request),
-    ]);
-    expect(retry).toHaveBeenCalledTimes(1);
-    expect((await writer.read()).getControl('review:continuations')).toBe(1);
-    await expect(
-      scheduler.retryStep(run.runId, { ...request, requestId: 'another' }),
-    ).rejects.toThrow(/settled exhausted/);
-    await expect(
-      scheduler.retryStep(run.runId, {
-        ...request,
-        continueExhausted: undefined,
-      }),
-    ).rejects.toThrow(/different action/);
-  } finally {
-    await scheduler.close();
-  }
-  const reopened = await RunScheduler.open({
-    paths,
-    boot: vi.fn(),
-    retryStep: retry,
-  });
-  try {
-    await reopened.retryStep(run.runId, request);
-    expect(retry).toHaveBeenCalledTimes(1);
-    expect((await reopened.get(run.runId))?.status).toBe('queued');
-  } finally {
-    await reopened.close();
-  }
-});
+it.each([false, true])(
+  'grants one continuation per request only to an exhausted Run, including after restart (repair=%s)',
+  async (repair) => {
+    const { JournalWriter } = await import('./writer.js');
+    const run = stored('NG-901');
+    await writeRunHeader(paths, run);
+    const journalPath = paths.run(run.runId).journal;
+    await runBoot({ journalPath, workflow: async () => 'exhausted' });
+    const writer = await JournalWriter.open(journalPath);
+    const retry = vi.fn(async (_run, input) =>
+      writer.retry(
+        input.requestId,
+        input.stepKey,
+        [],
+        undefined,
+        input.continueExhausted,
+        input.configurationRepair,
+      ),
+    );
+    const scheduler = await RunScheduler.open({
+      paths,
+      boot: vi.fn(),
+      retryStep: retry,
+    });
+    const request = {
+      requestId: 'continue',
+      stepKey: '0',
+      expectedBoot: 1,
+      continueExhausted: true as const,
+      ...(repair
+        ? {
+            configurationRepair: {
+              ui: { start: 'npm run dev', url: 'http://localhost/' },
+            },
+          }
+        : {}),
+    };
+    try {
+      await expect(
+        scheduler.retryStep(run.runId, { ...request, expectedBoot: 2 }),
+      ).rejects.toThrow(/Refresh/);
+      await expect(
+        scheduler.retryStep(run.runId, {
+          ...request,
+          continueExhausted: undefined,
+        }),
+      ).rejects.toThrow(repair ? /requires an exhausted/ : /settled failed/);
+      await Promise.all([
+        scheduler.retryStep(run.runId, request),
+        scheduler.retryStep(run.runId, request),
+      ]);
+      expect(retry).toHaveBeenCalledTimes(1);
+      expect((await writer.read()).getControl('review:continuations')).toBe(1);
+      if (repair) {
+        expect((await writer.read()).getControl('flow:repairs')).toEqual([
+          { continuation: 1, settings: request.configurationRepair },
+        ]);
+        await expect(
+          scheduler.retryStep(run.runId, {
+            ...request,
+            configurationRepair: {
+              ui: { start: 'changed', url: 'http://localhost/' },
+            },
+          }),
+        ).rejects.toThrow(/different configuration/);
+      }
+      await expect(
+        scheduler.retryStep(run.runId, { ...request, requestId: 'another' }),
+      ).rejects.toThrow(/settled exhausted/);
+      await expect(
+        scheduler.retryStep(run.runId, {
+          ...request,
+          continueExhausted: undefined,
+        }),
+      ).rejects.toThrow(repair ? /requires an exhausted/ : /different action/);
+    } finally {
+      await scheduler.close();
+    }
+    const reopened = await RunScheduler.open({
+      paths,
+      boot: vi.fn(),
+      retryStep: retry,
+    });
+    try {
+      await reopened.retryStep(run.runId, request);
+      expect(retry).toHaveBeenCalledTimes(1);
+      expect((await reopened.get(run.runId))?.status).toBe('queued');
+    } finally {
+      await reopened.close();
+    }
+  },
+);

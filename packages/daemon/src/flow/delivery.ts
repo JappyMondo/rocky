@@ -124,9 +124,14 @@ export function createDeliveryOperations(
   settings: FlowSettings,
   snapshotDir: string,
   continuations = 0,
+  repairs: import('@rocky/local-contracts').FlowRepairRevision[] = [],
 ) {
-  const { commands, ui, states, reviewCap, ciCap, readiness, ciLogLines } =
-    settings;
+  settings = structuredClone(settings);
+  let { commands, ui, readiness } = settings;
+  const { states, reviewCap, ciCap, ciLogLines } = settings;
+  let continuation = 0;
+  let repairedUi = false;
+  let repairedInstall = false;
   const execution = settings.execution
     ? new WorkspaceExecution(
         ctx,
@@ -217,7 +222,7 @@ export function createDeliveryOperations(
       ? repositories.diff()
       : shell(ctx, 'git diff origin/HEAD...HEAD');
   async function setupWorkspace() {
-    if (execution) {
+    if (execution && !repairedInstall) {
       if (!settings.workspaceSetup) return;
       for (const entry of await selectedCommands('install')) {
         const result = await execution.command(entry.id, `Install ${entry.id}`);
@@ -272,6 +277,41 @@ export function createDeliveryOperations(
       : await giveUp(ctx, pr, complaints);
     if (continuations === 0) return outcome;
     continuations--;
+    continuation++;
+    const repair = repairs.find(
+      (item) => item.continuation === continuation,
+    )?.settings;
+    if (repair) {
+      if (repair.readiness) readiness = settings.readiness = repair.readiness;
+      // Apply only after the original stop effects have replayed. Never rewrite
+      // the snapshot or reinterpret completed commands using new configuration.
+      if (repair.ui) {
+        ui = settings.ui = repair.ui;
+        repairedUi = true;
+      }
+      if (repair.commands) {
+        commands = settings.commands = { ...commands, ...repair.commands };
+        validationResponsibility.commands = commands;
+        repairedInstall ||= repair.commands.install !== undefined;
+      }
+      serviceChecks.clear();
+      server = undefined;
+      revision = 1;
+      if (
+        complaints.length &&
+        complaints.every(({ id }) => id.startsWith('ui/'))
+      ) {
+        await setupWorkspace();
+        return operations.ui();
+      }
+      if (
+        complaints.length &&
+        complaints.every(({ id }) => id.startsWith('validation/'))
+      ) {
+        await setupWorkspace();
+        return operations.validate();
+      }
+    }
     revision = 0;
     ciAttempts = 0;
     // Terminal exhaustion can release clean worktrees, including ignored dependencies.
@@ -964,7 +1004,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async ui() {
       ctx.stage('UI');
-      if (execution) {
+      if (execution && !repairedUi) {
         const catalog = serviceEntries(settings.execution ?? []);
         const available = catalog.filter(
           ({ service }) => service.policy !== 'manual',
@@ -1001,9 +1041,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             .map((entry) => entry.id),
         }));
         if (triage.isFrontend && !selected.length)
-          throw Error(
-            'UI changes need a selected dev service. Configure one under Profile → Repositories → Dev services, then start a new run.',
-          );
+          return exhaust([
+            {
+              id: 'ui/config',
+              file: 'Flow settings',
+              text: 'UI changes need a dev service. Use Repair configuration and resume, and configure a service in the profile for future Runs.',
+            },
+          ]);
         if (!selected.length) return 'next';
         const label = `UI services ${revision}`;
         let retry: Complaint[] | undefined;
@@ -1046,17 +1090,19 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             ? await repositories.changedFiles()
             : await ctx.changedFiles(),
           diff: await diff(),
-          recipes: Object.entries(settings.repositories ?? {}).flatMap(
-            ([repository, recipes]) =>
-              (recipes.ui ?? []).map(({ id }) => ({ repository, id })),
+          recipes: Object.entries(
+            repairedUi ? {} : (settings.repositories ?? {}),
+          ).flatMap(([repository, recipes]) =>
+            (recipes.ui ?? []).map(({ id }) => ({ repository, id })),
           ),
         },
         schema: UiTriage,
       });
       if (triage.isFrontend) {
-        const candidates = Object.entries(settings.repositories ?? {}).flatMap(
-          ([repository, recipes]) =>
-            (recipes.ui ?? []).map((recipe) => ({ repository, recipe })),
+        const candidates = Object.entries(
+          repairedUi ? {} : (settings.repositories ?? {}),
+        ).flatMap(([repository, recipes]) =>
+          (recipes.ui ?? []).map((recipe) => ({ repository, recipe })),
         );
         const selected = triage.recipe
           ? candidates.find(
@@ -1070,12 +1116,17 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         const historicalMissingUi =
           settings.uiConfigurationVersion === undefined &&
           settings.repositories === undefined;
-        if (!selected && !ui && !historicalMissingUi && !ctx.replaying)
+        if (
+          !selected &&
+          !ui &&
+          !historicalMissingUi &&
+          ctx.replayStep !== 'step'
+        )
           return exhaust([
             {
               id: 'ui/config',
               file: 'Flow settings',
-              text: 'UI inspection is required, but this profile has no UI start command or URL. Configure both in Flow settings and start a new Run.',
+              text: 'UI inspection is required, but this Run has no UI start command or URL. Use Repair configuration and resume to supply them and continue this Run.',
             },
           ]);
         if (!selected && candidates.length)
