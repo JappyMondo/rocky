@@ -116,6 +116,28 @@ Linear state names, and the overall transition limit. UI inspection uses the
 profile's Playwright MCP configuration. The default limit is 500 transitions;
 reaching it fails with a loop diagnostic.
 
+New flows enable **Install dependencies before implementation and review
+continuation** (`settings.workspaceSetup`). The install command runs as a
+journaled step before the implementer and again when continuing an exhausted
+review, because a released worktree loses ignored dependencies. It runs from
+the lead repository; for a nested project use, for example,
+`cd monorepo && pnpm install --frozen-lockfile`. Use an idempotent command.
+Installation failure stops work with its command output. An empty command
+skips this step, so configure repository setup before delegating work.
+
+Older frozen flows omit this flag and keep their original step ordering.
+Enable it in the profile editor for future runs; resetting a profile to the
+default also enables it while preserving commands. Existing run snapshots
+remain unchanged. A failed older run can use retry recovery instructions to
+prepare its retained workspace.
+
+The validation node executes only the configured test, lint and build commands.
+Implementation and repair agents own additional required integration tests and
+benchmarks. They should install supported local dependencies and use disposable
+test services where available. External environments or access that cannot be
+provided locally remain explicit blockers; review must not treat a skipped test
+or a proposed benchmark command as successful execution evidence.
+
 ## Data references
 
 Each boot starts with `issue`, `workspace`, `input` and `nodes`. `input` holds the
@@ -167,6 +189,91 @@ commands/states/limits from the old Config block. Configuration expressions that
 would require executing TypeScript are rejected with a migration error. Custom
 workflow logic is replaced only by an explicit reset, not inferred or silently
 translated. Existing TypeScript run snapshots are not modified.
+
+## Discover repository commands with AI
+
+### Unified profiles
+
+Profiles can opt into `configurationVersion: 1`. In these profiles, `repos`
+owns stable repository IDs, remote/branch details, named `commands`, independent
+`services`, CI availability and access overrides. `automation` owns execution
+policy and limits. Flow settings are no longer a second editable copy of these
+values. Repository IDs and command/service IDs, not folder names, identify
+workflow references and cross-repository prerequisites.
+
+The profile editor has Repositories, Agents & access, Automation and Workflow
+sections, with one profile draft, a sticky save bar and Discard changes. Routing
+changes participate in the same save request, with both profile and routing
+revision checks. The repository editor has Repository, Commands, Dev services
+and Access sections. Existing profiles show a migration preview; conflicting
+legacy values require an explicit choice. Merely opening the editor does not
+migrate anything. Old run snapshots are never rewritten.
+
+Each named command has a purpose, working directory, timeout, environment and
+prerequisites. Selection is `required`, `agent` or `manual`. Required validation
+checks always run; the planner selects relevant optional checks and the journal
+records selections and omissions. Explicit prerequisites run before dependents,
+even when marked manual. A failed prerequisite fails validation. Custom shell
+commands remain available through existing agent tool grants and workflow
+command nodes; they never silently become saved recipes.
+
+**Test saved command** explicitly starts a local run in an isolated worktree,
+including the command's prerequisites. It uses the saved profile revision and
+configured environment/accounts, produces normal run logs, and can be cancelled
+from the run page. The generated test flow has no agents, pull requests or Linear
+effects. Unsaved commands cannot be tested; saving alone never runs them.
+
+Dev services have separate startup, optional shutdown, readiness and named
+endpoint configuration. Endpoint locators support assigned ports, output regexes,
+JSON files, resolver commands, and fixed URLs. Resolver commands print only a
+URL or numeric port. JSON paths are relative to the repository root; execution
+working directories cannot escape it through symlinks. `${VARIABLE}` environment
+values reference existing variables without embedding their contents in commands.
+Secrets belong in credentials/environment, not literal command or env fields.
+
+Catalog shells lazily load an existing nvm installation when a command calls
+`nvm` (using `NVM_DIR`, or `$HOME/.nvm`). They do not install nvm or Node or
+automatically select a version. Prefer `nvm use && npm test` with a suitable
+`cwd` and `.nvmrc`; missing tools fail with an actionable error. Discovery
+prefers small, source-backed commands and existing scripts, puts directories in
+`cwd`, avoids duplicated version pins and shell bootstrap boilerplate, and
+reports version conflicts and external prerequisites instead of suggesting
+global tool installations. Existing saved commands are not rewritten.
+
+Workflow command nodes can select a configured command; Start dev service nodes
+select a configured service and expose named endpoints to subsequent nodes.
+Stop dev services shuts down these services in reverse order; finishing the flow
+also cleans them up. Services used by UI inspection are chosen independently
+and automatically bring up their dependencies. The run records resolved endpoints
+as evidence, but rediscovers dynamic ports after restart.
+
+At admission, Rocky validates the catalog and materializes it into the immutable
+flow snapshot. Resetting the workflow preserves repository configuration and
+automation policy. Legacy profiles and historical snapshots retain their original
+execution path until explicitly migrated. Storage remains machine-local JSON;
+this change does not introduce a database or read committed `.rocky` settings.
+
+In a saved Flow profile, each repository row has **Discover with AI**. The
+profile model inspects repository source with read-only tools and proposes
+install, test, lint, build and independent UI startup recipes. The checkout must
+already exist and its origin must match the saved repository URL. For Rocky's
+bare clones, discovery creates a temporary detached checkout of the configured
+base branch from local refs, disables checkout hooks, and removes the checkout
+after inspection. It does not borrow or modify existing Run worktrees or fetch
+from the remote. Discovery
+does not install dependencies, run the proposed commands or save profile changes.
+
+Edit the suggested names, directories, commands and endpoints directly; remove
+unwanted suggestions, then choose **Apply to draft** and **Save profile**.
+Existing settings are preserved. Prerequisites cannot be removed while another
+suggestion depends on them;
+the normal profile revision check protects the final save. UI suggestions can
+use an assigned port, a named URL/port capture from server output, or a
+repository-relative JSON file and JSON pointer for dynamic endpoints.
+
+Discovery can be cancelled. Results survive page reloads; a job interrupted by
+a daemon restart is marked failed and can be retried. Configure a profile model
+and its harness authentication before starting discovery.
 
 ## Validation
 

@@ -23,6 +23,7 @@ export interface RepoContext {
    */
   identity: RockyIdentity;
   sourceControl?: SourceControlSettings;
+  sourceControlFor?: (repository: string) => Promise<SourceControlSettings>;
   env?: NodeJS.ProcessEnv;
   /** Where a note worth a human's attention goes. The daemon log, in production. */
   log?(message: string): void;

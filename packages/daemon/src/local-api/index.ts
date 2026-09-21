@@ -102,6 +102,14 @@ export interface LocalApiOptions {
     | { kind: 'started'; runId: string }
     | { kind: 'refused'; reason: string; runId?: string }
   >;
+  commandTest?: (input: {
+    profileId: string;
+    repositoryId: string;
+    commandId: string;
+    revision: string;
+  }) => Promise<
+    { kind: 'started'; runId: string } | { kind: 'refused'; reason: string }
+  >;
   /** Content/execution presentation metadata, not guessed from arbitrary results. */
   presentStep?: (
     runId: string,
@@ -732,6 +740,50 @@ export async function registerLocalApi(
     local.get('/api/profiles', async () => ({
       profiles: (await options.profiles?.list()) ?? [],
     }));
+    for (const method of ['GET', 'POST', 'DELETE'] as const) {
+      local.route<{ Params: { id: string; repo: string } }>({
+        method,
+        url: '/api/profiles/:id/repositories/:repo/discover-recipes',
+        handler: (request) => {
+          if (!options.profiles)
+            throw new LocalApiError(
+              503,
+              'profiles-unavailable',
+              'Profiles unavailable.',
+            );
+          return options.profiles.discoverRecipes(
+            parse(segment, request.params.id),
+            parse(segment, request.params.repo),
+            method === 'POST'
+              ? 'start'
+              : method === 'DELETE'
+                ? 'cancel'
+                : 'read',
+          );
+        },
+      });
+    }
+    local.post('/api/profile-command-tests', async (request, reply) => {
+      const input = parse(
+        z.strictObject({
+          profileId: segment,
+          repositoryId: segment,
+          commandId: segment,
+          revision: z.string().min(1),
+        }),
+        request.body,
+      );
+      if (!options.commandTest)
+        throw new LocalApiError(
+          503,
+          'command-test-unavailable',
+          'Command test admission is unavailable.',
+        );
+      const result = await options.commandTest(input);
+      if (result.kind === 'refused')
+        throw new LocalApiError(409, 'command-test-refused', result.reason);
+      return reply.code(201).send(result);
+    });
     for (const method of ['GET', 'POST'] as const) {
       local.route<{ Params: { id: string } }>({
         method,

@@ -14,7 +14,12 @@ import {
 describe('WorkflowContext', () => {
   it('passes readonly workspace members to a Workflow through public Triggers', () => {
     expectTypeOf<WorkflowInput>().toEqualTypeOf<{
-      members: readonly { name: string; path: string; lead: boolean }[];
+      members: readonly {
+        name: string;
+        path: string;
+        lead: boolean;
+        baseBranch?: string;
+      }[];
     }>();
     expectTypeOf<Parameters<Workflow>>().toEqualTypeOf<
       [WorkflowContext, WorkflowInput]

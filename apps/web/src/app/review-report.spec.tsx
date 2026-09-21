@@ -382,9 +382,7 @@ it('keeps the goal first, hides evidence and skips screenshots for backend work'
   expect(screen.queryByText(report.summary)).toBeNull();
   expect(screen.queryByText('Backend retention only.')).toBeNull();
   expect(
-    screen
-      .getByRole('button', { name: 'Back', exact: true })
-      .hasAttribute('disabled'),
+    screen.getByRole('button', { name: /^Back$/ }).hasAttribute('disabled'),
   ).toBe(true);
   const steps = within(
     screen.getByRole('navigation', { name: 'Review steps' }),

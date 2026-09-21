@@ -1,4 +1,5 @@
 import type { WorkflowModels } from '@rocky/local-contracts';
+import { defaultFlowSettings } from '@rocky/local-contracts';
 const models: WorkflowModels = {
   agent: { harness: 'opencode', model: 'openai/test-model', effort: 'high' },
   fastAgent: {
@@ -133,6 +134,52 @@ it('snapshots only the local profile when a repository tries to supply .rocky', 
   expect(
     await readFile(join(snapshot.snapshotDir, 'agents/worker.md'), 'utf8'),
   ).toBe('Local instructions only.');
+});
+
+it('versions UI behavior only in new flow snapshots without mutating the profile', async () => {
+  const { repo, context, lead, commit } = await repository();
+  await writeFile(join(repo, '.rocky/README.md'), 'fixture');
+  await commit();
+  const source = JSON.stringify({
+    version: 2,
+    name: 'test',
+    models: {},
+    settings: defaultFlowSettings(),
+    nodes: [
+      {
+        id: 'start',
+        type: 'trigger',
+        name: 'Start',
+        parameters: { kind: 'manual', name: 'test' },
+        position: { x: 0, y: 0 },
+      },
+      {
+        id: 'done',
+        type: 'finish',
+        name: 'Done',
+        parameters: { outcome: 'completed' },
+        position: { x: 200, y: 0 },
+      },
+    ],
+    edges: [
+      { id: 'next', source: 'start', target: 'done', sourceHandle: 'next' },
+    ],
+  });
+  const profile = {
+    ...newRepositoryProfile({ id: 'local', remote: lead.url }),
+    models: {},
+    workflow: { source, triggers: [] },
+  };
+  const snapshot = await prepareProfileSnapshot(context, lead, profile, {
+    mcp,
+  });
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.uiConfigurationVersion,
+  ).toBe(1);
+  expect(profile.workflow.source).toBe(source);
+  expect(JSON.parse(source).settings.uiConfigurationVersion).toBeUndefined();
 });
 
 it('validates the runnable shipped profile without loading repository .rocky', async () => {

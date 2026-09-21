@@ -1,4 +1,8 @@
-import { isFlowSource } from '@rocky/local-contracts';
+import {
+  isFlowSource,
+  materializeConfiguration,
+  parseFlow,
+} from '@rocky/local-contracts';
 import { execFile } from 'node:child_process';
 import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -82,12 +86,27 @@ export async function prepareProfileSnapshot(
     });
     await mkdir(join(snapshotDir, 'agents'), { recursive: true });
     await mkdir(join(snapshotDir, 'rules'), { recursive: true });
+    let workflowSource =
+      profile.configurationVersion === 1 &&
+      profile.repos &&
+      profile.automation &&
+      isFlowSource(profile.workflow.source)
+        ? materializeConfiguration(profile.workflow.source, {
+            repos: profile.repos,
+            automation: profile.automation,
+          })
+        : profile.workflow.source;
+    if (isFlowSource(workflowSource)) {
+      const flow = parseFlow(workflowSource);
+      flow.settings.uiConfigurationVersion = 1;
+      workflowSource = JSON.stringify(flow);
+    }
     await writeFile(
       join(
         snapshotDir,
         isFlowSource(profile.workflow.source) ? 'workflow.json' : 'workflow.ts',
       ),
-      profile.workflow.source,
+      workflowSource,
     );
     await writeFile(join(snapshotDir, 'mcp.json'), JSON.stringify(profile.mcp));
     const { models: _models, ...snapshotProfile } = profile;

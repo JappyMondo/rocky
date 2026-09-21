@@ -277,6 +277,19 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
   await ctx.post(
     `${plan.summary}\n\n${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}`,
   );
+  if (commands.install.trim()) {
+    ctx.stage('Setup workspace');
+    const result = await ctx.exec(
+      `cd -- "$ROCKY_LEAD_REPO" && ${commands.install}`,
+      {
+        label: 'Install workspace dependencies',
+      },
+    );
+    if (result.exitCode !== 0)
+      throw new Error(
+        `Workspace setup failed (exit ${result.exitCode}): ${commands.install}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
+      );
+  }
   ctx.stage('Implement');
   const implementation = await ctx.agent('implementer', {
     ...edit,
@@ -336,7 +349,9 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         name === 'compliance-reviewer' ? ticket : undefined,
       ),
     });
-    const complaints = result.complaints.filter((item) => item.severity !== 'nit-pick');
+    const complaints = result.complaints.filter(
+      (item) => item.severity !== 'nit-pick',
+    );
     if (!complaints.length) return { complaints, resolutions: [] };
     if (revision === reviewCap) return { complaints, resolutions: [] };
     const fixed = await ctx.agent('fixer', {

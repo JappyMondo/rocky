@@ -1,5 +1,6 @@
 import { readJournal } from '../run/journal.js';
 import { JournalWriter } from '../run/writer.js';
+import { retryStepKey } from '../run/retry.js';
 import { flowBindings } from '../flow/runtime.js';
 import { parseFlow } from '@rocky/local-contracts';
 import { createJiti } from 'jiti';
@@ -388,6 +389,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       scm?: (operation: string, count: number, args: unknown[]) => unknown;
       triggers?: Triggers;
       continuation?: boolean;
+      continuationSource?: string;
     } = {},
   ) {
     const trace: string[] = [];
@@ -627,7 +629,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
           );
           const continuedTriggers = options.continuation
             ? flowBindings(
-                flowSource,
+                options.continuationSource ?? flowSource,
                 new URL('../../content/.rocky/', import.meta.url).pathname,
                 Number(
                   (await readJournal(join(dir, 'journal.jsonl'))).getControl(
@@ -705,6 +707,88 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     });
     expect(f.trace.at(-1)).toBe('Done');
   });
+
+  it.each([0, 1])(
+    'installs configured dependencies before implementation (exit %s)',
+    async (exitCode) => {
+      const snapshot = join(dir, 'install-snapshot');
+      await cp(new URL('../../content/.rocky/', import.meta.url), snapshot, {
+        recursive: true,
+      });
+      const legacyPath = join(snapshot, 'workflow.ts');
+      await writeFile(
+        legacyPath,
+        (await readFile(legacyPath, 'utf8')).replace(
+          "install: ''",
+          "install: 'fixture-install'",
+        ),
+      );
+      const legacy = await createJiti(import.meta.url, {
+        alias: {
+          '@rocky/sdk': new URL('../../../sdk/src/index.ts', import.meta.url)
+            .pathname,
+        },
+      }).import<{ default: Triggers }>(legacyPath);
+      const flow = parseFlow(flowSource);
+      flow.settings.commands.install = 'fixture-install';
+      const f = fixture({
+        exec: (command) =>
+          command.includes('fixture-install')
+            ? {
+                exitCode,
+                stdout: '',
+                stderr: exitCode ? 'registry unavailable' : '',
+              }
+            : undefined,
+        triggers:
+          mode === 'flow'
+            ? flowTriggers(JSON.stringify(flow), snapshot)
+            : legacy.default,
+      });
+
+      expect(await f.boot()).toMatchObject({
+        status: exitCode ? 'failed' : 'parked',
+      });
+      const install = 'cd -- "$ROCKY_LEAD_REPO" && fixture-install';
+      expect(f.trace.filter((item) => item === install)).toHaveLength(1);
+      if (exitCode) {
+        expect(f.trace).not.toContain('implementer');
+        expect(f.trace).not.toContain('push');
+        expect(
+          (await readJournal(join(dir, 'journal.jsonl'))).end,
+        ).toMatchObject({
+          result: {
+            error: { message: expect.stringContaining('registry unavailable') },
+          },
+        });
+        return;
+      }
+      expect(f.trace.indexOf(install)).toBeLessThan(
+        f.trace.indexOf('implementer'),
+      );
+      if (mode === 'flow') {
+        expect(
+          f.calls.find(({ name }) => name === 'implementer')?.input,
+        ).toMatchObject({
+          validationResponsibility: {
+            instruction: expect.stringContaining('no separate later agent'),
+          },
+        });
+        expect(
+          f.calls.find(({ name }) => name === 'compliance-reviewer')?.input,
+        ).toMatchObject({
+          validation: {
+            summary: expect.stringContaining(
+              'No local validation commands configured',
+            ),
+          },
+        });
+      }
+      const before = f.trace.length;
+      await f.boot();
+      expect(f.trace.slice(before)).not.toContain(install);
+    },
+  );
 
   it.skipIf(mode !== 'flow').each([false, true])(
     'continues exhausted reviews for exactly another five rounds and survives replay (legacy results=%s)',
@@ -814,6 +898,86 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       expect((await readJournal(path)).getControl('review:continuations')).toBe(
         2,
       );
+    },
+  );
+
+  it.skipIf(mode !== 'flow')(
+    'reinstalls dependencies when continuing an exhausted restored workspace',
+    async () => {
+      const flow = parseFlow(flowSource);
+      flow.settings.commands.install = 'fixture-install';
+      flow.settings.reviewCap = 1;
+      const continuedSource = JSON.stringify(flow);
+      const f = fixture({
+        continuation: true,
+        continuationSource: continuedSource,
+        triggers: flowTriggers(
+          continuedSource,
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        agent: (name, input) => {
+          if (name === 'compliance-reviewer')
+            return {
+              complaints: [
+                {
+                  id: `${input.namespace}/c1`,
+                  file: 'src/a.ts',
+                  text: 'Empty input crashes.',
+                  quote: 'Return an empty list.',
+                },
+              ],
+            };
+          if (name === 'fixer')
+            return {
+              resolutions: (input.complaints as { id: string }[]).map(
+                ({ id }) => ({ id, status: 'fixed', note: 'Patched.' }),
+              ),
+            };
+          return undefined;
+        },
+      });
+      const path = join(dir, 'journal.jsonl');
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      const writer = await JournalWriter.open(path);
+      await writer.retry(
+        'continue-install',
+        String((await readJournal(path)).end?.seq),
+        [],
+        undefined,
+        true,
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.trace.filter(
+          (item) => item === 'cd -- "$ROCKY_LEAD_REPO" && fixture-install',
+        ),
+      ).toHaveLength(2);
+    },
+  );
+
+  it.skipIf(mode !== 'flow')(
+    'preserves the step order of frozen flows without workspace setup',
+    async () => {
+      const flow = parseFlow(flowSource);
+      delete flow.settings.workspaceSetup;
+      flow.settings.commands.install = 'old-install';
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(f.trace.some((command) => command.includes('old-install'))).toBe(
+        false,
+      );
+      expect(f.trace).toContain('implementer');
     },
   );
 
@@ -1060,6 +1224,52 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     ).toEqual([]);
   });
 
+  it.skipIf(mode !== 'flow')(
+    'preserves the historical missing-UI planner and fixer sequence on replay',
+    async () => {
+      const source = parseFlow(flowSource);
+      source.settings.ui = null;
+      delete source.settings.repositories;
+      const f = fixture({
+        triggers: flowTriggers(JSON.stringify(source), join(dir, 'snapshot')),
+        agent: (name) => {
+          if (name === 'ui-triage') return { isFrontend: true };
+          if (name === 'ui-planner')
+            return {
+              checks: [
+                {
+                  id: 'page',
+                  url: '/',
+                  action: 'Open page',
+                  expected: 'Page renders',
+                },
+              ],
+            };
+          if (name === 'fixer')
+            throw new Error('Historical missing UI configuration');
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'failed',
+        error: { message: 'Historical missing UI configuration' },
+      });
+      expect(f.calls.some((call) => call.name === 'ui-planner')).toBe(true);
+      const journalPath = join(dir, 'journal.jsonl');
+      await (
+        await JournalWriter.open(journalPath)
+      ).retry(
+        'replay-ui',
+        retryStepKey((await readJournal(journalPath)).entries)!,
+        [],
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'failed',
+        error: { message: 'Historical missing UI configuration' },
+      });
+    },
+  );
+
   async function visualTemplate() {
     const snapshot = join(dir, 'snapshot');
     await cp(new URL('../../content/.rocky/', import.meta.url), snapshot, {
@@ -1230,6 +1440,33 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(f.trace.at(-1)).toContain('vite.config.ts');
     expect(f.trace).not.toContain('checkpoint');
   });
+
+  it.skipIf(mode === 'legacy')(
+    'exhausts with a Flow settings action when a frontend has no UI configuration',
+    async () => {
+      const source = parseFlow(flowSource);
+      source.settings.uiConfigurationVersion = 1;
+      const f = fixture({
+        triggers: flowTriggers(JSON.stringify(source), join(dir, 'snapshot')),
+        agent: (name) =>
+          name === 'ui-triage' ? { isFrontend: true } : undefined,
+      });
+
+      const result = await f.boot();
+      expect(result).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(f.calls.filter(({ name }) => name === 'fixer')).toHaveLength(0);
+      expect(f.calls.filter(({ name }) => name === 'ui-planner')).toHaveLength(
+        0,
+      );
+      expect(f.trace.join('\n')).toContain('"file": "Flow settings"');
+      expect(f.trace.join('\n')).toContain(
+        'Configure both in Flow settings and start a new Run.',
+      );
+    },
+  );
 
   it('runs the merger only for reported conflicts, then revalidates before asking again and arming', async () => {
     const pr = {

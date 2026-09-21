@@ -45,7 +45,7 @@ it('opens directly in the read-only wizard and loads only its scoped report', as
   render(<PublicReview />);
   await screen.findByRole('heading', { name: '28 days of history' });
   expect(screen.getByText('Keep four weeks of measurements.')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Changes', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Changes$/ }));
   expect(
     screen.getByRole('heading', { name: 'What changes in practice' }),
   ).toBeTruthy();

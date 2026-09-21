@@ -392,7 +392,7 @@ export function ReportReader({
                   {decisionLabels[report.decision.status]}
                 </p>
                 <p className={styles.reportLead}>{report.decision.summary}</p>
-                {!!report.decision.actions.length && (
+                {report.decision.actions.length > 0 && (
                   <>
                     <h3>Next steps</h3>
                     <ul>
@@ -406,7 +406,7 @@ export function ReportReader({
             ) : (
               <p>{report.summary}</p>
             )}
-            {!!report.pullRequests?.length ? (
+            {report.pullRequests?.length ? (
               <ul aria-label="Pull requests">
                 {report.pullRequests.map((pr) => (
                   <li key={pr.repo}>

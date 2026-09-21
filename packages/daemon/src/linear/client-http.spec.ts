@@ -161,6 +161,109 @@ describe('public SDK over injected HTTP', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it('retries a transient 503 while reading a durable activity before creating it', async () => {
+    vi.useFakeTimers();
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const content = {
+      type: 'action',
+      action: 'Checked',
+      parameter: 'Checkpoint',
+      result: 'Passed',
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({ data: { agentActivities: { nodes: [], pageInfo } } }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ data: { agentActivityCreate: { success: true } } }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            agentActivities: {
+              nodes: [
+                {
+                  id,
+                  createdAt: at,
+                  agentSession: { id: 'sess-1' },
+                  ephemeral: false,
+                  content: {
+                    ...content,
+                    __typename: 'AgentActivityActionContent',
+                  },
+                },
+              ],
+              pageInfo,
+            },
+          },
+        }),
+      );
+
+    const result = httpClient(fetch).ensureActivity({
+      id,
+      sessionId: 'sess-1',
+      content,
+    });
+    const assertion = expect(result).resolves.toEqual({ id, success: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('reconciles a checkpoint create 503 through its durable activity ID without replaying the mutation', async () => {
+    vi.useFakeTimers();
+    const id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const content = {
+      type: 'action',
+      action: 'Checked',
+      parameter: 'Checkpoint',
+      result: 'Passed',
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ data: { agentActivities: { nodes: [], pageInfo } } }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            agentActivities: {
+              nodes: [
+                {
+                  id,
+                  createdAt: at,
+                  agentSession: { id: 'sess-1' },
+                  ephemeral: false,
+                  content: {
+                    ...content,
+                    __typename: 'AgentActivityActionContent',
+                  },
+                },
+              ],
+              pageInfo,
+            },
+          },
+        }),
+      );
+
+    const result = httpClient(fetch).ensureActivity({
+      id,
+      sessionId: 'sess-1',
+      content,
+    });
+    const assertion = expect(result).resolves.toEqual({ id, success: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(
+      JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)).variables.input,
+    ).toEqual({ id, agentSessionId: 'sess-1', content });
+  });
+
   it('uploads final screenshot bytes unchanged, with every signed header, and returns only the asset URL', async () => {
     const data = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
     const fetch = vi

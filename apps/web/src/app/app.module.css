@@ -1869,6 +1869,19 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.recoveryResult {
+  border: 1px solid #aebca2;
+  border-left: 5px solid #6d8660;
+  border-radius: 12px;
+  background: #f2f6e9;
+  padding: 20px 24px;
+  margin: 20px 0;
+  color: #32452b;
+}
+.recoveryContext {
+  color: #5c6f53;
+  font-size: 13px;
+}
 .stepMetadata {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -2425,4 +2438,32 @@
 }
 .flowWorkspace > .workflowEditor {
   padding: 18px 0;
+}
+.profileSaveBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  background: var(--bg, #fff);
+  padding: 16px;
+  border-top: 1px solid var(--border, #ddd);
+}
+.recipeCard,
+.configurationNotice {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+  min-width: 0;
+}
+.recipeCard pre,
+.configurationNotice pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.repoToolbar {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
 }

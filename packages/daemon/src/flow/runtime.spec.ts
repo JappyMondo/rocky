@@ -335,6 +335,19 @@ it('rejects broken connections, unknown operations, ambiguous outputs and forged
 
 it('defaults new flows to all changed repositories while preserving an omitted frozen setting', () => {
   const flow = simple();
+  expect(flow.settings.workspaceSetup).toBe(true);
+  expect(() =>
+    parseFlow(
+      JSON.stringify({
+        ...flow,
+        settings: { ...flow.settings, workspaceSetup: 'yes' },
+      }),
+    ),
+  ).toThrow('workspaceSetup');
+  delete flow.settings.workspaceSetup;
+  expect(
+    parseFlow(JSON.stringify(flow)).settings.workspaceSetup,
+  ).toBeUndefined();
   expect(flow.settings.pullRequests).toBe('all-changed');
   expect(() =>
     parseFlow(

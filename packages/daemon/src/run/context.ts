@@ -40,6 +40,7 @@ export interface ContextServices {
   exec(
     command: string,
     background: boolean,
+    timeoutMs?: number,
   ): Promise<ExecResult | BackgroundExecResult>;
   changedFiles(): Promise<string[]>;
   /** Each adapter is given the branch-local approval verifier. */
@@ -98,11 +99,11 @@ export function createWorkflowContext(
   ): Promise<BackgroundExecResult>;
   function exec(
     command: string,
-    opts?: { label?: string },
+    opts?: { label?: string; timeoutMs?: number },
   ): Promise<ExecResult>;
   function exec(
     command: string,
-    opts: { background?: boolean; label?: string } = {},
+    opts: { background?: boolean; label?: string; timeoutMs?: number } = {},
   ) {
     return current().step(
       opts.background ? 'exec:background' : 'exec',
@@ -112,7 +113,9 @@ export function createWorkflowContext(
       },
       async () => ({
         status: 'done',
-        result: await services.exec(command, opts.background ?? false),
+        result: await (opts.timeoutMs === undefined
+          ? services.exec(command, opts.background ?? false)
+          : services.exec(command, opts.background ?? false, opts.timeoutMs)),
       }),
     );
   }

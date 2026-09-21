@@ -1097,6 +1097,11 @@ describe('Inbox behavior', () => {
       screen.getByRole('button', { name: 'Start agent and retry' }),
     );
     await screen.findByText('Repaired the unpublished commit.');
+    expect(
+      screen.getByLabelText('Recovery agent result').textContent,
+    ).toContain(
+      'This records work performed during recovery; it is not the run-failure diagnosis.',
+    );
     const submitted = mock.mock.calls.find(([path]) =>
       String(path).endsWith('/retry-step'),
     );
@@ -1896,7 +1901,7 @@ describe('Workspace redesign', () => {
     fireEvent.change(screen.getByLabelText('Manual triggers (one per line)'), {
       target: { value: 'first\nsecond\n' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'General' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Repositories' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
     await screen.findByText('Profile saved');
     expect(stored[0].workflow.triggers).toEqual(['first', 'second']);
@@ -1972,7 +1977,19 @@ describe('Workspace redesign', () => {
       revision: 'route-one',
     };
     const mock = daemon({
-      profiles: () => ({ body: { profiles: [profile] } }),
+      profiles: (init) => {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body));
+          route = {
+            ...route,
+            labels: body.routing.labels,
+            teams: body.routing.teams,
+            revision: 'route-two',
+          };
+          return { body: { ...profile, revision: 'profile-two' } };
+        }
+        return { body: { profiles: [profile] } };
+      },
       routing: (_path, init) => {
         if (init?.method === 'PUT') {
           const body = JSON.parse(String(init.body));
@@ -2002,7 +2019,7 @@ describe('Workspace redesign', () => {
       screen.getByLabelText('Allowed Linear teams (optional, one per line)'),
       { target: { value: 'Engineering\nPlatform\n' } },
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Save Linear route' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
     await waitFor(() =>
       expect(route).toEqual({
         profileId: 'service',
@@ -2012,7 +2029,7 @@ describe('Workspace redesign', () => {
       }),
     );
     expect(mock).toHaveBeenCalledWith(
-      '/api/profiles/service/routing',
+      '/api/profiles',
       expect.objectContaining({ method: 'PUT' }),
     );
   });
@@ -2405,7 +2422,7 @@ it('edits custom model slots on an existing profile and discovers added slots be
       .disabled,
   ).toBe(true);
   await screen.findByLabelText('Build model');
-  fireEvent.click(screen.getByRole('button', { name: 'General' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agents & access' }));
   expect(
     (screen.getByLabelText('Quality check model') as HTMLInputElement).value,
   ).toBe('claude-review');

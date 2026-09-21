@@ -65,7 +65,11 @@ export function sourceControlGitConfig(
       args.push('-o', 'IdentitiesOnly=yes', '-i', path(git.sshKey, env));
     // IdentityAgent in ~/.ssh/config otherwise wins over SSH_AUTH_SOCK.
     // Passing the variable name also handles socket paths containing spaces.
-    if (git.sshAgent) args.push('-o', 'IdentityAgent=SSH_AUTH_SOCK');
+    if (git.sshAgent)
+      args.push(
+        '-o',
+        `IdentityAgent="${path(git.sshAgent, env).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
+      );
     config['core.sshCommand'] = args.map(quote).join(' ');
   }
   return config;

@@ -316,6 +316,9 @@ function FlowCanvas(p: {
   onPromptContentsChange?: (prompts: Record<string, string>) => void;
   onSave?: () => void;
   saveDisabled?: boolean;
+  managedSettings?: boolean;
+  repositories?: import('@rocky/local-contracts').WorkspaceRepository[];
+  onEditRepositories?: () => void;
 }) {
   const [flow, setFlow] = useState(() => parseFlow(p.source));
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(
@@ -879,7 +882,86 @@ function FlowCanvas(p: {
                       Open components
                     </button>
                   )}
+                  {selected.type === 'command' && p.managedSettings && (
+                    <label className={styles.field}>
+                      Configured command
+                      <select
+                        value={String(selected.parameters.recipe ?? '')}
+                        disabled={p.disabled}
+                        onChange={(e) =>
+                          updateNode({
+                            parameters: {
+                              ...selected.parameters,
+                              recipe: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        <option value="">Custom shell command</option>
+                        {(p.repositories ?? []).flatMap((repo) =>
+                          (repo.commands ?? []).map((command) => (
+                            <option
+                              key={`${repo.id}/${command.id}`}
+                              value={`${repo.id}/${command.id}`}
+                            >
+                              {repo.name} / {command.name}
+                            </option>
+                          )),
+                        )}
+                      </select>
+                      <button onClick={p.onEditRepositories}>
+                        Edit repository configuration
+                      </button>
+                    </label>
+                  )}
+                  {selected.type === 'service.start' && (
+                    <label className={styles.field}>
+                      Configured dev service
+                      <select
+                        value={String(selected.parameters.recipe ?? '')}
+                        disabled={p.disabled}
+                        onChange={(e) =>
+                          updateNode({
+                            parameters: {
+                              ...selected.parameters,
+                              recipe: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        <option value="">Choose a service…</option>
+                        {(p.repositories ?? []).flatMap((repo) =>
+                          (repo.services ?? []).map((service) => (
+                            <option
+                              key={`${repo.id}/${service.id}`}
+                              value={`${repo.id}/${service.id}`}
+                            >
+                              {repo.name} / {service.name}
+                            </option>
+                          )),
+                        )}
+                      </select>
+                      <button onClick={p.onEditRepositories}>
+                        Edit repository configuration
+                      </button>
+                    </label>
+                  )}
                   {definition.fields
+                    .filter(
+                      (field) =>
+                        !(
+                          selected.type === 'service.start' &&
+                          field.key === 'recipe'
+                        ),
+                    )
+                    .filter(
+                      (field) =>
+                        !(
+                          selected.type === 'command' &&
+                          selected.parameters.recipe &&
+                          field.key === 'command'
+                        ),
+                    )
                     .filter(
                       (f) =>
                         !f.visibleWhen ||
@@ -1107,108 +1189,186 @@ function FlowCanvas(p: {
                       }
                     />
                   </label>
-                  <h3>Repository commands</h3>
-                  <p className={styles.description}>
-                    Run in the lead repository. Leave unavailable commands
-                    empty.
-                  </p>
-                  {(['install', 'test', 'lint', 'build'] as const).map(
-                    (key) => (
-                      <label key={key} className={styles.field}>
-                        {key}
+                  {p.managedSettings ? (
+                    <p>
+                      Commands, dev services and automation policy belong to the
+                      profile.{' '}
+                      <button onClick={p.onEditRepositories}>
+                        Edit repository configuration
+                      </button>
+                    </p>
+                  ) : (
+                    <>
+                      <h3>Repository commands</h3>
+                      <p className={styles.description}>
+                        Run in the lead repository. Leave unavailable commands
+                        empty. Use a relative cd for nested projects, such as cd
+                        monorepo && pnpm install --frozen-lockfile.
+                      </p>
+                      <label className={styles.field}>
                         <input
-                          value={flow.settings.commands[key]}
+                          type="checkbox"
+                          checked={flow.settings.workspaceSetup ?? false}
                           disabled={p.disabled}
-                          placeholder={`e.g. pnpm ${key}`}
+                          onChange={(e) =>
+                            updateSettings({ workspaceSetup: e.target.checked })
+                          }
+                        />
+                        Install dependencies before implementation and review
+                        continuation
+                      </label>
+                      {(['install', 'test', 'lint', 'build'] as const).map(
+                        (key) => (
+                          <label key={key} className={styles.field}>
+                            {key}
+                            <input
+                              value={flow.settings.commands[key]}
+                              disabled={p.disabled}
+                              placeholder={`e.g. pnpm ${key}`}
+                              onChange={(e) =>
+                                updateSettings({
+                                  commands: {
+                                    ...flow.settings.commands,
+                                    [key]: e.target.value,
+                                  },
+                                })
+                              }
+                            />
+                          </label>
+                        ),
+                      )}
+                      <label className={styles.field}>
+                        Pull requests
+                        <select
+                          value={flow.settings.pullRequests ?? 'lead'}
+                          disabled={p.disabled}
                           onChange={(e) =>
                             updateSettings({
-                              commands: {
-                                ...flow.settings.commands,
-                                [key]: e.target.value,
-                              },
+                              pullRequests:
+                                e.target.value === 'all-changed'
+                                  ? 'all-changed'
+                                  : 'lead',
+                            })
+                          }
+                        >
+                          <option value="all-changed">
+                            Every changed repository
+                          </option>
+                          <option value="lead">Main repository only</option>
+                        </select>
+                      </label>
+                      <label>
+                        Repositories without CI
+                        <input
+                          aria-label="Repositories without CI"
+                          key={(flow.settings.ciSkipRepositories ?? []).join(
+                            ',',
+                          )}
+                          defaultValue={(
+                            flow.settings.ciSkipRepositories ?? []
+                          ).join(', ')}
+                          placeholder="Repository names, separated by commas"
+                          onBlur={(event) =>
+                            updateSettings({
+                              ciSkipRepositories: event.target.value
+                                .split(',')
+                                .map((value) => value.trim())
+                                .filter(Boolean),
                             })
                           }
                         />
+                        <small>
+                          Skip CI only for these repositories. Use this when no
+                          pipeline is configured.
+                        </small>
                       </label>
-                    ),
-                  )}
-                  <label className={styles.field}>
-                    Pull requests
-                    <select
-                      value={flow.settings.pullRequests ?? 'lead'}
-                      disabled={p.disabled}
-                      onChange={(e) =>
-                        updateSettings({
-                          pullRequests:
-                            e.target.value === 'all-changed'
-                              ? 'all-changed'
-                              : 'lead',
-                        })
-                      }
-                    >
-                      <option value="all-changed">
-                        Every changed repository
-                      </option>
-                      <option value="lead">Main repository only</option>
-                    </select>
-                  </label>
-                  <label>
-                    Repositories without CI
-                    <input
-                      aria-label="Repositories without CI"
-                      key={(flow.settings.ciSkipRepositories ?? []).join(',')}
-                      defaultValue={(
-                        flow.settings.ciSkipRepositories ?? []
-                      ).join(', ')}
-                      placeholder="Repository names, separated by commas"
-                      onBlur={(event) =>
-                        updateSettings({
-                          ciSkipRepositories: event.target.value
-                            .split(',')
-                            .map((value) => value.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                    />
-                    <small>
-                      Skip CI only for these repositories. Use this when no
-                      pipeline is configured.
-                    </small>
-                  </label>
 
-                  <h3>UI inspection</h3>
-                  <label className={styles.checkbox}>
-                    <input
-                      type="checkbox"
-                      checked={flow.settings.ui !== null}
-                      disabled={p.disabled}
-                      onChange={(e) =>
-                        updateSettings({
-                          ui: e.target.checked
-                            ? {
-                                start: 'pnpm dev',
-                                url: 'http://localhost:3000',
-                              }
-                            : null,
-                        })
-                      }
-                    />
-                    Start an app for UI checks
-                  </label>
-                  {flow.settings.ui && (
-                    <>
-                      {(['start', 'url'] as const).map((key) => (
+                      <h3>UI inspection</h3>
+                      <label className={styles.checkbox}>
+                        <input
+                          type="checkbox"
+                          checked={flow.settings.ui !== null}
+                          disabled={p.disabled}
+                          onChange={(e) =>
+                            updateSettings({
+                              ui: e.target.checked
+                                ? {
+                                    start: 'pnpm dev',
+                                    url: 'http://localhost:3000',
+                                  }
+                                : null,
+                            })
+                          }
+                        />
+                        Start an app for UI checks
+                      </label>
+                      {flow.settings.ui && (
+                        <>
+                          {(['start', 'url'] as const).map((key) => (
+                            <label key={key} className={styles.field}>
+                              {key === 'start'
+                                ? 'Start command (use $PORT)'
+                                : 'App URL'}
+                              <input
+                                value={flow.settings.ui![key]}
+                                disabled={p.disabled}
+                                onChange={(e) =>
+                                  updateSettings({
+                                    ui: {
+                                      ...flow.settings.ui!,
+                                      [key]: e.target.value,
+                                    },
+                                  })
+                                }
+                              />
+                            </label>
+                          ))}
+                          <p className={styles.description}>
+                            UI inspection uses the profile’s Playwright MCP
+                            server.
+                          </p>
+                        </>
+                      )}
+                      <h3>Limits</h3>
+                      {(
+                        [
+                          'reviewCap',
+                          'ciCap',
+                          'ciLogLines',
+                          'maxTransitions',
+                        ] as const
+                      ).map((key) => (
                         <label key={key} className={styles.field}>
-                          {key === 'start'
-                            ? 'Start command (use $PORT)'
-                            : 'App URL'}
+                          {
+                            {
+                              reviewCap: 'Review & validation cycles',
+                              ciCap: 'CI repair attempts',
+                              ciLogLines: 'CI log lines',
+                              maxTransitions: 'Maximum node transitions',
+                            }[key]
+                          }
                           <input
-                            value={flow.settings.ui![key]}
+                            type="number"
+                            min={1}
+                            value={flow.settings[key]}
+                            disabled={p.disabled}
+                            onChange={(e) =>
+                              updateSettings({ [key]: Number(e.target.value) })
+                            }
+                          />
+                        </label>
+                      ))}
+                      <h3>Linear states</h3>
+                      {(['started', 'review', 'done'] as const).map((key) => (
+                        <label key={key} className={styles.field}>
+                          {key}
+                          <input
+                            value={flow.settings.states[key]}
                             disabled={p.disabled}
                             onChange={(e) =>
                               updateSettings({
-                                ui: {
-                                  ...flow.settings.ui!,
+                                states: {
+                                  ...flow.settings.states,
                                   [key]: e.target.value,
                                 },
                               })
@@ -1216,102 +1376,57 @@ function FlowCanvas(p: {
                           />
                         </label>
                       ))}
-                      <p className={styles.description}>
-                        UI inspection uses the profile’s Playwright MCP server.
-                      </p>
+                      <details>
+                        <summary>Model slots & advanced settings</summary>
+                        <p>
+                          Choose each slot’s harness and model on the profile’s
+                          General tab.
+                        </p>
+                        <ParameterField
+                          field={{
+                            key: 'models',
+                            label: 'Model slots',
+                            kind: 'json',
+                          }}
+                          value={flow.models}
+                          models={flow.models}
+                          disabled={p.disabled}
+                          onChange={(value) =>
+                            change(
+                              parseFlow(
+                                JSON.stringify({ ...flow, models: value }),
+                              ),
+                            )
+                          }
+                          onError={fieldError}
+                        />
+                        <ParameterField
+                          field={{
+                            key: 'readiness',
+                            label: 'UI readiness',
+                            kind: 'json',
+                          }}
+                          value={flow.settings.readiness}
+                          models={flow.models}
+                          disabled={p.disabled}
+                          onChange={(value) =>
+                            change(
+                              parseFlow(
+                                JSON.stringify({
+                                  ...flow,
+                                  settings: {
+                                    ...flow.settings,
+                                    readiness: value,
+                                  },
+                                }),
+                              ),
+                            )
+                          }
+                          onError={fieldError}
+                        />
+                      </details>
                     </>
                   )}
-                  <h3>Limits</h3>
-                  {(
-                    [
-                      'reviewCap',
-                      'ciCap',
-                      'ciLogLines',
-                      'maxTransitions',
-                    ] as const
-                  ).map((key) => (
-                    <label key={key} className={styles.field}>
-                      {
-                        {
-                          reviewCap: 'Review & validation cycles',
-                          ciCap: 'CI repair attempts',
-                          ciLogLines: 'CI log lines',
-                          maxTransitions: 'Maximum node transitions',
-                        }[key]
-                      }
-                      <input
-                        type="number"
-                        min={1}
-                        value={flow.settings[key]}
-                        disabled={p.disabled}
-                        onChange={(e) =>
-                          updateSettings({ [key]: Number(e.target.value) })
-                        }
-                      />
-                    </label>
-                  ))}
-                  <h3>Linear states</h3>
-                  {(['started', 'review', 'done'] as const).map((key) => (
-                    <label key={key} className={styles.field}>
-                      {key}
-                      <input
-                        value={flow.settings.states[key]}
-                        disabled={p.disabled}
-                        onChange={(e) =>
-                          updateSettings({
-                            states: {
-                              ...flow.settings.states,
-                              [key]: e.target.value,
-                            },
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                  <details>
-                    <summary>Model slots & advanced settings</summary>
-                    <p>
-                      Choose each slot’s harness and model on the profile’s
-                      General tab.
-                    </p>
-                    <ParameterField
-                      field={{
-                        key: 'models',
-                        label: 'Model slots',
-                        kind: 'json',
-                      }}
-                      value={flow.models}
-                      models={flow.models}
-                      disabled={p.disabled}
-                      onChange={(value) =>
-                        change(
-                          parseFlow(JSON.stringify({ ...flow, models: value })),
-                        )
-                      }
-                      onError={fieldError}
-                    />
-                    <ParameterField
-                      field={{
-                        key: 'readiness',
-                        label: 'UI readiness',
-                        kind: 'json',
-                      }}
-                      value={flow.settings.readiness}
-                      models={flow.models}
-                      disabled={p.disabled}
-                      onChange={(value) =>
-                        change(
-                          parseFlow(
-                            JSON.stringify({
-                              ...flow,
-                              settings: { ...flow.settings, readiness: value },
-                            }),
-                          ),
-                        )
-                      }
-                      onError={fieldError}
-                    />
-                  </details>
                   <h3>Portable flow</h3>
                   <p className={styles.description}>
                     Export the graph and its settings as JSON. Model selections

@@ -2,6 +2,8 @@ import {
   isFlowSource,
   validateFlow,
   flowTriggerNames,
+  validateConfiguration,
+  materializeConfiguration,
 } from '@rocky/local-contracts';
 /**
  * Repository profiles are the complete, machine-local coding pipeline.
@@ -17,6 +19,11 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 import { sourceControlSchema } from './source-control-schema.js';
+import {
+  repositoryCommandSchema,
+  devServiceSchema,
+  automationSchema,
+} from './workspace-schema.js';
 
 import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 import { parseMcpConfig, type McpConfig } from '../mcp/config.js';
@@ -69,6 +76,11 @@ export function canonicalRemote(remote: string): string {
 
 /** Names are sibling folder names and shared clone identities on this machine. */
 export const profileRepoSchema = z.strictObject({
+  id: segment.optional(),
+  commands: z.array(repositoryCommandSchema).optional(),
+  services: z.array(devServiceSchema).optional(),
+  ci: z.enum(['required', 'none']).optional(),
+  sourceControl: sourceControlSchema.optional(),
   name: segment,
   url: nonEmpty.transform((value, ctx) => {
     const url = value.trim();
@@ -131,6 +143,8 @@ export const profileSchema = z
     remote: nonEmpty.transform(canonicalRemote).optional(),
     /** The first member is the primary repository for default SCM operations. */
     repos: profileReposSchema.optional(),
+    configurationVersion: z.literal(1).optional(),
+    automation: automationSchema.optional(),
     workflow: z.strictObject({
       source: nonEmpty,
       triggers: z.array(nonEmpty).default([]),
@@ -185,12 +199,48 @@ export function parseRepositoryProfile(
   const parsed = profileSchema.safeParse(raw);
   if (!parsed.success)
     throw new ConfigError(file, z.prettifyError(parsed.error));
+  if (parsed.data.configurationVersion === 1) {
+    if (!parsed.data.repos || !parsed.data.automation)
+      throw new ConfigError(
+        file,
+        'Unified profiles need repositories and automation settings.',
+      );
+    try {
+      validateConfiguration({
+        repos: parsed.data.repos,
+        automation: parsed.data.automation,
+      });
+    } catch (error) {
+      throw new ConfigError(
+        file,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    if (
+      parsed.data.settings.buildCommand ||
+      parsed.data.settings.testCommand ||
+      parsed.data.settings.uiCommand
+    )
+      throw new ConfigError(
+        file,
+        'Unified profiles store commands on repositories, not settings.buildCommand/testCommand/uiCommand.',
+      );
+  }
   // Parse eagerly so invalid or unsafe MCP input is rejected at profile edit,
   // rather than much later inside an agent attempt.
   parseMcpConfig(parsed.data.mcp, `${file} mcp`);
   if (isFlowSource(parsed.data.workflow.source)) {
     try {
       const flow = validateFlow(parsed.data.workflow.source);
+      if (
+        parsed.data.configurationVersion &&
+        parsed.data.repos &&
+        parsed.data.automation
+      )
+        materializeConfiguration(parsed.data.workflow.source, {
+          repos: parsed.data.repos,
+          automation: parsed.data.automation,
+        });
       parsed.data.workflow.triggers = flowTriggerNames(flow);
     } catch (error) {
       throw new ConfigError(

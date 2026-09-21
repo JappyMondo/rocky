@@ -190,7 +190,10 @@ export interface WorkflowContext {
     opts: { background: true; label?: string },
   ): Promise<BackgroundExecResult>;
   /** Run a shell command in the Run's workspace. One journaled Step. */
-  exec(cmd: string, opts?: { label?: string }): Promise<ExecResult>;
+  exec(
+    cmd: string,
+    opts?: { label?: string; timeoutMs?: number },
+  ): Promise<ExecResult>;
 
   /**
    * Journal arbitrary code: the callback runs once, its JSON-serialisable

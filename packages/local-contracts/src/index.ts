@@ -275,7 +275,10 @@ export interface RepositoryProfileView {
   id: string;
   remote: string;
   /** Absent for legacy single-repository profiles. First member is primary. */
-  repos?: Array<{ name: string; url: string; baseBranch: string }>;
+  repos?: import('./workspace.js').WorkspaceRepository[];
+  configurationVersion?: 1;
+  automation?: import('./workspace.js').AutomationSettings;
+  configurationMigration?: import('./workspace.js').ConfigurationMigration;
   workflow: { source: string; triggers: string[] };
   /** Saved separately from workflow source and captured in each run. */
   models?: WorkflowModels;
@@ -424,5 +427,6 @@ export interface ReviewReport {
 }
 
 export * from './flow.js';
+export * from './workspace.js';
 
 export * from './flow-components.js';

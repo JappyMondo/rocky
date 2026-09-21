@@ -3,6 +3,7 @@ import {
   registerPublicReviews,
 } from '../review-report/public.js';
 import { reviewContinuationRounds } from '../run/continuation.js';
+import { RecipeDiscovery, agentRecipeGenerator } from '../recipe-discovery.js';
 /**
  * The production composition root.  This is deliberately the only place that
  * knows about both the daemon's HTTP seams and the durable Run machinery.
@@ -267,6 +268,11 @@ export async function createProductionComposition(options: {
           app.log.warn('Workflow diagram cache could not be refreshed.'),
       });
       app.addHook('onClose', () => diagrams.close());
+      const recipeDiscovery = new RecipeDiscovery(
+        options.paths,
+        agentRecipeGenerator(options.config),
+      );
+      app.addHook('preClose', () => recipeDiscovery.close());
       const publicReviews = new PublicReviews(options.paths);
       await registerPublicReviews(app, publicReviews);
       await registerLocalApi(app, {
@@ -344,7 +350,7 @@ export async function createProductionComposition(options: {
           paths: options.paths,
           boundServer: options.config.current.server,
         }),
-        profiles: new LocalProfiles(options.paths),
+        profiles: new LocalProfiles(options.paths, recipeDiscovery),
         connections,
         diagrams,
         continuationRounds: (run) =>
@@ -397,6 +403,32 @@ export async function createProductionComposition(options: {
             issueIdentifier: run.issue.identifier,
             sessionId: run.linear.sessionId,
           };
+        },
+        commandTest: async ({ profileId, ...commandTest }) => {
+          const id = `CONFIG-${Date.now()}`;
+          const admitted = await execution.manual('configuration-test', {
+            requestId: randomUUID(),
+            profileId,
+            commandTest,
+            branch: id.toLowerCase(),
+            issue: {
+              identifier: id,
+              title: 'Test saved repository command',
+              description:
+                'Explicit local configuration test. No review, push, pull request or Linear updates.',
+              labels: [],
+              url: '',
+            },
+          });
+          if (admitted.kind !== 'started')
+            return {
+              kind: 'refused' as const,
+              reason:
+                admitted.kind === 'refused'
+                  ? admitted.message
+                  : `Command test was not started (${admitted.kind}).`,
+            };
+          return { kind: 'started' as const, runId: admitted.run.runId };
         },
         manual: async ({ trigger, issue: identifier, profileId }) => {
           const issue = await hydrateIssue(identifier);

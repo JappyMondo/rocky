@@ -92,6 +92,7 @@ export interface RunLinearIdentity {
 }
 
 export interface RunExecution {
+  commandTest?: boolean;
   reviewReports?: boolean;
   recapVersion?: 2;
   source: 'repository' | 'onboarding';
@@ -149,6 +150,7 @@ const executionMemberSchema = z.object({
 });
 
 const executionSchema = z.object({
+  commandTest: z.boolean().optional(),
   reviewReports: z.boolean().optional(),
   recapVersion: z.literal(2).optional(),
   source: z.enum(['repository', 'onboarding']),

@@ -1,4 +1,7 @@
-import { sourceControlGitConfig } from '../config/source-control.js';
+import {
+  sourceControlGitConfig,
+  sourceControlEnv,
+} from '../config/source-control.js';
 /**
  * A Run's workspace: one plain `git worktree add` per member repo (NG-521,
  * NG-578).
@@ -112,8 +115,21 @@ export async function createWorkspace(
   // and a fetch storm on a laptop's uplink is worse than waiting.
   const materialised: WorkspaceMember[] = [];
   for (const repo of members) {
+    const sourceControl = await ctx.sourceControlFor?.(repo.name);
+    const memberContext = sourceControl
+      ? {
+          ...ctx,
+          sourceControl,
+          env: sourceControlEnv(sourceControl, ctx.env ?? process.env),
+        }
+      : ctx;
     materialised.push(
-      await materialise(ctx, { runId, branch, repo, lead: repo.name === lead }),
+      await materialise(memberContext, {
+        runId,
+        branch,
+        repo,
+        lead: repo.name === lead,
+      }),
     );
   }
 

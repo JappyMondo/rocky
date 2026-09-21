@@ -109,6 +109,7 @@ it('passes instructions, failure and current Git identity to an isolated durable
   const call = f.invoke.mock.calls[0][0];
   expect(call.prompt).toContain('Use the new Git identity');
   expect(call.prompt).toContain('GitLab rejected rocky@localhost');
+  expect(call.prompt).toContain('Keep the failed operation separate');
   expect(call.prompt).toContain('Completed preparation');
   expect(call.prompt).toContain('verified@example.test');
   expect(call.cwd).toBe(f.paths.run(f.run.runId).workspaceDir);

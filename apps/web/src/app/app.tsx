@@ -1,4 +1,14 @@
-import { isFlowSource } from '@rocky/local-contracts';
+import { isFlowSource, parseFlow } from '@rocky/local-contracts';
+import { RecipeDiscoveryPanel } from './recipe-discovery.js';
+import {
+  ConfigurationMigrationPanel,
+  RepositorySettings,
+  AutomationSettingsFields,
+} from './workspace-settings.js';
+import {
+  validateConfiguration,
+  proposeConfiguration,
+} from '@rocky/local-contracts';
 import { FlowEditor } from './flow-editor.js';
 import { SourceControlFields } from './source-control.js';
 import { RetryStep } from './retry-step.js';
@@ -1188,17 +1198,25 @@ function RunView(p: {
       )}
       {d.recovery && (
         <section
-          className={styles.runFailure}
-          aria-label="Error handling agent"
+          className={
+            d.recovery.status === 'failed'
+              ? styles.runFailure
+              : styles.recoveryResult
+          }
+          aria-label="Recovery agent result"
         >
           <h2>
-            Error handling agent ·{' '}
+            Recovery agent ·{' '}
             {d.recovery.status === 'done'
               ? 'Completed'
               : d.recovery.status === 'failed'
                 ? 'Failed'
                 : 'Working'}
           </h2>
+          <p className={styles.recoveryContext}>
+            This records work performed during recovery; it is not the
+            run-failure diagnosis.
+          </p>
           <p>{d.recovery.summary}</p>
           <details>
             <summary>Your instructions</summary>
@@ -1790,11 +1808,10 @@ function Profiles(p: {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [routing, setRouting] = useState<ProfileRoutingView | null>(null);
   const [routingDraft, setRoutingDraft] = useState({ labels: '', teams: '' });
-  const [savingRouting, setSavingRouting] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [tab, setTab] = useState<'general' | 'workflow' | 'sourceControl'>(
-    'general',
-  );
+  const [tab, setTab] = useState<
+    'general' | 'workflow' | 'sourceControl' | 'automation'
+  >('general');
   useEffect(() => {
     let stopped = false;
     api<RepositoryProfileList>('/api/profiles', p.mismatch)
@@ -1850,8 +1867,17 @@ function Profiles(p: {
     return () => {
       stopped = true;
     };
-  }, [selected?.id, p.mismatch, p.error]);
+  }, [selected?.id, selected?.revision, p.mismatch, p.error]);
   const draftSource = draft?.workflow.source;
+  const draftFlow = (() => {
+    try {
+      return draftSource && isFlowSource(draftSource)
+        ? parseFlow(draftSource)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
   useEffect(() => {
     if (draftSource === undefined || draftSource === slotSource) {
       setSlotError(null);
@@ -1921,6 +1947,17 @@ function Profiles(p: {
         repos: [{ name: '', url: '', baseBranch: 'main' }],
         revision: '',
       };
+      if (isFlowSource(next.workflow.source)) {
+        const config = proposeConfiguration({
+          repos: [
+            { id: crypto.randomUUID(), name: '', url: '', baseBranch: 'main' },
+          ],
+          source: next.workflow.source,
+        });
+        next.configurationVersion = 1;
+        next.repos = config.repos;
+        next.automation = config.automation;
+      }
       setSelected(null);
       loadDraft(next);
     } catch (caught) {
@@ -1936,6 +1973,16 @@ function Profiles(p: {
   };
   const save = async () => {
     if (!draft || p.disabled || !flowValid) return;
+    const invalid = document.querySelector<
+      HTMLInputElement | HTMLTextAreaElement
+    >(
+      `.${styles.profiles} input:invalid, .${styles.profiles} textarea:invalid`,
+    );
+    if (invalid) {
+      p.error('Correct the invalid profile field before saving.');
+      invalid.reportValidity();
+      return;
+    }
     if (
       draft.workflow.source !== slotSource ||
       readingSlots ||
@@ -1944,6 +1991,11 @@ function Profiles(p: {
     )
       return;
     try {
+      if (draft.configurationVersion && draft.repos && draft.automation)
+        validateConfiguration({
+          repos: draft.repos,
+          automation: draft.automation,
+        });
       const saved = await api<RepositoryProfileView>(
         '/api/profiles',
         p.mismatch,
@@ -1952,6 +2004,23 @@ function Profiles(p: {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             id: draft.id,
+            configurationVersion: draft.configurationVersion,
+            automation: draft.automation,
+            ...(routing
+              ? {
+                  routing: {
+                    revision: routing.revision,
+                    labels: routingDraft.labels
+                      .split('\n')
+                      .map((value) => value.trim())
+                      .filter(Boolean),
+                    teams: routingDraft.teams
+                      .split('\n')
+                      .map((value) => value.trim())
+                      .filter(Boolean),
+                  },
+                }
+              : {}),
             ...(draft.repos
               ? { repos: draft.repos }
               : { remote: draft.remote }),
@@ -1974,41 +2043,6 @@ function Profiles(p: {
       setSaved(true);
     } catch (caught) {
       p.error(await apiError(caught, 'Profile was not saved.'));
-    }
-  };
-  const saveRouting = async () => {
-    if (!selected || !routing || p.disabled || savingRouting) return;
-    setSavingRouting(true);
-    try {
-      const saved = await api<ProfileRoutingView>(
-        `/api/profiles/${encodeURIComponent(selected.id)}/routing`,
-        p.mismatch,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            labels: routingDraft.labels
-              .split('\n')
-              .map((label) => label.trim())
-              .filter(Boolean),
-            teams: routingDraft.teams
-              .split('\n')
-              .map((team) => team.trim())
-              .filter(Boolean),
-            revision: routing.revision,
-          }),
-        },
-      );
-      setRouting(saved);
-      setRoutingDraft({
-        labels: saved.labels.join('\n'),
-        teams: saved.teams.join('\n'),
-      });
-      setSaved(true);
-    } catch (caught) {
-      p.error(await apiError(caught, 'Linear routing was not saved.'));
-    } finally {
-      setSavingRouting(false);
     }
   };
   const remove = async () => {
@@ -2171,7 +2205,7 @@ function Profiles(p: {
           aria-pressed={tab === 'general'}
           onClick={() => setTab('general')}
         >
-          General
+          Repositories
         </button>
         <button
           aria-pressed={tab === 'workflow'}
@@ -2183,10 +2217,27 @@ function Profiles(p: {
           aria-pressed={tab === 'sourceControl'}
           onClick={() => setTab('sourceControl')}
         >
-          Source control
+          Agents & access
+        </button>
+        <button
+          aria-pressed={tab === 'automation'}
+          onClick={() => setTab('automation')}
+        >
+          Automation
         </button>
       </div>
       <div hidden={tab !== 'sourceControl'}>
+        {draft.modelSlots && (
+          <ModelChoices
+            slots={draft.modelSlots}
+            value={draft.models ?? {}}
+            disabled={p.disabled}
+            onChange={(models) => {
+              setDraft({ ...draft, models });
+              setSaved(false);
+            }}
+          />
+        )}
         <SourceControlFields
           value={draft.sourceControl}
           profile
@@ -2199,17 +2250,6 @@ function Profiles(p: {
         />
       </div>
       <div hidden={tab !== 'general'} className={styles.profileGeneral}>
-        {draft.modelSlots && (
-          <ModelChoices
-            slots={draft.modelSlots}
-            value={draft.models ?? {}}
-            disabled={p.disabled}
-            onChange={(models) => {
-              setDraft({ ...draft, models });
-              setSaved(false);
-            }}
-          />
-        )}
         {draft.modelError && (
           <p role="alert">
             {draft.modelError} Reset to the current default or add the models
@@ -2238,114 +2278,211 @@ function Profiles(p: {
             />
           </label>
         </div>
-        <div className={styles.sectionHeading}>
-          <div>
-            <h2>Repositories</h2>
-            <p>
-              Each run creates a fresh worktree for every member in one shared
-              folder. The first repository is the default for Git and pull
-              request actions.
-            </p>
-          </div>
-          <button
-            type="button"
+        {!draft.configurationVersion && draft.configurationMigration && (
+          <ConfigurationMigrationPanel
+            key={draft.revision}
+            migration={draft.configurationMigration}
             disabled={p.disabled}
-            onClick={() =>
+            onApply={(config) => {
               setDraft({
                 ...draft,
-                repos: [
-                  ...(draft.repos ?? [
-                    { name: draft.id, url: draft.remote, baseBranch: 'main' },
-                  ]),
-                  { name: '', url: '', baseBranch: 'main' },
-                ],
-              })
-            }
-          >
-            <Icon name="plus" />
-            Add repository
-          </button>
-        </div>
-        <div className={styles.profileRepos}>
-          {(
-            draft.repos ?? [
-              { name: draft.id, url: draft.remote, baseBranch: 'main' },
-            ]
-          ).map((repo, index, repos) => (
-            <fieldset
-              key={index}
-              className={styles.profileRepo}
-              disabled={p.disabled}
-            >
-              <legend>
-                {index === 0 ? 'Primary repository' : `Repository ${index + 1}`}
-              </legend>
-              <div className={styles.repoFields}>
-                {(['name', 'url', 'baseBranch'] as const).map((field) => (
-                  <label key={field}>
-                    {field === 'name'
-                      ? 'Folder name'
-                      : field === 'url'
-                        ? 'Remote URL'
-                        : 'Base branch'}
-                    <input
-                      aria-label={`${field === 'name' ? 'Folder name' : field === 'url' ? 'Remote URL' : 'Base branch'} ${index + 1}`}
-                      value={repo[field]}
-                      placeholder={
-                        field === 'name'
-                          ? 'api'
+                ...config,
+                configurationVersion: 1,
+                configurationMigration: undefined,
+              });
+              setSaved(false);
+            }}
+          />
+        )}
+        {draft.configurationVersion === 1 && draft.repos ? (
+          <RepositorySettings
+            key={draft.id}
+            repos={draft.repos}
+            savedRepos={selected?.repos}
+            savedRevision={selected?.revision}
+            inheritedAccess={draft.sourceControl}
+            profileId={draft.id}
+            disabled={p.disabled}
+            mismatch={p.mismatch}
+            onChange={(repos) => {
+              setDraft({ ...draft, repos });
+              setSaved(false);
+            }}
+          />
+        ) : (
+          <>
+            <div className={styles.sectionHeading}>
+              <div>
+                <h2>Repositories</h2>
+                <p>
+                  Each run creates a fresh worktree for every member in one
+                  shared folder. The first repository is the default for Git and
+                  pull request actions.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={p.disabled}
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    repos: [
+                      ...(draft.repos ?? [
+                        {
+                          name: draft.id,
+                          url: draft.remote,
+                          baseBranch: 'main',
+                        },
+                      ]),
+                      { name: '', url: '', baseBranch: 'main' },
+                    ],
+                  })
+                }
+              >
+                <Icon name="plus" />
+                Add repository
+              </button>
+            </div>
+            <div className={styles.profileRepos}>
+              {(
+                draft.repos ?? [
+                  { name: draft.id, url: draft.remote, baseBranch: 'main' },
+                ]
+              ).map((repo, index, repos) => (
+                <fieldset
+                  key={index}
+                  className={styles.profileRepo}
+                  disabled={p.disabled}
+                >
+                  <legend>
+                    {index === 0
+                      ? 'Primary repository'
+                      : `Repository ${index + 1}`}
+                  </legend>
+                  <div className={styles.repoFields}>
+                    {(['name', 'url', 'baseBranch'] as const).map((field) => (
+                      <label key={field}>
+                        {field === 'name'
+                          ? 'Folder name'
                           : field === 'url'
-                            ? 'git@github.com:acme/api.git'
-                            : 'main'
-                      }
-                      onChange={(event) =>
+                            ? 'Remote URL'
+                            : 'Base branch'}
+                        <input
+                          aria-label={`${field === 'name' ? 'Folder name' : field === 'url' ? 'Remote URL' : 'Base branch'} ${index + 1}`}
+                          value={repo[field]}
+                          placeholder={
+                            field === 'name'
+                              ? 'api'
+                              : field === 'url'
+                                ? 'git@github.com:acme/api.git'
+                                : 'main'
+                          }
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              repos: repos.map((member, position) =>
+                                position === index
+                                  ? { ...member, [field]: event.target.value }
+                                  : member,
+                              ),
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className={styles.repoActions}>
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft({
+                            ...draft,
+                            repos: [
+                              repo,
+                              ...repos.filter(
+                                (_, position) => position !== index,
+                              ),
+                            ],
+                          })
+                        }
+                      >
+                        Make primary
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={repos.length === 1}
+                      aria-label={`Remove repository ${index + 1}`}
+                      onClick={() =>
                         setDraft({
                           ...draft,
-                          repos: repos.map((member, position) =>
-                            position === index
-                              ? { ...member, [field]: event.target.value }
-                              : member,
+                          repos: repos.filter(
+                            (_, position) => position !== index,
                           ),
                         })
                       }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  {selected &&
+                  draftFlow &&
+                  selected.repos?.some(
+                    (member) =>
+                      member.name === repo.name &&
+                      member.url === repo.url &&
+                      member.baseBranch === repo.baseBranch,
+                  ) ? (
+                    <RecipeDiscoveryPanel
+                      key={`${selected.id}/${repo.name}/${repo.url}`}
+                      profileId={selected.id}
+                      repository={repo.name}
+                      disabled={p.disabled}
+                      mismatch={p.mismatch}
+                      recipes={draftFlow.settings.repositories?.[repo.name]}
+                      onApply={(recipes) => {
+                        setDraft((current) => {
+                          if (!current) return current;
+                          const flow = parseFlow(current.workflow.source);
+                          flow.settings.repositories = {
+                            ...flow.settings.repositories,
+                            [repo.name]: recipes,
+                          };
+                          return {
+                            ...current,
+                            workflow: {
+                              ...current.workflow,
+                              source: JSON.stringify(flow, null, 2) + '\n',
+                            },
+                          };
+                        });
+                        setSaved(false);
+                      }}
                     />
-                  </label>
-                ))}
-              </div>
-              <div className={styles.repoActions}>
-                {index > 0 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        repos: [
-                          repo,
-                          ...repos.filter((_, position) => position !== index),
-                        ],
-                      })
-                    }
-                  >
-                    Make primary
-                  </button>
-                )}
-                <button
-                  type="button"
-                  disabled={repos.length === 1}
-                  aria-label={`Remove repository ${index + 1}`}
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      repos: repos.filter((_, position) => position !== index),
-                    })
-                  }
-                >
-                  Remove
-                </button>
-              </div>
-            </fieldset>
-          ))}
-        </div>
+                  ) : (
+                    <p>
+                      Save this repository in a Flow profile to discover
+                      commands with AI.
+                    </p>
+                  )}
+                </fieldset>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+      <div hidden={tab !== 'automation'} className={styles.profileGeneral}>
+        {draft.automation && (
+          <AutomationSettingsFields
+            value={draft.automation}
+            disabled={p.disabled}
+            onChange={(automation) => {
+              setDraft({ ...draft, automation });
+              setSaved(false);
+            }}
+          />
+        )}
         <section className={styles.profileRouting}>
           <div className={styles.sectionHeading}>
             <div>
@@ -2363,7 +2500,7 @@ function Profiles(p: {
                 Linear labels (one per line)
                 <textarea
                   value={routingDraft.labels}
-                  disabled={p.disabled || savingRouting}
+                  disabled={p.disabled}
                   onChange={(event) =>
                     setRoutingDraft({
                       ...routingDraft,
@@ -2377,7 +2514,7 @@ function Profiles(p: {
                 Allowed Linear teams (optional, one per line)
                 <textarea
                   value={routingDraft.teams}
-                  disabled={p.disabled || savingRouting}
+                  disabled={p.disabled}
                   onChange={(event) =>
                     setRoutingDraft({
                       ...routingDraft,
@@ -2387,15 +2524,7 @@ function Profiles(p: {
                   placeholder="Engineering"
                 />
               </label>
-              <button
-                type="button"
-                disabled={
-                  p.disabled || savingRouting || !routingDraft.labels.trim()
-                }
-                onClick={() => void saveRouting()}
-              >
-                {savingRouting ? 'Saving route…' : 'Save Linear route'}
-              </button>
+              <p>Routing is saved with the rest of this profile.</p>
             </>
           ) : (
             <p className={styles.muted}>
@@ -2414,6 +2543,9 @@ function Profiles(p: {
             <FlowEditor
               key={selected?.id ?? 'new'}
               source={draft.workflow.source}
+              managedSettings={draft.configurationVersion === 1}
+              repositories={draft.repos}
+              onEditRepositories={() => setTab('general')}
               promptContents={draft.promptContents}
               onPromptContentsChange={(promptContents) => {
                 setDraft({
@@ -2629,13 +2761,13 @@ function Profiles(p: {
               {slotError && <p role="alert">{slotError}</p>}
               <p>
                 Export a literal <code>models</code> object with a name for each
-                slot. Configure new slots on the General tab before saving.
+                slot. Configure new slots under Agents &amp; access before saving.
               </p>
             </details>
           </>
         )}
       </div>
-      <div hidden={tab !== 'general'} className={styles.profileGeneral}>
+      <div hidden={tab !== 'sourceControl'} className={styles.profileGeneral}>
         <div className={styles.sectionHeading}>
           <div>
             <h2>Agent & tools</h2>
@@ -2677,7 +2809,21 @@ function Profiles(p: {
           </p>
         </details>
       </div>
-      <div className={styles.formActions}>
+      <div className={`${styles.formActions} ${styles.profileSaveBar}`}>
+        <button
+          disabled={p.disabled || !selected}
+          onClick={() => {
+            loadDraft(selected);
+            if (routing)
+              setRoutingDraft({
+                labels: routing.labels.join('\n'),
+                teams: routing.teams.join('\n'),
+              });
+            setSaved(false);
+          }}
+        >
+          Discard changes
+        </button>
         {saved && (
           <span role="status" className={styles.saved}>
             <Icon name="check" size={15} />

@@ -39,6 +39,15 @@ import {
   configurationPatchSchema,
 } from './configuration.js';
 import { ConfigError } from '../config/schema.js';
+import type { RecipeDiscovery } from '../recipe-discovery.js';
+import { automationSchema } from '../config/workspace-schema.js';
+import {
+  proposeConfiguration,
+  validateConfiguration,
+  defaultFlowSettings,
+  materializeConfiguration,
+} from '@rocky/local-contracts';
+import { parseInstanceConfig } from '../config/schema.js';
 import { parseMcpConfig, mcpConfigSchema } from '../mcp/config.js';
 import {
   readWorkflowModelSlots,
@@ -52,6 +61,15 @@ export const profileEditSchema = z
     id,
     remote: z.string().min(1).optional(),
     repos: profileReposSchema.optional(),
+    configurationVersion: z.literal(1).optional(),
+    automation: automationSchema.optional(),
+    routing: z
+      .strictObject({
+        labels: z.array(z.string().trim().min(1)).min(1),
+        teams: z.array(z.string().trim().min(1)),
+        revision: z.string(),
+      })
+      .optional(),
     revision: z.string().optional(),
     models: workflowModelsSchema.optional(),
     promptContents: profilePromptsSchema.optional(),
@@ -125,6 +143,8 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
     id: profile.id,
     remote: profile.remote,
     ...(profile.repos ? { repos: profile.repos } : {}),
+    configurationVersion: profile.configurationVersion,
+    automation: profile.automation,
     workflow: profile.workflow,
     models,
     ...metadata,
@@ -140,7 +160,44 @@ function view(profile: RepositoryProfile): RepositoryProfileView {
 
 /** The profile editor deliberately exposes workflow settings, never env values. */
 export class LocalProfiles {
-  constructor(private readonly paths: RockyPaths) {}
+  constructor(
+    private readonly paths: RockyPaths,
+    private readonly discovery?: RecipeDiscovery,
+  ) {}
+
+  async discoverRecipes(
+    profileId: string,
+    repository: string,
+    action: 'read' | 'start' | 'cancel',
+  ) {
+    if (!this.discovery)
+      throw new LocalApiError(
+        503,
+        'discovery-unavailable',
+        'Recipe discovery is unavailable.',
+      );
+    const profile = await readRepositoryProfile(this.paths, profileId);
+    const view = await this.view(profile);
+    const repo = view.repos?.find((member) => member.name === repository);
+    if (!repo)
+      throw new LocalApiError(
+        404,
+        'unknown-repository',
+        'Save this repository in the profile before discovering commands.',
+      );
+    if (action === 'start') {
+      if (!isFlowSource(profile.workflow.source))
+        throw new LocalApiError(
+          400,
+          'unsupported-workflow',
+          'Recipe discovery requires a Flow profile.',
+        );
+      return this.discovery.start(profile, repo);
+    }
+    return action === 'cancel'
+      ? this.discovery.cancel(profileId, repository)
+      : this.discovery.read(profileId, repository);
+  }
 
   async configuration(profileId: string) {
     const profile = await readRepositoryProfile(this.paths, profileId);
@@ -380,6 +437,7 @@ export class LocalProfiles {
       try {
         const flow = parseFlow(content.workflow.source);
         flow.settings = flowSettingsFromSource(profile.workflow.source);
+        flow.settings.workspaceSetup = true;
         workflow = {
           ...workflow,
           source:
@@ -577,6 +635,17 @@ export class LocalProfiles {
           { name: member.name, url: member.url, baseBranch: member.baseBranch },
         ];
     }
+    if (
+      !profile.configurationVersion &&
+      result.repos &&
+      isFlowSource(profile.workflow.source)
+    ) {
+      result.configurationMigration = proposeConfiguration({
+        repos: result.repos,
+        source: profile.workflow.source,
+        settings: profile.settings,
+      });
+    }
     return result;
   }
 
@@ -595,81 +664,181 @@ export class LocalProfiles {
         'invalid-profile',
         'A profile needs a safe id and repositories with unique folder names and remotes. Workflow and harness settings must be valid when provided.',
       );
-    return updates.run(this.paths.profile(parsed.data.id), async () => {
-      let existing: RepositoryProfile | undefined;
-      try {
-        existing = await readRepositoryProfile(this.paths, parsed.data.id);
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !error.message.includes('does not exist')
-        )
-          throw error;
-      }
-      if (existing && parsed.data.revision !== revision(existing))
-        throw new LocalApiError(
-          409,
-          'profile-changed',
-          'This profile changed. Reload it before saving; your edits were not applied.',
-        );
-      if (!existing && parsed.data.revision !== undefined)
-        throw new LocalApiError(
-          409,
-          'profile-changed',
-          'This profile no longer exists. Reload before saving.',
-        );
-      if (!existing && !parsed.data.remote && !parsed.data.repos)
-        throw new LocalApiError(
-          400,
-          'invalid-profile',
-          'A new profile needs at least one repository.',
-        );
-      if (!existing && !parsed.data.models)
-        throw new LocalApiError(
-          400,
-          'model-selection-required',
-          'Choose the harness, model and variant/effort for every declared model slot before creating a profile.',
-        );
-      const base = existing ?? {
-        ...newRepositoryProfile({
-          id: parsed.data.id,
-          remote: parsed.data.remote,
-          repos: parsed.data.repos,
-        }),
-        ...(await defaultProfileContent()),
-      };
-      const workflow = parsed.data.workflow ?? base.workflow;
-      if (isFlowSource(workflow.source)) {
+    return updates.run(this.paths.configFile, () =>
+      updates.run(this.paths.profile(parsed.data.id), async () => {
+        let existing: RepositoryProfile | undefined;
         try {
-          validateFlow(workflow.source);
+          existing = await readRepositoryProfile(this.paths, parsed.data.id);
         } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !error.message.includes('does not exist')
+          )
+            throw error;
+        }
+        if (existing && parsed.data.revision !== revision(existing))
+          throw new LocalApiError(
+            409,
+            'profile-changed',
+            'This profile changed. Reload it before saving; your edits were not applied.',
+          );
+        if (!existing && parsed.data.revision !== undefined)
+          throw new LocalApiError(
+            409,
+            'profile-changed',
+            'This profile no longer exists. Reload before saving.',
+          );
+        if (!existing && !parsed.data.remote && !parsed.data.repos)
           throw new LocalApiError(
             400,
-            'invalid-flow',
-            error instanceof Error ? error.message : String(error),
+            'invalid-profile',
+            'A new profile needs at least one repository.',
           );
+        if (!existing && !parsed.data.models)
+          throw new LocalApiError(
+            400,
+            'model-selection-required',
+            'Choose the harness, model and variant/effort for every declared model slot before creating a profile.',
+          );
+        const base = existing ?? {
+          ...newRepositoryProfile({
+            id: parsed.data.id,
+            remote: parsed.data.remote,
+            repos: parsed.data.repos,
+          }),
+          ...(await defaultProfileContent()),
+        };
+        let workflow = parsed.data.workflow ?? base.workflow;
+        if (isFlowSource(workflow.source)) {
+          try {
+            validateFlow(workflow.source);
+          } catch (error) {
+            throw new LocalApiError(
+              400,
+              'invalid-flow',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
         }
-      }
-      // Legacy profiles stay editable until explicitly migrated or reset. New
-      // workflows and model edits must satisfy the named-slot contract.
-      const models =
-        !existing ||
-        parsed.data.models !== undefined ||
-        workflow.source !== base.workflow.source
-          ? checkedModels(workflow.source, parsed.data.models ?? base.models)
-          : base.models;
-      const saved = await writeRepositoryProfile(this.paths, {
-        ...base,
-        sourceControl: parsed.data.sourceControl ?? base.sourceControl,
-        remote: parsed.data.remote ?? base.remote,
-        ...(parsed.data.repos ? { repos: parsed.data.repos } : {}),
-        workflow,
-        models,
-        grants: parsed.data.grants ?? base.grants,
-        prompts: parsed.data.promptContents ?? base.prompts,
-      });
-      return this.view(saved);
-    });
+        // Legacy profiles stay editable until explicitly migrated or reset. New
+        // workflows and model edits must satisfy the named-slot contract.
+        const models =
+          !existing ||
+          parsed.data.models !== undefined ||
+          workflow.source !== base.workflow.source
+            ? checkedModels(workflow.source, parsed.data.models ?? base.models)
+            : base.models;
+        const configurationVersion =
+          parsed.data.configurationVersion ?? base.configurationVersion;
+        const repos = parsed.data.repos ?? base.repos;
+        const automation = parsed.data.automation ?? base.automation;
+        if (configurationVersion) {
+          if (!repos || !automation)
+            throw new LocalApiError(
+              400,
+              'invalid-configuration',
+              'Repositories and automation are required.',
+            );
+          try {
+            validateConfiguration({ repos, automation });
+            if (isFlowSource(workflow.source))
+              materializeConfiguration(workflow.source, { repos, automation });
+          } catch (error) {
+            throw new LocalApiError(
+              400,
+              'invalid-configuration',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          if (isFlowSource(workflow.source)) {
+            const flow = JSON.parse(workflow.source);
+            flow.settings = defaultFlowSettings();
+            workflow = {
+              ...workflow,
+              source: JSON.stringify(flow, null, 2) + '\n',
+            };
+          }
+        }
+        const config = parsed.data.routing
+          ? await readInstanceConfig(this.paths)
+          : undefined;
+        let nextConfig = config;
+        if (config && parsed.data.routing) {
+          const route = parsed.data.routing;
+          if (
+            route.revision !==
+            createHash('sha256').update(JSON.stringify(config)).digest('hex')
+          )
+            throw new LocalApiError(
+              409,
+              'routing-changed',
+              'Routing changed. Reload before saving; no profile edits were applied.',
+            );
+          const primary = repos?.[0];
+          if (!primary)
+            throw new LocalApiError(
+              400,
+              'invalid-routing',
+              'Choose a primary repository.',
+            );
+          const previous = config.repos.find(
+            (repo) => repo.profile === base.id,
+          );
+          const next = {
+            ...previous,
+            name: primary.name,
+            url: primary.url,
+            baseBranch: primary.baseBranch,
+            label: route.labels[0],
+            labels: route.labels.slice(1),
+            teams: route.teams,
+            profile: base.id,
+          };
+          // The legacy schema requires a nonempty labels array when present.
+          if (!next.labels.length)
+            delete (next as { labels?: string[] }).labels;
+          try {
+            nextConfig = parseInstanceConfig({
+              ...config,
+              repos: [
+                ...config.repos.filter((repo) => repo.profile !== base.id),
+                next,
+              ],
+            });
+          } catch {
+            throw new LocalApiError(
+              400,
+              'invalid-routing',
+              'Those labels conflict with another repository or group. No profile edits were applied.',
+            );
+          }
+        }
+        const saved = await writeRepositoryProfile(this.paths, {
+          ...base,
+          configurationVersion,
+          automation,
+          settings: configurationVersion
+            ? { env: base.settings.env, secretEnv: base.settings.secretEnv }
+            : base.settings,
+          sourceControl: parsed.data.sourceControl ?? base.sourceControl,
+          remote: parsed.data.remote ?? base.remote,
+          ...(parsed.data.repos ? { repos: parsed.data.repos } : {}),
+          workflow,
+          models,
+          grants: parsed.data.grants ?? base.grants,
+          prompts: parsed.data.promptContents ?? base.prompts,
+        });
+        if (nextConfig && config) {
+          try {
+            await writeInstanceConfig(this.paths, nextConfig);
+          } catch (error) {
+            if (existing) await writeRepositoryProfile(this.paths, existing);
+            throw error;
+          }
+        }
+        return this.view(saved);
+      }),
+    );
   }
 
   async delete(input: unknown): Promise<void> {

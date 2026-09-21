@@ -25,6 +25,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { RunDetail, SettingsView } from '@rocky/local-contracts';
+import { defaultFlowSettings } from '@rocky/local-contracts';
+import {
+  automationSettings,
+  commandRecipe,
+  serviceRecipe,
+} from '@rocky/local-contracts';
+import { RecipeDiscovery } from '../recipe-discovery.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, expect, it, vi } from 'vitest';
 
@@ -123,6 +130,191 @@ async function setup(overrides: Partial<LocalApiOptions> = {}) {
 async function listen(app: FastifyInstance) {
   return app.listen({ host: '127.0.0.1', port: 0 });
 }
+
+it('saves unified repository configuration and routing together, rejects stale edits, and keeps recipes across reset', async () => {
+  const f = await setup();
+  const profiles = new LocalProfiles(f.paths);
+  f.options.profiles = profiles;
+  const profile = newRepositoryProfile({
+    id: 'unified',
+    repos: [
+      {
+        name: 'web',
+        url: 'https://github.com/example/web',
+        baseBranch: 'main',
+      },
+    ],
+  });
+  await writeRepositoryProfile(f.paths, profile);
+  const before = await profiles.read('unified');
+  const routing = await profiles.routing('unified');
+  const repos = [
+    {
+      ...before.repos![0],
+      id: 'stable-web',
+      commands: [
+        {
+          ...commandRecipe('test', 'npm test'),
+          purpose: 'test' as const,
+          policy: 'required' as const,
+        },
+      ],
+      services: [{ ...serviceRecipe('web'), start: 'npm start' }],
+    },
+  ];
+  const body = {
+    id: 'unified',
+    revision: before.revision,
+    configurationVersion: 1,
+    repos,
+    automation: automationSettings(),
+    routing: {
+      labels: ['unified-work'],
+      teams: [],
+      revision: routing.revision,
+    },
+  };
+  const stale = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: { ...body, routing: { ...body.routing, revision: 'stale' } },
+  });
+  expect(stale.statusCode).toBe(409);
+  expect((await profiles.read('unified')).revision).toBe(before.revision);
+  const saved = await f.app.inject({
+    method: 'PUT',
+    url: '/api/profiles',
+    payload: body,
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(saved.json().repos[0].commands[0].command).toBe('npm test');
+  expect((await profiles.routing('unified')).labels).toEqual(['unified-work']);
+  expect(
+    (await f.app.inject({ method: 'PUT', url: '/api/profiles', payload: body }))
+      .statusCode,
+  ).toBe(409);
+  const invalid = {
+    ...saved.json(),
+    repos: [
+      {
+        ...repos[0],
+        commands: [{ ...repos[0].commands[0], dependsOn: ['missing/task'] }],
+      },
+    ],
+  };
+  expect(
+    (
+      await f.app.inject({
+        method: 'PUT',
+        url: '/api/profiles',
+        payload: {
+          id: invalid.id,
+          revision: invalid.revision,
+          repos: invalid.repos,
+        },
+      })
+    ).statusCode,
+  ).toBe(400);
+  // The stored catalog is independent of workflow source replacements.
+  expect((await readRepositoryProfile(f.paths, 'unified')).repos?.[0].id).toBe(
+    'stable-web',
+  );
+  const defaults = await profiles.defaults();
+  const resetModels = Object.fromEntries(
+    Object.keys(defaults.modelSlots ?? {}).map((slot) => [
+      slot,
+      { harness: 'opencode', model: 'test/model', effort: 'high' },
+    ]),
+  );
+  const reset = await profiles.resetWorkflow('unified', {
+    revision: saved.json().revision,
+    models: resetModels,
+  });
+  expect(reset.repos).toEqual(saved.json().repos);
+  expect(reset.automation).toEqual(saved.json().automation);
+});
+
+it('routes repository discovery through saved membership and mutation guards without saving proposals', async () => {
+  const f = await setup();
+  const discovery = new RecipeDiscovery(f.paths, vi.fn());
+  const job = {
+    id: 'job',
+    repository: 'web',
+    status: 'running' as const,
+    startedAt: new Date().toISOString(),
+  };
+  const start = vi.spyOn(discovery, 'start').mockResolvedValue(job);
+  const read = vi.spyOn(discovery, 'read').mockResolvedValue(job);
+  const cancel = vi
+    .spyOn(discovery, 'cancel')
+    .mockResolvedValue({ ...job, status: 'cancelled' });
+  f.options.profiles = new LocalProfiles(f.paths, discovery);
+  const profile = newRepositoryProfile({
+    id: 'test',
+    repos: [
+      {
+        name: 'web',
+        url: 'https://github.com/example/web',
+        baseBranch: 'main',
+      },
+    ],
+  });
+  profile.workflow.source = JSON.stringify({
+    version: 2,
+    name: 'test',
+    models: {},
+    settings: defaultFlowSettings(),
+    nodes: [
+      {
+        id: 'start',
+        type: 'trigger',
+        name: 'Start',
+        position: { x: 0, y: 0 },
+        parameters: { kind: 'linear.onDelegate' },
+      },
+      {
+        id: 'done',
+        type: 'finish',
+        name: 'Done',
+        position: { x: 200, y: 0 },
+        parameters: { outcome: 'completed' },
+      },
+    ],
+    edges: [
+      { id: 'edge', source: 'start', target: 'done', sourceHandle: 'next' },
+    ],
+  });
+  await writeRepositoryProfile(f.paths, profile);
+  const before = await readRepositoryProfile(f.paths, 'test');
+  const url = '/api/profiles/test/repositories/web/discover-recipes';
+  expect(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-rocky-client-version': 'old' },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(start).not.toHaveBeenCalled();
+  expect(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url: url.replace('/web/', '/absent/'),
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect((await f.app.inject({ method: 'POST', url })).json()).toEqual(job);
+  expect(start).toHaveBeenCalledWith(before, before.repos?.[0]);
+  expect((await f.app.inject(url)).json()).toEqual(job);
+  expect(read).toHaveBeenCalledWith('test', 'web');
+  expect((await f.app.inject({ method: 'DELETE', url })).json().status).toBe(
+    'cancelled',
+  );
+  expect(cancel).toHaveBeenCalledWith('test', 'web');
+  expect(await readRepositoryProfile(f.paths, 'test')).toEqual(before);
+});
 
 it('serves cached workflow diagrams and retries through the guarded profile API', async () => {
   const diagram = {

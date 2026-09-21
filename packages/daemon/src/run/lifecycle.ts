@@ -94,26 +94,40 @@ export class WorkflowRuntime {
           if (kind === 'run') {
             await this.kill(run);
             const reserved = new Set([...this.ports.values()].flat());
-            let port: number;
-            do {
-              const server = createServer();
-              port = await new Promise<number>((resolve, reject) => {
-                server.once('error', reject);
-                server.listen(0, '127.0.0.1', () => {
-                  const address = server.address();
-                  if (!address || typeof address === 'string') {
-                    reject(new Error('Could not reserve a Run port'));
-                    return;
-                  }
-                  const chosen = address.port;
-                  server.close((error) =>
-                    error ? reject(error) : resolve(chosen),
-                  );
+            const portCount = Math.max(
+              1,
+              run.profile?.configurationVersion
+                ? (run.profile.repos ?? []).reduce(
+                    (count, repo) => count + (repo.services?.length ?? 0),
+                    0,
+                  )
+                : 1,
+            );
+            const ports: number[] = [];
+            for (let index = 0; index < portCount; index++) {
+              let port: number;
+              do {
+                const server = createServer();
+                port = await new Promise<number>((resolve, reject) => {
+                  server.once('error', reject);
+                  server.listen(0, '127.0.0.1', () => {
+                    const address = server.address();
+                    if (!address || typeof address === 'string') {
+                      reject(new Error('Could not reserve a Run port'));
+                      return;
+                    }
+                    const chosen = address.port;
+                    server.close((error) =>
+                      error ? reject(error) : resolve(chosen),
+                    );
+                  });
                 });
-              });
-            } while (reserved.has(port));
-            this.ports.set(run.runId, [port]);
-            run = await updateRunHeader(paths, run.runId, { ports: [port] });
+              } while (reserved.has(port));
+              ports.push(port);
+              reserved.add(port);
+            }
+            this.ports.set(run.runId, ports);
+            run = await updateRunHeader(paths, run.runId, { ports });
           }
           await this.options.startPreflight?.(run, steps, signal);
           const workflow = await this.options.loadWorkflow(run, signal);
@@ -124,12 +138,13 @@ export class WorkflowRuntime {
             command: string,
             background: boolean,
             commandCwd = cwd,
+            timeoutMs?: number,
           ) => {
             const child = startCommand(command, {
               cwd: commandCwd,
               background,
               signal,
-              timeoutMs: this.options.execTimeoutMs,
+              timeoutMs: timeoutMs ?? this.options.execTimeoutMs,
               env: this.options.env?.(run),
             });
             const children =
@@ -137,7 +152,19 @@ export class WorkflowRuntime {
             children.add(child);
             this.commands.set(run.runId, children);
             void child.closed.then(() => children.delete(child));
-            return await child.result;
+            try {
+              return await child.result;
+            } catch (error) {
+              if (
+                timeoutMs !== undefined &&
+                error instanceof Error &&
+                error.message.startsWith('Command timed out after ')
+              ) {
+                await child.stop();
+                return { exitCode: 124, stdout: '', stderr: error.message };
+              }
+              throw error;
+            }
           };
           const git = async (args: string[], gitCwd = cwd) => {
             const command = ['git', ...args]
@@ -152,7 +179,8 @@ export class WorkflowRuntime {
           };
           return await workflow(
             createWorkflowContext(steps, run, {
-              exec,
+              exec: (command, background, timeoutMs) =>
+                exec(command, background, cwd, timeoutMs),
               changedFiles: async () => {
                 const members = run.execution?.members ?? [
                   { path: '', baseBranch: '' },

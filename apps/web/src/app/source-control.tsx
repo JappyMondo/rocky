@@ -87,12 +87,16 @@ const groups: Array<{
 
 export function SourceControlFields(p: {
   value?: SourceControlSettings;
+  inherited?: SourceControlSettings;
+  inheritLabel?: string;
   onChange(value: SourceControlSettings): void;
   profile?: boolean;
   profileId?: string;
   disabled?: boolean;
 }) {
-  const inherit = p.profile ? 'Use Rocky default' : 'Use existing setting';
+  const inherit =
+    p.inheritLabel ??
+    (p.profile ? 'Use Rocky default' : 'Use existing setting');
   const scope = p.profileId ? ` --profile ${p.profileId}` : '';
   return (
     <section aria-label="Source control settings">
@@ -120,6 +124,10 @@ export function SourceControlFields(p: {
               const value = (values as Record<string, string | boolean | null>)[
                 field.key
               ];
+              const effective = (
+                p.inherited?.[group.key] as
+                  Record<string, string | boolean | null> | undefined
+              )?.[field.key];
               const change = (next: string | boolean | null | undefined) => {
                 const section: Record<
                   string,
@@ -136,6 +144,14 @@ export function SourceControlFields(p: {
                     : 'custom';
               return (
                 <div key={field.key} className={styles.sourceControlField}>
+                  {value === undefined && p.inheritLabel && (
+                    <small>
+                      Inherited:{' '}
+                      {effective == null
+                        ? 'Rocky / existing account settings'
+                        : String(effective)}
+                    </small>
+                  )}
                   <label>
                     {field.label}
                     <select

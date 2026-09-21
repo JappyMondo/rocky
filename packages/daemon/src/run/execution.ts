@@ -27,6 +27,7 @@ import {
 import { JournalWriter } from './writer.js';
 import type { RunWorkersOptions } from './worker.js';
 import type { CheckpointRequest } from '../linear/control.js';
+import { commandTestProfile } from '../config/command-test.js';
 
 export interface ExecutionRequest {
   requestId: string;
@@ -35,6 +36,7 @@ export interface ExecutionRequest {
   team?: string;
   /** Local manual selection; delegations still use configured Linear routing. */
   profileId?: string;
+  commandTest?: { repositoryId: string; commandId: string; revision: string };
   /** Delegations have a Linear session; locally-fired manual Runs do not. */
   linear?: RunLinearIdentity;
 }
@@ -175,6 +177,15 @@ export function createExecutionRequestHandler(
             ? {
                 ...options.repos,
                 sourceControl,
+                sourceControlFor: options.config
+                  ? (name) =>
+                      currentRunSourceControl(
+                        options.paths,
+                        options.config!(),
+                        run,
+                        name,
+                      )
+                  : undefined,
                 env: sourceControlEnv(sourceControl, {
                   ...process.env,
                   ...(await readCredentials(options.paths)).repos[run.repo],
@@ -303,11 +314,15 @@ export async function openExecution(options: ExecutionOptions) {
         `Profile ${profile.id} needs repository details. Add its repositories in Profiles before starting a Run.`,
       );
     const loader = await import('./snapshot.js');
+    const leadAccess = resolveSourceControl(
+      profile.sourceControl,
+      profile.repos?.find((repo) => repo.name === lead.name)?.sourceControl,
+    );
     const snapshot = await loader.prepareProfileSnapshot(
       {
         ...options.repos,
-        sourceControl: profile.sourceControl,
-        env: sourceControlEnv(profile.sourceControl, {
+        sourceControl: leadAccess,
+        env: sourceControlEnv(leadAccess, {
           ...process.env,
           ...(await readCredentials(options.paths)).repos[lead.name],
         }),
@@ -361,10 +376,18 @@ export async function openExecution(options: ExecutionOptions) {
         manual: trigger.kind === 'manual',
         prepare: async (_runId, signal) => {
           const config = options.config();
-          const explicitProfile =
+          let explicitProfile =
             trigger.kind === 'manual' && request.profileId
               ? await readRepositoryProfile(options.paths, request.profileId)
               : undefined;
+          if (request.commandTest) {
+            if (!explicitProfile || request.linear)
+              throw Error('Command tests require a local manual profile run.');
+            explicitProfile = commandTestProfile(
+              explicitProfile,
+              request.commandTest,
+            );
+          }
           const destination = route(config, {
             labels: request.issue.labels,
             team: request.team,
@@ -426,6 +449,7 @@ export async function openExecution(options: ExecutionOptions) {
               : { profile: prepared.profile }),
             ...(request.linear === undefined ? {} : { linear: request.linear }),
             execution: {
+              ...(request.commandTest ? { commandTest: true } : {}),
               reviewReports: true,
               recapVersion: 2,
               source,

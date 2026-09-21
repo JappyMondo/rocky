@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { dirname } from 'node:path';
 import type {
   Workflow,
   WorkflowContext,
@@ -13,6 +14,11 @@ import {
   type FlowValue,
 } from '@rocky/local-contracts';
 import { createDeliveryOperations } from './delivery.js';
+import {
+  WorkspaceExecution,
+  catalogEntries,
+  dependencyOrder,
+} from './workspace-execution.js';
 
 import { resolveFlowValue } from './values.js';
 export { resolveFlowValue } from './values.js';
@@ -63,6 +69,14 @@ export async function executeFlow(
   // Delivery state and data are local to one boot, reconstructed by ctx replay.
   // Never wrap an entire node in ctx.step: nested steps must remain parkable.
   let delivery: ReturnType<typeof createDeliveryOperations> | undefined;
+  const services = flow.settings.execution
+    ? new WorkspaceExecution(
+        ctx,
+        workspace,
+        flow.settings.execution,
+        dirname(snapshotDir),
+      )
+    : undefined;
   const data: Record<string, unknown> = {
     issue: ctx.issue,
     workspace,
@@ -99,6 +113,33 @@ export async function executeFlow(
         break;
       }
       case 'command': {
+        if (p.recipe) {
+          if (!flow.settings.execution)
+            throw Error(
+              'This command references repository configuration. Start it from a unified profile.',
+            );
+          const execution = new WorkspaceExecution(
+            ctx,
+            workspace,
+            flow.settings.execution,
+            dirname(snapshotDir),
+          );
+          const ordered = dependencyOrder(
+            catalogEntries(flow.settings.execution),
+            [String(p.recipe)],
+            (entry) => entry.command.dependsOn,
+          );
+          for (const entry of ordered) {
+            const result = await execution.command(
+              entry.id,
+              `${node.name}: ${entry.id}`,
+            );
+            output = result;
+            port = result.exitCode === 0 ? 'success' : 'failure';
+            if (result.exitCode !== 0) break;
+          }
+          break;
+        }
         // Commands are literal configuration. Do not interpolate issue/agent text into a shell.
         const result = await ctx.exec(
           `cd -- "$ROCKY_LEAD_REPO" && ${String(p.command)}`,
@@ -108,6 +149,15 @@ export async function executeFlow(
         port = result.exitCode === 0 ? 'success' : 'failure';
         break;
       }
+      case 'service.start':
+        if (!services)
+          throw Error('Dev service nodes require a unified profile.');
+        output = await services.start([String(p.recipe)], node.id);
+        break;
+      case 'service.stop':
+        await services?.stop(node.id);
+        output = { stopped: true };
+        break;
       case 'condition': {
         const left = resolved('value', null),
           right = resolved('compare', null);
@@ -154,6 +204,7 @@ export async function executeFlow(
         await ctx.linear.setState(text('state'));
         break;
       case 'finish':
+        await services?.stop('Workflow service cleanup');
         return merged ? 'merged' : (p.outcome as RunOutcome);
       default:
         if (!node.type.startsWith('delivery.'))

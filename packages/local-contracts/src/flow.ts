@@ -28,18 +28,60 @@ export interface FlowEdge {
   targetHandle?: string;
 }
 export interface FlowSettings {
+  /** Snapshot-only replay version: older runs planned/fixed missing UI configuration. */
+  uiConfigurationVersion?: 1;
+  /** Resolved profile catalog, populated only in immutable run snapshots. */
+  execution?: import('./workspace.js').WorkspaceRepository[];
+  /** Explicit opt-in preserves positional replay for older frozen flows. */
+  workspaceSetup?: boolean;
   /** Omitted in older frozen workflows, which deliver only the lead repository. */
   pullRequests?: 'lead' | 'all-changed';
   /** Explicitly configured members with no CI pipeline. Never inferred from a pending pipeline. */
   ciSkipRepositories?: string[];
   commands: { install: string; test: string; lint: string; build: string };
   ui: { start: string; url: string } | null;
+  /** Per-repository recipes replace the lead-repository-only legacy commands. */
+  repositories?: Record<string, RepositoryRecipes>;
   states: { started: string; review: string; done: string };
   reviewCap: number;
   ciCap: number;
   readiness: { attempts: number; intervalMs: number };
   ciLogLines: number;
   maxTransitions: number;
+}
+export interface RepositoryRecipes {
+  commands?: Partial<{
+    install: string;
+    test: string;
+    lint: string;
+    build: string;
+  }>;
+  ui?: UiRecipe[];
+}
+export interface RecipeDiscoveryJob {
+  id: string;
+  repository: string;
+  status: 'running' | 'ready' | 'failed' | 'cancelled';
+  startedAt: string;
+  error?: string;
+  proposal?: RepositoryRecipes & {
+    explanation: string;
+    catalog?: {
+      commands: import('./workspace.js').RepositoryCommand[];
+      services: import('./workspace.js').DevService[];
+    };
+  };
+}
+export type UiEndpoint =
+  | { kind: 'fixed'; url: string }
+  | { kind: 'command'; command: string }
+  | { kind: 'assigned-port'; url: string }
+  | { kind: 'output-regex'; pattern: string }
+  | { kind: 'json-file'; path: string; pointer: string };
+export interface UiRecipe {
+  id: string;
+  start: string;
+  endpoint: UiEndpoint;
 }
 export interface WorkflowFlow {
   version: 2;
@@ -90,6 +132,26 @@ const action = (
 });
 export const FLOW_NODES: FlowNodeDefinition[] = [
   ...AI_NODES,
+  {
+    type: 'service.start',
+    name: 'Start dev service',
+    group: 'Actions',
+    icon: '▶',
+    description:
+      'Start a configured repository service and its prerequisites. Outputs live named endpoints after readiness.',
+    outputs: ['next'],
+    fields: [field('recipe', 'Repository service', 'text', { required: true })],
+  },
+  {
+    type: 'service.stop',
+    name: 'Stop dev services',
+    group: 'Actions',
+    icon: '■',
+    description:
+      'Stop services started by this workflow, in reverse dependency order.',
+    outputs: ['next'],
+    fields: [],
+  },
   {
     type: 'trigger',
     name: 'Trigger',
@@ -318,6 +380,7 @@ export const FLOW_NODES: FlowNodeDefinition[] = [
 export const flowNodeDefinition = (type: string) =>
   FLOW_NODES.find((item) => item.type === type);
 export const defaultFlowSettings = (): FlowSettings => ({
+  workspaceSetup: true,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -409,6 +472,10 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (s.uiConfigurationVersion !== undefined && s.uiConfigurationVersion !== 1)
+    throw new Error('Unsupported UI configuration version.');
+  if (s.workspaceSetup !== undefined && typeof s.workspaceSetup !== 'boolean')
+    throw new Error('workspaceSetup must be a boolean.');
   if (
     s.ciSkipRepositories !== undefined &&
     (!Array.isArray(s.ciSkipRepositories) ||
@@ -417,6 +484,68 @@ export function parseFlow(source: string): WorkflowFlow {
       ))
   )
     throw new Error('ciSkipRepositories must contain repository names.');
+  if (s.repositories !== undefined) {
+    if (!record(s.repositories)) throw new Error('Invalid repository recipes.');
+    for (const [repo, recipes] of Object.entries(s.repositories)) {
+      if (!/^[A-Za-z0-9._-]+$/.test(repo) || !record(recipes))
+        throw new Error('Invalid repository recipe name.');
+      if (recipes.commands !== undefined) {
+        if (!record(recipes.commands))
+          throw new Error(`Invalid commands for ${repo}.`);
+        for (const value of Object.values(recipes.commands))
+          if (typeof value !== 'string')
+            throw new Error(`Invalid commands for ${repo}.`);
+      }
+      if (recipes.ui !== undefined) {
+        if (!Array.isArray(recipes.ui))
+          throw new Error(`Invalid UI recipes for ${repo}.`);
+        const seen = new Set<string>();
+        for (const recipe of recipes.ui) {
+          if (
+            !record(recipe) ||
+            typeof recipe.id !== 'string' ||
+            !safeId(recipe.id) ||
+            seen.has(recipe.id) ||
+            typeof recipe.start !== 'string' ||
+            !recipe.start.trim() ||
+            !record(recipe.endpoint)
+          )
+            throw new Error(`Invalid UI recipe for ${repo}.`);
+          seen.add(recipe.id);
+          const endpoint = recipe.endpoint;
+          if (
+            !['assigned-port', 'output-regex', 'json-file'].includes(
+              String(endpoint.kind),
+            )
+          )
+            throw new Error(`Invalid UI endpoint for ${repo}.`);
+          if (
+            (endpoint.kind === 'assigned-port' &&
+              (typeof endpoint.url !== 'string' ||
+                !/^https?:\/\//.test(endpoint.url))) ||
+            (endpoint.kind === 'output-regex' &&
+              (typeof endpoint.pattern !== 'string' ||
+                !endpoint.pattern.trim())) ||
+            (endpoint.kind === 'json-file' &&
+              (typeof endpoint.path !== 'string' ||
+                endpoint.path.startsWith('/') ||
+                endpoint.path.includes('..') ||
+                typeof endpoint.pointer !== 'string' ||
+                !endpoint.pointer.startsWith('/')))
+          )
+            throw new Error(`Invalid UI endpoint for ${repo}.`);
+          if (endpoint.kind === 'output-regex') {
+            const pattern = String(endpoint.pattern);
+            if (!pattern.includes('(?<url>') && !pattern.includes('(?<port>'))
+              throw new Error(
+                `UI output pattern needs a named url or port capture for ${repo}.`,
+              );
+            new RegExp(pattern);
+          }
+        }
+      }
+    }
+  }
   if (
     s.pullRequests !== undefined &&
     !['lead', 'all-changed'].includes(String(s.pullRequests))
@@ -490,6 +619,12 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
       )
         continue;
       const v = node.parameters[f.key];
+      if (
+        node.type === 'command' &&
+        f.key === 'command' &&
+        node.parameters.recipe
+      )
+        continue;
       if (
         f.required &&
         (v === undefined || v === null || typeof v !== 'string' || !v.trim())

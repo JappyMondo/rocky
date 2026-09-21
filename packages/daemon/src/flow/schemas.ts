@@ -210,7 +210,15 @@ export function CheckResultsFor(
   });
 }
 
-export const UiTriage = z.object({ isFrontend: z.boolean() });
+export const UiTriage = z
+  .object({
+    isFrontend: z.boolean(),
+    recipe: z
+      .object({ repository: z.string().min(1), id: z.string().min(1) })
+      .strict()
+      .optional(),
+  })
+  .strict();
 export const CiFix = z.object({
   action: z.enum(['fixed', 'retry', 'unresolved']),
 });

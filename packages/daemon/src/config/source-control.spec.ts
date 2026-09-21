@@ -125,7 +125,9 @@ it('keeps the ambient environment untouched unless an override is selected', () 
     GIT_AUTHOR_NAME: 'Robot',
     GIT_COMMITTER_EMAIL: 'robot@example.test',
   });
-  expect(env.GIT_SSH_COMMAND).toContain('IdentityAgent=SSH_AUTH_SOCK');
+  expect(env.GIT_SSH_COMMAND).toContain(
+    'IdentityAgent="/test/agent with spaces"',
+  );
   expect(inherited.SSH_AUTH_SOCK).toBe('/personal');
   const tokens = sourceControlEnv(
     { github: { tokenEnv: 'GH_TOKEN' } },
@@ -193,7 +195,7 @@ it('quotes SSH key paths literally and selects the agent even over personal SSH 
   );
   expect(stdout).toContain(`identityfile ${file}`);
   expect(stdout).toContain('identitiesonly yes');
-  expect(stdout).toContain('identityagent SSH_AUTH_SOCK');
+  expect(stdout).toContain(`identityagent ${join(root, 'agent socket')}`);
   await expect(readFile(join(root, 'injected'))).rejects.toMatchObject({
     code: 'ENOENT',
   });

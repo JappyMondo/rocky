@@ -280,18 +280,23 @@ export function createProductionRuntime(
     if (!run.execution) throw new Error(`${run.runId}: missing frozen members`);
     return Promise.all(
       run.execution.members.map(async (member) => {
+        const memberSourceControl = await currentRunSourceControl(
+          options.paths,
+          options.config(),
+          run,
+          member.name,
+        );
         const source = scmProject(member.url);
         const memberEnv = profileEnv(
           { profile: run.profile, repo: member.name },
           credentials,
         );
         const cliSelected =
-          Object.keys(run.profile?.sourceControl?.[source.platform] ?? {})
-            .length > 0;
+          Object.keys(memberSourceControl[source.platform] ?? {}).length > 0;
         const token = await sourceControlToken(
           source.platform,
           cliSelected
-            ? sourceControlEnv(run.profile?.sourceControl, {
+            ? sourceControlEnv(memberSourceControl, {
                 ...process.env,
                 ...memberEnv,
               })
@@ -358,7 +363,9 @@ export function createProductionRuntime(
       if (run.profile) {
         const [sourceControl, models] = await Promise.all([
           currentRunSourceControl(options.paths, options.config(), run),
-          currentRunModels(options.paths, run),
+          run.execution.commandTest
+            ? Promise.resolve({})
+            : currentRunModels(options.paths, run),
         ]);
         run.profile = {
           ...run.profile,
@@ -395,16 +402,29 @@ export function createProductionRuntime(
         ROCKY_SCREENSHOT_DIR: options.paths.run(run.runId).screenshotsDir,
         ROCKY_PORT: String(run.ports[0] ?? ''),
       };
+      if (run.profile?.configurationVersion) {
+        // The workspace writes effective identity/signing/SSH config per repo.
+        // A process-wide Git override would otherwise defeat those settings
+        // whenever an agent changes directories into another member.
+        for (const key of Object.keys(env)) {
+          if (
+            /^GIT_(AUTHOR_|COMMITTER_|CONFIG_)/.test(key) ||
+            key === 'GIT_SSH_COMMAND'
+          )
+            delete env[key];
+        }
+      }
       mcp = undefined;
-      await recoverWithAgent({
-        paths: options.paths,
-        config: options.config(),
-        run,
-        env,
-        signal,
-        request: options.request,
-        adapterFor: options.adapterFor,
-      });
+      if (!run.execution.commandTest)
+        await recoverWithAgent({
+          paths: options.paths,
+          config: options.config(),
+          run,
+          env,
+          signal,
+          request: options.request,
+          adapterFor: options.adapterFor,
+        });
       if (run.execution.source === 'onboarding') {
         // Content intentionally remains a shipped, inspectable tree rather
         // than part of the daemon's import graph.  Keeping the specifier in a

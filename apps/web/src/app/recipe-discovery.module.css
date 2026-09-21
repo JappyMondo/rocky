@@ -1,0 +1,85 @@
+.suggestions {
+  margin-top: 12px;
+}
+.list {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.heading > input,
+.heading > span {
+  flex: 1;
+  min-width: 0;
+}
+.heading label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.heading label input {
+  width: 140px;
+}
+.heading button {
+  flex: 0 0 auto;
+}
+.row textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: monospace;
+  line-height: 1.5;
+}
+.endpoint {
+  display: flex;
+  gap: 8px;
+}
+.endpoint label {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+.endpoint input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+@media (max-width: 640px) {
+  .heading {
+    flex-wrap: wrap;
+  }
+  .heading label {
+    order: 2;
+    width: 100%;
+  }
+  .heading label input {
+    flex: 1;
+    width: auto;
+  }
+  .endpoint {
+    flex-direction: column;
+  }
+}

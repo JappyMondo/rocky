@@ -1,4 +1,10 @@
 import { DeliveryRepositories } from './repositories.js';
+import {
+  WorkspaceExecution,
+  catalogEntries,
+  serviceEntries,
+  dependencyOrder,
+} from './workspace-execution.js';
 import { ReviewHistory, reviewPolicy } from './review-history.js';
 import type { DeliveryAgents } from './agents.js';
 import {
@@ -30,8 +36,9 @@ import {
   type Resolution,
 } from './schemas.js';
 
-import { join } from 'node:path';
-import type { FlowSettings } from '@rocky/local-contracts';
+import { dirname, join } from 'node:path';
+import type { FlowSettings, UiEndpoint } from '@rocky/local-contracts';
+import { resolveUiEndpoint } from './ui-endpoint.js';
 async function shell(ctx: WorkflowContext, command: string) {
   const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`);
   if (result.exitCode !== 0)
@@ -120,6 +127,65 @@ export function createDeliveryOperations(
 ) {
   const { commands, ui, states, reviewCap, ciCap, readiness, ciLogLines } =
     settings;
+  const execution = settings.execution
+    ? new WorkspaceExecution(
+        ctx,
+        workspace,
+        settings.execution,
+        dirname(snapshotDir),
+      )
+    : undefined;
+  async function selectedCommands(purpose: 'install' | 'validate') {
+    const catalog = catalogEntries(settings.execution ?? []);
+    const available = catalog.filter(
+      ({ command }) =>
+        (purpose === 'install'
+          ? command.purpose === 'install'
+          : command.purpose !== 'install') && command.policy !== 'manual',
+    );
+    const optional = available.filter(
+      ({ command }) => command.policy === 'agent',
+    );
+    if (optional.length && !actors.selectCommands)
+      throw Error(
+        'This workflow adapter cannot select repository commands. Configure the selection helper or use explicit required/manual policies.',
+      );
+    const selection = optional.length
+      ? await actors.selectCommands!(
+          {
+            issue,
+            changedFiles:
+              purpose === 'validate' ? await ctx.changedFiles() : [],
+            purpose,
+            catalog: optional.map(({ id, repository, command }) => ({
+              id,
+              repository: repository.name,
+              command,
+            })),
+          },
+          optional.map((entry) => entry.id),
+        )
+      : { selected: [], reason: 'Only required commands are configured.' };
+    const ids = [
+      ...available
+        .filter(({ command }) => command.policy === 'required')
+        .map((entry) => entry.id),
+      ...selection.selected,
+    ];
+    const ordered = dependencyOrder(
+      catalog,
+      ids,
+      ({ command }) => command.dependsOn,
+    );
+    await ctx.step(`Command selection ${purpose} ${revision}`, async () => ({
+      selected: ordered.map((entry) => entry.id),
+      skipped: available
+        .filter((entry) => !ordered.includes(entry))
+        .map((entry) => entry.id),
+      reason: selection.reason,
+    }));
+    return ordered;
+  }
   const repositories =
     settings.pullRequests === 'all-changed' && workspace.members.length
       ? new DeliveryRepositories(ctx, workspace)
@@ -138,7 +204,7 @@ export function createDeliveryOperations(
   let description = '';
   const changes: string[] = [];
   let ciAttempts = 0;
-  let checks: Check[] | undefined;
+  const serviceChecks = new Map<string, Check[]>();
   let uiSummary = repositories ? '' : 'No frontend change.';
   let validationSummary =
     'No local validation commands configured; see CI and review evidence.';
@@ -150,6 +216,35 @@ export function createDeliveryOperations(
     repositories
       ? repositories.diff()
       : shell(ctx, 'git diff origin/HEAD...HEAD');
+  async function setupWorkspace() {
+    if (execution) {
+      if (!settings.workspaceSetup) return;
+      for (const entry of await selectedCommands('install')) {
+        const result = await execution.command(entry.id, `Install ${entry.id}`);
+        if (result.exitCode !== 0)
+          throw Error(
+            `Workspace setup failed: ${entry.id} (exit ${result.exitCode}). ${result.stderr.slice(-12000)}`,
+          );
+      }
+      return;
+    }
+    if (!settings.workspaceSetup || !commands.install.trim()) return;
+    ctx.stage('Setup workspace');
+    const result = await ctx.exec(
+      `cd -- "$ROCKY_LEAD_REPO" && ${commands.install}`,
+      { label: 'Install workspace dependencies' },
+    );
+    if (result.exitCode !== 0)
+      throw new Error(
+        `Workspace setup failed (exit ${result.exitCode}): ${commands.install}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
+      );
+  }
+  const validationResponsibility = {
+    commands,
+    repositoryCatalog: settings.execution,
+    instruction:
+      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
+  };
   async function push() {
     if (repositories) {
       await repositories.sync(
@@ -179,6 +274,8 @@ export function createDeliveryOperations(
     continuations--;
     revision = 0;
     ciAttempts = 0;
+    // Terminal exhaustion can release clean worktrees, including ignored dependencies.
+    await setupWorkspace();
     ctx.stage('Continue review');
     // Restored worktrees can include commits made after the initial workspace
     // Step. Refresh the PR revision even if the fixer disagrees with all complaints.
@@ -191,7 +288,13 @@ export function createDeliveryOperations(
       return 'retry';
     const fixed = await actors.call('fixer', {
       label: 'Repair outstanding complaints before the next review batch',
-      input: { issue, delivery, complaints, commands },
+      input: {
+        issue,
+        delivery,
+        complaints,
+        commands,
+        validationResponsibility,
+      },
       schema: FixReportFor(complaints),
     });
     changes.push(fixed.summary);
@@ -245,6 +348,7 @@ export function createDeliveryOperations(
         },
         namespace,
         disagreements,
+        validation: { summary: validationSummary, ...validationResponsibility },
         ...(rules === undefined ? {} : { rules }),
       },
       schema: ReviewFor(
@@ -264,7 +368,13 @@ export function createDeliveryOperations(
     if (revision === reviewCap) return { complaints, resolutions: [] };
     const fixed = await actors.call('fixer', {
       label: `${name} fixer ${revision}/${reviewCap}`,
-      input: { issue, delivery, complaints, commands },
+      input: {
+        issue,
+        delivery,
+        complaints,
+        commands,
+        validationResponsibility,
+      },
       schema: FixReportFor(complaints),
     });
     changes.push(fixed.summary);
@@ -324,8 +434,20 @@ export function createDeliveryOperations(
     };
   }
 
-  async function inspectUi(revision: number, previousExplanations: string[]) {
+  async function inspectUi(
+    configuredUi: {
+      start: string;
+      endpoint: UiEndpoint;
+      workspace: string;
+      external?: boolean;
+      key?: string;
+    } | null,
+    revision: number,
+    previousExplanations: string[],
+  ) {
     const rules = await loadRules(ctx, snapshotDir);
+    const serviceKey = configuredUi?.key ?? '1';
+    let checks = serviceChecks.get(serviceKey);
     if (!checks) {
       checks = (
         await actors.call('ui-planner', {
@@ -333,10 +455,13 @@ export function createDeliveryOperations(
           schema: Checks,
         })
       ).checks;
+      serviceChecks.set(serviceKey, checks);
     }
-    const namespace = `ui/${revision}/1`;
+    const namespace = `ui/${revision}/${serviceKey}`;
     let complaints: Complaint[];
-    if (!ui) {
+    if (!configuredUi) {
+      // Frozen pre-versioned flows recorded planner/fixer steps here. Preserve
+      // their sequence and complaint identity instead of inserting exhaustion effects.
       complaints = [
         {
           id: `${namespace}/config`,
@@ -345,19 +470,28 @@ export function createDeliveryOperations(
         },
       ];
     } else {
-      const url = new URL(ui.url);
-      if (!ctx.ports[0])
+      if (!ctx.ports[0] && !configuredUi.external)
         throw new Error('The UI stage needs a reserved ctx.ports[0].');
-      url.port = String(ctx.ports[0]);
-      if (!server)
+      if (!server && !configuredUi.external)
         server = await ctx.exec(
-          `export PORT=${ctx.ports[0]}; ${ui.start} > "$ROCKY_RUN_DIR/dev-server.log" 2>&1`,
+          `cd -- ${quote(configuredUi.workspace)} && export PORT=${ctx.ports[0]}; ${configuredUi.start} > "$ROCKY_RUN_DIR/dev-server.log" 2>&1`,
           { background: true, label: 'dev server' },
         );
       // Probe again on every Boot; only the recorded result chooses the replay path.
       let ready = false;
+      let url: string | undefined;
       for (let attempt = 0; attempt < readiness.attempts; attempt++) {
         try {
+          const log = await readFile(
+            `${process.env.ROCKY_RUN_DIR}/dev-server.log`,
+            'utf8',
+          ).catch(() => '');
+          url = await resolveUiEndpoint(configuredUi.endpoint, {
+            port: ctx.ports[0],
+            log,
+            workspace: configuredUi.workspace,
+          });
+          if (!url) throw new Error('endpoint not reported yet');
           const response = await fetch(url, {
             signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
           });
@@ -388,14 +522,15 @@ export function createDeliveryOperations(
       if (!boot.ready) {
         observations = [
           {
-            url: url.href,
+            url: url ?? 'http://127.0.0.1/',
             text: `Dev server failed to become ready.\n${boot.log}`,
             screenshots: [],
           },
         ];
-        await ctx.exec(`kill -TERM -${server.pid} 2>/dev/null || true`, {
-          label: 'stop failed dev server',
-        });
+        if (server)
+          await ctx.exec(`kill -TERM -${server.pid} 2>/dev/null || true`, {
+            label: 'stop failed dev server',
+          });
         server = undefined;
       } else {
         const screenshotDir = process.env.ROCKY_SCREENSHOT_DIR;
@@ -405,7 +540,7 @@ export function createDeliveryOperations(
           );
         const result = await actors.call('ui-inspector', {
           label: `ui-inspector ${revision}/${reviewCap}`,
-          input: { baseUrl: url.href, checks, rules, previousExplanations },
+          input: { baseUrl: url!, checks, rules, previousExplanations },
           schema: CheckResultsFor(checks, screenshotDir),
         });
         observations = result.results.flatMap((result) => result.observations);
@@ -709,9 +844,17 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       return 'next';
     },
     async implement() {
+      await setupWorkspace();
       ctx.stage('Implement');
       const implementation = await actors.call('implementer', {
-        input: { issue, workspace, delivery, plan, commands },
+        input: {
+          issue,
+          workspace,
+          delivery,
+          plan,
+          commands,
+          validationResponsibility,
+        },
       });
       if (!repositories) await shell(ctx, 'git push origin HEAD');
       description = `${issue.url}\n\n${plan.summary}`;
@@ -741,6 +884,33 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       ctx.stage('Validate');
       const validationProblems: Complaint[] = [];
       const validations: string[] = [];
+      if (execution) {
+        const failed = new Set<string>();
+        for (const entry of await selectedCommands('validate')) {
+          if (entry.command.dependsOn.some((id) => failed.has(id))) {
+            failed.add(entry.id);
+            validations.push(
+              `${entry.id}: skipped because a prerequisite failed`,
+            );
+            continue;
+          }
+          const result = await execution.command(
+            entry.id,
+            `Validate ${entry.id} ${revision}/${reviewCap}`,
+          );
+          validations.push(
+            `${entry.id}: ${result.exitCode === 0 ? 'passed' : 'failed'} (${entry.command.command})`,
+          );
+          if (result.exitCode !== 0) {
+            failed.add(entry.id);
+            validationProblems.push({
+              id: `validation/${revision}/${entry.id}`,
+              file: entry.repository.name,
+              text: `${entry.command.name} failed (exit ${result.exitCode}): ${entry.command.command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
+            });
+          }
+        }
+      }
       for (const [name, command] of Object.entries(commands)) {
         if (name === 'install' || !command.trim()) continue;
         const result = await ctx.exec(
@@ -794,23 +964,157 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async ui() {
       ctx.stage('UI');
+      if (execution) {
+        const catalog = serviceEntries(settings.execution ?? []);
+        const available = catalog.filter(
+          ({ service }) => service.policy !== 'manual',
+        );
+        const triage = await actors.call('ui-triage', {
+          input: {
+            changedFiles: await ctx.changedFiles(),
+            diff: await diff(),
+            services: available,
+            instruction:
+              'Identify frontend changes and select all relevant service IDs for UI inspection. Dependencies start automatically. Choose none for non-UI work. Explain your selection. Do not start processes yourself.',
+          },
+          schema: z.object({
+            isFrontend: z.boolean(),
+            selected: available.length
+              ? z.array(z.enum(available.map((entry) => entry.id)))
+              : z.array(z.string()).max(0),
+            reason: z.string(),
+          }),
+        });
+        const selected = [
+          ...new Set([
+            ...triage.selected,
+            ...available
+              .filter(({ service }) => service.policy === 'required')
+              .map((entry) => entry.id),
+          ]),
+        ];
+        await ctx.step(`Service selection ${revision}`, async () => ({
+          ...triage,
+          selected,
+          skipped: available
+            .filter((entry) => !selected.includes(entry.id))
+            .map((entry) => entry.id),
+        }));
+        if (triage.isFrontend && !selected.length)
+          throw Error(
+            'UI changes need a selected dev service. Configure one under Profile → Repositories → Dev services, then start a new run.',
+          );
+        if (!selected.length) return 'next';
+        const label = `UI services ${revision}`;
+        let retry: Complaint[] | undefined;
+        try {
+          const endpoints = await execution.start(selected, label);
+          for (const id of selected) {
+            const service = catalog.find((entry) => entry.id === id)!.service;
+            const inspection = await inspectUi(
+              {
+                start: '',
+                endpoint: {
+                  kind: 'fixed',
+                  url: endpoints[id][service.readiness.endpoint],
+                },
+                workspace: '',
+                external: true,
+                key: id,
+              },
+              revision,
+              uiExplanations,
+            );
+            if (inspection.complaints.length) {
+              retry = inspection.complaints;
+              uiExplanations = inspection.resolutions
+                .filter(({ status }) => status === 'disagreed')
+                .map(({ note }) => note);
+              break;
+            }
+          }
+        } finally {
+          await execution.stop(label);
+        }
+        if (retry) return revision === reviewCap ? exhaust(retry) : 'retry';
+        uiExplanations = [];
+        return 'next';
+      }
       const triage = await actors.call('ui-triage', {
         input: {
           changedFiles: repositories
             ? await repositories.changedFiles()
             : await ctx.changedFiles(),
           diff: await diff(),
+          recipes: Object.entries(settings.repositories ?? {}).flatMap(
+            ([repository, recipes]) =>
+              (recipes.ui ?? []).map(({ id }) => ({ repository, id })),
+          ),
         },
         schema: UiTriage,
       });
       if (triage.isFrontend) {
-        const ui = await inspectUi(revision, uiExplanations);
-        if (ui.complaints.length) {
-          if (revision === reviewCap) return exhaust(ui.complaints);
-          uiExplanations = ui.resolutions
+        const candidates = Object.entries(settings.repositories ?? {}).flatMap(
+          ([repository, recipes]) =>
+            (recipes.ui ?? []).map((recipe) => ({ repository, recipe })),
+        );
+        const selected = triage.recipe
+          ? candidates.find(
+              ({ repository, recipe }) =>
+                repository === triage.recipe?.repository &&
+                recipe.id === triage.recipe.id,
+            )
+          : candidates.length === 1
+            ? candidates[0]
+            : undefined;
+        const historicalMissingUi =
+          settings.uiConfigurationVersion === undefined &&
+          settings.repositories === undefined;
+        if (!selected && !ui && !historicalMissingUi)
+          return exhaust([
+            {
+              id: 'ui/config',
+              file: 'Flow settings',
+              text: 'UI inspection is required, but this profile has no UI start command or URL. Configure both in Flow settings and start a new Run.',
+            },
+          ]);
+        if (!selected && candidates.length)
+          return exhaust([
+            {
+              id: 'ui/recipe',
+              file: 'Flow settings',
+              text: 'UI triage did not select one configured repository recipe. Select a recipe matching the changed frontend and start a new Run.',
+            },
+          ]);
+        const inspection = await inspectUi(
+          selected
+            ? {
+                start: selected.recipe.start,
+                endpoint: selected.recipe.endpoint,
+                workspace: join(
+                  process.env.ROCKY_RUN_DIR ?? '',
+                  'workspace',
+                  workspace.members.find(
+                    ({ name }) => name === selected.repository,
+                  )?.path ?? selected.repository,
+                ),
+              }
+            : ui
+              ? {
+                  start: ui.start,
+                  endpoint: { kind: 'assigned-port', url: ui.url },
+                  workspace: process.env.ROCKY_LEAD_REPO ?? '',
+                }
+              : null,
+          revision,
+          uiExplanations,
+        );
+        if (inspection.complaints.length) {
+          if (revision === reviewCap) return exhaust(inspection.complaints);
+          uiExplanations = inspection.resolutions
             .filter(({ status }) => status === 'disagreed')
             .map(({ id, note }) => {
-              const complaint = ui.complaints.find(
+              const complaint = inspection.complaints.find(
                 (complaint) => complaint.id === id,
               );
               if (!complaint) throw new Error(`Missing UI complaint ${id}.`);
@@ -957,7 +1261,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           description: `${issue.description}\n\n### Human steering\n${answer.message}`,
         };
         ticket = `${issue.title}\n${issue.description}`;
-        checks = undefined;
+        serviceChecks.clear();
         const fix = await actors.call('fixer', {
           input: { issue, delivery, steer: answer.message, commands },
         });

@@ -493,6 +493,25 @@ export class RockyLinearClient {
     signal?.throwIfAborted();
   }
 
+  /**
+   * A durable effect can safely re-read Linear after a transient server failure:
+   * this is a query, never a replay of the mutation that may already have run.
+   */
+  private async retryTransientRead<T>(read: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await read();
+      } catch (error) {
+        const retryable =
+          error instanceof Error &&
+          /Linear API answered 5\d\d:/.test(error.message);
+        if (!retryable || attempt === 2) throw error;
+        await this.wait(250 * 2 ** attempt);
+      }
+    }
+    throw new Error('Linear read exhausted its retry budget.');
+  }
+
   private async request<
     ResponseData,
     Variables extends Record<string, unknown>,
@@ -697,7 +716,7 @@ export class RockyLinearClient {
         ? undefined
         : JSON.parse(JSON.stringify(options.signalMetadata));
     const sdk = await this.sdk();
-    let row = await sdk.activity(options.id);
+    let row = await this.retryTransientRead(() => sdk.activity(options.id));
     if (!row) {
       let failure: unknown;
       try {
@@ -707,7 +726,7 @@ export class RockyLinearClient {
       } catch (error) {
         failure = error;
       }
-      row = await sdk.activity(options.id);
+      row = await this.retryTransientRead(() => sdk.activity(options.id));
       if (!row)
         throw (
           failure ??
