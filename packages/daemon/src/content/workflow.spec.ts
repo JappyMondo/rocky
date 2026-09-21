@@ -2,7 +2,7 @@ import { readJournal } from '../run/journal.js';
 import { JournalWriter } from '../run/writer.js';
 import { retryStepKey } from '../run/retry.js';
 import { flowBindings } from '../flow/runtime.js';
-import { parseFlow } from '@rocky/local-contracts';
+import { parseFlow, type FlowRepairRevision } from '@rocky/local-contracts';
 import { createJiti } from 'jiti';
 import { execFile, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -639,9 +639,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                 ),
                 (await readJournal(join(dir, 'journal.jsonl'))).getControl(
                   'flow:repairs',
-                ) as
-                  | import('@rocky/local-contracts').FlowRepairRevision[]
-                  | undefined,
+                ) as FlowRepairRevision[] | undefined,
               ).map(({ descriptor, workflow }) => ({ ...descriptor, workflow }))
             : undefined;
           const binding = (
