@@ -4,12 +4,13 @@ import { retryStepKey } from '../run/retry.js';
 import { flowBindings } from '../flow/runtime.js';
 import { parseFlow } from '@rocky/local-contracts';
 import { createJiti } from 'jiti';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { promisify } from 'node:util';
 import {
   cp,
   mkdtemp,
+  mkdir,
   readFile,
   readdir,
   rm,
@@ -1313,6 +1314,72 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       }).import<{ default: Triggers }>(path)
     ).default;
   }
+
+  it.skipIf(mode !== 'flow')(
+    'launches UI from the captured workspace and captures the whole command without parent env',
+    async () => {
+      await visualTemplate();
+      for (const key of [
+        'ROCKY_RUN_DIR',
+        'ROCKY_LEAD_REPO',
+        'ROCKY_SCREENSHOT_DIR',
+      ])
+        vi.stubEnv(key, undefined);
+      const frontend = join(dir, 'workspace', 'app', 'frontend');
+      await mkdir(frontend, { recursive: true });
+      const source = parseFlow(flowSource);
+      source.settings.ui = {
+        start: 'printf startup-diagnostic >&2; cd frontend && pwd',
+        url: 'http://127.0.0.1',
+      };
+      source.settings.pullRequests = 'lead';
+      source.settings.readiness = { attempts: 1, intervalMs: 1 };
+      vi.stubGlobal('fetch', async () => ({ ok: true }));
+      const f = fixture({
+        triggers: flowTriggers(JSON.stringify(source), join(dir, 'snapshot')),
+        members: [{ name: 'app', path: 'app', lead: true }],
+        exec: (command) => {
+          if (command.includes('startup-diagnostic')) {
+            const result = spawnSync('/bin/sh', ['-c', command], {
+              cwd: join(dir, 'workspace'),
+              encoding: 'utf8',
+            });
+            expect(result.status, result.stderr).toBe(0);
+          }
+          return undefined;
+        },
+        agent: (name) => {
+          if (name === 'ui-triage') return { isFrontend: true };
+          if (name === 'ui-planner')
+            return {
+              checks: [
+                { id: 'page', url: '/', action: 'Open.', expected: 'Renders.' },
+              ],
+            };
+          if (name === 'ui-inspector')
+            return {
+              results: [
+                {
+                  id: 'page',
+                  verdict: 'ok',
+                  note: 'Visible.',
+                  screenshots: [],
+                  observations: [],
+                },
+              ],
+            };
+          return undefined;
+        },
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'parked',
+      });
+      expect(await readFile(join(dir, 'dev-server.log'), 'utf8')).toBe(
+        `startup-diagnostic${frontend}\n`,
+      );
+    },
+  );
 
   it('writes Checks once, sweeps all of them each pass, and anchors Observations in parallel before fixing', async () => {
     vi.stubGlobal('fetch', async () => ({ ok: true }));

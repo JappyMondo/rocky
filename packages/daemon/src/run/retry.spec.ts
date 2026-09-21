@@ -5,6 +5,69 @@ import { afterEach, expect, it } from 'vitest';
 import { runBoot, type BootContext } from './replay.js';
 import { readJournal, JOURNAL_FORMAT_VERSION } from './journal.js';
 const roots: string[] = [];
+it('retries failed UI startup rather than its blocked complaint writer, retaining earlier work and journal bytes', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const { retryStepKey } = await import('./retry.js');
+  const root = await mkdtemp(join(tmpdir(), 'rocky-ui-retry-'));
+  roots.push(root);
+  const path = join(root, 'journal.jsonl');
+  let ready = false,
+    implementations = 0,
+    launches = 0,
+    inspections = 0;
+  const workflow = async (ctx: BootContext) => {
+    await ctx.step('agent', { label: 'implementation' }, async () => {
+      implementations++;
+      return { status: 'done', result: null };
+    });
+    await ctx.step(
+      'exec:background',
+      { label: 'dev server', replay: 'restart' },
+      async () => {
+        launches++;
+        return { status: 'done', result: { pid: 123 } };
+      },
+    );
+    const boot = await ctx.step(
+      'step',
+      { label: 'UI readiness 1/1' },
+      async () => ({ status: 'done', result: { ready } }),
+    );
+    if (!boot.ready) {
+      await ctx.step('exec', { label: 'stop failed dev server' }, async () => ({
+        status: 'done',
+        result: { exitCode: 0 },
+      }));
+      await ctx.parallel('parallel', [0], {}, async (branch) => {
+        await branch.step('agent', {}, async () => {
+          throw new Error('Cannot attribute infrastructure failure to code');
+        });
+      });
+    } else {
+      await ctx.step('agent', { label: 'inspect UI' }, async () => {
+        inspections++;
+        return { status: 'done', result: null };
+      });
+    }
+    return 'completed' as const;
+  };
+  expect(await runBoot({ journalPath: path, workflow })).toMatchObject({
+    status: 'failed',
+  });
+  const original = await readFile(path, 'utf8');
+  expect(retryStepKey((await readJournal(path)).entries)).toBe('1');
+  await (await JournalWriter.open(path)).retry('repair-startup', '1');
+  ready = true;
+  expect(await runBoot({ journalPath: path, workflow })).toMatchObject({
+    status: 'finished',
+  });
+  expect({ implementations, launches, inspections }).toEqual({
+    implementations: 1,
+    launches: 2,
+    inspections: 1,
+  });
+  expect((await readFile(path, 'utf8')).startsWith(original)).toBe(true);
+});
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),

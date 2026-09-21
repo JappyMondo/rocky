@@ -85,8 +85,38 @@ function failedCommand(entry: JournalEntry): boolean {
   );
 }
 /** Resume failed work without invalidating completed downstream outcomes. */
+export function uiStartupRetryKey(
+  entries: readonly JournalEntry[],
+): string | undefined {
+  const steps = latest(entries.filter((entry) => entry.step !== '$end')).sort(
+    (a, b) => a.seq - b.seq,
+  );
+  const [server, readiness, stop, report] = steps.slice(-4);
+  // A failed complaint writer cannot repair a cached infrastructure failure.
+  // Only rewind this exact suffix: no successful reviews or edits are discarded.
+  if (
+    server?.step === 'exec:background' &&
+    server.label === 'dev server' &&
+    readiness?.step === 'step' &&
+    /^UI readiness \d+\/1$/.test(readiness.label ?? '') &&
+    readiness.status === 'done' &&
+    readiness.result &&
+    typeof readiness.result === 'object' &&
+    'ready' in readiness.result &&
+    readiness.result.ready === false &&
+    stop?.step === 'exec' &&
+    stop.label === 'stop failed dev server' &&
+    stop.status === 'done' &&
+    report?.step === '$parallel' &&
+    report.status === 'failed'
+  )
+    return String(server.seq);
+  return undefined;
+}
+
 export function retryStepKey(
   entries: readonly JournalEntry[],
+  includeUiStartup = true,
 ): string | undefined {
   const end = entries.at(-1);
   if (
@@ -97,6 +127,10 @@ export function retryStepKey(
     end.result.status !== 'failed'
   )
     return;
+  if (includeUiStartup) {
+    const ui = uiStartupRetryKey(entries);
+    if (ui !== undefined) return ui;
+  }
   const steps = latest(entries.filter((entry) => entry.step !== '$end')).sort(
     (a, b) => a.seq - b.seq,
   );
@@ -133,6 +167,8 @@ export function isRecordedRetryTarget(
 ): boolean {
   const target = retryStepKey(entries);
   if (target === key) return true;
+  // Markers written before UI startup retries targeted the reporting failure.
+  if (retryStepKey(entries, false) === key) return true;
   return (
     target !== undefined &&
     key === String(entries.at(-1)?.seq) &&

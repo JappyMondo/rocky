@@ -1,6 +1,11 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { retryRecordSchema, retryStepKey, exhaustedStepKey } from './retry.js';
+import {
+  retryRecordSchema,
+  retryStepKey,
+  exhaustedStepKey,
+  uiStartupRetryKey,
+} from './retry.js';
 
 import {
   END_STEP,
@@ -125,11 +130,14 @@ export class JournalWriter {
         flush: true,
       });
       this.ended = false;
-      this.highestSeq = Math.max(
-        ...journal.entries
-          .filter((entry) => entry.step !== END_STEP)
-          .map((entry) => entry.seq),
-      );
+      this.highestSeq =
+        uiStartupRetryKey(journal.entries) === stepKey
+          ? Number(stepKey) - 1
+          : Math.max(
+              ...journal.entries
+                .filter((entry) => entry.step !== END_STEP)
+                .map((entry) => entry.seq),
+            );
     });
   }
 

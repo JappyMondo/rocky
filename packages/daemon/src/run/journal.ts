@@ -27,6 +27,7 @@ import {
   exhaustedStepKey,
   retryRecordSchema,
   isRecordedRetryTarget,
+  uiStartupRetryKey,
 } from './retry.js';
 
 /**
@@ -361,12 +362,20 @@ function parseLines(
         controls.has(`retry:${retry.data.requestId}`)
       )
         throw new JournalFormatError(`${at(index)}: invalid Step retry`);
+      const restartUi =
+        !retry.data.continueExhausted &&
+        uiStartupRetryKey(entries) === retry.data.stepKey;
       const end = entries.pop(); // The prior $end remains on disk, outside the active replay.
       const previous = entries.findLast(
         (entry) => String(entry.seq) === retry.data.stepKey,
       );
       if (!previous && String(end?.seq) !== retry.data.stepKey)
         throw new JournalFormatError(`${at(index)}: missing retry Step`);
+      if (restartUi) {
+        for (let i = entries.length - 1; i >= 0; i--)
+          if (entries[i].seq >= Number(retry.data.stepKey))
+            entries.splice(i, 1);
+      }
       if (previous) entries.push(retryEntry(previous, retry.data.recordedAt));
       controls.set(`retry:${retry.data.requestId}`, retry.data);
       controls.set('retry:latest', retry.data);

@@ -127,6 +127,15 @@ export function createDeliveryOperations(
   repairs: import('@rocky/local-contracts').FlowRepairRevision[] = [],
 ) {
   settings = structuredClone(settings);
+  // Run-specific environment is supplied to child commands, not this process.
+  const runDir = dirname(snapshotDir);
+  const workspaceDir = join(runDir, 'workspace');
+  const leadDir = join(
+    workspaceDir,
+    (workspace.members.find((member) => member.lead) ?? workspace.members[0])
+      ?.path ?? '',
+  );
+  const serverLog = join(runDir, 'dev-server.log');
   let { commands, ui, readiness } = settings;
   const { states, reviewCap, ciCap, ciLogLines } = settings;
   let continuation = 0;
@@ -514,7 +523,7 @@ export function createDeliveryOperations(
         throw new Error('The UI stage needs a reserved ctx.ports[0].');
       if (!server && !configuredUi.external)
         server = await ctx.exec(
-          `cd -- ${quote(configuredUi.workspace)} && export PORT=${ctx.ports[0]}; ${configuredUi.start} > "$ROCKY_RUN_DIR/dev-server.log" 2>&1`,
+          `{ cd -- ${quote(configuredUi.workspace)} && export PORT=${ctx.ports[0]} && { ${configuredUi.start}\n}; } > ${quote(serverLog)} 2>&1`,
           { background: true, label: 'dev server' },
         );
       // Probe again on every Boot; only the recorded result chooses the replay path.
@@ -522,10 +531,7 @@ export function createDeliveryOperations(
       let url: string | undefined;
       for (let attempt = 0; attempt < readiness.attempts; attempt++) {
         try {
-          const log = await readFile(
-            `${process.env.ROCKY_RUN_DIR}/dev-server.log`,
-            'utf8',
-          ).catch(() => '');
+          const log = await readFile(serverLog, 'utf8').catch(() => '');
           url = await resolveUiEndpoint(configuredUi.endpoint, {
             port: ctx.ports[0],
             log,
@@ -549,14 +555,13 @@ export function createDeliveryOperations(
         ready,
         log: ready
           ? ''
-          : await readFile(
-              `${process.env.ROCKY_RUN_DIR}/dev-server.log`,
-              'utf8',
-            ).catch((error: NodeJS.ErrnoException) => {
-              if (error.code === 'ENOENT')
-                return 'The dev server did not become ready and produced no log.';
-              throw error;
-            }),
+          : await readFile(serverLog, 'utf8').catch(
+              (error: NodeJS.ErrnoException) => {
+                if (error.code === 'ENOENT')
+                  return 'The dev server did not become ready and produced no log.';
+                throw error;
+              },
+            ),
       }));
       let observations: Observation[];
       if (!boot.ready) {
@@ -573,11 +578,7 @@ export function createDeliveryOperations(
           });
         server = undefined;
       } else {
-        const screenshotDir = process.env.ROCKY_SCREENSHOT_DIR;
-        if (!screenshotDir)
-          throw new Error(
-            'The UI stage requires ROCKY_SCREENSHOT_DIR from the Run runtime.',
-          );
+        const screenshotDir = join(runDir, 'screenshots');
         const result = await actors.call('ui-inspector', {
           label: `ui-inspector ${revision}/${reviewCap}`,
           input: { baseUrl: url!, checks, rules, previousExplanations },
@@ -1143,7 +1144,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
                 start: selected.recipe.start,
                 endpoint: selected.recipe.endpoint,
                 workspace: join(
-                  process.env.ROCKY_RUN_DIR ?? '',
+                  runDir,
                   'workspace',
                   workspace.members.find(
                     ({ name }) => name === selected.repository,
@@ -1154,7 +1155,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               ? {
                   start: ui.start,
                   endpoint: { kind: 'assigned-port', url: ui.url },
-                  workspace: process.env.ROCKY_LEAD_REPO ?? '',
+                  workspace: leadDir,
                 }
               : null,
           revision,
