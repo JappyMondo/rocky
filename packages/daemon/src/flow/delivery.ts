@@ -1070,7 +1070,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         const historicalMissingUi =
           settings.uiConfigurationVersion === undefined &&
           settings.repositories === undefined;
-        if (!selected && !ui && !historicalMissingUi)
+        if (!selected && !ui && !historicalMissingUi && !ctx.replaying)
           return exhaust([
             {
               id: 'ui/config',

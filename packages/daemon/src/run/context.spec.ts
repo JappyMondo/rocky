@@ -56,6 +56,31 @@ it('names missing external adapters without inventing behavior', async () => {
   });
 });
 
+it('reports replaying only until the journaled Step is consumed', async () => {
+  const journalPath = join(dir, 'journal.jsonl');
+  const observed: boolean[] = [];
+  for (let boot = 0; boot < 2; boot++) {
+    await runBoot({
+      journalPath,
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(runner, header, {
+          exec: async () => ({ pid: 1 }),
+          changedFiles: async () => [],
+        });
+        observed.push(ctx.replaying);
+        await runner.step('recorded', {}, async () =>
+          boot === 0
+            ? { status: 'waiting' as const }
+            : { status: 'done' as const, result: 'done' },
+        );
+        observed.push(ctx.replaying);
+        return 'merged';
+      },
+    });
+  }
+  expect(observed).toEqual([false, true, false]);
+});
+
 it('exposes supplied adapters and preserves a non-approval checkpoint answer', async () => {
   const adapters = {
     agent: { run: async () => undefined },

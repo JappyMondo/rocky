@@ -124,6 +124,9 @@ export function createWorkflowContext(
     issue,
     branch: header.branch,
     ports: [...header.ports],
+    get replaying() {
+      return current().replaying;
+    },
     stage: (label: string) => current().stage(label),
     step: <T>(label: string, fn: () => T | Promise<T>) =>
       current().step('step', { label }, async () => ({

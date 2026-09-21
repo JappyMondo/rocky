@@ -162,6 +162,8 @@ export interface WorkflowContext {
   readonly branch: string;
   /** Ports reserved for this Boot. The array itself remains mutable to callers. */
   readonly ports: number[];
+  /** True while the next context operation will replay a previously recorded Step. */
+  readonly replaying: boolean;
 
   /** Display-only: takes no seq, stamps later entries, and re-executes on replay. */
   stage(label: string): void;
