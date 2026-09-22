@@ -3,6 +3,7 @@ import type {
   CiResult,
   FailedJob,
   MergeResult,
+  MergeReadiness,
   OpenPrOptions,
   ScmPr as Pr,
   ReviewThread,
@@ -10,7 +11,13 @@ import type {
 } from '@rocky/sdk';
 import type { StepOutcome } from '../run/replay.js';
 import { ScmError, ScmHttp, refuse, type ScmAdapterOptions } from './http.js';
-import { coalesceReply, replyIntent, replyScope } from './reply.js';
+import {
+  coalesceReply,
+  replyIntent,
+  replyScope,
+  checkResolutionRevision,
+  resolutionRunId,
+} from './reply.js';
 import { probeGitHub } from './probe.js';
 
 const ref = z.object({
@@ -259,6 +266,193 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         );
     }
   };
+  async function merge(
+    pr: Pr,
+    checkOnly: boolean,
+  ): Promise<StepOutcome<MergeReadiness>> {
+    // A GraphQL node ID is not authority. Bind it to a fresh repository
+    // REST read before any queue/auto-merge mutation.
+    const verified = await read(pr);
+    const { node } = await http.graphql(
+      `query Merge($id: ID!) { node(id: $id) { ... on PullRequest {
+        id headRefOid state isDraft mergeStateStatus reviewDecision isMergeQueueEnabled isInMergeQueue
+        autoMergeRequest { enabledAt } repository { autoMergeAllowed squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed }
+      } } }`,
+      { id: verified.id },
+      mergeSchema,
+    );
+    const current: Pr = {
+      ...verified,
+      headSha: node.headRefOid,
+      draft: node.isDraft,
+      state:
+        node.state === 'MERGED'
+          ? 'merged'
+          : node.state === 'CLOSED'
+            ? 'closed'
+            : 'open',
+    };
+    if (node.id !== verified.id)
+      throw refuse(
+        options.repo.id,
+        'not_open',
+        'PR identity changed.',
+        'Inspect the PR identity.',
+      );
+    if (current.state === 'merged')
+      return { status: 'done', result: { status: 'merged', pr: current } };
+    checkHead(pr, current);
+    if (current.state !== 'open')
+      throw refuse(
+        options.repo.id,
+        'not_open',
+        'PR was closed without merging.',
+        'Inspect the closed PR; do not report it as merged.',
+        current,
+      );
+    if (current.draft)
+      throw refuse(
+        options.repo.id,
+        'draft_status',
+        'PR is still a draft.',
+        'Complete reviews and mark ready before arming.',
+        current,
+      );
+    if (node.mergeStateStatus === 'DIRTY')
+      throw refuse(
+        options.repo.id,
+        'conflict',
+        'PR has merge conflicts.',
+        'Resolve conflicts in the bounded merge loop.',
+        current,
+      );
+    if (node.mergeStateStatus === 'BEHIND')
+      throw refuse(
+        options.repo.id,
+        'need_rebase',
+        'PR base moved.',
+        'Update the branch and rerun CI.',
+        current,
+      );
+    if (node.mergeStateStatus === 'UNSTABLE')
+      throw refuse(
+        options.repo.id,
+        'ci_must_pass',
+        'PR checks are not passing.',
+        'Inspect CI and repair or retry failed jobs.',
+        current,
+      );
+    if (node.reviewDecision === 'CHANGES_REQUESTED')
+      throw refuse(
+        options.repo.id,
+        'requested_changes',
+        'A reviewer requested changes.',
+        'Address the review and request a new review.',
+        current,
+      );
+    if (node.reviewDecision === 'REVIEW_REQUIRED')
+      throw refuse(
+        options.repo.id,
+        'not_approved',
+        'Required platform approval is missing.',
+        'Obtain the required reviewer approval on the PR.',
+        current,
+      );
+    if (node.mergeStateStatus === 'BLOCKED')
+      throw refuse(
+        options.repo.id,
+        'blocked_status',
+        'GitHub branch requirements are not satisfied.',
+        'Inspect and satisfy the PR branch requirements.',
+        current,
+      );
+    if (node.mergeStateStatus === 'UNKNOWN') return { status: 'waiting' };
+    if (checkOnly)
+      return { status: 'done', result: { status: 'ready', pr: current } };
+    if (
+      node.isInMergeQueue ||
+      (!node.isMergeQueueEnabled && node.autoMergeRequest)
+    )
+      return { status: 'waiting' };
+    if (!node.isMergeQueueEnabled && !node.repository.autoMergeAllowed)
+      throw refuse(
+        options.repo.id,
+        'unsupported',
+        'Repository auto-merge is disabled.',
+        'Ask a maintainer to verify auto-merge support, or merge manually; Rocky remains Parked.',
+        current,
+      );
+    if (node.isMergeQueueEnabled) {
+      const response = await http.graphql(
+        'mutation Arm($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id pullRequest { id } } } }',
+        {
+          input: {
+            pullRequestId: verified.id,
+            expectedHeadOid: pr.headSha,
+          },
+        },
+        z.object({
+          enqueuePullRequest: z.object({
+            mergeQueueEntry: z
+              .object({
+                id: z.string(),
+                pullRequest: z.object({ id: z.string() }),
+              })
+              .nullable(),
+          }),
+        }),
+      );
+      const entry = response.enqueuePullRequest.mergeQueueEntry;
+      if (!entry || entry.pullRequest.id !== verified.id)
+        throw refuse(
+          options.repo.id,
+          'invalid_response',
+          'Merge-queue enrollment did not return the requested PR.',
+          'Inspect the merge-queue entry before retrying.',
+          current,
+        );
+    } else {
+      const mergeMethod = node.repository.squashMergeAllowed
+        ? 'SQUASH'
+        : node.repository.mergeCommitAllowed
+          ? 'MERGE'
+          : node.repository.rebaseMergeAllowed
+            ? 'REBASE'
+            : undefined;
+      if (!mergeMethod)
+        throw refuse(
+          options.repo.id,
+          'unsupported',
+          'No platform merge method is enabled.',
+          'Ask a maintainer to verify merge policy.',
+          current,
+        );
+      const response = await http.graphql(
+        'mutation Arm($input: EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input: $input) { pullRequest { id } } }',
+        {
+          input: {
+            pullRequestId: verified.id,
+            expectedHeadOid: pr.headSha,
+            mergeMethod,
+          },
+        },
+        z.object({
+          enablePullRequestAutoMerge: z.object({
+            pullRequest: z.object({ id: z.string() }),
+          }),
+        }),
+      );
+      if (response.enablePullRequestAutoMerge.pullRequest.id !== verified.id)
+        throw refuse(
+          options.repo.id,
+          'invalid_response',
+          'Auto-merge mutation returned a different PR identity.',
+          'Inspect the PR identity before retrying.',
+          current,
+        );
+    }
+    return { status: 'waiting' };
+  }
   return {
     repo: options.repo,
     signal: options.signal,
@@ -525,163 +719,16 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         result: { status: 'passed', headSha: pr.headSha, failedJobs: [] },
       };
     },
+    checkMergeReady: (pr: Pr) => merge(pr, true),
     async armAutoMerge(pr: Pr): Promise<StepOutcome<MergeResult>> {
-      // A GraphQL node ID is not authority. Bind it to a fresh repository
-      // REST read before any queue/auto-merge mutation.
-      const verified = await read(pr);
-      const { node } = await http.graphql(
-        `query Merge($id: ID!) { node(id: $id) { ... on PullRequest {
-        id headRefOid state isDraft mergeStateStatus reviewDecision isMergeQueueEnabled isInMergeQueue
-        autoMergeRequest { enabledAt } repository { autoMergeAllowed squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed }
-      } } }`,
-        { id: verified.id },
-        mergeSchema,
-      );
-      const current: Pr = {
-        ...verified,
-        headSha: node.headRefOid,
-        draft: node.isDraft,
-        state:
-          node.state === 'MERGED'
-            ? 'merged'
-            : node.state === 'CLOSED'
-              ? 'closed'
-              : 'open',
-      };
-      if (node.id !== verified.id)
-        throw refuse(
-          options.repo.id,
-          'not_open',
-          'PR identity changed.',
-          'Inspect the PR identity.',
-        );
-      if (current.state === 'merged')
-        return { status: 'done', result: { status: 'merged', pr: current } };
-      checkHead(pr, current);
-      if (current.state !== 'open')
-        throw refuse(
-          options.repo.id,
-          'not_open',
-          'PR was closed without merging.',
-          'Inspect the closed PR; do not report it as merged.',
-          current,
-        );
-      if (current.draft)
-        throw refuse(
-          options.repo.id,
-          'draft_status',
-          'PR is still a draft.',
-          'Complete reviews and mark ready before arming.',
-          current,
-        );
-      if (node.mergeStateStatus === 'DIRTY')
-        throw refuse(
-          options.repo.id,
-          'conflict',
-          'PR has merge conflicts.',
-          'Resolve conflicts in the bounded merge loop.',
-          current,
-        );
-      if (node.mergeStateStatus === 'BEHIND')
-        throw refuse(
-          options.repo.id,
-          'need_rebase',
-          'PR base moved.',
-          'Update the branch and rerun CI.',
-          current,
-        );
-      if (node.mergeStateStatus === 'UNSTABLE')
-        throw refuse(
-          options.repo.id,
-          'ci_must_pass',
-          'PR checks are not passing.',
-          'Inspect CI and repair or retry failed jobs.',
-          current,
-        );
-      if (node.mergeStateStatus === 'UNKNOWN') return { status: 'waiting' };
+      const result = await merge(pr, false);
       if (
-        node.isInMergeQueue ||
-        (!node.isMergeQueueEnabled && node.autoMergeRequest)
+        result.status === 'done' &&
+        !('refused' in result.result) &&
+        result.result.status === 'ready'
       )
-        return { status: 'waiting' };
-      if (!node.isMergeQueueEnabled && !node.repository.autoMergeAllowed)
-        throw refuse(
-          options.repo.id,
-          'unsupported',
-          'Repository auto-merge is disabled.',
-          'Ask a maintainer to verify auto-merge support, or merge manually; Rocky remains Parked.',
-          current,
-        );
-      if (node.isMergeQueueEnabled) {
-        const response = await http.graphql(
-          'mutation Arm($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id pullRequest { id } } } }',
-          {
-            input: {
-              pullRequestId: verified.id,
-              expectedHeadOid: pr.headSha,
-            },
-          },
-          z.object({
-            enqueuePullRequest: z.object({
-              mergeQueueEntry: z
-                .object({
-                  id: z.string(),
-                  pullRequest: z.object({ id: z.string() }),
-                })
-                .nullable(),
-            }),
-          }),
-        );
-        const entry = response.enqueuePullRequest.mergeQueueEntry;
-        if (!entry || entry.pullRequest.id !== verified.id)
-          throw refuse(
-            options.repo.id,
-            'invalid_response',
-            'Merge-queue enrollment did not return the requested PR.',
-            'Inspect the merge-queue entry before retrying.',
-            current,
-          );
-      } else {
-        const mergeMethod = node.repository.squashMergeAllowed
-          ? 'SQUASH'
-          : node.repository.mergeCommitAllowed
-            ? 'MERGE'
-            : node.repository.rebaseMergeAllowed
-              ? 'REBASE'
-              : undefined;
-        if (!mergeMethod)
-          throw refuse(
-            options.repo.id,
-            'unsupported',
-            'No platform merge method is enabled.',
-            'Ask a maintainer to verify merge policy.',
-            current,
-          );
-        const response = await http.graphql(
-          'mutation Arm($input: EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input: $input) { pullRequest { id } } }',
-          {
-            input: {
-              pullRequestId: verified.id,
-              expectedHeadOid: pr.headSha,
-              mergeMethod,
-            },
-          },
-          z.object({
-            enablePullRequestAutoMerge: z.object({
-              pullRequest: z.object({ id: z.string() }),
-            }),
-          }),
-        );
-        if (response.enablePullRequestAutoMerge.pullRequest.id !== verified.id)
-          throw refuse(
-            options.repo.id,
-            'invalid_response',
-            'Auto-merge mutation returned a different PR identity.',
-            'Inspect the PR identity before retrying.',
-            current,
-          );
-      }
-      return { status: 'waiting' };
+        throw new Error('Readiness is not a merge result.');
+      return result as StepOutcome<MergeResult>;
     },
     async updateBranch(pr: Pr): Promise<StepOutcome<UpdateBranchResult>> {
       validate(pr);
@@ -826,6 +873,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       thread: ReviewThread,
       body: string,
       runId: string,
+      replyOptions?: { resolve: boolean },
     ): Promise<void> {
       const current = await read(thread.pr);
       const actual = (await this.reviewThreads(current)).find(
@@ -843,10 +891,14 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       const intent = replyIntent(
         actual,
         body,
-        runId,
+        replyOptions ? resolutionRunId(runId, thread) : runId,
         existing.bodies,
         options.token,
       );
+      if (replyOptions?.resolve) {
+        checkHead(thread.pr, current);
+        checkResolutionRevision(thread, existing.bodies, intent.body);
+      }
       if (!intent.exists)
         await coalesceReply(
           replyScope(http.root, options.repo.project, actual.id, options.token),
@@ -878,7 +930,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
                 !replyIntent(
                   actual,
                   body,
-                  runId,
+                  replyOptions ? resolutionRunId(runId, thread) : runId,
                   recovered.bodies,
                   options.token,
                 ).exists
@@ -887,8 +939,33 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             }
           },
         );
-      // GitHub offers no CAS resolution bound to this exact discussion
-      // revision. A human or platform automation must resolve it safely.
+      if (replyOptions?.resolve) {
+        const latest = await notes(actual.id);
+        checkResolutionRevision(thread, latest.bodies, intent.body);
+        if (!latest.resolved) {
+          checkHead(thread.pr, await read(thread.pr));
+          const resolved = await http.graphql(
+            'mutation Resolve($input: ResolveReviewThreadInput!) { resolveReviewThread(input: $input) { thread { id isResolved } } }',
+            { input: { threadId: actual.id } },
+            z.object({
+              resolveReviewThread: z.object({
+                thread: z.object({ id: z.string(), isResolved: z.boolean() }),
+              }),
+            }),
+          );
+          if (
+            resolved.resolveReviewThread.thread.id !== actual.id ||
+            !resolved.resolveReviewThread.thread.isResolved
+          )
+            throw refuse(
+              options.repo.id,
+              'blocked_status',
+              'GitHub did not resolve the conversation.',
+              'Inspect the conversation and resolution permission.',
+              current,
+            );
+        }
+      }
     },
   };
 }

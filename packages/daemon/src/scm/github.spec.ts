@@ -1322,3 +1322,152 @@ it('posts one revision report comment and recovers its existing marker on retry'
   await adapter.postReviewReport(githubPr(), 'A visual report', 'run:revision');
   transport.done();
 });
+
+it.each(['CLEAN', 'BLOCKED', 'REVIEW_REQUIRED', 'CHANGES_REQUESTED'])(
+  'reads GitHub merge requirements without mutation (%s)',
+  async (state) => {
+    const transport = scriptedFetch([
+      {
+        path: '/repos/team/repo/pulls/7',
+        value: { ...githubPull, draft: false },
+      },
+      {
+        path: '/graphql',
+        method: 'POST',
+        value: {
+          data: {
+            node: {
+              id: 'PR_one',
+              headRefOid: 'abc',
+              state: 'OPEN',
+              isDraft: false,
+              mergeStateStatus: state === 'BLOCKED' ? 'BLOCKED' : 'CLEAN',
+              reviewDecision:
+                state === 'REVIEW_REQUIRED' || state === 'CHANGES_REQUESTED'
+                  ? state
+                  : null,
+              isMergeQueueEnabled: false,
+              isInMergeQueue: false,
+              autoMergeRequest: null,
+              repository: {
+                autoMergeAllowed: true,
+                squashMergeAllowed: true,
+                mergeCommitAllowed: false,
+                rebaseMergeAllowed: false,
+              },
+            },
+          },
+        },
+      },
+    ]);
+    const pending = createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).checkMergeReady({ ...githubPr(), draft: false });
+    if (state === 'CLEAN')
+      await expect(pending).resolves.toMatchObject({
+        status: 'done',
+        result: { status: 'ready' },
+      });
+    else
+      await expect(pending).rejects.toMatchObject({
+        refusal: {
+          reason:
+            state === 'BLOCKED'
+              ? 'blocked_status'
+              : state === 'REVIEW_REQUIRED'
+                ? 'not_approved'
+                : 'requested_changes',
+        },
+      });
+    expect(
+      transport.calls.every(
+        (call) => !call.body?.query?.startsWith('mutation'),
+      ),
+    ).toBe(true);
+    transport.done();
+  },
+);
+
+it.each([false, true])(
+  'resolves only the repaired GitHub thread revision (concurrent reply=%s)',
+  async (concurrent) => {
+    let reply = '';
+    let resolved = false;
+    let writes = 0;
+    const fetcher: typeof fetch = async (url, init) => {
+      if (new URL(String(url)).pathname !== '/graphql')
+        return Response.json(githubPull);
+      const request = JSON.parse(String(init?.body));
+      if (request.query.startsWith('mutation Reply')) {
+        reply = request.variables.input.body;
+        return Response.json({
+          data: {
+            addPullRequestReviewThreadReply: { comment: { id: 'reply' } },
+          },
+        });
+      }
+      if (request.query.startsWith('mutation Resolve')) {
+        expect(request.variables.input.threadId).toBe('D1');
+        writes++;
+        resolved = true;
+        return Response.json({
+          data: {
+            resolveReviewThread: { thread: { id: 'D1', isResolved: true } },
+          },
+        });
+      }
+      const comments = {
+        nodes: [
+          { body: 'Fix this' },
+          ...(reply
+            ? [
+                { body: reply },
+                ...(concurrent ? [{ body: 'New concern' }] : []),
+              ]
+            : []),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      };
+      const thread = {
+        id: 'D1',
+        path: 'src/a.ts',
+        line: 3,
+        isResolved: resolved,
+        comments,
+      };
+      return Response.json({
+        data: {
+          node: request.query.includes('query Threads')
+            ? {
+                reviewThreads: {
+                  nodes: [thread],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              }
+            : thread,
+        },
+      });
+    };
+    const adapter = createGitHubScm({ ...githubOptions, fetch: fetcher });
+    const [thread] = await adapter.reviewThreads(githubPr());
+    const pending = adapter.replyToThread(
+      thread,
+      'Fixed and validated',
+      'run',
+      { resolve: true },
+    );
+    if (concurrent) {
+      await expect(pending).rejects.toMatchObject({
+        refusal: { reason: 'blocked_status' },
+      });
+      expect(writes).toBe(0);
+    } else {
+      await pending;
+      await adapter.replyToThread(thread, 'Fixed and validated', 'run', {
+        resolve: true,
+      });
+      expect(writes).toBe(1);
+    }
+  },
+);

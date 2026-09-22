@@ -19,6 +19,7 @@ export type {
   ScmRefusalReason,
   UpdateBranchResult,
   MergeResult,
+  MergeReadiness,
 } from './scm.js';
 
 export type {

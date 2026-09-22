@@ -21,6 +21,7 @@ import {
   type AgentCallOpts,
   type ScmPr,
   type ScmRefusal,
+  type ReviewThread,
   type WorkflowInput,
   type CheckpointAnswer,
   z,
@@ -299,6 +300,150 @@ export function createDeliveryOperations(
   let description = '';
   const changes: string[] = [];
   let ciAttempts = 0;
+  let mergeReadiness = settings.mergeReadinessVersion === 1;
+  let pendingThreads: ReviewThread[] = [];
+  let threadReplies: {
+    thread: ReviewThread;
+    body: string;
+    resolve: boolean;
+  }[] = [];
+
+  async function retryMerge() {
+    answer = undefined;
+    if (repositories) await repositories.markDraft(true);
+    else pr = requireScm(await ctx.scm.markDraft(pr, true));
+    return 'retry';
+  }
+
+  // These are new journaled reads after the approval, not replay of pre-approval CI.
+  // Inspect the entire delivery set before any repository is allowed to merge.
+  async function readyAfterApproval() {
+    if (!mergeReadiness) return true;
+    let ready = true;
+    for (const candidate of repositories?.open ?? [pr]) {
+      const threads = requireScm(await ctx.scm.reviewThreads(candidate));
+      pendingThreads.push(
+        ...threads.filter(
+          (thread) => !thread.resolved && thread.resolvable !== false,
+        ),
+      );
+      if (!settings.ciSkipRepositories?.includes(candidate.repo)) {
+        const ci = await ctx.scm.waitForCi(candidate, {
+          logTailLines: ciLogLines,
+        });
+        if ('refused' in ci) {
+          if (ci.reason !== 'head_changed') requireScm(ci);
+          ready = false;
+        } else if (ci.status !== 'passed' || ci.headSha !== candidate.headSha)
+          ready = false;
+      }
+    }
+    if (ready && !pendingThreads.length) {
+      for (const candidate of repositories?.open ?? [pr]) {
+        const platform = await ctx.scm.checkMergeReady(candidate);
+        if ('refused' in platform) {
+          ready = false;
+          if (
+            platform.reason === 'discussions_not_resolved' ||
+            platform.reason === 'requested_changes'
+          ) {
+            pendingThreads.push(
+              ...requireScm(
+                await ctx.scm.reviewThreads(platform.pr ?? candidate),
+              ).filter(
+                (thread) => !thread.resolved && thread.resolvable !== false,
+              ),
+            );
+          } else if (
+            ![
+              'ci_must_pass',
+              'ci_still_running',
+              'head_changed',
+              'need_rebase',
+              'conflict',
+            ].includes(platform.reason)
+          ) {
+            const response = await ctx.question({
+              title: 'Platform merge requirement needs attention',
+              body: `${candidate.url}\n\n${platform.message}\n\n${platform.fix}\n\nSatisfy this requirement on the platform, then reply. Rocky will revalidate and request new approval.`,
+            });
+            if ('cancelled' in response)
+              throw new Error('Platform readiness repair was cancelled.');
+          }
+        }
+      }
+    }
+    return ready && !pendingThreads.length;
+  }
+
+  async function repairMergeThreads() {
+    if (!pendingThreads.length) return;
+    const complaints = pendingThreads.map((thread, index) =>
+      Complaint.parse({
+        id: `merge-threads/${revision}/${index}`,
+        file: repositories
+          ? `${thread.pr.repo}/${thread.path ?? '.'}`
+          : (thread.path ?? '.'),
+        ...(thread.line === undefined ? {} : { line: thread.line }),
+        text: thread.body,
+      }),
+    );
+    const fixed = await actors.call('fixer', {
+      label: `Address merge conversations ${revision}`,
+      input: {
+        issue,
+        delivery,
+        complaints,
+        commands,
+        instruction:
+          'Address every review conversation. Commit fixes locally. Explain each fix with evidence; do not resolve threads or merge through shell tools.',
+      },
+      schema: FixReportFor(complaints),
+    });
+    changes.push(fixed.summary);
+    await push();
+    threadReplies = pendingThreads.map((thread, index) => {
+      const resolution = fixed.resolutions.find(
+        (r) => r.id === complaints[index].id,
+      )!;
+      const current =
+        repositories?.current.find((p) => p.repo === thread.pr.repo) ?? pr;
+      return {
+        thread: { ...thread, pr: current },
+        body:
+          resolution.status === 'fixed'
+            ? `Fixed in ${current.headSha}. ${resolution.note}`
+            : resolution.note,
+        resolve: resolution.status === 'fixed',
+      };
+    });
+    pendingThreads = [];
+  }
+
+  async function finishMergeThreads() {
+    for (const reply of threadReplies) {
+      const current =
+        repositories?.current.find((p) => p.repo === reply.thread.pr.repo) ??
+        pr;
+      const result = await ctx.scm.replyToThread(
+        { ...reply.thread, pr: current },
+        reply.body,
+        { resolve: reply.resolve },
+      );
+      if (result && 'refused' in result) {
+        if (!['blocked_status', 'head_changed'].includes(result.reason))
+          requireScm(result);
+        // A new review or head arrived during repair. Read it afresh after approval.
+      }
+      if (!reply.resolve) {
+        await ctx.question({
+          title: 'Review conversation needs a decision',
+          body: `${current.url}\n\n${reply.thread.body}\n\n${reply.body}\n\nResolve this conversation on the platform if you accept the explanation, or provide the required correction.`,
+        });
+      }
+    }
+    threadReplies = [];
+  }
   const serviceChecks = new Map<string, Check[]>();
   let uiSummary = repositories ? '' : 'No frontend change.';
   let validationSummary =
@@ -306,7 +451,7 @@ export function createDeliveryOperations(
   let server: { pid: number } | undefined;
   let revision = 0;
   let recap!: { url: string };
-  let answer!: CheckpointAnswer;
+  let answer: CheckpointAnswer | undefined;
   const diff = () =>
     repositories
       ? repositories.diff()
@@ -763,7 +908,7 @@ export function createDeliveryOperations(
       const found = requireScm(await ctx.scm.reviewThreads(candidate));
       threads.push(
         ...found
-          .filter((thread) => !thread.resolved)
+          .filter((thread) => !thread.resolved && thread.resolvable !== false)
           .map((thread) => ({ thread, repo: candidate.repo })),
       );
     }
@@ -852,10 +997,21 @@ export function createDeliveryOperations(
       await push();
       return 'retry';
     }
+    if (!(await readyAfterApproval())) return retryMerge();
     for (const candidate of repositories.open) {
       const result = await ctx.scm.armAutoMerge(candidate, answer);
       if ('refused' in result) {
         await ctx.post(`${result.message}\n${result.fix}`);
+        if (
+          result.reason === 'discussions_not_resolved' ||
+          result.reason === 'requested_changes'
+        ) {
+          mergeReadiness = true;
+          pendingThreads = requireScm(
+            await ctx.scm.reviewThreads(result.pr ?? candidate),
+          ).filter((thread) => !thread.resolved && thread.resolvable !== false);
+          return retryMerge();
+        }
         if (
           ![
             'ci_must_pass',
@@ -1076,6 +1232,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           },
         ]);
       ctx.stage('Validate');
+      await repairMergeThreads();
       const validationProblems: Complaint[] = [];
       const validations: string[] = [];
       if (execution) {
@@ -1437,6 +1594,8 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async recap() {
       ctx.stage('Visual recap');
+      // Resolve only after the repair passed validation, reviews, and CI.
+      await finishMergeThreads();
       for (const candidate of repositories?.open ?? [pr]) {
         const result = await ctx.visualRecap({
           pr: candidate,
@@ -1573,9 +1732,20 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       }
       if (answer?.decision !== 'approve')
         throw new Error('Merge requires the approval node to run first.');
+      if (!(await readyAfterApproval())) return retryMerge();
       const result = await ctx.scm.armAutoMerge(pr, answer);
       if ('refused' in result) {
         await ctx.post(`${result.message}\n${result.fix}`);
+        if (
+          result.reason === 'discussions_not_resolved' ||
+          result.reason === 'requested_changes'
+        ) {
+          mergeReadiness = true;
+          pendingThreads = requireScm(
+            await ctx.scm.reviewThreads(result.pr ?? pr),
+          ).filter((thread) => !thread.resolved && thread.resolvable !== false);
+          return retryMerge();
+        }
         if (
           [
             'ci_must_pass',

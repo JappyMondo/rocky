@@ -1364,6 +1364,7 @@ it('retains unanchored GitLab discussions and computes resolution from resolvabl
       pr,
       id: 'general',
       body: 'General review note',
+      resolvable: false,
       resolved: false,
     },
   ]);
@@ -1604,3 +1605,85 @@ it('reads failed child pipeline traces and retries the actual child jobs', async
   await adapter.retryFailedJobs(pr);
   expect(calls).toContain(`POST ${childRoot}/jobs/12/retry`);
 });
+
+it('checks GitLab readiness without requesting auto-merge', async () => {
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: { ...mr, draft: false, detailed_merge_status: 'mergeable' },
+    },
+  ]);
+  expect(
+    await createGitLabScm({
+      ...options,
+      fetch: transport.fetch,
+    }).checkMergeReady({ ...pr, draft: false }),
+  ).toMatchObject({ status: 'done', result: { status: 'ready' } });
+  expect(transport.calls.every((call) => call.method === 'GET')).toBe(true);
+  transport.done();
+});
+
+it.each([false, true])(
+  'resolves only the repaired GitLab discussion revision (concurrent reply=%s)',
+  async (concurrent) => {
+    let reply = '';
+    let resolved = false;
+    let writes = 0;
+    const fetcher: typeof fetch = async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path === root)
+        return Response.json({ id: 5, merge_trains_enabled: false });
+      if (path === `${root}/merge_requests/7`) return Response.json(mr);
+      if (init?.method === 'POST') {
+        reply = JSON.parse(String(init.body)).body;
+        return Response.json({ id: 2 });
+      }
+      if (init?.method === 'PUT') {
+        expect(JSON.parse(String(init.body))).toEqual({ resolved: true });
+        writes++;
+        resolved = true;
+      }
+      const note = {
+        id: 1,
+        body: 'Fix this',
+        system: false,
+        resolvable: true,
+        resolved,
+      };
+      const discussion = {
+        id: 'D1',
+        notes: [
+          note,
+          ...(reply
+            ? [
+                { ...note, id: 2, body: reply },
+                ...(concurrent
+                  ? [{ ...note, id: 3, body: 'New concern' }]
+                  : []),
+              ]
+            : []),
+        ],
+      };
+      return Response.json(
+        path.endsWith('/discussions') ? [discussion] : discussion,
+      );
+    };
+    const adapter = createGitLabScm({ ...options, fetch: fetcher });
+    const [thread] = await adapter.reviewThreads(pr);
+    const result = adapter.replyToThread(thread, 'Fixed and validated', 'run', {
+      resolve: true,
+    });
+    if (concurrent) {
+      await expect(result).rejects.toMatchObject({
+        refusal: { reason: 'blocked_status' },
+      });
+      expect(writes).toBe(0);
+    } else {
+      await result;
+      await adapter.replyToThread(thread, 'Fixed and validated', 'run', {
+        resolve: true,
+      });
+      expect(writes).toBe(1);
+    }
+  },
+);

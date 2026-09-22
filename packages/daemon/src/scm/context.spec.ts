@@ -41,6 +41,10 @@ function stubAdapter(signal: AbortSignal, id = 'lead'): ScmAdapter {
       status: 'done',
       result: { status: 'clean', pr },
     }),
+    checkMergeReady: async () => ({
+      status: 'done',
+      result: { status: 'ready', pr },
+    }),
     armAutoMerge: async () => ({
       status: 'done',
       result: { status: 'merged', pr },
@@ -254,6 +258,9 @@ it('journals every SCM operation through its selected Run member', async () => {
     async updateBranch() {
       calls.push('updateBranch');
       return { status: 'done', result: { status: 'clean', pr } };
+    },
+    async checkMergeReady() {
+      return { status: 'done', result: { status: 'ready', pr } };
     },
     async armAutoMerge() {
       calls.push('armAutoMerge');

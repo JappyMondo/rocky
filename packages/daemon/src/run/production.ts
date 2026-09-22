@@ -75,6 +75,7 @@ function lazyScm(load: () => Promise<ScmOps>): ScmOps {
     waitForCi: (...args) => invoke((scm) => scm.waitForCi(...args)),
     retryFailedJobs: (...args) => invoke((scm) => scm.retryFailedJobs(...args)),
     updateBranch: (...args) => invoke((scm) => scm.updateBranch(...args)),
+    checkMergeReady: (...args) => invoke((scm) => scm.checkMergeReady(...args)),
     armAutoMerge: (...args) => invoke((scm) => scm.armAutoMerge(...args)),
     reviewThreads: (...args) => invoke((scm) => scm.reviewThreads(...args)),
     replyToThread: (...args) => invoke((scm) => scm.replyToThread(...args)),

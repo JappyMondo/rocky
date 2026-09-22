@@ -99,6 +99,7 @@ export async function prepareProfileSnapshot(
     if (isFlowSource(workflowSource)) {
       const flow = parseFlow(workflowSource);
       flow.settings.uiConfigurationVersion = 1;
+      flow.settings.mergeReadinessVersion = 1;
       workflowSource = JSON.stringify(flow);
     }
     await writeFile(

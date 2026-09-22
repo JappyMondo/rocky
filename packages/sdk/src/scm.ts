@@ -36,6 +36,8 @@ export interface ReviewThread {
   line?: number;
   body: string;
   resolved: boolean;
+  /** False for general comments which cannot be resolved on the platform. */
+  resolvable?: boolean;
 }
 
 /** GitLab detailed_merge_status vocabulary, plus explicit transport/permission cases. */
@@ -109,6 +111,9 @@ export type UpdateBranchResult =
 
 export type MergeResult = { status: 'merged'; pr: ScmPr } | ScmRefusal;
 
+export type MergeReadiness =
+  { status: 'ready' | 'merged'; pr: ScmPr } | ScmRefusal;
+
 export interface ScmOps {
   openPr(options: OpenPrOptions): Promise<ScmPr | ScmRefusal>;
   markDraft(
@@ -124,9 +129,15 @@ export interface ScmOps {
   retryFailedJobs(pr: ScmPr): Promise<void | ScmRefusal>;
   /** Local fallback is content's ctx.exec work, never adapter-side git. */
   updateBranch(pr: ScmPr): Promise<UpdateBranchResult>;
+  /** Read-only platform merge requirements for the exact source head. */
+  checkMergeReady(pr: ScmPr): Promise<MergeReadiness>;
   /** Call after Checkpoint approval and every fix push. Armed is not merged. */
   armAutoMerge(pr: ScmPr, approval: ApprovedCheckpoint): Promise<MergeResult>;
   reviewThreads(pr: ScmPr): Promise<ReviewThread[] | ScmRefusal>;
   /** Find-or-create by manual Run + thread + immutable reply intent. */
-  replyToThread(thread: ReviewThread, body: string): Promise<void | ScmRefusal>;
+  replyToThread(
+    thread: ReviewThread,
+    body: string,
+    options?: { resolve: boolean },
+  ): Promise<void | ScmRefusal>;
 }

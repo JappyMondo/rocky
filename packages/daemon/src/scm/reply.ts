@@ -2,6 +2,26 @@ import { createHash, createHmac } from 'node:crypto';
 import type { ReviewThread } from '@rocky/sdk';
 import { refuse } from './http.js';
 
+/** Resolution is allowed only for the exact reviewed text plus our own reply. */
+export function checkResolutionRevision(
+  thread: ReviewThread,
+  bodies: string[],
+  reply: string,
+) {
+  if (bodies.filter((body) => body !== reply).join('\n\n') !== thread.body)
+    throw refuse(
+      thread.pr.repo,
+      'blocked_status',
+      'The review conversation changed during repair.',
+      'Read and address the new conversation before resolving it.',
+      thread.pr,
+    );
+}
+
+export function resolutionRunId(runId: string, thread: ReviewThread) {
+  return `${runId}:${createHash('sha256').update(thread.body).digest('hex')}`;
+}
+
 export function replyIntent(
   thread: ReviewThread,
   body: string,

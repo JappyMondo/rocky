@@ -28,6 +28,8 @@ export interface FlowEdge {
   targetHandle?: string;
 }
 export interface FlowSettings {
+  /** Omitted only in older immutable snapshots to preserve positional replay. */
+  mergeReadinessVersion?: 1;
   /** Snapshot-only replay version: older runs planned/fixed missing UI configuration. */
   uiConfigurationVersion?: 1;
   environmentVersion?: 1;
@@ -395,6 +397,7 @@ export const flowNodeDefinition = (type: string) =>
   FLOW_NODES.find((item) => item.type === type);
 export const defaultFlowSettings = (): FlowSettings => ({
   workspaceSetup: true,
+  mergeReadinessVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -490,6 +493,8 @@ export function parseFlow(source: string): WorkflowFlow {
     throw new Error('Unsupported environment version.');
   if (s.uiConfigurationVersion !== undefined && s.uiConfigurationVersion !== 1)
     throw new Error('Unsupported UI configuration version.');
+  if (s.mergeReadinessVersion !== undefined && s.mergeReadinessVersion !== 1)
+    throw new Error('Unsupported merge readiness version.');
   if (s.workspaceSetup !== undefined && typeof s.workspaceSetup !== 'boolean')
     throw new Error('workspaceSetup must be a boolean.');
   if (

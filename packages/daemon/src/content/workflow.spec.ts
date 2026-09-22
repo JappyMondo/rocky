@@ -178,6 +178,121 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   );
 
   it.skipIf(mode === 'legacy')(
+    'checks every repository after approval before merging any of them',
+    async () => {
+      let repaired = false;
+      const f = repositoryFixture({
+        scm: (operation, _count, args) => {
+          const candidate = args[0] as { repo: string };
+          if (operation === 'reviewThreads')
+            return candidate.repo === 'settings' && !repaired
+              ? [
+                  {
+                    pr: candidate,
+                    id: 'settings-review',
+                    body: 'Correct the configuration',
+                    path: 'values.yaml',
+                    resolved: false,
+                  },
+                ]
+              : [];
+          if (operation === 'replyToThread') {
+            repaired = true;
+            return null;
+          }
+          return undefined;
+        },
+        agent: (name, input) =>
+          name === 'fixer' && Array.isArray(input.complaints)
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({
+                    id,
+                    status: 'fixed',
+                    note: 'Corrected and tested.',
+                  }),
+                ),
+              }
+            : undefined,
+      });
+      expect((await f.boot()).status).toBe('parked');
+      f.approve();
+      f.merge();
+      expect((await f.boot()).status).toBe('parked');
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+      expect(calledRepos(f, 'reviewThreads')).toEqual(['fixture', 'settings']);
+      expect(repaired).toBe(true);
+      f.approve();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(calledRepos(f, 'checkMergeReady')).toEqual([
+        'fixture',
+        'settings',
+      ]);
+      expect(f.trace.lastIndexOf('checkMergeReady')).toBeLessThan(
+        f.trace.indexOf('armAutoMerge'),
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'recovers a legacy recorded discussion refusal through repair and fresh approval',
+    async () => {
+      const flow = JSON.parse(flowSource);
+      delete flow.settings.mergeReadinessVersion;
+      let repaired = false;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        scm: (operation, count, args) => {
+          if (operation === 'armAutoMerge' && count === 1)
+            return {
+              refused: true,
+              repo: 'fixture',
+              reason: 'discussions_not_resolved',
+              message: 'GitLab reports discussions_not_resolved.',
+              fix: 'Repair the branch/CI in the bounded merge loop.',
+              pr: args[0],
+            };
+          if (operation === 'reviewThreads')
+            return repaired
+              ? []
+              : [{ pr: args[0], id: 'D1', body: 'Fix this', resolved: false }];
+          if (operation === 'replyToThread') {
+            repaired = true;
+            return null;
+          }
+          return undefined;
+        },
+        agent: (name, input) =>
+          name === 'fixer' && Array.isArray(input.complaints)
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({ id, status: 'fixed', note: 'Fixed.' }),
+                ),
+              }
+            : undefined,
+      });
+      expect((await f.boot()).status).toBe('parked');
+      f.approve();
+      f.merge();
+      expect((await f.boot()).status).toBe('parked');
+      expect(repaired).toBe(true);
+      expect(calledRepos(f, 'armAutoMerge')).toHaveLength(1);
+      f.approve();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(calledRepos(f, 'checkMergeReady')).toHaveLength(1);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
     'blocks the whole delivery when companion CI cannot pass',
     async () => {
       const f = repositoryFixture({
@@ -611,17 +726,21 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                           ) ??
                           (operation === 'openPr' || operation === 'markDraft'
                             ? pr
-                            : operation === 'waitForCi'
-                              ? {
-                                  status: 'passed',
-                                  headSha: 'abc',
-                                  failedJobs: [],
-                                }
-                              : operation === 'updateBranch'
-                                ? { status: 'clean', pr }
-                                : operation === 'armAutoMerge'
-                                  ? { status: 'merged', pr }
-                                  : null);
+                            : operation === 'checkMergeReady'
+                              ? { status: 'ready', pr }
+                              : operation === 'reviewThreads'
+                                ? []
+                                : operation === 'waitForCi'
+                                  ? {
+                                      status: 'passed',
+                                      headSha: 'abc',
+                                      failedJobs: [],
+                                    }
+                                  : operation === 'updateBranch'
+                                    ? { status: 'clean', pr }
+                                    : operation === 'armAutoMerge'
+                                      ? { status: 'merged', pr }
+                                      : null);
                         return { status: 'done', result };
                       }),
                 }),
@@ -711,6 +830,126 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     });
     expect(f.trace.at(-1)).toBe('Done');
   });
+
+  it.skipIf(mode !== 'flow')(
+    'rechecks conversations and CI after approval before attempting merge',
+    async () => {
+      const f = fixture({
+        scm: (operation) => (operation === 'reviewThreads' ? [] : undefined),
+      });
+      expect((await f.boot()).status).toBe('parked');
+      const before = f.trace.length;
+      f.approve();
+      expect((await f.boot()).status).toBe('parked');
+      const after = f.trace.slice(before);
+      expect(after).toContain('reviewThreads');
+      expect(after).toContain('waitForCi');
+      expect(after.indexOf('reviewThreads')).toBeLessThan(
+        after.indexOf('armAutoMerge'),
+      );
+      expect(after.indexOf('waitForCi')).toBeLessThan(
+        after.indexOf('armAutoMerge'),
+      );
+    },
+  );
+
+  it.skipIf(mode !== 'flow')(
+    'repairs post-approval conversations, validates, resolves, and asks again before merge',
+    async () => {
+      let resolved = false;
+      const f = fixture({
+        scm: (operation, _count, args) => {
+          if (operation === 'reviewThreads')
+            return resolved
+              ? []
+              : [
+                  {
+                    pr: args[0],
+                    id: 'D1',
+                    path: 'src/a.ts',
+                    body: 'Fix the edge case',
+                    resolved: false,
+                  },
+                ];
+          if (operation === 'replyToThread') {
+            resolved = true;
+            return null;
+          }
+          return undefined;
+        },
+        agent: (name, input) =>
+          name === 'fixer' && Array.isArray(input.complaints)
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({
+                    id,
+                    status: 'fixed',
+                    note: 'Added and checked the edge case.',
+                  }),
+                ),
+              }
+            : undefined,
+      });
+      expect((await f.boot()).status).toBe('parked');
+      f.approve();
+      expect((await f.boot()).status).toBe('parked');
+      expect(resolved).toBe(true);
+      expect(f.trace).not.toContain('armAutoMerge');
+      expect(f.checkpointBodies).toHaveLength(3); // initial wait, first answer, new approval wait
+      const reply = f.scmCalls.find(
+        (call) => call.operation === 'replyToThread',
+      );
+      expect(reply?.args[2]).toEqual({ resolve: true });
+      expect(f.trace.lastIndexOf('waitForCi')).toBeLessThan(
+        f.trace.indexOf('replyToThread'),
+      );
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(f.trace.filter((op) => op === 'reviewThreads')).toHaveLength(2);
+    },
+  );
+
+  it.skipIf(mode !== 'flow')(
+    'repairs CI that fails after approval and requires new approval',
+    async () => {
+      const f = fixture({
+        scm: (operation, count) =>
+          operation === 'waitForCi' && (count === 2 || count === 3)
+            ? {
+                status: 'failed',
+                headSha: 'abc',
+                failedJobs: [
+                  {
+                    id: 'job',
+                    name: 'test',
+                    failedSteps: [],
+                    logTail: 'Failure',
+                  },
+                ],
+              }
+            : undefined,
+        agent: (name) =>
+          name.startsWith('ci-fixer') ? { action: 'fixed' } : undefined,
+      });
+      expect((await f.boot()).status).toBe('parked');
+      f.approve();
+      expect((await f.boot()).status).toBe('parked');
+      expect(f.calls.some((call) => call.name.startsWith('ci-fixer'))).toBe(
+        true,
+      );
+      expect(f.trace).not.toContain('armAutoMerge');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+    },
+  );
 
   it.each([0, 1])(
     'installs configured dependencies before implementation (exit %s)',
@@ -1693,7 +1932,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     ).toHaveLength(2);
     expect(
       f.scmCalls.filter(({ operation }) => operation === 'waitForCi'),
-    ).toHaveLength(2);
+    ).toHaveLength(mode === 'flow' ? 3 : 2);
     expect(f.trace.indexOf('merger')).toBeLessThan(
       f.trace.lastIndexOf('checkpoint'),
     );

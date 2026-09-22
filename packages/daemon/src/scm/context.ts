@@ -3,6 +3,7 @@ import type {
   ApprovedCheckpoint,
   CiResult,
   MergeResult,
+  MergeReadiness,
   OpenPrOptions,
   ScmPr as Pr,
   ReviewThread,
@@ -27,12 +28,14 @@ export interface ScmAdapter {
   ): Promise<StepOutcome<CiResult>>;
   retryFailedJobs(pr: Pr): Promise<void>;
   updateBranch(pr: Pr): Promise<StepOutcome<UpdateBranchResult>>;
+  checkMergeReady(pr: Pr): Promise<StepOutcome<MergeReadiness>>;
   armAutoMerge(pr: Pr): Promise<StepOutcome<MergeResult>>;
   reviewThreads(pr: Pr): Promise<ReviewThread[]>;
   replyToThread(
     thread: ReviewThread,
     body: string,
     runId: string,
+    options?: { resolve: boolean },
   ): Promise<void>;
 }
 
@@ -163,6 +166,10 @@ export function createScm(
       })),
     updateBranch: (pr) =>
       call('updateBranch', pr.repo, pr, (adapter) => adapter.updateBranch(pr)),
+    checkMergeReady: (pr) =>
+      call('checkMergeReady', pr.repo, pr, (adapter) =>
+        adapter.checkMergeReady(pr),
+      ),
     armAutoMerge: (pr, approval: ApprovedCheckpoint) =>
       // The capability itself is deliberately neither persisted nor hashed.
       // Its validity separates a rejected/stale call from a prior valid arm.
@@ -187,14 +194,19 @@ export function createScm(
         status: 'done',
         result: await adapter.reviewThreads(pr),
       })),
-    replyToThread: (thread, body) =>
+    replyToThread: (thread, body, replyOptions) =>
       call(
         'replyToThread',
         thread.pr.repo,
-        [thread, body],
+        replyOptions ? [thread, body, replyOptions] : [thread, body],
         async (adapter) => ({
           status: 'done',
-          result: await adapter.replyToThread(thread, body, options.runId),
+          result: await adapter.replyToThread(
+            thread,
+            body,
+            options.runId,
+            replyOptions,
+          ),
         }),
       ),
   };
