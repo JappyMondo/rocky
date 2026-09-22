@@ -249,8 +249,10 @@
 }
 .content > * {
   max-width: 1160px;
-  margin-left: auto;
-  margin-right: auto;
+}
+/* Page gutters must win over individual sections' margin shorthands. */
+.main > .content > * {
+  margin-inline: auto;
 }
 .pageHeader {
   display: flex;
@@ -632,11 +634,23 @@
   color: #617844;
 }
 .runHeader {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
   margin-bottom: 26px;
+}
+.runTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.runLinks {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.runLinks:empty {
+  display: none;
 }
 .runHeader > div {
   min-width: 0;
@@ -705,7 +719,6 @@
   font-size: 11px;
   text-decoration: none;
   white-space: nowrap;
-  margin-top: 50px;
 }
 .runSummary {
   display: grid;
@@ -727,24 +740,6 @@
   font-weight: 500;
   overflow-wrap: anywhere;
   color: #6a7661;
-}
-.runSummary progress {
-  display: block;
-  height: 4px;
-  width: 100%;
-  margin-top: 11px;
-  border: 0;
-  border-radius: 5px;
-  background: #edf0e7;
-  accent-color: #879e6e;
-}
-.runSummary progress::-webkit-progress-bar {
-  background: #edf0e7;
-  border-radius: 5px;
-}
-.runSummary progress::-webkit-progress-value {
-  background: #879e6e;
-  border-radius: 5px;
 }
 .sectionHeading {
   display: flex;
@@ -768,13 +763,6 @@
   font-size: 11px;
   color: #6c7265;
 }
-.boot {
-  margin: 22px 0 8px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #6e7566;
-}
 .step {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -787,14 +775,20 @@
 }
 .stepToggle {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto auto 16px;
+  grid-template-columns: 8px minmax(0, 1fr) 76px 94px 16px;
   gap: 12px;
   align-items: center;
   text-align: left;
   border: 0;
   width: 100%;
   border-radius: 0;
-  padding: 17px 19px;
+  padding: 17px 14px;
+}
+.stepToggle > .status {
+  justify-self: start;
+}
+.stepTitle {
+  min-width: 0;
 }
 .stepTitle strong {
   font-size: 12px;
@@ -807,6 +801,7 @@
   font-size: 11px;
 }
 .stepTiming {
+  font-variant-numeric: tabular-nums;
   display: grid;
   gap: 3px;
   text-align: right;
@@ -814,6 +809,10 @@
   color: #6d7365;
 }
 .expandIcon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
   color: #6f7565;
 }
 .expandIcon[data-open='true'] {
@@ -1732,9 +1731,8 @@
   .overviewHint > span:last-child {
     display: none;
   }
-  .runHeader {
-    flex-direction: column;
-    gap: 14px;
+  .runTopline {
+    align-items: flex-start;
   }
   .runHeader h1 {
     font-size: 25px;
@@ -1753,7 +1751,7 @@
   .stepToggle {
     padding: 14px 12px;
     gap: 8px;
-    grid-template-columns: 6px minmax(0, 1fr) auto 14px;
+    grid-template-columns: 6px minmax(0, 1fr) 86px 16px;
   }
   .stepTiming {
     display: none;
@@ -2466,4 +2464,98 @@
   align-items: end;
   flex-wrap: wrap;
   margin-bottom: 16px;
+}
+
+.currentActivity {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  margin: 0 0 20px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fdfefb;
+  box-shadow: 0 3px 10px #26362b0a;
+}
+.currentActivityText {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+.currentActivityText > strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.currentActivityText > small {
+  color: #6d7365;
+  font-size: 11px;
+}
+.currentActivity > button,
+.currentActivity > a {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 12px;
+}
+.runDetails {
+  margin: 16px 0;
+  font-size: 12px;
+}
+.runDetails > summary,
+.recoveryResult summary {
+  cursor: pointer;
+}
+.runDetails .runSummary {
+  margin: 12px 0 0;
+}
+.historyToggle {
+  width: 100%;
+  margin-bottom: 12px;
+  border-style: dashed;
+  font-size: 12px;
+}
+.step[data-compact='true'] {
+  margin-bottom: 4px;
+}
+.step[data-compact='true'] .stepToggle {
+  padding-block: 9px;
+}
+.step[data-compact='true'] .stepTitle strong {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.step[data-compact='true'] .stepTiming time {
+  display: none;
+}
+.step,
+.checkpoint {
+  scroll-margin-top: 190px;
+}
+@media (max-width: 760px) {
+  .currentActivity {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .currentActivityText {
+    flex: 1 1 200px;
+  }
+}
+
+.currentPreview {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #6d7365;
+  font-size: 12px;
 }

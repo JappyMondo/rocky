@@ -2,25 +2,36 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { RunSummary } from '@rocky/local-contracts';
 import { Icon, Status, dateLabel } from './ui.js';
 import styles from './app.module.css';
+import { runState } from './run-presentation.js';
 
 const filters = [
   'All runs',
   'In progress',
-  'Needs review',
+  'Needs input',
+  'Waiting',
   'Completed',
   'Failed',
+  'Cancelled',
 ] as const;
 type Filter = (typeof filters)[number];
 export type RunsViewState = { filter: Filter; query: string; page: number };
-const matches = (run: RunSummary, filter: Filter) =>
-  filter === 'All runs' ||
-  (filter === 'In progress'
-    ? ['running', 'queued'].includes(run.status)
-    : filter === 'Needs review'
-      ? run.status === 'parked'
-      : filter === 'Completed'
-        ? run.status === 'finished'
-        : run.status === 'failed');
+const matches = (run: RunSummary, filter: Filter) => {
+  const state = runState(run).value;
+  return (
+    filter === 'All runs' ||
+    (filter === 'In progress'
+      ? ['running', 'queued'].includes(state)
+      : filter === 'Needs input'
+        ? state === 'parked'
+        : filter === 'Waiting'
+          ? state === 'waiting'
+          : filter === 'Completed'
+            ? state === 'finished'
+            : filter === 'Cancelled'
+              ? state === 'cancelled'
+              : state === 'failed')
+  );
+};
 
 export function RunsOverview({
   runs,
@@ -106,9 +117,9 @@ export function RunsOverview({
             <strong>
               {loading
                 ? '—'
-                : scoped.filter((r) => matches(r, 'Needs review')).length}
+                : scoped.filter((r) => matches(r, 'Needs input')).length}
             </strong>
-            <small>Need your review</small>
+            <small>Need your input</small>
           </span>
         </div>
         <div>
@@ -241,7 +252,7 @@ export function RunsOverview({
                     </button>
                   </div>
                   <div role="cell">
-                    <Status value={run.status} />
+                    <Status {...runState(run)} />
                   </div>
                   <div role="cell" className={styles.repoCell}>
                     <Icon name="repo" size={15} />

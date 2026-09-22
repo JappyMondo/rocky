@@ -75,11 +75,11 @@ const labels: Record<string, string> = {
   waiting: 'Waiting',
   interrupted: 'Interrupted',
 };
-export function Status({ value }: { value: string }) {
+export function Status({ value, label }: { value: string; label?: string }) {
   return (
     <span className={styles.status} data-status={value}>
       <span className={`${styles.dot} ${styles[value]}`} />
-      {labels[value] ?? value}
+      {label ?? labels[value] ?? value}
     </span>
   );
 }

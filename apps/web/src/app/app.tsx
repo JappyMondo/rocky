@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom';
 import { isFlowSource, parseFlow } from '@rocky/local-contracts';
 import { RecipeDiscoveryPanel } from './recipe-discovery.js';
 import {
@@ -47,6 +48,8 @@ import { DiffViewer } from './diff-view.js';
 import { RunsOverview, type RunsViewState } from './runs-overview.js';
 import { Dialog, Icon, Mark, Status, dateLabel } from './ui.js';
 import styles from './app.module.css';
+import { RunActivitySummary } from './run-activity-summary.js';
+import { activityName, recentActivity, runState } from './run-presentation.js';
 import { Connections } from './connections.js';
 import {
   ModelChoices,
@@ -635,7 +638,9 @@ export function App() {
                 aria-current={run.runId === selectedId ? 'page' : undefined}
                 onClick={() => go(`/runs/${encodeURIComponent(run.runId)}`)}
               >
-                <span className={`${styles.dot} ${styles[run.status]}`} />
+                <span
+                  className={`${styles.dot} ${styles[runState(run).value]}`}
+                />
                 <span>
                   <strong>
                     {run.issue.identifier}
@@ -1023,6 +1028,7 @@ function RunView(p: {
   openDiff: (id: string) => void;
 }) {
   const d = p.detail;
+  const [historyRun, setHistoryRun] = useState<string | null>(null);
   if (!d)
     return (
       <div className={styles.placeholder}>
@@ -1073,7 +1079,24 @@ function RunView(p: {
     if (p.compose.trim())
       void p.answer({ decision: 'steer', message: p.compose });
   };
-  let previousBoot: number | undefined;
+  const recent = recentActivity(
+    d.steps,
+    d.run,
+    (step) => !!p.expanded[stepId(d.run.runId, step.key)],
+  );
+  const showHistory = historyRun === d.run.runId;
+  const shownSteps = showHistory ? d.steps : recent;
+  const reveal = (step: StepView) => {
+    flushSync(() => {
+      p.toggle((state) => ({
+        ...state,
+        [stepId(d.run.runId, step.key)]: true,
+      }));
+    });
+    const element = document.getElementById(`step=${step.key}`);
+    element?.scrollIntoView({ block: 'start' });
+    element?.focus({ preventScroll: true });
+  };
   return (
     <>
       <header className={styles.runHeader}>
@@ -1082,13 +1105,39 @@ function RunView(p: {
             <Icon name="back" size={16} />
             All runs
           </button>
-          <div className={styles.runIdentity}>
-            <a href={d.run.issue.url} target="_blank" rel="noreferrer">
-              {d.run.issue.identifier}
-              <Icon name="external" size={13} />
-            </a>
-            <span>{d.run.runId}</span>
-            <Status value={d.run.status} />
+          <div className={styles.runTopline}>
+            <div className={styles.runIdentity}>
+              <a href={d.run.issue.url} target="_blank" rel="noreferrer">
+                {d.run.issue.identifier}
+                <Icon name="external" size={13} />
+              </a>
+              <span>{d.run.runId}</span>
+              <Status
+                {...(checkpointOpen && !terminal(d.run.status)
+                  ? { value: 'parked', label: 'Needs your input' }
+                  : runState(d.run))}
+              />
+            </div>
+            <div className={styles.runLinks}>
+              {(d.run.prs?.length
+                ? d.run.prs
+                : d.run.pr
+                  ? [{ ...d.run.pr, repo: d.run.repo }]
+                  : []
+              ).map((pr) => (
+                <a
+                  key={pr.url}
+                  className={styles.buttonLink}
+                  href={pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {(d.run.prs?.length ?? 0) > 1 ? `${pr.repo}: ` : ''}Pull
+                  request #{pr.number}
+                  <Icon name="external" size={14} />
+                </a>
+              ))}
+            </div>
           </div>
           <h1>{d.run.issue.title}</h1>
           <p className={styles.runMeta}>
@@ -1108,25 +1157,8 @@ function RunView(p: {
             </span>
           </p>
         </div>
-        {(d.run.prs?.length
-          ? d.run.prs
-          : d.run.pr
-            ? [{ ...d.run.pr, repo: d.run.repo }]
-            : []
-        ).map((pr) => (
-          <a
-            key={pr.url}
-            className={styles.buttonLink}
-            href={pr.url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {(d.run.prs?.length ?? 0) > 1 ? `${pr.repo}: ` : ''}Pull request #
-            {pr.number}
-            <Icon name="external" size={14} />
-          </a>
-        ))}
       </header>
+      <RunActivitySummary detail={d} reveal={reveal} />
       {d.run.status === 'finished' && d.run.outcome === 'exhausted' && (
         <section className={styles.runFailure}>
           <h2>
@@ -1200,19 +1232,7 @@ function RunView(p: {
             />
           )}
           {failedStep && (
-            <button
-              onClick={() => {
-                p.toggle((state) => ({
-                  ...state,
-                  [stepId(d.run.runId, failedStep.key)]: true,
-                }));
-                document
-                  .getElementById(`step=${failedStep.key}`)
-                  ?.scrollIntoView({ block: 'center' });
-              }}
-            >
-              Show failed step
-            </button>
+            <button onClick={() => reveal(failedStep)}>Show failed step</button>
           )}
         </section>
       )}
@@ -1225,55 +1245,53 @@ function RunView(p: {
           }
           aria-label="Recovery agent result"
         >
-          <h2>
-            Recovery agent ·{' '}
-            {d.recovery.status === 'done'
-              ? 'Completed'
-              : d.recovery.status === 'failed'
-                ? 'Failed'
-                : 'Working'}
-          </h2>
-          <p className={styles.recoveryContext}>
-            This records work performed during recovery; it is not the
-            run-failure diagnosis.
-          </p>
-          <p>{d.recovery.summary}</p>
-          <details>
-            <summary>Your instructions</summary>
-            <p>{d.recovery.instructions}</p>
+          <details
+            key={`${d.recovery.requestId}:${d.recovery.status}`}
+            open={d.recovery.status !== 'done'}
+          >
+            <summary>
+              Recovery agent ·{' '}
+              {d.recovery.status === 'done'
+                ? 'Completed'
+                : d.recovery.status === 'failed'
+                  ? 'Failed'
+                  : 'Working'}
+            </summary>
+            <p className={styles.recoveryContext}>
+              This records work performed during recovery; it is not the
+              run-failure diagnosis.
+            </p>
+            <p>{d.recovery.summary}</p>
+            <details>
+              <summary>Your instructions</summary>
+              <p>{d.recovery.instructions}</p>
+            </details>
           </details>
         </section>
       )}
-      <div className={styles.runSummary}>
-        <div>
-          <p className={styles.eyebrow}>Progress</p>
-          <strong>
-            {d.steps.filter((step) => step.status === 'done').length} of{' '}
-            {d.steps.length} steps complete
-          </strong>
-          <progress
-            aria-label="Run progress"
-            value={d.steps.filter((step) => step.status === 'done').length}
-            max={Math.max(1, d.steps.length)}
-          />
+      <details className={styles.runDetails}>
+        <summary>Run details & usage</summary>
+        <div className={styles.runSummary}>
+          <div>
+            <p className={styles.eyebrow}>Profile</p>
+            <strong>
+              {d.run.profileId ?? 'Legacy run — no profile recorded'}
+            </strong>
+          </div>
+          <div>
+            <p className={styles.eyebrow}>Workflow trigger</p>
+            <strong>{d.run.trigger ?? 'Issue delegation'}</strong>
+          </div>
+          <div>
+            <p className={styles.eyebrow}>Usage</p>
+            <span>{usage(d.usage.reported, d.usage.missing)}</span>
+          </div>
         </div>
-        <div>
-          <p className={styles.eyebrow}>Profile</p>
-          <strong>
-            {d.run.profileId ?? 'Legacy run — no profile recorded'}
-          </strong>
-        </div>
-        <div>
-          <p className={styles.eyebrow}>Workflow trigger</p>
-          <strong>{d.run.trigger ?? 'Issue delegation'}</strong>
-        </div>
-        <div>
-          <p className={styles.eyebrow}>Usage</p>
-          <span>{usage(d.usage.reported, d.usage.missing)}</span>
-        </div>
-      </div>
+        {d.run.reason && (
+          <p className={styles.warning}>Technical status: {d.run.reason}</p>
+        )}
+      </details>
       <ReviewReports key={d.run.runId} detail={d} />
-      {d.run.reason && <p className={styles.warning}>{d.run.reason}</p>}
       {d.diffs.length > 0 && (
         <section className={styles.diffs}>
           <div>
@@ -1289,7 +1307,7 @@ function RunView(p: {
         </section>
       )}
       {d.checkpoint && (
-        <section className={styles.checkpoint}>
+        <section id="run-checkpoint" className={styles.checkpoint}>
           <p className={styles.eyebrow}>
             {isQuestion
               ? 'Clarification needed'
@@ -1373,7 +1391,7 @@ function RunView(p: {
         <header className={styles.sectionHeading}>
           <div>
             <h2>Run activity</h2>
-            <p>Follow the work. Expand a step for results and logs.</p>
+            <p>Recent activity. Expand a step for results and logs.</p>
           </div>
           <span>{d.steps.length} steps</span>
         </header>
@@ -1382,27 +1400,34 @@ function RunView(p: {
             Waiting for the first workflow step…
           </p>
         )}
-        {d.steps.map((step) => {
-          const boot = previousBoot !== step.boot ? step.boot : undefined;
-          previousBoot = step.boot;
+        {(showHistory || recent.length < d.steps.length) && (
+          <button
+            className={styles.historyToggle}
+            aria-expanded={showHistory}
+            onClick={() => setHistoryRun(showHistory ? null : d.run.runId)}
+          >
+            {showHistory
+              ? 'Show recent activity'
+              : `Show ${d.steps.length - recent.length} earlier steps`}
+          </button>
+        )}
+        {shownSteps.map((step) => {
           const id = stepId(d.run.runId, step.key);
           const expanded = !!p.expanded[id];
           const status =
-            step.status === 'running' && terminal(d.run.status)
+            ['running', 'waiting'].includes(step.status) &&
+            terminal(d.run.status)
               ? 'interrupted'
               : step.status;
           return (
             <section key={step.key}>
-              {boot !== undefined && d.run.boots > 1 && (
-                <div className={styles.boot}>
-                  Boot {boot}
-                  {boot === d.run.boots ? ' · current' : ''}
-                </div>
-              )}
               <article
                 id={`step=${step.key}`}
                 className={styles.step}
                 data-nested={step.parentKey ? 'true' : undefined}
+                data-compact={
+                  !expanded && status === 'done' ? 'true' : undefined
+                }
                 tabIndex={0}
                 onFocus={() => p.focus(step.key)}
               >
@@ -1415,9 +1440,13 @@ function RunView(p: {
                 >
                   <span className={`${styles.dot} ${styles[status]}`} />
                   <span className={styles.stepTitle}>
-                    <strong>{stepName(step)}</strong>
-                    {step.stage && <small>{step.stage}</small>}
-                    {step.agent && (
+                    <strong title={stepName(step)}>
+                      {expanded ? stepName(step) : activityName(step)}
+                    </strong>
+                    {step.stage && (expanded || status !== 'done') && (
+                      <small>{step.stage}</small>
+                    )}
+                    {step.agent && expanded && (
                       <small>
                         {step.agent.harness} ·{' '}
                         {step.agent.model ?? 'Harness default model'} ·{' '}

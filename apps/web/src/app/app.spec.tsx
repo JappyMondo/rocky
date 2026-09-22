@@ -41,6 +41,7 @@ const r1: RunSummary = {
   repo: 'rocky',
   branch: 'ng-612',
   status: 'parked',
+  reason: 'checkpoint',
   boots: 2,
   createdAt: '2026-09-01',
 };
@@ -1533,7 +1534,7 @@ describe('Workspace redesign', () => {
     fireEvent.click(screen.getByRole('button', { name: 'In progress 1' }));
     expect(within(table).getByText('Work item 1')).toBeTruthy();
     expect(within(table).queryByText('Work item 0')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Needs review 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Needs input 1' }));
     expect(within(table).getByText('Work item 0')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Completed 1' }));
     expect(within(table).getByText('Work item 2')).toBeTruthy();
@@ -2113,9 +2114,7 @@ it('puts a terminal failure above the journal and shows the processing profile a
   const alert = await screen.findByRole('alert');
   expect(alert.textContent).toContain('Checkpoint adapter was not connected.');
   expect(screen.getByText('product-team')).toBeTruthy();
-  fireEvent.click(
-    screen.getByRole('button', { name: /opencode.*openai\/example/ }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: /agent.*Completed/ }));
   expect(await screen.findByText('Model variant / effort')).toBeTruthy();
   expect(screen.getByText('Started')).toBeTruthy();
 });
@@ -2186,7 +2185,9 @@ it.each(['question', 'agent'])(
         .getByRole('button', { name: /Clarify scope/ })
         .getAttribute('aria-expanded'),
     ).toBe('true');
-    expect(scroll).toHaveBeenCalledWith({ block: 'center' });
+    await waitFor(() =>
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' }),
+    );
   },
 );
 
@@ -2451,4 +2452,142 @@ it('edits custom model slots on an existing profile and discovers added slots be
       ([path, init]) => path === '/api/profiles' && init?.method === 'PUT',
     ),
   ).toHaveLength(2);
+});
+
+it('keeps long journals compact while retaining active and deliberately opened steps', async () => {
+  const run = { ...r2, runId: 'r1' };
+  const steps = Array.from({ length: 30 }, (_, index) =>
+    agent({
+      key: String(index),
+      label: `Work step ${index}`,
+      status: index === 2 ? 'running' : 'done',
+      transcript: 'unavailable',
+      result: undefined,
+    }),
+  );
+  daemon({
+    runs: [run],
+    detail: () => ({ body: detail(run, { steps, checkpoint: undefined }) }),
+  });
+  render(<App />);
+  await loaded('Latest Run');
+  const journal = screen.getByRole('region', { name: 'Journal' });
+  expect(within(journal).getAllByRole('article')).toHaveLength(6);
+  expect(
+    within(journal).getByRole('button', { name: /Work step 2 .*Running/ }),
+  ).toBeTruthy();
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Show 24 earlier steps' }),
+  );
+  expect(within(journal).getAllByRole('article')).toHaveLength(30);
+  fireEvent.click(
+    within(journal).getByRole('button', { name: /Work step 0 / }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show recent activity' }));
+  expect(within(journal).getAllByRole('article')).toHaveLength(7);
+  expect(
+    within(journal)
+      .getByRole('button', { name: /Work step 0 / })
+      .getAttribute('aria-expanded'),
+  ).toBe('true');
+  fireEvent.click(
+    within(journal).getByRole('button', { name: /Work step 0 / }),
+  );
+  expect(within(journal).getAllByRole('article')).toHaveLength(6);
+});
+
+it('reveals a deep-linked older step without expanding the entire history', async () => {
+  window.history.replaceState({}, '', '/runs/r1#step=old%2F0');
+  const run = { ...r1, status: 'finished' as const };
+  const steps = Array.from({ length: 20 }, (_, index) =>
+    agent({
+      key: `old/${index}`,
+      label: `Historical work ${index}`,
+      status: 'done',
+      transcript: 'unavailable',
+    }),
+  );
+  daemon({
+    runs: [run],
+    detail: () => ({ body: detail(run, { steps, checkpoint: undefined }) }),
+  });
+  render(<App />);
+  await loaded();
+  const journal = screen.getByRole('region', { name: 'Journal' });
+  await waitFor(() =>
+    expect(
+      within(journal)
+        .getByRole('button', { name: /Historical work 0 / })
+        .getAttribute('aria-expanded'),
+    ).toBe('true'),
+  );
+  expect(within(journal).getAllByRole('article')).toHaveLength(6);
+});
+
+it('separates CI waiting, human input and cancelled runs in overview filters', async () => {
+  window.history.replaceState({}, '', '/');
+  daemon({
+    runs: [
+      {
+        ...r1,
+        runId: 'ci',
+        reason: 'scm.waitForCi:repo:hash',
+        issue: { ...r1.issue, title: 'CI work' },
+      },
+      {
+        ...r1,
+        runId: 'question',
+        reason: 'question',
+        issue: { ...r1.issue, title: 'Question work' },
+      },
+      {
+        ...r1,
+        runId: 'cancel',
+        status: 'cancelled',
+        issue: { ...r1.issue, title: 'Stopped work' },
+      },
+    ],
+  });
+  render(<App />);
+  const table = await screen.findByRole('table', { name: 'Runs' });
+  expect(within(table).getByText('Waiting for CI')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Needs input 1' }));
+  expect(within(table).getByText('Question work')).toBeTruthy();
+  expect(within(table).queryByText('CI work')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Waiting 1' }));
+  expect(within(table).getByText('CI work')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancelled 1' }));
+  expect(within(table).getByText('Stopped work')).toBeTruthy();
+});
+
+it('shows CI waiting above a folded successful recovery and technical details', async () => {
+  const run = { ...r1, reason: 'scm:waitForCi:repo:sha' };
+  daemon({
+    runs: [run],
+    detail: () => ({
+      body: detail(run, {
+        checkpoint: undefined,
+        steps: [agent({ label: 'waitForCi: repo', stage: 'CI' })],
+        recovery: {
+          requestId: 'repaired',
+          instructions: 'Repair',
+          summary: 'Workspace repaired',
+          status: 'done',
+        },
+      }),
+    }),
+  });
+  render(<App />);
+  await loaded();
+  const summary = screen.getByRole('region', { name: 'Current run state' });
+  expect(within(summary).getByText('Waiting for CI')).toBeTruthy();
+  expect(within(summary).queryByText('Needs your input')).toBeNull();
+  expect(screen.getByText('Workspace repaired').closest('details')?.open).toBe(
+    false,
+  );
+  expect(screen.getByText('Run details & usage').closest('details')?.open).toBe(
+    false,
+  );
+  expect(screen.queryByRole('progressbar')).toBeNull();
 });
