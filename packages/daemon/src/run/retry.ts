@@ -108,6 +108,17 @@ function failedCommand(entry: JournalEntry): boolean {
     entry.result.exitCode !== 0
   );
 }
+/** SCM refusals are values so workflows can handle recoverable conditions. */
+function refusedScm(entry: JournalEntry): boolean {
+  return (
+    entry.step.startsWith('scm.') &&
+    entry.status === 'done' &&
+    typeof entry.result === 'object' &&
+    entry.result !== null &&
+    'refused' in entry.result &&
+    entry.result.refused === true
+  );
+}
 /** Resume failed work without invalidating completed downstream outcomes. */
 export function uiStartupRetryKey(
   entries: readonly JournalEntry[],
@@ -159,7 +170,10 @@ export function retryStepKey(
     (a, b) => a.seq - b.seq,
   );
   const step = steps.at(-1);
-  if (step && (step.status !== 'done' || failedCommand(step)))
+  if (
+    step &&
+    (step.status !== 'done' || failedCommand(step) || refusedScm(step))
+  )
     return String(step.seq);
   // An integration or workflow can throw between journaled Steps. Reopen the
   // terminal barrier without manufacturing a failed Step or rerunning successes.

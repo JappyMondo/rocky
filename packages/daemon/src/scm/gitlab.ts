@@ -540,24 +540,17 @@ export function createGitLabScm(options: ScmAdapterOptions) {
       return { status: 'waiting' };
     // The merge-named endpoint is exclusively an auto_merge request, never immediate merge.
     if (support.trains) {
-      const response = await http.request(
+      // GitLab accepts merge-train enrollment without guaranteeing the full
+      // merge-train representation in the mutation response. Read the train
+      // back through its authoritative endpoint, which also verifies its MR
+      // identity when it is visible.
+      await http.request(
         'POST',
         `${root}/merge_trains/merge_requests/${pr.number}`,
-        trainSchema,
+        z.unknown(),
         { sha: pr.headSha, auto_merge: true },
       );
-      if (
-        response.merge_request.id !== Number(armCurrent.id) ||
-        response.merge_request.iid !== armCurrent.number ||
-        response.target_branch !== armCurrent.baseBranch
-      )
-        throw refuse(
-          options.repo.id,
-          'invalid_response',
-          'Merge-train enrollment returned a different MR.',
-          'Inspect the merge-train and MR identities before retrying.',
-          armCurrent,
-        );
+      await train(pr);
     } else {
       // GitLab's merge endpoint accepts the request but does not promise the
       // same full MR representation returned by the read endpoint. Validate
