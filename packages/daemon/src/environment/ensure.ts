@@ -36,9 +36,10 @@ const blocked = (
 });
 
 /** The shared onboarding/run boundary. Configuration authorizes recipes; discovery does not.
- * All branches use journaled receipts. Live checks run again on every Boot, while a
+ * All branches use journaled receipts. Live checks run again on working Boots, while a
  * replayed receipt selects the original path. A stale success fails closed, without
- * changing that path or invalidating implementation Steps.
+ * changing that path or invalidating implementation Steps. Poll Boots only replay
+ * receipts; their background processes are not restarted.
  */
 export async function ensureEnvironment(
   ctx: Pick<WorkflowContext, 'step' | 'stage' | 'replaying'>,
@@ -304,8 +305,9 @@ export async function ensureEnvironment(
             repository,
             recipe.sources.map((source) => source.path),
           );
-          check =
-            remaining <= 0
+          check = execution.polling
+            ? undefined
+            : remaining <= 0
               ? blocked(
                   id,
                   'budget',

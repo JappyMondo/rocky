@@ -84,13 +84,16 @@ export class WorkspaceExecution {
   }> = [];
   private endpoints: Record<string, Record<string, string>> = {};
   constructor(
-    private ctx: Pick<WorkflowContext, 'exec' | 'step' | 'ports'>,
+    private ctx: Pick<WorkflowContext, 'exec' | 'step' | 'ports' | 'polling'>,
     private workspace: WorkflowInput,
     readonly repos: WorkspaceRepository[],
     private runDir = process.env.ROCKY_RUN_DIR ?? '',
     private verified = false,
     private signal?: AbortSignal,
   ) {}
+  get polling() {
+    return this.ctx.polling === true;
+  }
   private environment(
     repo: WorkspaceRepository,
     overrides: Record<string, string>,
@@ -124,6 +127,7 @@ export class WorkspaceExecution {
     return resolve(this.runDir, 'workspace', member.path);
   }
   async checkSources(repository: string, paths: string[]) {
+    if (this.polling) return;
     const repo = this.repos.find((repo) => repo.name === repository);
     if (!repo) throw Error('Unknown evidence repository.');
     const root = await realpath(this.root(repo));
@@ -156,6 +160,14 @@ export class WorkspaceExecution {
     checks: string[],
     secretEnv: string[] = [],
   ) {
+    if (this.polling) {
+      // Consume the original process Step, but never inspect or kill its old PID.
+      await this.ctx.exec('', {
+        background: true,
+        label: `Environment probe ${id}`,
+      });
+      return { exitCode: 0, stdout: '' };
+    }
     const entry = catalogEntries(this.repos).find((entry) => entry.id === id);
     if (!entry) throw Error('Unknown environment verifier.');
     const task = {
@@ -278,6 +290,27 @@ child.on('close', code => {
     try {
       for (const [index, entry] of entries.entries()) {
         const { service, repository, id } = entry;
+        if (this.polling && this.verified) {
+          if (endpoints[id]) {
+            const receipt = await this.ctx.step(
+              `${label}: recheck ${id}`,
+              () => ({ ready: false }),
+            );
+            if (!receipt.ready) throw new ServiceStartupError(id);
+          } else {
+            await this.ctx.exec('', {
+              background: true,
+              label: `${label}: start ${id}`,
+            });
+            const receipt = await this.ctx.step(
+              `${label}: endpoints ${id}`,
+              () => ({ ready: false, endpoints: {} as Record<string, string> }),
+            );
+            if (!receipt.ready) throw new ServiceStartupError(id);
+            endpoints[id] = receipt.endpoints;
+          }
+          continue;
+        }
         if (endpoints[id]) {
           if (!this.verified) continue;
           let live = false;

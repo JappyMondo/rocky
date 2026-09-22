@@ -97,6 +97,7 @@ export interface BootContext {
   readonly boot: number;
   /** True while the next workflow Step has a recorded result to replay. */
   readonly replaying: boolean;
+  readonly polling?: boolean;
   readonly replayStep?: string;
   /**
    * Display-only stage marker: takes no seq, is never journaled as a Step of
@@ -296,6 +297,10 @@ class BootRunner implements BootContext {
   /** How far the code got, so a Workflow stopping short is detectable. */
   reached(): number {
     return this.seq;
+  }
+
+  get polling(): boolean {
+    return this.poll;
   }
 
   get replaying(): boolean {

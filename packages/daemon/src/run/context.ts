@@ -124,6 +124,9 @@ export function createWorkflowContext(
     issue,
     branch: header.branch,
     ports: [...header.ports],
+    get polling() {
+      return current().polling ?? false;
+    },
     get replaying() {
       return current().replaying;
     },

@@ -164,6 +164,8 @@ export interface WorkflowContext {
   readonly ports: number[];
   /** True while the next context operation will replay a previously recorded Step. */
   readonly replaying: boolean;
+  /** Poll Boots replay environment receipts without starting or inspecting processes. */
+  readonly polling?: boolean;
   /** Key of the next recorded Step, for compatibility at an explicit migration boundary. */
   readonly replayStep?: string;
 

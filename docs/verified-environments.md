@@ -195,8 +195,11 @@ unaffected review Steps remain intact; affected environment/UI work gets new Ste
 Update the profile separately if future Runs should use the same recipe.
 
 Environment receipts include version, attempt and a recipe digest. Background
-setup/probes/services restart through the runner, with fresh endpoints; recorded
-receipts select the old replay path. If a previously passed check is now unavailable
+setup/probes/services restart on working Boots through the runner, with fresh endpoints; recorded
+receipts select the old replay path. Poll Boots consume those receipts without
+launching probes, checking stale endpoints, or inspecting/signalling historical
+process IDs. A resolved wait queues a working Boot, which verifies live state
+before continuing. If a previously passed check is now unavailable
 during replay, Rocky fails closed rather than inserting a different branch into
 settled history or treating old evidence as current success. Restore the prerequisite
 and retry the failed Boot. Automatic arbitrary configuration synthesis and selective

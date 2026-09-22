@@ -327,79 +327,106 @@ it('restarts crashed services with fresh endpoints and leaves unrelated data int
   expect(await readFile(join(f.root, 'persistent-data'), 'utf8')).toBe('keep');
   await f.execution.stop('done');
 });
-it('replays repairs across a daemon boot without repeating completed implementation', async () => {
-  const f = await fixture();
-  // First verifier invocation fails; the environment recovery reruns it, succeeds,
-  // and records both attempts. Replaying must consume those same receipts.
-  f.repo.commands[1].command = `[ -f .probe-attempt ] && ${node} verify.cjs || { touch .probe-attempt; printf '{}'; }`;
-  const journalPath = join(f.root, 'journal.jsonl');
-  let done = false;
-  let implementations = 0;
-  const boot = () =>
-    runBoot({
-      journalPath,
-      workflow: async (runner) => {
-        const ctx = createWorkflowContext(
-          runner,
-          {
-            issue: {
-              identifier: 'TEST-1',
-              title: '',
-              description: '',
-              labels: [],
-              url: '',
+it.each([false, true])(
+  'replays environment receipts on polls and checks live setup on working Boots (broken setup: %s)',
+  async (breakSetup) => {
+    const f = await fixture();
+    // First verifier invocation fails; the environment recovery reruns it, succeeds,
+    // and records both attempts. Replaying must consume those same receipts.
+    f.repo.commands[1].command = `[ -f .probe-attempt ] && ${node} verify.cjs || { touch .probe-attempt; printf '{}'; }`;
+    const journalPath = join(f.root, 'journal.jsonl');
+    let done = false;
+    let implementations = 0;
+    const boot = (poll = false) =>
+      runBoot({
+        journalPath,
+        poll,
+        workflow: async (runner) => {
+          const ctx = createWorkflowContext(
+            runner,
+            {
+              issue: {
+                identifier: 'TEST-1',
+                title: '',
+                description: '',
+                labels: [],
+                url: '',
+              },
+              branch: 'test',
+              ports: [],
             },
-            branch: 'test',
-            ports: [],
-          },
-          {
-            exec: (cmd, background, timeoutMs) =>
-              f.exec(cmd, background, timeoutMs),
-            changedFiles: async () => [],
-            external: () => ({
-              checkpoint: async () =>
-                done
-                  ? {
-                      status: 'done' as const,
-                      result: { decision: 'approve' as const },
-                    }
-                  : { status: 'waiting' as const },
-            }),
-          },
-        );
-        await ctx.step('implementation', () => ++implementations);
-        const execution = new WorkspaceExecution(
-          ctx,
-          f.input,
-          [f.repo],
-          f.root,
-          true,
-        );
-        try {
-          expect(
-            (
-              await ensureEnvironment(ctx, execution, {
-                label: 'baseline',
-                allowSetup: true,
-              })
-            ).status,
-          ).toBe('ready');
-        } finally {
-          await execution.stop('done');
-        }
-        await ctx.checkpoint({ title: 'review', body: '' });
-        return 'completed';
-      },
-    });
-  const firstBoot = await boot();
-  expect(firstBoot.status, JSON.stringify(firstBoot)).toBe('parked');
-  done = true;
-  const replay = await boot();
-  expect(replay.status).toBe('finished');
-  expect(implementations).toBe(1);
-  const journal = await readJournal(journalPath);
-  expect(JSON.stringify(journal)).not.toContain('secret-must-not-be-retained');
-});
+            {
+              exec: (cmd, background, timeoutMs) =>
+                f.exec(cmd, background, timeoutMs),
+              changedFiles: async () => [],
+              external: () => ({
+                checkpoint: async () =>
+                  done
+                    ? {
+                        status: 'done' as const,
+                        result: { decision: 'approve' as const },
+                      }
+                    : { status: 'waiting' as const },
+              }),
+            },
+          );
+          await ctx.step('implementation', () => ++implementations);
+          const execution = new WorkspaceExecution(
+            ctx,
+            f.input,
+            [f.repo],
+            f.root,
+            true,
+          );
+          try {
+            expect(
+              (
+                await ensureEnvironment(ctx, execution, {
+                  label: 'baseline',
+                  allowSetup: true,
+                })
+              ).status,
+            ).toBe('ready');
+          } finally {
+            await execution.stop('done');
+          }
+          await ctx.checkpoint({ title: 'review', body: '' });
+          return 'completed';
+        },
+      });
+    const firstBoot = await boot();
+    expect(firstBoot.status, JSON.stringify(firstBoot)).toBe('parked');
+    const commandsBeforePoll = f.commands.length;
+    const kill = vi.spyOn(process, 'kill');
+    const poll = await boot(true);
+    expect(poll.status, JSON.stringify(poll)).toBe('parked');
+    done = true;
+    const ready = await boot(true);
+    expect(ready.status, JSON.stringify(ready)).toBe('ready');
+    expect(f.commands).toHaveLength(commandsBeforePoll);
+    expect(kill).not.toHaveBeenCalled();
+    kill.mockRestore();
+    if (breakSetup) f.repo.commands[0].command = 'exit 23';
+    const replay = await boot();
+    if (breakSetup) {
+      expect(replay).toMatchObject({
+        status: 'failed',
+        error: {
+          name: 'EnvironmentBlocked',
+          message: expect.stringContaining('Previously verified setup failed'),
+        },
+      });
+    } else {
+      expect(replay.status).toBe('finished');
+      expect(f.commands.length).toBeGreaterThan(commandsBeforePoll);
+    }
+    expect(implementations).toBe(1);
+    const journal = await readJournal(journalPath);
+    expect(JSON.stringify(journal)).not.toContain(
+      'secret-must-not-be-retained',
+    );
+  },
+);
 it('verifies onboarding in isolated clones and preserves the source checkout', async () => {
   const f = await fixture();
   const paths = rockyPaths(join(f.root, 'rocky'));
