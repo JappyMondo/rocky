@@ -1,9 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   defaultFlowSettings,
+  commandRecipe,
+  serviceRecipe,
   flowProblems,
   parseFlow,
   validateFlow,
@@ -30,9 +32,138 @@ import { LocalProfiles } from '../local-api/profiles.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(
     dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })),
   );
+});
+
+it.each([0, 1])(
+  'runs named command prerequisites in order and routes an exit code of %s',
+  async (exitCode) => {
+    const dir = await directory();
+    await mkdir(join(dir, 'workspace', 'web'), { recursive: true });
+    const flow = graph(
+      [
+        node('start', 'trigger', { kind: 'manual', name: 'test' }),
+        node('test', 'command', { recipe: 'web/test' }),
+        node('pass', 'finish', { outcome: 'completed' }),
+        node('fail', 'finish', { outcome: 'rejected' }),
+      ],
+      [
+        ['start', 'next', 'test'],
+        ['test', 'success', 'pass'],
+        ['test', 'failure', 'fail'],
+      ],
+    );
+    flow.settings.execution = [
+      {
+        id: 'web',
+        name: 'web',
+        url: 'https://example.test/web',
+        baseBranch: 'main',
+        services: [],
+        commands: [
+          commandRecipe('install', 'pnpm install'),
+          { ...commandRecipe('test', 'pnpm test'), dependsOn: ['web/install'] },
+        ],
+      },
+    ];
+    const exec = vi
+      .fn()
+      .mockResolvedValue({ exitCode, stdout: 'result', stderr: '' });
+    const workspace = { members: [{ name: 'web', path: 'web', lead: true }] };
+    expect(
+      await executeFlow(
+        flow,
+        'start',
+        context({ exec }),
+        workspace,
+        join(dir, 'snapshot'),
+      ),
+    ).toBe(exitCode ? 'rejected' : 'completed');
+    expect(exec.mock.calls[0][0]).toContain('pnpm install');
+    expect(exec).toHaveBeenCalledTimes(exitCode ? 1 : 2);
+    if (!exitCode) expect(exec.mock.calls[1][0]).toContain('pnpm test');
+    delete flow.settings.execution;
+    await expect(
+      executeFlow(
+        flow,
+        'start',
+        context({ exec }),
+        workspace,
+        join(dir, 'snapshot'),
+      ),
+    ).rejects.toThrow('unified profile');
+  },
+);
+
+it('starts and stops a configured service around the dependent workflow step', async () => {
+  const dir = await directory();
+  await mkdir(join(dir, 'workspace', 'web'), { recursive: true });
+  const flow = graph(
+    [
+      node('start', 'trigger', { kind: 'manual', name: 'test' }),
+      node('serve', 'service.start', { recipe: 'web/frontend' }),
+      node('stop', 'service.stop'),
+      node('end', 'finish', { outcome: 'completed' }),
+    ],
+    [
+      ['start', 'next', 'serve'],
+      ['serve', 'next', 'stop'],
+      ['stop', 'next', 'end'],
+    ],
+  );
+  flow.settings.execution = [
+    {
+      id: 'web',
+      name: 'web',
+      url: 'https://example.test/web',
+      baseBranch: 'main',
+      commands: [],
+      services: [
+        {
+          ...serviceRecipe('frontend'),
+          start: 'pnpm dev',
+          portEnv: '',
+          endpoints: [
+            {
+              name: 'web',
+              locator: { kind: 'fixed', url: 'http://localhost:9000' },
+            },
+          ],
+        },
+      ],
+    },
+  ];
+  const exec = vi.fn(
+    async (_command: string, options?: { background?: boolean }) =>
+      options?.background
+        ? { pid: 123 }
+        : { exitCode: 0, stdout: '', stderr: '' },
+  );
+  const step = vi.fn(async (_label, work) => work());
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('ready')),
+  );
+  const workspace = { members: [{ name: 'web', path: 'web', lead: true }] };
+  expect(
+    await executeFlow(
+      flow,
+      'start',
+      context({ exec: exec as WorkflowContext['exec'], step, ports: [9000] }),
+      workspace,
+      join(dir, 'snapshot'),
+    ),
+  ).toBe('completed');
+  expect(exec.mock.calls[0][0]).toContain('pnpm dev');
+  expect(exec.mock.calls[1][0]).toContain('-123');
+  expect(exec).toHaveBeenCalledTimes(2);
+  delete flow.settings.execution;
+  await expect(
+    executeFlow(flow, 'start', context(), workspace, join(dir, 'snapshot')),
+  ).rejects.toThrow('unified profile');
 });
 const directory = async () => {
   const d = await mkdtemp(join(tmpdir(), 'rocky-flow-test-'));

@@ -101,6 +101,7 @@ it('freezes profile membership, creates sibling worktrees and gives each Agent t
         name: repo.name,
         path: repo.name,
         lead: index === 0,
+        baseBranch: repo.baseBranch,
       })),
     );
     await ctx.agent('worker', { harness: 'opencode', tools: ['read', 'edit'] });

@@ -1,8 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
-import { parseFlow, type WorkflowFlow } from '@rocky/local-contracts';
-import { componentTree, visibleComponents } from './flow-components.js';
+import {
+  defaultFlowSettings,
+  parseFlow,
+  type WorkflowFlow,
+} from '@rocky/local-contracts';
+import {
+  componentTree,
+  createFlowNode,
+  visibleComponents,
+} from './flow-components.js';
 import { layoutFlow } from './flow-layout.js';
 
 const defaultFlow = () =>
@@ -25,6 +33,10 @@ function expectSeparated(flow: WorkflowFlow, width = 188, height = 72) {
       expect(
         Math.abs(node.position.x - other.position.x) >= width ||
           Math.abs(node.position.y - other.position.y) >= height,
+        JSON.stringify({
+          node: { id: node.id, ...node.position },
+          other: { id: other.id, ...other.position },
+        }),
       ).toBe(true);
     }
   }
@@ -107,4 +119,35 @@ it('includes disconnected nodes and self loops, respects measured sizes, and tol
 it('handles an empty canvas', () => {
   const flow = { ...defaultFlow(), nodes: [], edges: [] };
   expect(layoutFlow(flow)).toEqual(flow);
+});
+
+it('keeps a shared agent clear of both disconnected consumers', () => {
+  const flow: WorkflowFlow = {
+    version: 2,
+    name: 'Shared agent',
+    models: {},
+    settings: defaultFlowSettings(),
+    nodes: ['delivery.implement', 'delivery.implement', 'agent'].map(
+      (type, index) => ({
+        ...createFlowNode(type, { x: 0, y: 0 }),
+        id: `n${index}`,
+      }),
+    ),
+    edges: ['n0', 'n1'].map((target) => ({
+      id: `shared-${target}`,
+      kind: 'attachment',
+      source: 'n2',
+      sourceHandle: 'provide',
+      target,
+      targetHandle: 'agent:implementer',
+    })),
+  };
+  const measured = flow.nodes.map(({ id }) => ({
+    id,
+    measured: { width: 260, height: 140 },
+  }));
+  const arranged = layoutFlow(flow, measured);
+  expectSeparated(arranged, 260, 140);
+  expect(layoutFlow(arranged, measured)).toEqual(arranged);
+  expect(arranged.edges).toEqual(flow.edges);
 });

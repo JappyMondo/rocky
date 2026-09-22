@@ -56,6 +56,246 @@ afterEach(async () => {
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 describe('LocalArtifacts', () => {
+  it.each([
+    ['identity', { id: '../revision' }],
+    ['base revision', { baseSha: 'not-a-sha' }],
+    ['head revision', { headSha: 'not-a-sha' }],
+    ['availability', { availability: 'unknown' }],
+    ['file collection', { files: null }],
+    ['annotation collection', { annotations: null }],
+    ['file count', { files: Array(10_001).fill(null) }],
+    ['annotation count', { annotations: Array(100_001).fill(null) }],
+    ['missing file', { files: [null] }],
+    ['traversal', { files: [{ path: '../secret' }] }],
+    ['old path', { files: [{ path: 'a.ts', oldPath: '/secret' }] }],
+    ['file kind', { files: [{ path: 'a.ts', kind: 'symlink' }] }],
+    [
+      'file status',
+      { files: [{ path: 'a.ts', kind: 'file', status: 'unknown' }] },
+    ],
+    ['missing annotation', { annotations: [null] }],
+  ])('rejects invalid diff %s without persisting it', async (_name, fields) => {
+    const { artifacts } = await fixture();
+    await expect(
+      artifacts.saveDiff('NG-609-1', {
+        ...diff('revision.1'),
+        ...fields,
+      } as DiffView),
+    ).rejects.toMatchObject({ code: 'invalid_diff' });
+    expect(await artifacts.listDiffs('NG-609-1')).toEqual([]);
+  });
+
+  it.each([
+    ['missing hunk', null],
+    ['header', { header: 42, lines: [] }],
+    ['long header', { header: 'x'.repeat(16_385), lines: [] }],
+    ['line collection', { header: '@@', lines: null }],
+    ['line count', { header: '@@', lines: Array(100_001).fill(null) }],
+    ...[
+      null,
+      { kind: 'unknown', text: '' },
+      { kind: 'add', text: 42 },
+      { kind: 'add', text: 'x'.repeat(1_000_001) },
+      { kind: 'delete', text: '', baseLine: -1 },
+      { kind: 'delete', text: '', baseLine: 1.5 },
+      { kind: 'add', text: '', headLine: -1 },
+      { kind: 'add', text: '', headLine: 1.5 },
+    ].map((line, index): [string, unknown] => [
+      `invalid line ${index}`,
+      { header: '@@', lines: [line] },
+    ]),
+  ])('rejects malformed diff content: %s', async (_name, hunk) => {
+    const { artifacts } = await fixture();
+    const invalid = diff('revision.1');
+    invalid.files[0].hunks = [hunk] as DiffView['files'][number]['hunks'];
+    await expect(artifacts.saveDiff('NG-609-1', invalid)).rejects.toMatchObject(
+      { code: 'invalid_diff' },
+    );
+  });
+
+  it.each([
+    ['empty identity', { id: '' }],
+    ['nul identity', { id: 'bad\0id' }],
+    ['step', { stepKey: 'agent' }],
+    ['revision', { revision: 'another-revision' }],
+    ['file', { file: '../secret' }],
+    ['text', { text: 42 }],
+    ['state', { state: 'unknown' }],
+    ['side', { side: 'left' }],
+    ['line', { line: 0 }],
+    ['fractional line', { line: 1.5 }],
+    ['resolution', { resolution: null }],
+    ['reason', { resolution: { stepKey: '0', label: 'fix', reason: '' } }],
+    ['screenshots', { screenshots: 'screenshot.png' }],
+    ['screenshot count', { screenshots: Array(1001).fill(null) }],
+    [
+      'screenshot caption',
+      { screenshots: [{ id: `s_${'0'.repeat(32)}`, caption: 42 }] },
+    ],
+  ])('rejects invalid annotation %s', async (_name, fields) => {
+    const { artifacts } = await fixture();
+    const annotation = {
+      id: 'review:0',
+      stepKey: '0',
+      revision: 'revision.1',
+      file: 'a.ts',
+      text: 'Fix this',
+      state: 'open',
+      ...fields,
+    } as DiffView['annotations'][number];
+    await expect(
+      artifacts.saveDiff('NG-609-1', diff('revision.1', [annotation])),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it.each([
+    null,
+    { version: 2 },
+    { screenshots: [] },
+    { transcripts: [] },
+    { diffs: [] },
+    { reports: [] },
+    { reports: { wrong: { id: 'other', runId: 'NG-609-1' } } },
+    { reports: { wrong: { id: 'wrong', runId: 'OTHER-1' } } },
+    { reports: { wrong: { id: 'wrong', runId: 'NG-609-1' } } },
+    { screenshots: { invalid: {} } },
+    {
+      screenshots: {
+        [`s_${'0'.repeat(32)}`]: { relativePath: '../secret', caption: '' },
+      },
+    },
+    {
+      screenshots: {
+        [`s_${'0'.repeat(32)}`]: { relativePath: 'shot.png', caption: 42 },
+      },
+    },
+    { transcripts: { 'bad-step': 'turn.jsonl' } },
+    { transcripts: { 0: '../secret' } },
+    { diffs: { wrong: diff('revision.1') } },
+  ])('rejects malformed persisted manifests: %j', async (fields) => {
+    const { run, artifacts } = await fixture();
+    await writeFile(
+      join(run.dir, 'artifacts.json'),
+      JSON.stringify(
+        fields === null
+          ? null
+          : {
+              version: 1,
+              screenshots: {},
+              transcripts: {},
+              diffs: {},
+              ...fields,
+            },
+      ),
+    );
+    await expect(artifacts.listDiffs('NG-609-1')).rejects.toMatchObject({
+      code: 'invalid_manifest',
+    });
+  });
+
+  it('rejects non-files, changed image content, and linked transcripts', async () => {
+    const { run, artifacts } = await fixture();
+    await mkdir(join(run.screenshotsDir, 'directory'));
+    await expect(
+      artifacts.registerScreenshot('NG-609-1', 'directory', ''),
+    ).rejects.toMatchObject({ code: 'invalid_image' });
+    await writeFile(join(run.screenshotsDir, 'invalid.png'), '<svg/>');
+    await expect(
+      artifacts.registerScreenshot('NG-609-1', 'invalid.png', ''),
+    ).rejects.toMatchObject({ code: 'invalid_image' });
+    await writeFile(join(run.screenshotsDir, 'shot.png'), PNG);
+    const shot = await artifacts.registerScreenshot(
+      'NG-609-1',
+      'shot.png',
+      'proof',
+    );
+    await writeFile(join(run.screenshotsDir, 'shot.png'), 'not an image');
+    await expect(artifacts.readScreenshot(shot.id)).rejects.toMatchObject({
+      code: 'invalid_image',
+    });
+    await rm(join(run.screenshotsDir, 'shot.png'));
+    await mkdir(join(run.screenshotsDir, 'shot.png'));
+    await expect(artifacts.readScreenshot(shot.id)).rejects.toMatchObject({
+      code: 'screenshot_pruned',
+    });
+    await mkdir(join(run.sessionsDir, 'directory'));
+    await expect(
+      artifacts.registerTranscript('NG-609-1', '0', 'directory'),
+    ).rejects.toMatchObject({ code: 'invalid_transcript' });
+    await writeFile(join(run.sessionsDir, 'turn.jsonl'), '{}');
+    await link(
+      join(run.sessionsDir, 'turn.jsonl'),
+      join(run.sessionsDir, 'linked.jsonl'),
+    );
+    await expect(
+      artifacts.registerTranscript('NG-609-1', '0', 'linked.jsonl'),
+    ).rejects.toMatchObject({ code: 'unsafe_artifact_path' });
+    await expect(
+      artifacts.registerTranscript('NG-609-1', '0', '../secret'),
+    ).rejects.toMatchObject({ code: 'invalid_path' });
+    await expect(artifacts.listDiffs('../run')).rejects.toMatchObject({
+      code: 'invalid_run_id',
+    });
+    await expect(
+      artifacts.readDiff('NG-609-1', '../diff'),
+    ).rejects.toMatchObject({ code: 'invalid_diff_id' });
+  });
+
+  it('bounds diff and manifest payloads before persisting or serving them', async () => {
+    const { run, artifacts } = await fixture();
+    const large = diff('large');
+    large.files[0].hunks[0].lines = Array.from({ length: 22 }, () => ({
+      kind: 'add',
+      text: 'x'.repeat(1_000_000),
+    }));
+    await expect(artifacts.saveDiff('NG-609-1', large)).rejects.toMatchObject({
+      code: 'diff_too_large',
+      statusCode: 413,
+    });
+    expect(await artifacts.listDiffs('NG-609-1')).toEqual([]);
+    expect(() => parseUnifiedDiff('x'.repeat(20 * 1024 * 1024 + 1))).toThrow(
+      'Patch is invalid or too large',
+    );
+    await writeFile(
+      join(run.dir, 'artifacts.json'),
+      JSON.stringify({
+        version: 1,
+        screenshots: {},
+        transcripts: {},
+        diffs: Object.fromEntries(
+          Array.from({ length: 10_001 }, (_, i) => [String(i), {}]),
+        ),
+      }),
+    );
+    await expect(artifacts.listDiffs('NG-609-1')).rejects.toMatchObject({
+      code: 'manifest_too_large',
+      statusCode: 413,
+    });
+  });
+
+  it('reports no screenshots when the runs directory has not been created', async () => {
+    const { paths, artifacts } = await fixture();
+    await rm(paths.runsDir, { recursive: true });
+    await expect(
+      artifacts.readScreenshot(`s_${'0'.repeat(32)}`),
+    ).rejects.toMatchObject({ code: 'screenshot_not_found', statusCode: 404 });
+  });
+
+  it('rejects manifests redirected to a directory or another file', async () => {
+    const { run, artifacts } = await fixture();
+    const manifest = join(run.dir, 'artifacts.json');
+    await mkdir(manifest);
+    await expect(artifacts.listDiffs('NG-609-1')).rejects.toMatchObject({
+      code: 'invalid_manifest',
+    });
+    await rm(manifest, { recursive: true });
+    await writeFile(join(run.dir, 'other.json'), '{}');
+    await symlink(join(run.dir, 'other.json'), manifest);
+    await expect(artifacts.listDiffs('NG-609-1')).rejects.toMatchObject({
+      code: 'unsafe_artifact_path',
+    });
+  });
+
   it('persists opaque screenshots and sniffs the content rather than the extension', async () => {
     const { run, paths, artifacts } = await fixture();
     await writeFile(join(run.screenshotsDir, 'capture.txt'), PNG);
@@ -473,5 +713,69 @@ describe('LocalArtifacts', () => {
         ],
       },
     ]);
+  });
+
+  it('parses added, deleted, and binary files while ignoring non-hunk metadata', () => {
+    expect(
+      parseUnifiedDiff(
+        [
+          'metadata before the first file',
+          'diff --git "a/new file" "b/new file"',
+          'new file mode 100644',
+          '--- /dev/null',
+          '+++ b/new file',
+          '@@ -0,0 +1 @@',
+          '-invalid extra deletion',
+          ' invalid extra context',
+          '+created',
+          'diff --git a/old b/old',
+          'deleted file mode 100644',
+          '@@ -1 +0,0 @@',
+          '+invalid extra addition',
+          '-deleted',
+          'diff --git a/image.png b/image.png',
+          'Binary files a/image.png and b/image.png differ',
+          'diff --git a/blob b/blob',
+          'GIT binary patch',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      {
+        path: 'new file',
+        kind: 'file',
+        status: 'added',
+        hunks: [
+          {
+            header: '@@ -0,0 +1 @@',
+            lines: [{ kind: 'add', text: 'created', headLine: 1 }],
+          },
+        ],
+      },
+      {
+        path: 'old',
+        kind: 'file',
+        status: 'deleted',
+        hunks: [
+          {
+            header: '@@ -1 +0,0 @@',
+            lines: [{ kind: 'delete', text: 'deleted', baseLine: 1 }],
+          },
+        ],
+      },
+      { path: 'image.png', kind: 'file', status: 'binary', hunks: [] },
+      { path: 'blob', kind: 'file', status: 'binary', hunks: [] },
+    ]);
+  });
+
+  it.each([
+    'diff --git a/../secret b/secret',
+    'diff --git a/file b/../secret',
+    'diff --git invalid-header',
+    'diff --git a/file b/file\nrename from ../secret',
+    'diff --git a/file b/file\nrename to /secret',
+  ])('rejects unsafe or malformed patch paths: %s', (patch) => {
+    expect(() => parseUnifiedDiff(patch)).toThrow(
+      /invalid path|invalid rename/,
+    );
   });
 });
