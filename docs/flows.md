@@ -17,6 +17,9 @@ to focus its agents and dependencies. **← Workflow** returns to the overview.
 Each output has exactly one destination. Use a Condition for branching; connect
 an output back to an earlier node for a loop. Unconnected nodes, missing required
 parameters, invalid settings and ambiguous connections block saving and admission.
+For compatibility, older graphs may omit the implementation node's `exhausted`
+connection. An environment blocker then ends the Run as exhausted so configuration
+repair remains available. New default graphs connect that output explicitly.
 
 The editor supports undo/redo, duplicate/delete, pan/zoom, a minimap, full-screen
 editing, notes and JSON import/export. **Save profile** publishes the graph for

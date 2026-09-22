@@ -175,6 +175,16 @@ capability recipes block with a configuration action; discovery alone is not a
 migration to verified support. Profile configuration itself stays version 1, with
 optional additive environment fields.
 
+An implementation stop saying baseline capabilities are missing means the Run has
+no configured baseline verifier; it does not mean the network disconnected or the
+model ran out of tokens. Configure source-backed baseline capabilities and their
+executable verification commands in the profile, then verify the saved environment.
+For the existing Run, use **Repair configuration and resume** with the corrected
+repository catalog. Saving a profile alone does not change its frozen snapshot.
+Older Rocky builds may mask this blocker with `Implement & open draft: no connection
+for exhausted.` Upgrade/restart Rocky and retry that failed Run once to reach the
+recoverable configuration stop, then apply the repair.
+
 The existing “Repair configuration and resume” operation now accepts an `execution`
 repository array as an alternative to legacy UI settings. It validates the complete
 catalog and preserves repository IDs, names, remotes and base branches. Apply it

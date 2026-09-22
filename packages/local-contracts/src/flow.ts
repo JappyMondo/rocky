@@ -329,6 +329,7 @@ export const FLOW_NODES: FlowNodeDefinition[] = [
     'implement',
     'Implement & open draft',
     'Implement the plan, push the branch, and open a draft PR.',
+    ['next', 'exhausted'],
   ),
   action(
     'validate',
@@ -771,7 +772,13 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
         (e) =>
           !isAttachment(e) && e.source === node.id && e.sourceHandle === port,
       );
-      if (edges.length !== 1)
+      // Older profiles and frozen Run graphs predate baseline environment stops.
+      // The runtime treats an absent implementation exhaustion route as a stop.
+      const legacyEnvironmentStop =
+        node.type === 'delivery.implement' &&
+        port === 'exhausted' &&
+        edges.length === 0;
+      if (edges.length !== 1 && !legacyEnvironmentStop)
         add(`${node.name}: connect ${port} to exactly one node.`, node.id);
     }
   }

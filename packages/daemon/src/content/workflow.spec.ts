@@ -1511,6 +1511,37 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(f.trace).not.toContain('checkpoint');
   });
 
+  it.skipIf(mode !== 'flow').each([false, true])(
+    'reports a missing baseline as recoverable exhaustion (frozen graph=%s)',
+    async (frozen) => {
+      const source = parseFlow(flowSource);
+      source.settings.environmentVersion = 1;
+      source.settings.execution = [];
+      if (frozen)
+        source.edges = source.edges.filter(
+          (edge) =>
+            !(edge.source === 'implement' && edge.sourceHandle === 'exhausted'),
+        );
+      const f = fixture({
+        triggers: flowTriggers(JSON.stringify(source), join(dir, 'snapshot')),
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(f.trace.join('\n')).toContain(
+        'Discover and configure baseline capabilities with executable checks',
+      );
+      expect(f.calls.some(({ name }) => name === 'implementer')).toBe(false);
+      expect(calledRepos(f, 'openPr')).toEqual([]);
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+    },
+  );
+
   it.skipIf(mode === 'legacy')(
     'exhausts with a Flow settings action when a frontend has no UI configuration',
     async () => {

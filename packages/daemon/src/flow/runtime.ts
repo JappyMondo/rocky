@@ -236,6 +236,13 @@ export async function executeFlow(
         item.source === current &&
         item.sourceHandle === port,
     );
+    // Frozen workflows created before environment verification have only the
+    // implementation success route. Preserve the recoverable environment stop
+    // without rewriting their snapshot or losing the blocker posted by delivery.
+    if (!edge && node.type === 'delivery.implement' && port === 'exhausted') {
+      await services?.stop('Workflow service cleanup');
+      return 'exhausted';
+    }
     if (!edge) throw new Error(`${node.name}: no connection for ${port}.`);
     current = edge.target;
   }
