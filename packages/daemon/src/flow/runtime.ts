@@ -243,6 +243,21 @@ export async function executeFlow(
       await services?.stop('Workflow service cleanup');
       return 'exhausted';
     }
+    // Older frozen workflows have no recap-recovery edges. Keep an actionable
+    // audit finding repairable by returning through their validation node.
+    if (!edge && node.type === 'delivery.recap' && port === 'retry') {
+      const validate = flow.nodes.find(
+        (candidate) => candidate.type === 'delivery.validate',
+      );
+      if (validate) {
+        current = validate.id;
+        continue;
+      }
+    }
+    if (!edge && node.type === 'delivery.recap' && port === 'exhausted') {
+      await services?.stop('Workflow service cleanup');
+      return 'exhausted';
+    }
     if (!edge) throw new Error(`${node.name}: no connection for ${port}.`);
     current = edge.target;
   }

@@ -114,6 +114,29 @@ export const capturePrompt = `Capture the requested visual variant for this exac
 
 export const auditPrompt = `Independently audit this recap against the original immutable diff/deliverable, ticket and repository evidence. Check meaningful changed surfaces are inventoried, each inventory variant has a capture or explicit limitation, key-change summaries and code annotations are accurate, added routes and permission changes are explicit, all review categories are evidence-backed, and the result is easy to review. Rocky builds content.files and attached key-change diffs from the primary supplied diff only; those fields are not writer-editable. Review companion repository changes through workflowEvidence.repositories, requirements and reviewFocus. Never demand companion files in the primary changedFiles list or keyChanges. Key-change groups are selective summaries, not an exhaustive listing of every changed file. Missing visual access may remain clearly labelled as unavailable; invented evidence and silently omitted variants are blocking. This is a read-only evidence audit. Capture Steps own browser commands and screenshot creation and receive bash; this audit does not. If existing captures are missing or their unavailable claims are disproven by known available tools, return actionable problems requesting a fresh capture pass. The Workflow uses those problems to run the next capture revision. Do not execute captures here or emit a tool-blocked response merely because this audit has no bash. Return only actionable blocking problems. Plain language and manageable reading length are requirements, not cosmetic preferences. Reject dense introductions, diagram descriptions over 30 words, unexplained jargon, repeated paragraphs, missing goal or short requirement labels, and prose that exceeds the writer's word limits. Exact original acceptance criteria and source references are exempt. The reader must understand the goal, change, main risk and next action without opening evidence. Require short separate statements, not a compressed sentence full of semicolons. Do not demand caveats or source IDs in the introduction; those belong in evidence or the risks/checks page. Check every explicit acceptance criterion has one assessment with evidence and every required repository has a delivery status. Require concrete before/after behavior and an explanatory processing diagram for complex stateful or asynchronous changes. Check the final CI receipt for the exact revision and distinguish agent claims from execution evidence. Inspect the attached images, not just filenames or captions. Reject stale claims that captures or supplied check results are missing. Documentation captures are not UI tests or proof of backend behavior. An honestly reported product/delivery gap may remain in the report with a needs-attention or blocked decision; the recap itself must not hide it. When diagrams split a process, trace their connecting paths against source. A separate recovery diagram does not excuse a main diagram that resubmits work without checking earlier requests. Reject misleading arrows even if the prose elsewhere explains the exception. Keep the decision understandable without opening source or transcripts.`;
 
+/** A recap audit found a repairable deliverable defect, not a runtime failure. */
+export class RecapAuditError extends Error {
+  constructor(readonly problems: string[]) {
+    super(
+      `Visual recap failed its evidence audit after two passes: ${problems.join('\n')}`,
+    );
+    this.name = 'RecapAuditError';
+  }
+}
+
+/** Works across the separately-bundled Run worker and flow-runtime modules. */
+export function isRecapAuditError(error: unknown): error is RecapAuditError {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as { name?: unknown }).name === 'RecapAuditError' &&
+    Array.isArray((error as { problems?: unknown }).problems) &&
+    (error as { problems: unknown[] }).problems.every(
+      (problem) => typeof problem === 'string',
+    )
+  );
+}
+
 /** Keep long explanatory paragraphs out of the guided pages, even if an auditor overlooks them. */
 export function recapReadabilityProblems(content: {
   diagrams: { title: string; description: string }[];
@@ -306,7 +329,5 @@ export async function generateRecapContent(input: {
     ];
     if (!previousProblems.length) return ReportContent.parse(content);
   }
-  throw new Error(
-    `Visual recap failed its evidence audit after two passes: ${previousProblems.join('\n')}`,
-  );
+  throw new RecapAuditError(previousProblems);
 }

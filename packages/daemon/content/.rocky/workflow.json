@@ -2278,6 +2278,18 @@
       "sourceHandle": "next"
     },
     {
+      "id": "e_14_repair",
+      "source": "recap",
+      "target": "validate",
+      "sourceHandle": "retry"
+    },
+    {
+      "id": "e_14_exhausted",
+      "source": "recap",
+      "target": "exhausted",
+      "sourceHandle": "exhausted"
+    },
+    {
       "id": "e_15",
       "source": "publish",
       "target": "approval",
@@ -3054,6 +3066,14 @@
       "sourceHandle": "provide",
       "target": "recap",
       "targetHandle": "agent:recap-audit"
+    },
+    {
+      "id": "component_review_agent_1_recap",
+      "kind": "attachment",
+      "source": "review_agent_1",
+      "sourceHandle": "provide",
+      "target": "recap",
+      "targetHandle": "agent:fixer"
     },
     {
       "id": "component_recap_agent_3_ai_model_recap_agent_3",

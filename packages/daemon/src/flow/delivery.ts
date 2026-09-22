@@ -49,6 +49,7 @@ import {
 import { dirname, join } from 'node:path';
 import type { FlowSettings, UiEndpoint } from '@rocky/local-contracts';
 import { resolveUiEndpoint } from './ui-endpoint.js';
+import { isRecapAuditError } from '../review-report/recap.js';
 async function shell(ctx: WorkflowContext, command: string) {
   const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`);
   if (result.exitCode !== 0)
@@ -1149,12 +1150,18 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         ]);
         if (!problems.length) {
           ctx.stage('Visual recap');
-          await ctx.visualRecap({
-            deliverable: draft.body,
-            title: issue.title,
-            scope,
-            agents: actors.recap(),
-          });
+          try {
+            await ctx.visualRecap({
+              deliverable: draft.body,
+              title: issue.title,
+              scope,
+              agents: actors.recap(),
+            });
+          } catch (error) {
+            if (!isRecapAuditError(error)) throw error;
+            previous = { body: draft.body, problems: error.problems };
+            continue;
+          }
           ctx.stage('Deliver');
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
           await ctx.comment(draft.body);
@@ -1597,20 +1604,52 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       // Resolve only after the repair passed validation, reviews, and CI.
       await finishMergeThreads();
       for (const candidate of repositories?.open ?? [pr]) {
-        const result = await ctx.visualRecap({
-          pr: candidate,
-          scope: {
-            issue,
-            validationSummary,
-            uiSummary,
-            ...(repositories
-              ? { ...scope, pullRequests: repositories.current }
-              : {}),
-          },
-          agents: actors.recap(),
-        });
-        recaps.set(candidate.repo, result);
-        if (candidate.repo === pr.repo) recap = result;
+        try {
+          const result = await ctx.visualRecap({
+            pr: candidate,
+            scope: {
+              issue,
+              validationSummary,
+              uiSummary,
+              ...(repositories
+                ? { ...scope, pullRequests: repositories.current }
+                : {}),
+            },
+            agents: actors.recap(),
+          });
+          recaps.set(candidate.repo, result);
+          if (candidate.repo === pr.repo) recap = result;
+        } catch (error) {
+          if (!isRecapAuditError(error)) throw error;
+          const complaints = error.problems.map((text, index) =>
+            Complaint.parse({
+              id: `recap/${revision}/${candidate.repo}/${index + 1}`,
+              file: candidate.repo,
+              text,
+              severity: 'must-fix',
+            }),
+          );
+          const fixed = await actors.call('fixer', {
+            label: `Repair visual recap evidence ${revision}/${reviewCap}`,
+            input: {
+              issue,
+              workspace,
+              delivery,
+              complaints,
+              commands,
+              validationResponsibility,
+              instruction:
+                'Address every recap evidence complaint in the deliverable. Commit and push only the scoped correction. The workflow will revalidate, review, and generate a fresh recap.',
+            },
+            schema: FixReportFor(complaints),
+          });
+          changes.push(fixed.summary);
+          if (!fixed.resolutions.some(({ status }) => status === 'fixed'))
+            return exhaust(complaints);
+          await push();
+          reviewerState = { complaints, resolutions: fixed.resolutions };
+          return 'retry';
+        }
       }
       if (!recap) {
         const first = recaps.values().next().value;

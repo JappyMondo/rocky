@@ -518,6 +518,18 @@ it('the default graph exposes every packaged delivery operation and both entry p
       .map((n) => n.type)
       .sort(),
   );
+  expect(flow.edges).toContainEqual({
+    id: 'e_14_repair',
+    source: 'recap',
+    sourceHandle: 'retry',
+    target: 'validate',
+  });
+  expect(flow.edges).toContainEqual({
+    id: 'e_14_exhausted',
+    source: 'recap',
+    sourceHandle: 'exhausted',
+    target: 'exhausted',
+  });
   expect(flowBindings(source, '/snapshot').map((b) => b.descriptor)).toEqual([
     { kind: 'linear.onDelegate' },
     { kind: 'manual', name: 'address-pr-conversations' },

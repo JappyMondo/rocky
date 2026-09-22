@@ -20,6 +20,11 @@ const role = (id: string, name: string): AttachmentPort => ({
   kind: 'agent',
   required: true,
 });
+const optionalRole = (id: string, name: string): AttachmentPort => ({
+  id: `agent:${id}`,
+  name,
+  kind: 'agent',
+});
 const recap = [
   role('recap-inventory', 'Visual inventory'),
   role('recap-narrative', 'Recap writer'),
@@ -49,7 +54,7 @@ const deliveryPorts: Record<string, AttachmentPort[]> = {
   ],
   review: [role('reviewer', 'Code reviewer'), role('fixer', 'Repair agent')],
   ci: [role('ci-fixer', 'CI repair agent')],
-  recap,
+  recap: [...recap, optionalRole('fixer', 'Repair agent')],
   approval: [role('fixer', 'Steering agent')],
   merge: [role('merger', 'Merge agent')],
   conversations: [role('fixer', 'Reply agent'), ...recap],

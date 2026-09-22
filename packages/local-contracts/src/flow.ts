@@ -366,7 +366,8 @@ export const FLOW_NODES: FlowNodeDefinition[] = [
   action(
     'recap',
     'Visual recap',
-    'Create an evidence-based visual recap of the validated PR.',
+    'Create an evidence-based visual recap of the validated PR and repair any audit finding.',
+    ['next', 'retry', 'exhausted'],
   ),
   action(
     'publish',
@@ -783,7 +784,13 @@ export function flowProblems(flow: WorkflowFlow): FlowProblem[] {
         node.type === 'delivery.implement' &&
         port === 'exhausted' &&
         edges.length === 0;
-      if (edges.length !== 1 && !legacyEnvironmentStop)
+      // Recap audit recovery was added after early profiles had been frozen.
+      // The runtime supplies its conservative fallback for those graphs.
+      const legacyRecapRecovery =
+        node.type === 'delivery.recap' &&
+        (port === 'retry' || port === 'exhausted') &&
+        edges.length === 0;
+      if (edges.length !== 1 && !legacyEnvironmentStop && !legacyRecapRecovery)
         add(`${node.name}: connect ${port} to exactly one node.`, node.id);
     }
   }
