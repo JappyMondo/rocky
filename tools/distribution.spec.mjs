@@ -356,13 +356,11 @@ test(
         run('agent-browser', ['--session', session, ...args]);
       try {
         browser('open', origin);
-        browser('wait', '--text', `Daemon v${manifest.version} is ok.`);
-        assert.match(browser('snapshot'), /heading "Rocky"/);
+        browser('wait', '--text', 'Ready when you are.');
+        assert.match(browser('snapshot'), /heading "Runs"/);
         browser('set', 'viewport', '390', '844');
         assert.ok(
-          browser('get', 'text', 'body').includes(
-            `Daemon v${manifest.version} is ok.`,
-          ),
+          browser('get', 'text', 'body').includes('Ready when you are.'),
         );
         const errors = JSON.parse(browser('errors', '--json'));
         assert.deepEqual(errors.data.errors, []);
