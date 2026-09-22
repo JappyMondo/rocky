@@ -764,6 +764,24 @@ export async function registerLocalApi(
         },
       });
     }
+    for (const method of ['GET', 'POST'] as const) {
+      local.route<{ Params: { id: string } }>({
+        method,
+        url: '/api/profiles/:id/verify-environment',
+        handler: (request) => {
+          if (!options.profiles)
+            throw new LocalApiError(
+              503,
+              'profiles-unavailable',
+              'Profiles unavailable.',
+            );
+          return options.profiles.verifyEnvironment(
+            parse(segment, request.params.id),
+            method === 'POST' ? 'start' : 'read',
+          );
+        },
+      });
+    }
     local.post('/api/profile-command-tests', async (request, reply) => {
       const input = parse(
         z.strictObject({

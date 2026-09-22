@@ -1,5 +1,7 @@
 import { join, resolve, relative, isAbsolute } from 'node:path';
-import { readFile, realpath } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:net';
+import { readFile, realpath, rm, stat } from 'node:fs/promises';
 import type { WorkflowContext, WorkflowInput } from '@rocky/sdk';
 import type { WorkspaceRepository, DevService } from '@rocky/local-contracts';
 import { resolveUiEndpoint } from './ui-endpoint.js';
@@ -65,7 +67,15 @@ export function dependencyOrder<T extends { id: string }>(
   selected.forEach(visit);
   return result;
 }
+export class StaleServiceError extends Error {}
+export class ServiceStartupError extends Error {
+  constructor(readonly serviceId: string) {
+    super(`Service ${serviceId} did not become ready.`);
+  }
+}
+const portLeases = new Set<number>();
 export class WorkspaceExecution {
+  private leasedPorts = new Set<number>();
   private running: Array<{
     id: string;
     pid: number;
@@ -74,10 +84,12 @@ export class WorkspaceExecution {
   }> = [];
   private endpoints: Record<string, Record<string, string>> = {};
   constructor(
-    private ctx: WorkflowContext,
+    private ctx: Pick<WorkflowContext, 'exec' | 'step' | 'ports'>,
     private workspace: WorkflowInput,
     readonly repos: WorkspaceRepository[],
     private runDir = process.env.ROCKY_RUN_DIR ?? '',
+    private verified = false,
+    private signal?: AbortSignal,
   ) {}
   private environment(
     repo: WorkspaceRepository,
@@ -111,6 +123,114 @@ export class WorkspaceExecution {
       throw Error(`Repository ${repo.name} is not in this run workspace.`);
     return resolve(this.runDir, 'workspace', member.path);
   }
+  async checkSources(repository: string, paths: string[]) {
+    const repo = this.repos.find((repo) => repo.name === repository);
+    if (!repo) throw Error('Unknown evidence repository.');
+    const root = await realpath(this.root(repo));
+    for (const path of paths) {
+      const file = await realpath(resolve(root, path));
+      if (!file.startsWith(`${root}/`) || !(await stat(file)).isFile())
+        throw Error('Evidence must be a source file inside the repository.');
+    }
+  }
+  private endpointEnvironment(task: {
+    endpointEnv?: Record<string, { service: string; endpoint: string }>;
+  }) {
+    return Object.fromEntries(
+      Object.entries(task.endpointEnv ?? {}).map(([name, reference]) => {
+        const value = this.endpoints[reference.service]?.[reference.endpoint];
+        if (!value)
+          throw Error(
+            `Dependency endpoint unavailable: ${reference.service}/${reference.endpoint}`,
+          );
+        return [name, value];
+      }),
+    );
+  }
+  /** The normal runner supplies profile environment and owns the process tree.
+   * Only a sanitized assertion receipt touches disk; raw verifier output does not.
+   */
+  async probe(
+    id: string,
+    timeoutMs: number,
+    checks: string[],
+    secretEnv: string[] = [],
+  ) {
+    const entry = catalogEntries(this.repos).find((entry) => entry.id === id);
+    if (!entry) throw Error('Unknown environment verifier.');
+    const task = {
+      ...entry.command,
+      env: { ...entry.command.env, ...this.endpointEnvironment(entry.command) },
+    };
+    const command = await this.shell(
+      entry.repository,
+      task,
+      entry.command.command,
+    );
+    const resultFile = join(
+      this.runDir,
+      `environment-probe-${randomUUID()}.json`,
+    );
+    const timeout = Math.max(1, Math.min(timeoutMs, entry.command.timeoutMs));
+    const script = `
+const { spawn } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
+// Keep the owned wrapper alive until the receipt has been consumed and cleaned.
+setInterval(() => {}, 1000);
+if (${JSON.stringify(secretEnv)}.some(name => !process.env[name])) {
+  writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify({exitCode:0, stdout:JSON.stringify({status:'blocked',reason:'credentials'})}), {mode:0o600});
+} else {
+const child = spawn(${JSON.stringify(command)}, { shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
+let text = '', overflow = false;
+child.stdout.setEncoding('utf8');
+child.stdout.on('data', chunk => { if (text.length + chunk.length > 1048576) { overflow = true; text = ''; } else if (!overflow) text += chunk; });
+child.on('close', code => {
+  let value; try { value = JSON.parse(text); } catch {}
+  const allowed = ${JSON.stringify(checks)};
+  const result = {
+    exitCode: code === 0 && !overflow ? 0 : 1,
+    stdout: JSON.stringify({
+      status: ['passed', 'failed', 'blocked'].includes(value?.status) ? value.status : 'failed',
+      reason: ['credentials', 'permission', 'external', 'unsupported', 'product'].includes(value?.reason) ? value.reason : undefined,
+      checks: allowed.map(id => {
+        const found = Array.isArray(value?.checks) ? value.checks.filter(c => c?.id === id) : [];
+        return { id, executed: found.length === 1 && found[0].executed === true, passed: found.length === 1 && found[0].passed === true };
+      }),
+    }),
+  };
+  writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(result), { mode: 0o600 });
+});
+}`;
+    const child = await this.ctx.exec(
+      `${quote(process.execPath)} -e ${quote(script)}`,
+      { background: true, label: `Environment probe ${id}` },
+    );
+    try {
+      const deadline = Date.now() + timeout;
+      while (Date.now() < deadline) {
+        this.signal?.throwIfAborted();
+        const value = await readFile(resultFile, 'utf8').catch(
+          (e: NodeJS.ErrnoException) => {
+            if (e.code === 'ENOENT') return undefined;
+            throw e;
+          },
+        );
+        if (value) {
+          try {
+            return JSON.parse(value) as { exitCode: number; stdout: string };
+          } catch {
+            /* The writer may still be flushing. */
+          }
+        }
+        process.kill(child.pid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw Error('Environment probe timed out.');
+    } finally {
+      await terminateOwnedGroup(child.pid);
+      await rm(resultFile, { force: true });
+    }
+  }
   private async shell(
     repo: WorkspaceRepository,
     task: { cwd: string; env: Record<string, string> },
@@ -123,15 +243,32 @@ export class WorkspaceExecution {
       throw Error(`Working directory escapes ${repo.name}.`);
     return `cd -- ${quote(cwd)} && { ${this.environment(repo, task.env)}${versionManagerShell}${command}\n}`;
   }
-  async command(id: string, label: string) {
+  async command(id: string, label: string, timeoutMs?: number) {
     const entry = catalogEntries(this.repos).find((entry) => entry.id === id);
     if (!entry) throw Error(`Unknown configured command: ${id}`);
     return this.ctx.exec(
-      await this.shell(entry.repository, entry.command, entry.command.command),
-      { label, timeoutMs: entry.command.timeoutMs },
+      await this.shell(
+        entry.repository,
+        {
+          ...entry.command,
+          env: {
+            ...entry.command.env,
+            ...this.endpointEnvironment(entry.command),
+          },
+        },
+        entry.command.command,
+      ),
+      {
+        label,
+        timeoutMs: Math.min(
+          entry.command.timeoutMs,
+          timeoutMs ?? entry.command.timeoutMs,
+        ),
+      },
     );
   }
-  async start(selected: string[], label: string) {
+  async start(selected: string[], label: string, timeoutMs = 120_000) {
+    const deadline = Date.now() + timeoutMs;
     const entries = dependencyOrder(
       serviceEntries(this.repos),
       selected,
@@ -141,11 +278,40 @@ export class WorkspaceExecution {
     try {
       for (const [index, entry] of entries.entries()) {
         const { service, repository, id } = entry;
-        if (endpoints[id]) continue;
-        const port =
-          this.ctx.ports[
-            serviceEntries(this.repos).findIndex((entry) => entry.id === id)
-          ];
+        if (endpoints[id]) {
+          if (!this.verified) continue;
+          let live = false;
+          try {
+            const owner = this.running.find((entry) => entry.id === id);
+            if (!owner) throw Error('Service has no current owner.');
+            process.kill(owner.pid, 0);
+            const response = await fetch(
+              endpoints[id][service.readiness.endpoint],
+              {
+                signal: AbortSignal.timeout(
+                  Math.max(1, Math.min(1000, deadline - Date.now())),
+                ),
+              },
+            );
+            live = response.ok;
+            await response.body?.cancel();
+          } catch {
+            live = false;
+          }
+          const receipt = await this.ctx.step(
+            `${label}: recheck ${id}`,
+            () => ({ ready: live }),
+          );
+          if (!receipt.ready) throw new ServiceStartupError(id);
+          if (!live)
+            throw new StaleServiceError(`Service ${id} crashed on this Boot.`);
+          continue;
+        }
+        const port = this.verified
+          ? await availablePort()
+          : this.ctx.ports[
+              serviceEntries(this.repos).findIndex((entry) => entry.id === id)
+            ];
         if (
           !port &&
           service.endpoints.some(
@@ -155,6 +321,21 @@ export class WorkspaceExecution {
           throw Error(
             `Reserve at least ${index + 1} UI ports for ${id}, or use a dynamic endpoint.`,
           );
+        if (this.verified && port) this.leasedPorts.add(port);
+        const endpointFiles = new Map<string, number | undefined>();
+        if (this.verified)
+          for (const endpoint of service.endpoints) {
+            if (endpoint.locator.kind === 'json-file') {
+              const file = resolve(
+                this.root(repository),
+                endpoint.locator.path,
+              );
+              endpointFiles.set(
+                endpoint.locator.path,
+                (await stat(file).catch(() => undefined))?.mtimeMs,
+              );
+            }
+          }
         const log = join(
           this.runDir,
           `service-${repository.id}-${service.id}.log`,
@@ -163,6 +344,7 @@ export class WorkspaceExecution {
           ...service,
           env: {
             ...service.env,
+            ...this.endpointEnvironment(service),
             ...(port && service.portEnv
               ? { [service.portEnv]: String(port) }
               : {}),
@@ -174,17 +356,41 @@ export class WorkspaceExecution {
         if (cwd !== root && !cwd.startsWith(`${root}/`))
           throw Error('Service cwd escapes repository.');
         const started = await this.ctx.exec(
-          `cd -- ${quote(cwd)} && { ${this.environment(repository, task.env)}${service.start}\n} > ${quote(log)} 2>&1`,
+          this.verified
+            ? `umask 077; ${await this.shell(repository, task, service.start)} 2>&1 | ${quote(process.execPath)} -e ${quote(serviceOutputFilter(service))} > ${quote(log)}`
+            : `cd -- ${quote(cwd)} && { ${this.environment(repository, task.env)}${service.start}\n} > ${quote(log)} 2>&1`,
           { background: true, label: `${label}: start ${id}` },
         );
         this.running.push({ id, pid: started.pid, repo: repository, service });
         let ready = false;
         for (let attempt = 0; attempt < service.readiness.attempts; attempt++) {
+          this.signal?.throwIfAborted();
+          if (this.verified && Date.now() >= deadline) break;
           try {
+            if (this.verified) process.kill(started.pid, 0);
             const text = await readFile(log, 'utf8').catch(() => '');
             const values: Record<string, string> = {};
             for (const endpoint of service.endpoints) {
-              const url = await resolveUiEndpoint(endpoint.locator, {
+              if (this.verified && endpoint.locator.kind === 'json-file') {
+                const file = resolve(root, endpoint.locator.path);
+                if (
+                  (await stat(file)).mtimeMs ===
+                  endpointFiles.get(endpoint.locator.path)
+                )
+                  throw Error(
+                    'Endpoint file was not refreshed by this service launch.',
+                  );
+              }
+              let locator = endpoint.locator;
+              if (this.verified && locator.kind === 'output-regex') {
+                const candidate = text
+                  .split('\n')
+                  .find((line) => line.startsWith(`${endpoint.name}\t`))
+                  ?.split('\t')[1];
+                if (!candidate) continue;
+                locator = { kind: 'fixed', url: candidate };
+              }
+              const url = await resolveUiEndpoint(locator, {
                 port: port ?? 0,
                 log: text,
                 workspace: root,
@@ -205,12 +411,38 @@ export class WorkspaceExecution {
                   }
                 },
               });
-              if (url) values[endpoint.name] = url;
+              if (url) {
+                const parsed = new URL(url);
+                if (
+                  this.verified &&
+                  (parsed.username ||
+                    parsed.password ||
+                    parsed.search ||
+                    parsed.hash ||
+                    !['localhost', '127.0.0.1', '[::1]'].includes(
+                      parsed.hostname,
+                    ))
+                )
+                  throw Error(
+                    'Local environment endpoints must be credential-free loopback URLs.',
+                  );
+                values[endpoint.name] = url;
+              }
             }
             const url = values[service.readiness.endpoint];
             if (url) {
               const response = await fetch(url, {
-                signal: AbortSignal.timeout(service.readiness.intervalMs),
+                signal: AbortSignal.timeout(
+                  this.verified
+                    ? Math.max(
+                        1,
+                        Math.min(
+                          service.readiness.intervalMs,
+                          deadline - Date.now(),
+                        ),
+                      )
+                    : service.readiness.intervalMs,
+                ),
               });
               ready = response.ok;
               await response.body?.cancel();
@@ -219,28 +451,40 @@ export class WorkspaceExecution {
               ready &&
               Object.keys(values).length === service.endpoints.length
             ) {
+              if (this.verified) process.kill(started.pid, 0);
               endpoints[id] = values;
               break;
             }
             ready = false;
           } catch {
+            ready = false;
             /* Retry booting endpoints; failure is recorded below. */
           }
           await new Promise((done) =>
-            setTimeout(done, service.readiness.intervalMs),
+            setTimeout(
+              done,
+              this.verified
+                ? Math.max(
+                    1,
+                    Math.min(
+                      service.readiness.intervalMs,
+                      deadline - Date.now(),
+                    ),
+                  )
+                : service.readiness.intervalMs,
+            ),
           );
         }
         const receipt = await this.ctx.step(
           `${label}: endpoints ${id}`,
           async () => ({ ready, endpoints: endpoints[id] ?? {} }),
         );
-        if (!receipt.ready)
-          throw Error(
-            `Service ${id} did not become ready. Check its command, endpoint and prerequisites.`,
-          );
+        if (!receipt.ready) throw new ServiceStartupError(id);
         // Use this Boot's live endpoint; the receipt records evidence, not a reusable dynamic port.
         if (!ready)
-          throw Error(`Service ${id} could not restart for this Boot.`);
+          throw new StaleServiceError(
+            `Service ${id} could not restart for this Boot.`,
+          );
       }
       return endpoints;
     } catch (error) {
@@ -250,18 +494,101 @@ export class WorkspaceExecution {
   }
   async stop(label: string) {
     this.endpoints = {};
+    for (const port of this.leasedPorts) portLeases.delete(port);
+    this.leasedPorts.clear();
     for (const entry of this.running.splice(0).reverse()) {
       try {
-        if (entry.service.stop)
+        if (entry.service.stop && !this.verified)
           await this.ctx.exec(
             await this.shell(entry.repo, entry.service, entry.service.stop),
             { label: `${label}: stop ${entry.id}`, timeoutMs: 10000 },
           );
       } finally {
-        await this.ctx.exec(`kill -TERM -${entry.pid} 2>/dev/null || true`, {
-          label: `${label}: cleanup ${entry.id}`,
-        });
+        if (this.verified) {
+          // Do not replay a stale kill receipt while leaving this Boot's process alive.
+          await terminateOwnedGroup(entry.pid);
+        } else {
+          await this.ctx.exec(`kill -TERM -${entry.pid} 2>/dev/null || true`, {
+            label: `${label}: cleanup ${entry.id}`,
+          });
+        }
       }
     }
   }
+}
+
+// OS-chosen candidates; a bind race is handled by the bounded environment repair
+// restarting the owned process with a newly allocated candidate, never an offset.
+async function availablePort(): Promise<number> {
+  const server = createServer();
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(Error('No port allocated.')));
+        return;
+      }
+      if (portLeases.has(address.port)) {
+        server.close(() => {
+          availablePort().then(resolve, reject);
+        });
+        return;
+      }
+      portLeases.add(address.port);
+      server.close((error) => {
+        if (error) {
+          portLeases.delete(address.port);
+          reject(error);
+        } else resolve(address.port);
+      });
+    });
+  });
+}
+// Do not persist arbitrary service output: only endpoint candidates are retained.
+// Full diagnostics remain the responsibility of an explicitly configured probe.
+function serviceOutputFilter(service: DevService) {
+  const patterns = service.endpoints.flatMap((endpoint) =>
+    endpoint.locator.kind === 'output-regex'
+      ? [{ name: endpoint.name, pattern: endpoint.locator.pattern }]
+      : [],
+  );
+  return `
+let buffer = '';
+const emitted = new Set();
+const patterns = ${JSON.stringify(patterns)};
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer = (buffer + chunk).slice(-8192);
+  const lines = buffer.split('\\n'); buffer = lines.pop();
+  for (const line of lines) for (const recipe of patterns) {
+    if (emitted.has(recipe.name)) continue;
+    try {
+      const match = new RegExp(recipe.pattern).exec(line);
+      const value = match?.groups?.url ?? match?.groups?.port;
+      if (!value) continue;
+      const url = new URL(/^\\d+$/.test(value) ? 'http://127.0.0.1:' + value + '/' : value);
+      if (!url.username && !url.password && !url.search && !url.hash && ['http:', 'https:'].includes(url.protocol) && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
+        { emitted.add(recipe.name); process.stdout.write(recipe.name + '\\t' + url.origin + '/' + '\\n'); }
+    } catch {}
+  }
+});
+`;
+}
+
+async function terminateOwnedGroup(pid: number) {
+  const signal = (name: NodeJS.Signals | 0) => {
+    try {
+      process.kill(-pid, name);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+      throw error;
+    }
+  };
+  if (!signal('SIGTERM')) return;
+  const deadline = Date.now() + 200;
+  while (Date.now() < deadline && signal(0))
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  signal('SIGKILL');
 }

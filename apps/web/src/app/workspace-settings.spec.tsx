@@ -27,21 +27,27 @@ it('shows only suggestions for the active tab and retains edits across tab switc
   vi.stubGlobal(
     'fetch',
     vi.fn(
-      async () =>
+      async (url: string) =>
         new Response(
-          JSON.stringify({
-            id: 'suggestions',
-            status: 'ready',
-            proposal: {
-              explanation: '',
-              commands: {},
-              ui: [],
-              catalog: {
-                commands: [commandRecipe('test', 'npm test')],
-                services: [{ ...serviceRecipe('dev'), start: 'npm start' }],
-              },
-            },
-          }),
+          JSON.stringify(
+            url.endsWith('/verify-environment')
+              ? null
+              : {
+                  id: 'suggestions',
+                  status: 'ready',
+                  proposal: {
+                    explanation: '',
+                    commands: {},
+                    ui: [],
+                    catalog: {
+                      commands: [commandRecipe('test', 'npm test')],
+                      services: [
+                        { ...serviceRecipe('dev'), start: 'npm start' },
+                      ],
+                    },
+                  },
+                },
+          ),
         ),
     ),
   );

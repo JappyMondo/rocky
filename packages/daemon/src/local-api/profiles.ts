@@ -39,6 +39,7 @@ import {
   configurationPatchSchema,
 } from './configuration.js';
 import { ConfigError } from '../config/schema.js';
+import type { EnvironmentOnboarding } from '../environment/onboarding.js';
 import type { RecipeDiscovery } from '../recipe-discovery.js';
 import { automationSchema } from '../config/workspace-schema.js';
 import {
@@ -163,7 +164,21 @@ export class LocalProfiles {
   constructor(
     private readonly paths: RockyPaths,
     private readonly discovery?: RecipeDiscovery,
+    private readonly environment?: EnvironmentOnboarding,
   ) {}
+
+  async verifyEnvironment(profileId: string, action: 'read' | 'start') {
+    if (!this.environment)
+      throw new LocalApiError(
+        503,
+        'environment-unavailable',
+        'Environment verification is unavailable.',
+      );
+    const profile = await readRepositoryProfile(this.paths, profileId);
+    return action === 'start'
+      ? this.environment.start(profile)
+      : this.environment.read(profileId);
+  }
 
   async discoverRecipes(
     profileId: string,

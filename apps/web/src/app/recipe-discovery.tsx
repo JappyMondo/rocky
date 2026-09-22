@@ -1,3 +1,4 @@
+import { EnvironmentVerification } from './environment-verification.js';
 import { useEffect, useState } from 'react';
 import type {
   RecipeDiscoveryJob,
@@ -294,6 +295,13 @@ export function RecipeDiscoveryPanel(p: Props) {
   };
   return (
     <section aria-label={`Commands for ${p.repository}`}>
+      {p.onApplyCatalog && (
+        <EnvironmentVerification
+          profileId={p.profileId}
+          disabled={p.disabled}
+          mismatch={p.mismatch}
+        />
+      )}
       <button
         type="button"
         disabled={p.disabled || busy || job?.status === 'running'}
@@ -317,7 +325,27 @@ export function RecipeDiscoveryPanel(p: Props) {
       {job?.status === 'failed' && <p role="alert">{job.error}</p>}
       {job?.status === 'cancelled' && <p role="status">Discovery cancelled.</p>}
       {job?.status === 'ready' && job.proposal && (
-        <Suggestions key={`${path}/${job.id}`} {...p} proposal={job.proposal} />
+        <>
+          <Suggestions
+            key={`${path}/${job.id}`}
+            {...p}
+            proposal={job.proposal}
+          />
+          {job.proposal.catalog?.environment && (
+            <details>
+              <summary>Unverified environment recipes</summary>
+              <p>
+                Review these source references and verification commands in the
+                profile configuration. Save the recipes with their referenced
+                commands and services before verifying. Discovery has executed
+                none of these checks.
+              </p>
+              <pre>
+                {JSON.stringify(job.proposal.catalog.environment, null, 2)}
+              </pre>
+            </details>
+          )}
+        </>
       )}
     </section>
   );

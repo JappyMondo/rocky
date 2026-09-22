@@ -75,9 +75,13 @@ it('applies edited catalog fields and endpoints while preserving runtime metadat
   vi.stubGlobal(
     'fetch',
     vi.fn(
-      async () =>
+      async (url: string) =>
         new Response(
-          JSON.stringify({ id: 'catalog', status: 'ready', proposal }),
+          JSON.stringify(
+            url.endsWith('/verify-environment')
+              ? null
+              : { id: 'catalog', status: 'ready', proposal },
+          ),
         ),
     ),
   );

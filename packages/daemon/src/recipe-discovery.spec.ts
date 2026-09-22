@@ -11,7 +11,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { defaultFlowSettings, serviceRecipe } from '@rocky/local-contracts';
+import {
+  defaultFlowSettings,
+  serviceRecipe,
+  commandRecipe,
+} from '@rocky/local-contracts';
 import {
   RecipeDiscovery,
   discoveryCheckout,
@@ -294,4 +298,43 @@ it('rejects malformed model recipes instead of offering them for application', a
   );
   expect((await jobs.read('app', 'web'))?.proposal).toBeUndefined();
   await jobs.close();
+});
+it('retains source-backed local-login capability proposals as unexecuted discovery evidence', async () => {
+  const f = await fixture();
+  const capability = {
+    id: 'login',
+    kind: 'login' as const,
+    baseline: true,
+    sources: [{ path: 'README.md', section: 'Local development login' }],
+    setup: [],
+    services: [],
+    verify: 'web/login-check',
+    checks: ['authenticated'],
+    authentication: {
+      kind: 'documented-local' as const,
+      reference: 'README.md',
+    },
+  };
+  const jobs = new RecipeDiscovery(f.paths, async () => ({
+    commands: { install: '', test: '', lint: '', build: '' },
+    ui: [],
+    explanation: 'Documented local login. Verification has not run.',
+    catalog: {
+      commands: [commandRecipe('login-check', 'node scripts/login-smoke.js')],
+      services: [],
+      environment: { version: 1, capabilities: [capability] },
+    },
+  }));
+  try {
+    await jobs.start(f.profile, f.repo);
+    await vi.waitFor(async () =>
+      expect((await jobs.read('app', 'web'))?.status).toBe('ready'),
+    );
+    expect(
+      (await jobs.read('app', 'web'))?.proposal?.catalog?.environment
+        ?.capabilities,
+    ).toEqual([capability]);
+  } finally {
+    await jobs.close();
+  }
 });

@@ -1,3 +1,5 @@
 From the issue and current diff, write a fixed UI sweep. Each Check has a stable unique id, a URL or navigation destination, actions to perform, and the observable expected behavior. Include relevant desktop and mobile behavior, failure states and regressions introduced by the change.
 
 Return at least one Check. Make each Check independently performable in a fresh browser. Use supplied Rules for documented navigation or login information; treat credentials as secrets. The inspector receives these Checks on every pass, so completion requires covering every UI behavior at risk, not just the happy path. For a component with no route, specify how to establish reachability without inventing one. Make no edits.
+
+Use supplied verified environment endpoints, authentication document references, fixture provenance and limitations. Do not invent login credentials or routes. A simulated fixture is not evidence of a real integration. Keep required Checks even when prerequisites are missing; mark the missing prerequisite in the actions so inspection can report a blocker.

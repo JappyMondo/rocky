@@ -155,6 +155,7 @@ export type Observation = z.infer<typeof Observation>;
 export function CheckResultsFor(
   checks: readonly { id: string }[],
   screenshotDir: string,
+  environmentVersion?: 1,
 ) {
   const ids = checks.map(({ id }) => id);
   if (new Set(ids).size !== ids.length) throw new Error('Duplicate Check ids');
@@ -187,6 +188,9 @@ export function CheckResultsFor(
             .object({
               ...common,
               verdict: z.literal('ok'),
+              executed: environmentVersion
+                ? z.literal(true)
+                : z.literal(true).optional(),
               observations: z.array(z.never()).length(0),
             })
             .strict(),
@@ -199,6 +203,24 @@ export function CheckResultsFor(
                 .min(1),
             })
             .strict(),
+          ...(environmentVersion
+            ? [
+                z
+                  .object({
+                    ...common,
+                    verdict: z.literal('blocked'),
+                    reason: z.enum([
+                      'environment',
+                      'credentials',
+                      'permission',
+                      'external',
+                      'unsupported',
+                    ]),
+                    observations: z.array(z.never()).length(0),
+                  })
+                  .strict(),
+              ]
+            : []),
         ]),
       )
       .refine(

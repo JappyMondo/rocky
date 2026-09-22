@@ -13,6 +13,7 @@ export function ConfigurationRepair({
   const [open, setOpen] = useState(false);
   const [start, setStart] = useState('');
   const [url, setUrl] = useState('');
+  const [execution, setExecution] = useState('');
   const [install, setInstall] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -35,12 +36,17 @@ export function ConfigurationRepair({
             setError('');
             request.current ??= crypto.randomUUID();
             try {
-              await submit(request.current, {
-                ui: { start: start.trim(), url: url.trim() },
-                ...(install.trim()
-                  ? { commands: { install: install.trim() } }
-                  : {}),
-              });
+              await submit(
+                request.current,
+                execution.trim()
+                  ? { execution: JSON.parse(execution) }
+                  : {
+                      ui: { start: start.trim(), url: url.trim() },
+                      ...(install.trim()
+                        ? { commands: { install: install.trim() } }
+                        : {}),
+                    },
+              );
             } catch (cause) {
               setError(
                 await apiError(cause, 'Configuration could not be applied.'),
@@ -55,12 +61,30 @@ export function ConfigurationRepair({
             implementation and reviews are preserved. These settings apply to
             this Run; update the profile separately for future Runs.
           </p>
+          <label htmlFor={`${id}-execution`}>
+            Replacement repository catalog (optional JSON)
+          </label>
+          <textarea
+            id={`${id}-execution`}
+            disabled={pending}
+            value={execution}
+            onChange={(e) => {
+              setExecution(e.target.value);
+              request.current = undefined;
+            }}
+          />
+          <p>
+            For environment repair, supply the Run’s repository array with
+            corrected commands, services and environment recipes. Repository
+            identities must stay the same. Use secret references, never
+            credential values.
+          </p>
           <label htmlFor={`${id}-start`}>
             UI start command (from the lead repository)
           </label>
           <textarea
             id={`${id}-start`}
-            required
+            required={!execution.trim()}
             disabled={pending}
             value={start}
             onChange={(e) => {
@@ -72,7 +96,7 @@ export function ConfigurationRepair({
           <input
             id={`${id}-url`}
             type="url"
-            required
+            required={!execution.trim()}
             disabled={pending}
             value={url}
             onChange={(e) => {
@@ -93,7 +117,11 @@ export function ConfigurationRepair({
             }}
           />
           <button
-            disabled={disabled || pending || !start.trim() || !url.trim()}
+            disabled={
+              disabled ||
+              pending ||
+              (!execution.trim() && (!start.trim() || !url.trim()))
+            }
           >
             {pending ? 'Resuming…' : 'Apply and resume this Run'}
           </button>

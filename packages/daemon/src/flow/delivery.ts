@@ -1,3 +1,12 @@
+import {
+  ensureEnvironment,
+  EnvironmentBlocked,
+} from '../environment/ensure.js';
+import type {
+  EnvironmentResult,
+  VerifiedEnvironment,
+  EnvironmentBlocker,
+} from '@rocky/local-contracts';
 import { DeliveryRepositories } from './repositories.js';
 import {
   WorkspaceExecution,
@@ -141,14 +150,86 @@ export function createDeliveryOperations(
   let continuation = 0;
   let repairedUi = false;
   let repairedInstall = false;
-  const execution = settings.execution
+  let execution = settings.execution
     ? new WorkspaceExecution(
         ctx,
         workspace,
         settings.execution,
         dirname(snapshotDir),
+        settings.environmentVersion === 1,
       )
     : undefined;
+  let environmentUiRepairs = 0;
+  let environmentContext: VerifiedEnvironment | undefined;
+  async function ensure(
+    services: string[],
+    label: string,
+    capabilities: string[] = [],
+    setup: string[] = [],
+  ): Promise<EnvironmentResult> {
+    if (!execution) throw Error('Environment catalog is unavailable.');
+    const result = await ensureEnvironment(ctx, execution, {
+      label,
+      services,
+      capabilities,
+      setup,
+      allowSetup: settings.workspaceSetup === true,
+      ...(services.length ? { requiredKinds: ['browser' as const] } : {}),
+    });
+    if (result.status === 'ready') environmentContext = result.context;
+    return result;
+  }
+  function applyExecutionRepair(repos: NonNullable<FlowSettings['execution']>) {
+    // A repair may amend recipes, never substitute a repository or escape the Run.
+    const old = settings.execution ?? [];
+    if (
+      repos.length !== old.length ||
+      repos.some(
+        (repo) =>
+          !old.some(
+            (member) =>
+              member.id === repo.id &&
+              member.name === repo.name &&
+              member.url === repo.url &&
+              member.baseBranch === repo.baseBranch,
+          ),
+      )
+    )
+      throw Error(
+        'Environment repair must preserve the Run repository identities.',
+      );
+    settings.execution = structuredClone(repos);
+    validationResponsibility.repositoryCatalog = settings.execution;
+    environmentUiRepairs = 0;
+    settings.environmentVersion = 1;
+    execution = new WorkspaceExecution(
+      ctx,
+      workspace,
+      settings.execution,
+      runDir,
+      true,
+    );
+    environmentContext = undefined;
+    serviceChecks.clear();
+  }
+  async function environmentFailure(
+    blocker: EnvironmentBlocker,
+    resume: () => Promise<string>,
+  ): Promise<string> {
+    ctx.stage('Environment: blocked');
+    // Environment blockers do not enter review/fixer history or consume its cap.
+    await ctx.post(
+      `Environment blocked (${blocker.kind}/${blocker.code}): ${blocker.capability}. ${blocker.action}`,
+    );
+    if (!continuations) return 'exhausted';
+    continuations--;
+    continuation++;
+    const repair = repairs.find(
+      (item) => item.continuation === continuation,
+    )?.settings;
+    if (repair?.execution) applyExecutionRepair(repair.execution);
+    return resume();
+  }
   async function selectedCommands(purpose: 'install' | 'validate') {
     const catalog = catalogEntries(settings.execution ?? []);
     const available = catalog.filter(
@@ -291,6 +372,7 @@ export function createDeliveryOperations(
       (item) => item.continuation === continuation,
     )?.settings;
     if (repair) {
+      if (repair.execution) applyExecutionRepair(repair.execution);
       if (repair.readiness) readiness = settings.readiness = repair.readiness;
       // Apply only after the original stop effects have replayed. Never rewrite
       // the snapshot or reinterpret completed commands using new configuration.
@@ -500,7 +582,19 @@ export function createDeliveryOperations(
     if (!checks) {
       checks = (
         await actors.call('ui-planner', {
-          input: { issue, delivery, diff: await diff(), rules },
+          input: {
+            issue,
+            delivery,
+            diff: await diff(),
+            rules,
+            ...(settings.environmentVersion
+              ? {
+                  environment: environmentContext,
+                  environmentInstruction:
+                    'Use verified endpoints and authentication references, resolving document references relative to the named repository in the workspace. An ok result requires executed: true. Never mark an unexecuted or unreachable check ok. Report blocked coverage using the blocked verdict, without inventing a product defect or weakening acceptance criteria. A documented-local authentication reference may be read only for local login instructions; never reproduce credentials in output.',
+                }
+              : {}),
+          },
           schema: Checks,
         })
       ).checks;
@@ -563,6 +657,14 @@ export function createDeliveryOperations(
               },
             ),
       }));
+      if (settings.environmentVersion && (!boot.ready || !ready))
+        throw new EnvironmentBlocked({
+          kind: 'environment',
+          code: 'service',
+          capability: serviceKey,
+          action:
+            'The UI endpoint is unreachable on this Boot. Repair its service configuration and resume.',
+        });
       let observations: Observation[];
       if (!boot.ready) {
         observations = [
@@ -581,9 +683,43 @@ export function createDeliveryOperations(
         const screenshotDir = join(runDir, 'screenshots');
         const result = await actors.call('ui-inspector', {
           label: `ui-inspector ${revision}/${reviewCap}`,
-          input: { baseUrl: url!, checks, rules, previousExplanations },
-          schema: CheckResultsFor(checks, screenshotDir),
+          input: {
+            baseUrl: url!,
+            checks,
+            rules,
+            previousExplanations,
+            ...(settings.environmentVersion
+              ? {
+                  environment: environmentContext,
+                  environmentInstruction:
+                    'Use verified endpoints and authentication references, resolving document references relative to the named repository in the workspace. An ok result requires executed: true. Never mark an unexecuted or unreachable check ok. Report blocked coverage using the blocked verdict, without inventing a product defect or weakening acceptance criteria. A documented-local authentication reference may be read only for local login instructions; never reproduce credentials in output.',
+                }
+              : {}),
+          },
+          schema: CheckResultsFor(
+            checks,
+            screenshotDir,
+            settings.environmentVersion,
+          ),
         });
+        const blocked = result.results.find(
+          (check) => check.verdict === 'blocked',
+        );
+        if (blocked?.verdict === 'blocked')
+          throw new EnvironmentBlocked({
+            kind: ['credentials', 'permission', 'external'].includes(
+              blocked.reason,
+            )
+              ? 'human'
+              : 'environment',
+            code:
+              blocked.reason === 'environment'
+                ? 'verification'
+                : blocked.reason,
+            capability: blocked.id,
+            action:
+              'UI inspection could not execute a required check. Repair the environment or supply the required access, then resume without waiving coverage.',
+          });
         observations = result.results.flatMap((result) => result.observations);
         uiSummary = `${result.summary}\n${result.results.map((check) => `- ${check.id}: ${check.verdict}. ${check.note}`).join('\n')}`;
       }
@@ -885,7 +1021,24 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       return 'next';
     },
     async implement() {
-      await setupWorkspace();
+      if (!(settings.environmentVersion && execution)) await setupWorkspace();
+      if (settings.environmentVersion && execution) {
+        let result: EnvironmentResult;
+        try {
+          result = await ensure(
+            [],
+            'Baseline',
+            [],
+            settings.workspaceSetup
+              ? (await selectedCommands('install')).map((entry) => entry.id)
+              : [],
+          );
+        } finally {
+          await execution.stop('Baseline');
+        }
+        if (result.status === 'blocked')
+          return environmentFailure(result.blocker, operations.implement);
+      }
       ctx.stage('Implement');
       const implementation = await actors.call('implementer', {
         input: {
@@ -1015,6 +1168,22 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             changedFiles: await ctx.changedFiles(),
             diff: await diff(),
             services: available,
+            ...(settings.environmentVersion
+              ? {
+                  capabilities: (settings.execution ?? []).flatMap((repo) =>
+                    (repo.environment?.capabilities ?? []).map(
+                      (capability) => ({
+                        id: `${repo.id}/${capability.id}`,
+                        kind: capability.kind,
+                        sources: capability.sources,
+                        services: capability.services,
+                      }),
+                    ),
+                  ),
+                  environmentInstruction:
+                    'Select additional task-specific capability IDs for required fixtures, authentication and feature reachability. Do not weaken Checks when a capability is unavailable.',
+                }
+              : {}),
             instruction:
               'Identify frontend changes and select all relevant service IDs for UI inspection. Dependencies start automatically. Choose none for non-UI work. Explain your selection. Do not start processes yourself.',
           },
@@ -1024,6 +1193,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               ? z.array(z.enum(available.map((entry) => entry.id)))
               : z.array(z.string()).max(0),
             reason: z.string(),
+            capabilities: z.array(z.string()).optional(),
           }),
         });
         const selected = [
@@ -1041,6 +1211,21 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             .filter((entry) => !selected.includes(entry.id))
             .map((entry) => entry.id),
         }));
+        if (
+          triage.isFrontend &&
+          !selected.length &&
+          settings.environmentVersion
+        )
+          return environmentFailure(
+            {
+              kind: 'environment',
+              code: 'configuration',
+              capability: 'ui',
+              action:
+                'Configure a UI service and its backend dependencies, then repair this Run configuration.',
+            },
+            operations.ui,
+          );
         if (triage.isFrontend && !selected.length)
           return exhaust([
             {
@@ -1053,7 +1238,17 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         const label = `UI services ${revision}`;
         let retry: Complaint[] | undefined;
         try {
-          const endpoints = await execution.start(selected, label);
+          let endpoints: Record<string, Record<string, string>>;
+          if (settings.environmentVersion) {
+            const result = await ensure(
+              selected,
+              label,
+              triage.capabilities ?? [],
+            );
+            if (result.status === 'blocked')
+              return environmentFailure(result.blocker, operations.ui);
+            endpoints = result.context.endpoints;
+          } else endpoints = await execution.start(selected, label);
           for (const id of selected) {
             const service = catalog.find((entry) => entry.id === id)!.service;
             const inspection = await inspectUi(
@@ -1078,6 +1273,28 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               break;
             }
           }
+        } catch (error) {
+          if (!(error instanceof EnvironmentBlocked) || ctx.replaying)
+            throw error;
+          await execution.stop(label);
+          if (
+            error.blocker.kind === 'environment' &&
+            environmentUiRepairs < 1
+          ) {
+            environmentUiRepairs++;
+            ctx.stage('Environment: repairing');
+            await ctx.step(
+              `Environment repair ${environmentUiRepairs}`,
+              async () => ({
+                version: 1,
+                scope: 'ui',
+                action: 'restart-and-reverify',
+                blocker: error.blocker,
+              }),
+            );
+            return operations.ui();
+          }
+          return environmentFailure(error.blocker, operations.ui);
         } finally {
           await execution.stop(label);
         }

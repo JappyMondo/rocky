@@ -48,3 +48,29 @@ it('keeps repair contents and request identity after failure, but changes identi
     commands: { install: 'npm ci' },
   });
 });
+it('submits a catalog repair without requiring legacy UI settings', async () => {
+  const submit = vi.fn(async () => undefined);
+  render(<ConfigurationRepair disabled={false} submit={submit} />);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Repair configuration and resume' }),
+  );
+  const repos = [
+    {
+      id: 'app',
+      name: 'app',
+      url: 'https://example.org/app',
+      baseBranch: 'main',
+      commands: [],
+      services: [],
+    },
+  ];
+  fireEvent.change(
+    screen.getByLabelText('Replacement repository catalog (optional JSON)'),
+    { target: { value: JSON.stringify(repos) } },
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply and resume this Run' }),
+  );
+  await act(async () => undefined);
+  expect(submit).toHaveBeenCalledWith(expect.any(String), { execution: repos });
+});

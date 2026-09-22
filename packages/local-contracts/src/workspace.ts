@@ -16,6 +16,7 @@ export interface RepositoryCommand {
   policy: SelectionPolicy;
   description: string;
   timeoutMs: number;
+  endpointEnv?: Record<string, { service: string; endpoint: string }>;
   dependsOn: string[];
   env: Record<string, string>;
 }
@@ -30,6 +31,8 @@ export interface DevService {
   dependsOn: string[];
   env: Record<string, string>;
   portEnv: string;
+  /** Environment variable -> dependency service ID and endpoint name. */
+  endpointEnv?: Record<string, { service: string; endpoint: string }>;
   endpoints: Array<{ name: string; locator: UiEndpoint }>;
   readiness: { endpoint: string; attempts: number; intervalMs: number };
 }
@@ -41,6 +44,7 @@ export interface WorkspaceRepository {
   baseBranch: string;
   commands?: RepositoryCommand[];
   services?: DevService[];
+  environment?: import('./environment.js').EnvironmentRecipe;
   ci?: 'required' | 'none';
   sourceControl?: SourceControlSettings;
 }
@@ -332,9 +336,18 @@ export function validateConfiguration(config: WorkspaceConfiguration): void {
           !('command' in entry ? entry.command : entry.start).trim()
         )
           throw Error(`${key} needs a name and command.`);
-        for (const name of Object.keys(entry.env))
+        for (const name of Object.keys(entry.env)) {
           if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
             throw Error(`Invalid environment name: ${name}`);
+          if (
+            repo.environment &&
+            /secret|token|password|credential|api_key/i.test(name) &&
+            !/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(entry.env[name])
+          )
+            throw Error(
+              'Environment secrets must use machine variable references, not literal values.',
+            );
+        }
         graph.set(key, entry.dependsOn);
       }
     }
@@ -357,6 +370,80 @@ export function validateConfiguration(config: WorkspaceConfiguration): void {
       }
       if (!endpointNames.has(service.readiness.endpoint))
         throw Error(`Choose a readiness endpoint for ${service.name}.`);
+    }
+  }
+  for (const repo of config.repos) {
+    for (const entry of [...(repo.commands ?? []), ...(repo.services ?? [])]) {
+      for (const [variable, reference] of Object.entries(
+        entry.endpointEnv ?? {},
+      )) {
+        const dependency = config.repos
+          .flatMap((r) =>
+            (r.services ?? []).map((s) => ({
+              id: `${r.id}/${s.id}`,
+              service: s,
+            })),
+          )
+          .find((s) => s.id === reference.service);
+        if (
+          !/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable) ||
+          !dependency?.service.endpoints.some(
+            (e) => e.name === reference.endpoint,
+          )
+        )
+          throw Error(
+            'Endpoint environment references must name a configured service endpoint.',
+          );
+        if ('start' in entry && !entry.dependsOn.includes(reference.service))
+          throw Error(
+            'Service endpoint references require an explicit service dependency.',
+          );
+      }
+    }
+    if (repo.environment && repo.environment.version !== 1)
+      throw Error('Unsupported environment recipe version.');
+    const capabilities = new Set<string>();
+    for (const capability of repo.environment?.capabilities ?? []) {
+      if (
+        repo.environment?.version !== 1 ||
+        !safeId(capability.id) ||
+        capabilities.has(capability.id)
+      )
+        throw Error('Environment capabilities need unique IDs and version 1.');
+      capabilities.add(capability.id);
+      if (
+        !capability.sources.length ||
+        capability.sources.some((s) => !repositoryRelativePath(s.path))
+      )
+        throw Error(
+          'Environment evidence must reference repository-relative source paths.',
+        );
+      if (
+        !capability.checks.length ||
+        new Set(capability.checks).size !== capability.checks.length ||
+        capability.checks.some((id) => !safeId(id))
+      )
+        throw Error('Environment verification needs unique named checks.');
+      if (
+        ![capability.verify, ...capability.setup].every((id) =>
+          tasks.has(id),
+        ) ||
+        !capability.services.every((id) => services.has(id))
+      )
+        throw Error(
+          'Environment recipes must reference configured commands and services.',
+        );
+      const auth = capability.authentication;
+      if (
+        auth &&
+        !(auth.kind === 'secret-env'
+          ? /^[A-Za-z_][A-Za-z0-9_]*$/.test(auth.reference)
+          : repositoryRelativePath(auth.reference) &&
+            capability.sources.some((source) => source.path === auth.reference))
+      )
+        throw Error(
+          'Authentication must reference a document or secret environment variable, never a credential value.',
+        );
     }
   }
   for (const graph of [tasks, services]) {
@@ -417,6 +504,7 @@ export function materializeConfiguration(
       .filter((repo) => repo.ci === 'none')
       .map((repo) => repo.name),
     execution: config.repos,
+    environmentVersion: 1,
   };
   return JSON.stringify(flow, null, 2) + '\n';
 }

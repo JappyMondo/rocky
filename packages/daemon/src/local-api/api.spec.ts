@@ -2175,3 +2175,43 @@ it('offers another review batch on exhausted runs and forwards the explicit gran
     (await app.inject(`/api/runs/${run.runId}`)).json().controls.continueReview,
   ).toBeUndefined();
 });
+it('guards saved-profile environment verification without mutating the profile', async () => {
+  const { EnvironmentOnboarding } =
+    await import('../environment/onboarding.js');
+  const f = await setup();
+  const verification = new EnvironmentOnboarding(f.paths);
+  const job = {
+    id: 'environment',
+    status: 'discovering' as const,
+    startedAt: new Date().toISOString(),
+    evidence: [],
+  };
+  const start = vi.spyOn(verification, 'start').mockResolvedValue(job);
+  vi.spyOn(verification, 'read').mockResolvedValue(job);
+  f.options.profiles = new LocalProfiles(f.paths, undefined, verification);
+  const profile = newRepositoryProfile({
+    id: 'environment-test',
+    repos: [
+      { name: 'web', url: 'https://example.org/web', baseBranch: 'main' },
+    ],
+  });
+  await writeRepositoryProfile(f.paths, profile);
+  const before = await readRepositoryProfile(f.paths, 'environment-test');
+  const url = '/api/profiles/environment-test/verify-environment';
+  expect(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url,
+        headers: { 'x-rocky-client-version': 'old' },
+      })
+    ).statusCode,
+  ).toBe(409);
+  expect(start).not.toHaveBeenCalled();
+  expect((await f.app.inject({ method: 'POST', url })).json()).toEqual(job);
+  expect(start).toHaveBeenCalledWith(before);
+  expect((await f.app.inject(url)).json()).toEqual(job);
+  expect(await readRepositoryProfile(f.paths, 'environment-test')).toEqual(
+    before,
+  );
+});

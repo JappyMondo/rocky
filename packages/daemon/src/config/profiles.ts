@@ -22,6 +22,7 @@ import { sourceControlSchema } from './source-control-schema.js';
 import {
   repositoryCommandSchema,
   devServiceSchema,
+  environmentRecipeSchema,
   automationSchema,
 } from './workspace-schema.js';
 
@@ -79,6 +80,7 @@ export const profileRepoSchema = z.strictObject({
   id: segment.optional(),
   commands: z.array(repositoryCommandSchema).optional(),
   services: z.array(devServiceSchema).optional(),
+  environment: environmentRecipeSchema.optional(),
   ci: z.enum(['required', 'none']).optional(),
   sourceControl: sourceControlSchema.optional(),
   name: segment,

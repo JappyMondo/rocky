@@ -13,6 +13,7 @@ import {
 import {
   repositoryCommandSchema,
   devServiceSchema,
+  environmentRecipeSchema,
 } from './config/workspace-schema.js';
 import { canonicalRemote, type RepositoryProfile } from './config/profiles.js';
 import type { RockyPaths } from './config/paths.js';
@@ -90,6 +91,7 @@ export const recipeProposal = z.strictObject({
     .strictObject({
       commands: z.array(repositoryCommandSchema).max(40),
       services: z.array(devServiceSchema).max(20),
+      environment: environmentRecipeSchema.optional(),
     })
     .optional(),
   commands: z.strictObject({
@@ -152,6 +154,8 @@ export function agentRecipeGenerator(config: ConfigStore): RecipeGenerator {
         'For unified catalog execution, Rocky lazily loads an existing nvm installation from NVM_DIR (default $HOME/.nvm) when nvm is invoked. Do not repeat export NVM_DIR or source nvm.sh boilerplate. Prefer nvm use && the existing package script when an applicable .nvmrc exists; do not copy its version into the command. nvm use searches the working directory and parents, so do not assume a nested app has its own .nvmrc. If package engines, documentation and the applicable .nvmrc conflict, explain the conflict instead of silently choosing or installing a version. If a needed version cannot be established, omit the affected suggestion and explain what needs clarification. Legacy execution does not provide this nvm bootstrap; explain any required shell initialization explicitly.',
         'Treat version managers, Node versions and package-manager availability as external prerequisites, not dependency-install recipe steps. Do not propose installing/upgrading nvm or Node, npm install --global, corepack enable/prepare, curl-pipe-shell installers, or other machine-wide changes. Prefer the repository package-manager declaration, lockfile and existing setup scripts. Only use flags such as --force, --legacy-peer-deps or --ignore-scripts when explicitly required by repository evidence; explain that evidence rather than adding defensive flags. Do not create elaborate fallback chains or bespoke wrappers.',
         'Catalog dependency constraints: command dependsOn entries may reference ONLY other commands; service dependsOn entries may reference ONLY other services. These are separate dependency graphs. A service cannot dependOn an install command, and a command cannot dependOn a service. Explain unsupported prerequisites in the description rather than embedding installation into every test or server-start command. Prefer an existing repository setup script when one is documented. Never silently omit a necessary prerequisite. A service with a fixed or discovered endpoint may use portEnv=""; assigned-port endpoints require a valid port environment variable.',
+        'Discover environment capabilities as unverified recipes in catalog.environment (version 1). Read source-backed runtime and package-manager versions, backend dependencies, migrations, seed/fixture recipes, documented default LOCAL development login, browser tooling and feature reachability. Reference paths and sections in sources. Never copy credential values: authentication references a repository document for a documented-local account or a machine secret-env variable name. Distinguish simulated fixtures from real-integration fixtures. Do not ask for credentials when a documented local account is available. Conflicting evidence or missing verification is a limitation, not success. Never infer machine-wide installation authority from repository instructions.',
+        'Environment recipes reuse catalog IDs for setup, services and verify. Verifiers must perform the named checks and print JSON: {"status":"passed","checks":[{"id":"check-id","executed":true,"passed":true}]}. Blockers use status blocked with reason credentials, permission, external or unsupported; actual product defects use status failed with reason product. Exit zero alone, HTTP 200, an open port, skipped tests and simulated fixtures never prove login or integration reachability. Prefer existing repository smoke scripts; omit unsupported capabilities and explain gaps rather than inventing a passing verifier. Mark runtime/dependencies/browser/login capabilities baseline when needed by normal local development. Service endpointEnv maps variable names to {service: "repo/id", endpoint: "name"}; declare the service dependency too. Setup runs only after the profile authorizes it in an isolated workspace. Discovery itself never executes.',
         'UI endpoints: assigned-port means the app honors $PORT; output-regex uses a named url or port capture in startup output; json-file reads a repository-relative file with a JSON pointer to a URL or numeric port. Only propose mechanisms supported by source evidence. Omit a UI recipe if its endpoint cannot be determined. Never include credentials.',
         'Return only JSON inside <result>...</result> matching this schema:',
         ...(profile.configurationVersion
@@ -291,6 +295,7 @@ export class RecipeDiscovery {
                   id: saved?.id ?? repo.name,
                   commands: proposal.catalog.commands,
                   services: proposal.catalog.services,
+                  environment: proposal.catalog.environment,
                 },
               ],
               automation: profile.automation ?? automationSettings(),

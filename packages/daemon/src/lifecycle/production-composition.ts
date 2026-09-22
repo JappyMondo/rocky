@@ -1,3 +1,4 @@
+import { EnvironmentOnboarding } from '../environment/onboarding.js';
 import {
   PublicReviews,
   registerPublicReviews,
@@ -273,6 +274,8 @@ export async function createProductionComposition(options: {
         agentRecipeGenerator(options.config),
       );
       app.addHook('preClose', () => recipeDiscovery.close());
+      const environmentOnboarding = new EnvironmentOnboarding(options.paths);
+      app.addHook('preClose', () => environmentOnboarding.close());
       const publicReviews = new PublicReviews(options.paths);
       await registerPublicReviews(app, publicReviews);
       await registerLocalApi(app, {
@@ -350,7 +353,11 @@ export async function createProductionComposition(options: {
           paths: options.paths,
           boundServer: options.config.current.server,
         }),
-        profiles: new LocalProfiles(options.paths, recipeDiscovery),
+        profiles: new LocalProfiles(
+          options.paths,
+          recipeDiscovery,
+          environmentOnboarding,
+        ),
         connections,
         diagrams,
         continuationRounds: (run) =>

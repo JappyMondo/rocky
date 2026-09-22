@@ -1,9 +1,15 @@
 import { z } from 'zod';
+import { profileRepoSchema } from '../config/profiles.js';
+import {
+  validateConfiguration,
+  automationSettings,
+} from '@rocky/local-contracts';
 import type { JournalEntry } from './journal.js';
 import type { FlowConfigurationRepair } from '@rocky/local-contracts';
 
 export const configurationRepairSchema = z
   .object({
+    execution: z.array(profileRepoSchema).min(1).max(20).optional(),
     readiness: z
       .object({
         attempts: z.number().int().min(1).max(600),
@@ -37,11 +43,29 @@ export const configurationRepairSchema = z
   .strict()
   .refine(
     (value) =>
+      value.execution !== undefined ||
       value.ui !== undefined ||
       value.readiness !== undefined ||
       Object.keys(value.commands ?? {}).length > 0,
     'Supply a configuration repair',
-  );
+  )
+  .superRefine((value, ctx) => {
+    if (!value.execution) return;
+    try {
+      validateConfiguration({
+        repos: value.execution,
+        automation: automationSettings(),
+      });
+    } catch (error) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Invalid environment repair.',
+      });
+    }
+  });
 
 export const retryRecordSchema = z
   .object({

@@ -430,3 +430,5 @@ export * from './flow.js';
 export * from './workspace.js';
 
 export * from './flow-components.js';
+
+export * from './environment.js';

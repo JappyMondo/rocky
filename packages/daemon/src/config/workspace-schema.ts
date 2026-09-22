@@ -9,6 +9,15 @@ const common = {
   description: z.string(),
   dependsOn: z.array(z.string()),
   env: z.record(z.string(), z.string()),
+  endpointEnv: z
+    .record(
+      z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+      z.strictObject({
+        service: z.string().min(1),
+        endpoint: id,
+      }),
+    )
+    .optional(),
 };
 export const repositoryCommandSchema = z.strictObject({
   ...common,
@@ -35,6 +44,7 @@ export const devServiceSchema = z.strictObject({
   start: z.string().min(1),
   stop: z.string().optional(),
   portEnv: z.string(),
+
   endpoints: z
     .array(z.strictObject({ name: id, locator: endpointSchema }))
     .min(1),
@@ -57,4 +67,44 @@ export const automationSchema = z.strictObject({
   ciLogLines: positive,
   maxTransitions: positive,
   readiness: z.strictObject({ attempts: positive, intervalMs: positive }),
+});
+
+export const environmentRecipeSchema = z.strictObject({
+  version: z.literal(1),
+  capabilities: z
+    .array(
+      z.strictObject({
+        id,
+        kind: z.enum([
+          'runtime',
+          'dependencies',
+          'browser',
+          'login',
+          'fixture',
+          'feature',
+        ]),
+        baseline: z.boolean(),
+        sources: z
+          .array(
+            z.strictObject({
+              path: z.string().min(1),
+              section: z.string().max(200).optional(),
+            }),
+          )
+          .min(1)
+          .max(20),
+        setup: z.array(z.string().min(1)).max(40),
+        services: z.array(z.string().min(1)).max(20),
+        verify: z.string().min(1),
+        checks: z.array(id).min(1).max(40),
+        authentication: z
+          .strictObject({
+            kind: z.enum(['documented-local', 'secret-env']),
+            reference: z.string().min(1),
+          })
+          .optional(),
+        fixture: z.enum(['simulated', 'real-integration']).optional(),
+      }),
+    )
+    .max(40),
 });

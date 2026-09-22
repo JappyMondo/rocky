@@ -6,7 +6,10 @@ import type { AgentHarnessInvocation } from './agent.js';
 import type { ScmPr, Workflow } from '@rocky/sdk';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { rockyPaths } from '../config/paths.js';
-import { newRepositoryProfile } from '../config/profiles.js';
+import {
+  newRepositoryProfile,
+  writeRepositoryProfile,
+} from '../config/profiles.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { writeCredentials } from '../config/store.js';
 import { LocalArtifacts } from '../local-api/artifacts.js';
@@ -146,6 +149,8 @@ async function fixture(
     remote: 'https://github.com/example/app.git',
   });
   profile.settings.secretEnv = ['GITHUB_TOKEN'];
+  // Production reloads live model selections from the saved profile on each Boot.
+  await writeRepositoryProfile(paths, profile);
   const run = newRunHeader({
     runId: 'NG-700-1',
     repo: 'app',
@@ -1012,6 +1017,7 @@ it.each(['github', 'gitlab'] as const)(
       [platform]: { tokenEnv: 'PROFILE_SCM_TOKEN' },
     };
     f.run.execution.members[0].url = `https://${platform}.com/example/app.git`;
+    await writeRepositoryProfile(f.paths, f.run.profile);
     await writeCredentials(f.paths, {
       linear: { accessToken: 'fixture' },
       repos: {

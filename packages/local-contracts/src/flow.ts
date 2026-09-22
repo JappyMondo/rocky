@@ -30,6 +30,7 @@ export interface FlowEdge {
 export interface FlowSettings {
   /** Snapshot-only replay version: older runs planned/fixed missing UI configuration. */
   uiConfigurationVersion?: 1;
+  environmentVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
   execution?: import('./workspace.js').WorkspaceRepository[];
   /** Explicit opt-in preserves positional replay for older frozen flows. */
@@ -51,6 +52,7 @@ export interface FlowSettings {
 }
 /** Explicit, journaled repair applied after one exhausted delivery attempt. */
 export interface FlowConfigurationRepair {
+  execution?: import('./workspace.js').WorkspaceRepository[];
   readiness?: { attempts: number; intervalMs: number };
   ui?: { start: string; url: string };
   commands?: Partial<FlowSettings['commands']>;
@@ -79,6 +81,7 @@ export interface RecipeDiscoveryJob {
     catalog?: {
       commands: import('./workspace.js').RepositoryCommand[];
       services: import('./workspace.js').DevService[];
+      environment?: import('./environment.js').EnvironmentRecipe;
     };
   };
 }
@@ -482,6 +485,8 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (s.environmentVersion !== undefined && s.environmentVersion !== 1)
+    throw new Error('Unsupported environment version.');
   if (s.uiConfigurationVersion !== undefined && s.uiConfigurationVersion !== 1)
     throw new Error('Unsupported UI configuration version.');
   if (s.workspaceSetup !== undefined && typeof s.workspaceSetup !== 'boolean')
