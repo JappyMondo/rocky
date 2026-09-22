@@ -577,6 +577,46 @@ it.each([false, true])(
   },
 );
 
+it('confirms auto-merge by rereading an MR after GitLab omits fields from the mutation response', async () => {
+  const ready = {
+    ...mr,
+    draft: false,
+    detailed_merge_status: 'mergeable',
+    merge_when_pipeline_succeeds: false,
+  };
+  const armed = { ...ready, merge_when_pipeline_succeeds: true };
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: ready,
+    },
+    { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
+    { path: root, value: { id: 5, merge_trains_enabled: false } },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: ready,
+    },
+    {
+      path: `${root}/merge_requests/7/merge`,
+      method: 'PUT',
+      body: { sha: 'abc', auto_merge: true },
+      value: { id: 100, iid: 7 },
+    },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: armed,
+    },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+      ...pr,
+      draft: false,
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  transport.done();
+});
+
 it.each([
   [{ ...mr, state: 'locked', draft: false }, { status: 'waiting' }],
   [
@@ -637,7 +677,7 @@ it('refuses a stale merge-train entry without a train or auto-merge mutation', a
 });
 
 it.each([false, true])(
-  'refuses an auto-merge response that is not bound to the requested MR (train=%s)',
+  'refuses auto-merge when its authoritative readback is not bound to the requested MR (train=%s)',
   async (train) => {
     const transport = scriptedFetch([
       {
@@ -692,7 +732,17 @@ it.each([false, true])(
             {
               path: `${root}/merge_requests/7/merge`,
               method: 'PUT',
-              value: { ...mr, id: 999, draft: false },
+              value: { id: 999, iid: 8 },
+            },
+            {
+              path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+              value: {
+                ...mr,
+                id: 999,
+                draft: false,
+                detailed_merge_status: 'mergeable',
+                merge_when_pipeline_succeeds: true,
+              },
             },
           ]),
     ]);
@@ -701,7 +751,9 @@ it.each([false, true])(
         ...pr,
         draft: false,
       }),
-    ).rejects.toMatchObject({ refusal: { reason: 'invalid_response' } });
+    ).rejects.toMatchObject({
+      refusal: { reason: train ? 'invalid_response' : 'not_open' },
+    });
     transport.done();
   },
 );

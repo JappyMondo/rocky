@@ -559,13 +559,41 @@ export function createGitLabScm(options: ScmAdapterOptions) {
           armCurrent,
         );
     } else {
-      const response = await http.request(
+      // GitLab's merge endpoint accepts the request but does not promise the
+      // same full MR representation returned by the read endpoint. Validate
+      // the effect through a fresh authoritative read instead of treating an
+      // otherwise-successful arm as a failed Run because optional response
+      // fields were omitted.
+      await http.request(
         'PUT',
         `${root}/merge_requests/${pr.number}/merge`,
-        mrSchema,
+        z.unknown(),
         { sha: pr.headSha, auto_merge: true },
       );
-      await checkMutationMr(response, armCurrent);
+      const readback = await read(pr);
+      const readbackCurrent = handle(readback);
+      if (readback.state === 'merged')
+        return {
+          status: 'done',
+          result: { status: 'merged', pr: readbackCurrent },
+        };
+      checkHead(pr, readbackCurrent);
+      if (readback.state !== 'opened')
+        throw refuse(
+          options.repo.id,
+          'not_open',
+          'MR was closed without merging after auto-merge was requested.',
+          'Inspect the MR; do not report it as armed.',
+          readbackCurrent,
+        );
+      if (readback.merge_when_pipeline_succeeds !== true)
+        throw refuse(
+          options.repo.id,
+          'blocked_status',
+          'GitLab did not confirm that auto-merge is armed.',
+          'Inspect the MR auto-merge state and platform policy before retrying.',
+          readbackCurrent,
+        );
     }
     const oldestArm = armedHeads.values().next().value;
     if (armedHeads.size >= 1024 && oldestArm !== undefined)
