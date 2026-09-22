@@ -283,11 +283,14 @@ it('spawns Claude with a closed built-in tool set and strict ephemeral MCP confi
   ).toBe(true);
 });
 
-async function invocation(): Promise<HarnessInvocation> {
+async function invocation(codex = false): Promise<HarnessInvocation> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rocky-harness-')));
   roots.push(root);
   const command = fileURLToPath(
-    new URL('./fixtures/harness-cli.mjs', import.meta.url),
+    new URL(
+      codex ? './fixtures/codex-cli.mjs' : './fixtures/harness-cli.mjs',
+      import.meta.url,
+    ),
   );
   await chmod(command, 0o700);
   return {
@@ -297,7 +300,7 @@ async function invocation(): Promise<HarnessInvocation> {
     command,
     capabilities: ['read'],
     mcpServers: [],
-    sessionStorage: 'rocky',
+    sessionStorage: codex ? 'codex' : 'rocky',
     env: { PATH: process.env.PATH, HOME: root, XDG_CONFIG_HOME: root },
     transcriptPath: join(root, 'sessions', 'step-1.jsonl'),
   };
@@ -352,7 +355,7 @@ it('resumes only the session owned by this Step, appending the Transcript', asyn
 
 for (const adapter of Object.values(SHIPPED_ADAPTERS)) {
   it(`${adapter.name}: emits live turn boundaries and cancels only its child process group`, async () => {
-    const input = await invocation();
+    const input = await invocation(adapter.name === 'codex');
     const abort = new AbortController();
     let pid = 0;
     const events: string[] = [];
@@ -388,7 +391,7 @@ for (const adapter of Object.values(SHIPPED_ADAPTERS)) {
       .toBe(true);
   });
   it(`${adapter.name}: times out a stuck child and preserves its Transcript`, async () => {
-    const input = await invocation();
+    const input = await invocation(adapter.name === 'codex');
     await expect(
       adapter.run({
         ...input,
@@ -399,7 +402,7 @@ for (const adapter of Object.values(SHIPPED_ADAPTERS)) {
     expect(await readFile(input.transcriptPath, 'utf8')).toContain('tool');
   });
   it(`${adapter.name}: a nonzero exit does not erase a valid result or invent usage`, async () => {
-    const input = await invocation();
+    const input = await invocation(adapter.name === 'codex');
     const result = await adapter.run({
       ...input,
       env: { ...input.env, FIXTURE_MODE: 'nonzero' },
@@ -408,7 +411,7 @@ for (const adapter of Object.values(SHIPPED_ADAPTERS)) {
     expect(result.usage).toBeUndefined();
   });
   it(`${adapter.name}: a new Step starts a fresh conversation, never implicit continue`, async () => {
-    const input = await invocation();
+    const input = await invocation(adapter.name === 'codex');
     await adapter.run(input);
     const next = await adapter.run({
       ...input,
@@ -427,7 +430,7 @@ for (const adapter of Object.values(SHIPPED_ADAPTERS)) {
     ).rejects.toThrow(/does not belong to this Step/);
   });
   it(`${adapter.name}: rejects pre-cancelled invocations without launching a child`, async () => {
-    const input = await invocation();
+    const input = await invocation(adapter.name === 'codex');
     await expect(
       adapter.run({ ...input, signal: AbortSignal.abort() }),
     ).rejects.toMatchObject({ name: 'AbortError' });

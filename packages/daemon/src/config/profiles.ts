@@ -160,7 +160,9 @@ export const profileSchema = z
     mcp: z.unknown().default({ mcpServers: {} }),
     grants: z
       .strictObject({
-        harness: z.enum(['claude-code', 'opencode']).default('claude-code'),
+        harness: z
+          .enum(['claude-code', 'opencode', 'codex'])
+          .default('claude-code'),
         capabilities: z.array(z.enum(['read', 'edit', 'bash'])).default([]),
         mcp: z.array(nonEmpty).default([]),
       })

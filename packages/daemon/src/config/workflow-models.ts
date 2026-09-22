@@ -8,7 +8,7 @@ import type {
 
 const identifier = z.string().trim().min(1).max(300).regex(/^\S+$/);
 export const agentModelSchema = z.strictObject({
-  harness: z.enum(['opencode', 'claude-code']),
+  harness: z.enum(['opencode', 'claude-code', 'codex']),
   model: identifier.refine(
     (value) => !/^(default|auto)$/i.test(value),
     'Choose a model identifier.',

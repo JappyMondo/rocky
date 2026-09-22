@@ -47,7 +47,7 @@ flowchart TB
     subgraph children[Owned child processes]
       boot[Boot workers and Workflow runtime]
       sdk[Workflow SDK]
-      harness[Harness adapters: claude-code and opencode]
+      harness[Harness adapters: claude-code, opencode and codex]
       shell[Shell commands and toolchain]
     end
     subgraph disk[Durable local filesystem - ROCKY_HOME]

@@ -257,7 +257,7 @@ export interface ConnectionCheck extends ConnectionStatus {
 }
 
 export interface AgentModelSelection {
-  harness: 'opencode' | 'claude-code';
+  harness: 'opencode' | 'claude-code' | 'codex';
   model: string;
   /** OpenCode variant or Claude Code reasoning effort. Always explicit. */
   effort: string;
@@ -286,7 +286,7 @@ export interface RepositoryProfileView {
   /** Invalid or legacy declarations remain editable, but cannot start new runs. */
   modelError?: string;
   grants: {
-    harness: 'claude-code' | 'opencode';
+    harness: 'claude-code' | 'opencode' | 'codex';
     capabilities: Array<'read' | 'edit' | 'bash'>;
     mcp: string[];
   };

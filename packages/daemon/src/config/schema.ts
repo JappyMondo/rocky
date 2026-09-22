@@ -25,10 +25,10 @@ export class ConfigError extends Error {
 
 /**
  * The harnesses Rocky ships an adapter for. NG-579 retired "configurable but
- * untested" as a category, so this list is exhaustive and a third harness is
+ * untested" as a category, so this list is exhaustive and an additional harness is
  * an adapter contribution rather than a config key.
  */
-export const SHIPPED_HARNESSES = ['claude-code', 'opencode'] as const;
+export const SHIPPED_HARNESSES = ['claude-code', 'opencode', 'codex'] as const;
 
 /** Names become directory names under `~/.rocky` — see `paths.ts`. */
 const segment = z
@@ -74,7 +74,7 @@ export const repoGroupSchema = z.looseObject({
 export const harnessSchema = z.looseObject({
   command: nonEmpty.optional(),
   env: z.record(nonEmpty, z.string()).optional(),
-  sessionStorage: z.enum(['rocky', 'opencode']).default('rocky'),
+  sessionStorage: z.enum(['rocky', 'opencode', 'codex']).default('rocky'),
 });
 
 /**
@@ -147,7 +147,15 @@ const instanceConfigShape = z.looseObject({
   sourceControl: sourceControlSchema.optional(),
   repos: z.array(repoEntrySchema).default([]),
   groups: z.array(repoGroupSchema).default([]),
-  harnesses: z.record(nonEmpty, harnessSchema).default({}),
+  harnesses: z.preprocess((input) => {
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      return input;
+    const harnesses = input as Record<string, unknown>;
+    const codex = harnesses.codex;
+    if (!codex || typeof codex !== 'object' || Array.isArray(codex))
+      return input;
+    return { ...harnesses, codex: { sessionStorage: 'codex', ...codex } };
+  }, z.record(nonEmpty, harnessSchema).default({})),
 });
 
 export type RepoEntry = z.infer<typeof repoEntrySchema>;
@@ -241,6 +249,24 @@ export const instanceConfigSchema = instanceConfigShape.superRefine(
         fail(
           ['harnesses', name, 'sessionStorage'],
           'claude-code requires Rocky-owned session storage; opencode storage is only available to opencode',
+        );
+      }
+      if (
+        name === 'codex' &&
+        config.harnesses[name].sessionStorage !== 'codex'
+      ) {
+        fail(
+          ['harnesses', name, 'sessionStorage'],
+          'codex requires native codex session storage',
+        );
+      }
+      if (
+        name !== 'codex' &&
+        config.harnesses[name].sessionStorage === 'codex'
+      ) {
+        fail(
+          ['harnesses', name, 'sessionStorage'],
+          'codex session storage is only available to codex',
         );
       }
       if (!(SHIPPED_HARNESSES as readonly string[]).includes(name)) {

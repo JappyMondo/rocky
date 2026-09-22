@@ -1,6 +1,23 @@
 import { expect, it, vi } from 'vitest';
 import { chooseWorkflowModels } from './workflow-models.js';
 
+it('accepts Codex for explicit model slots without falling back to another harness', async () => {
+  const selected = {
+    harness: 'codex',
+    model: 'codex-model-verbatim',
+    effort: 'xhigh',
+  };
+  const models = await chooseWorkflowModels(
+    { harness: 'codex', model: selected.model, variant: selected.effort },
+    { harness: 'opencode' },
+  );
+  expect(models).toEqual({
+    review: selected,
+    implementation: selected,
+    planner: selected,
+  });
+});
+
 function prompt(answers: string[]) {
   const value = {
     ask: vi.fn(async () => {

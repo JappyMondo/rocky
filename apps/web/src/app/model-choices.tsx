@@ -102,6 +102,7 @@ export function ModelChoices({
                 >
                   <option value="opencode">OpenCode</option>
                   <option value="claude-code">Claude Code</option>
+                  <option value="codex">Codex CLI</option>
                 </select>
               </label>
               <label>
@@ -113,7 +114,9 @@ export function ModelChoices({
                   placeholder={
                     selected.harness === 'opencode'
                       ? 'provider/model-id'
-                      : 'Full Claude model ID'
+                      : selected.harness === 'codex'
+                        ? 'Full Codex model ID'
+                        : 'Full Claude model ID'
                   }
                   onChange={(e) => update({ model: e.target.value })}
                   autoComplete="off"

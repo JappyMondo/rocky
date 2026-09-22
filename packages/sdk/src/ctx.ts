@@ -149,7 +149,7 @@ export type WorkflowModelSlots = Readonly<
 
 /** Selected in the profile UI; immutable for the lifetime of a run. */
 export interface AgentModelSelection {
-  readonly harness: 'opencode' | 'claude-code';
+  readonly harness: 'opencode' | 'claude-code' | 'codex';
   readonly model: string;
   readonly effort: string;
 }

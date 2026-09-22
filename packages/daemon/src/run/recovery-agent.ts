@@ -110,10 +110,11 @@ export async function recoverWithAgent(options: {
             [model.harness]: {
               command:
                 settings.command ??
-                (model.harness === 'claude-code' ? 'claude' : 'opencode'),
+                (model.harness === 'claude-code' ? 'claude' : model.harness),
               env: sourceControlEnv(sourceControl, { ...env, ...settings.env }),
               sessionStorage:
-                settings.sessionStorage === 'opencode' ? 'opencode' : 'rocky',
+                settings.sessionStorage ??
+                (model.harness === 'codex' ? 'codex' : 'rocky'),
             },
           },
           signal,

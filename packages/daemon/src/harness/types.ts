@@ -8,7 +8,7 @@ export type ResolvedMcpServer = McpServer;
 export interface HarnessInvocation {
   cwd: string;
   prompt: string;
-  sessionStorage: 'rocky' | 'opencode';
+  sessionStorage: 'rocky' | 'opencode' | 'codex';
   model?: string;
   effort?: string;
   capabilities: readonly Capability[];

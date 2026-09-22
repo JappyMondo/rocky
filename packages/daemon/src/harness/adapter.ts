@@ -6,6 +6,7 @@ import { ConfigError, type HarnessConfigInput } from '../config/schema.js';
 import { SHIPPED_HARNESSES } from '../config/schema.js';
 import { claudeCode, claudeExecutionEnv } from './claude-code.js';
 import { opencode } from './opencode.js';
+import { codex } from './codex.js';
 import type { HarnessInvocation, HarnessResult } from './types.js';
 import { runProcess } from './process.js';
 
@@ -176,6 +177,27 @@ function exitCodeAnswer(result: ProbeResult): {
 }
 
 export const AUTH_PROBES: Record<ShippedHarness, AuthProbe> = {
+  codex: {
+    command: 'codex',
+    args: ['login', 'status'],
+    fix: 'codex login',
+    readAnswer(result) {
+      const status = stripVTControlCharacters(
+        `${result.stdout}\n${result.stderr}`,
+      );
+      const method = /^Logged in using (ChatGPT|an API key)\b/im.exec(
+        status,
+      )?.[1];
+      // API-key status can include the key. Never relay native output here.
+      return {
+        signedIn: result.code === 0 && method !== undefined,
+        detail:
+          result.code === 0 && method
+            ? `signed in using ${method}`
+            : 'not signed in or unrecognized authentication status',
+      };
+    },
+  },
   'claude-code': {
     command: 'claude',
     args: ['auth', 'status'],
@@ -256,6 +278,12 @@ async function checkAuth(
   }
 
   let answer = probe.readAnswer(result);
+  if (
+    harness === 'codex' &&
+    harnessAuthEnv(resolved, env).CODEX_API_KEY?.trim()
+  ) {
+    answer = { signedIn: true, detail: 'CODEX_API_KEY configured' };
+  }
 
   if (answer.signedIn && harness === 'claude-code') {
     try {
@@ -312,6 +340,11 @@ async function checkAuth(
 }
 
 export const SHIPPED_ADAPTERS: Record<ShippedHarness, HarnessAdapter> = {
+  codex: {
+    ...codex,
+    name: 'codex',
+    checkAuth: (config, options) => checkAuth('codex', config, options),
+  },
   'claude-code': {
     ...claudeCode,
     name: 'claude-code',

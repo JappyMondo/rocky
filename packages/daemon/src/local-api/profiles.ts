@@ -84,7 +84,7 @@ export const profileEditSchema = z
       .optional(),
     grants: z
       .object({
-        harness: z.enum(['claude-code', 'opencode']),
+        harness: z.enum(['claude-code', 'opencode', 'codex']),
         capabilities: z.array(z.enum(['read', 'edit', 'bash'])),
         mcp: z.array(z.string().min(1)),
       })

@@ -482,7 +482,7 @@ export function createProductionRuntime(
     },
     env: () => env,
     external: (run, steps, signal, approvals) => {
-      const resolveHarness = (name: 'claude-code' | 'opencode') => {
+      const resolveHarness = (name: 'claude-code' | 'opencode' | 'codex') => {
         const settings = expandHarness(
           name,
           options.config().harnesses[name] ?? {},
@@ -490,16 +490,14 @@ export function createProductionRuntime(
         );
         return {
           command:
-            settings.command ??
-            (name === 'claude-code' ? 'claude' : 'opencode'),
+            settings.command ?? (name === 'claude-code' ? 'claude' : name),
           env: sourceControlEnv(run.profile?.sourceControl, {
             ...env,
             ...settings.env,
           }),
           sessionStorage:
-            settings.sessionStorage === 'opencode'
-              ? ('opencode' as const)
-              : ('rocky' as const),
+            settings.sessionStorage ??
+            (name === 'codex' ? ('codex' as const) : ('rocky' as const)),
         };
       };
       const runAgent = createAgent(steps, {
@@ -514,6 +512,9 @@ export function createProductionRuntime(
           },
           get opencode() {
             return resolveHarness('opencode');
+          },
+          get codex() {
+            return resolveHarness('codex');
           },
         },
         resolveServers: async (names, attemptSignal) => {

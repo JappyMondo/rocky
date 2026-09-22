@@ -19,7 +19,7 @@ this project's `rocky` package on npm.
 - **Editable local profiles:** one profile owns the workflow, prompts, schemas,
   rules, MCP configuration and repository membership. Profiles can span several
   repositories, with the first member serving as the default SCM target.
-- **Two harness adapters:** `opencode` and `claude-code` drive the installed
+- **Three harness adapters:** `opencode`, `claude-code` and `codex` drive the installed
   native CLIs. Workflows declare named model slots; the web UI configures each
   slot’s harness, model and variant/effort independently.
 - **Shipped workflows:** clarify the issue, then deliver either a reviewed

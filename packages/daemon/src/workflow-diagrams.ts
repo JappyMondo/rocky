@@ -99,7 +99,7 @@ export function agentDiagramGenerator(
             ? current.workflowDefaults.model
             : undefined),
         effort: selected?.effort,
-        sessionStorage: 'rocky',
+        sessionStorage: name === 'codex' ? 'codex' : 'rocky',
         capabilities: [],
         mcpServers: [],
         transcriptPath: join(cwd, 'transcript.jsonl'),

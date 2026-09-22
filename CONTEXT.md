@@ -62,8 +62,8 @@ sources are selected as MCP servers.
 **MCP server**: A tool source declared in a Profile and selected for an Agent.
 Authentication belongs to the machine and is separate from the declaration.
 
-**Harness**: The native agent CLI driven by a Rocky adapter: OpenCode or Claude
-Code. _Avoid_: Provider.
+**Harness**: The native agent CLI driven by a Rocky adapter: OpenCode, Claude
+Code or Codex CLI. _Avoid_: Provider.
 
 **Preflight**: Journaled checks of the credentials and authority needed by a Run.
 SCM checks are deferred until the Workflow first needs SCM operations.

@@ -2843,6 +2843,7 @@ function Profiles(p: {
             >
               <option value="opencode">OpenCode</option>
               <option value="claude-code">Claude Code</option>
+              <option value="codex">Codex CLI</option>
             </select>
           </label>
         )}

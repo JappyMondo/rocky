@@ -166,6 +166,8 @@ it.each([false, true])(
       )
         return 0;
       if (message.kind === 'workspace') return undefined;
+      if (message.kind === 'control-get' && message.key === 'flow:repairs')
+        return [];
       throw new Error(`Unexpected Boot request ${message.kind}`);
     };
     const runtime = createProductionRuntime({
@@ -173,7 +175,7 @@ it.each([false, true])(
       config: () => config,
       request,
       adapterFor: (name) =>
-        name === 'claude-code' || name === 'opencode'
+        name === 'claude-code' || name === 'opencode' || name === 'codex'
           ? {
               run: invoke,
               resume: async (input) => invoke(input),
@@ -182,6 +184,13 @@ it.each([false, true])(
     });
 
     const workflow: Workflow = async (ctx) => {
+      await ctx.agent('worker', {
+        label: 'codex-worker',
+        harness: 'codex',
+        model: 'codex-model-verbatim',
+        effort: 'xhigh',
+        tools: ['read'],
+      });
       await ctx.agent('worker', {
         label: 'default-harness',
         tools: ['read'],
@@ -201,15 +210,30 @@ it.each([false, true])(
     };
     loadSnapshotWorkflow.mockResolvedValue(workflow);
 
-    await expect(
-      runtime.boot(run, 'run', new AbortController().signal),
-    ).resolves.toMatchObject({ status: 'finished', outcome: 'completed' });
+    const outcome = await runtime.boot(
+      run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: 'finished',
+      outcome: 'completed',
+    });
     expect(loadSnapshotWorkflow).toHaveBeenCalledWith(
       runPaths.snapshotDir,
       {
         kind: 'linear.onDelegate',
       },
       0,
+      [],
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'codex',
+        model: 'codex-model-verbatim',
+        effort: 'xhigh',
+        sessionStorage: 'codex',
+      }),
     );
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({

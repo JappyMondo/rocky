@@ -1,7 +1,7 @@
 # Harness Configuration And Verification
 
-Rocky has two code-owned adapters, `claude-code` and `opencode`. Model identifiers
-pass through verbatim; there is no Rocky model registry or configurable third adapter.
+Rocky has three code-owned adapters, `claude-code`, `opencode` and `codex`. Model identifiers
+pass through verbatim; there is no Rocky model registry or configurable adapter registry.
 
 ## Instance Configuration
 
@@ -11,6 +11,10 @@ Agent harness/model/effort selections belong in the profile’s `models` map, ke
 ```json
 {
   "harnesses": {
+    "codex": {
+      "command": "codex",
+      "sessionStorage": "codex"
+    },
     "opencode": {
       "command": "opencode",
       "sessionStorage": "rocky"
@@ -25,6 +29,50 @@ Agent harness/model/effort selections belong in the profile’s `models` map, ke
 
 `command` and `env` use Rocky's `${VAR}` expansion. Keep secrets in the environment,
 not literal JSON. Agent prompts, Capabilities and named MCP grants are chosen at each Workflow call site; spread `ctx.models.<slot>` to use a configured model selection.
+
+## Codex CLI
+
+Select `codex` in setup or in a profile's model slots, with an explicit model ID
+and reasoning effort. Rocky passes these as `--model` and
+`model_reasoning_effort`. Install a compatible Codex CLI (the native fixture is
+verified with 0.153.4), then use `codex login`, or configure `CODEX_API_KEY` through
+the harness environment. Doctor uses `codex login status` and never displays the
+API key that command can print. An offline login check does not prove model access.
+
+Codex uses `codex exec --json` and `codex exec resume <thread-id>`. Rocky records
+raw JSONL, native token usage, tool activity and final text. It verifies the
+thread ID against the Step Transcript before resuming; it never resumes `--last`.
+See the [official noninteractive CLI documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+`sessionStorage: "codex"` is the Codex default and its only supported storage mode.
+Native resumable sessions and authentication remain in the configured `CODEX_HOME`
+(normally `~/.codex`); Rocky does not relocate or copy credentials. Rocky's raw
+Transcript remains under the Run. Deleting a Run does not remove native Codex
+sessions; both stores must survive for continuation. Run-owned native Codex
+session storage is not supported.
+
+Rocky ignores user configuration and execpolicy rules, marks the checkout's Codex
+configuration untrusted, and disables hooks, plugins, skills, apps, subagents and
+web/image tools. Existing user model/provider defaults therefore do not select
+the model for Rocky. Managed Codex policy can still restrict execution.
+
+The `read` grant supplies a private `rocky_read` MCP server with `read_file`,
+`list_directory`, `glob_files` and literal `search_files` tools. It does not enable
+a shell. `bash` enables Codex's shell tools; `edit` enables workspace writes via
+Codex's native permission profile. Without `edit`, native writes are denied except
+to explicitly granted evidence directories. Codex may still advertise `apply_patch`
+in read-only turns; native permissions reject repository writes. Shell network
+access follows `bash`. No sandbox or approval bypass is used.
+
+Named MCP grants support stdio and streamable HTTP; legacy SSE is rejected with
+a configuration fix. Servers are required, and resolved headers are supplied
+through per-attempt environment variables. Private stdio launch files are removed
+after execution. The `rocky_read` server name is reserved.
+
+`rocky upgrade` remains an interactive content-negotiation command for Claude Code
+and OpenCode; it does not use this noninteractive adapter.
+
+## OpenCode and Claude session storage
 
 `sessionStorage: "rocky" | "opencode"` defaults to `rocky`. OpenCode implements this
 using `OPENCODE_DB`: `rocky` gives each Step `<transcript>.opencode.db`.
@@ -107,7 +155,17 @@ pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/
 ROCKY_OPENCODE_POLICY_TESTS=1 pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/harness/policy.spec.ts packages/daemon/src/harness/opencode-cli.spec.ts
 ROCKY_REAL_OPENCODE_TESTS=1 pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/harness/live.spec.ts
 ROCKY_REAL_CLAUDE_TESTS=1 pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/harness/live.spec.ts
+ROCKY_CODEX_POLICY_TESTS=1 pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/harness/codex-cli.spec.ts
+ROCKY_REAL_CODEX_TESTS=1 pnpm exec vitest run --config packages/daemon/vitest.config.mts packages/daemon/src/harness/live.spec.ts
 ```
+
+The live Codex gate uses the installed CLI and existing authentication. It checks
+a real MCP file read and same-thread continuation, then runs a disposable coding
+ticket through Rocky's Agent runner: repair a failing fixture, execute its tests,
+validate the structured result, record usage and reload the completed Run without
+another invocation. It creates no external ticket. `ROCKY_CODEX_MODEL` and
+`ROCKY_CODEX_EFFORT` optionally pin the selection; otherwise Codex uses its built-in
+default. Temporary workspaces are removed unless `ROCKY_KEEP_PROBE=1`.
 
 The native OpenCode policy suite uses a local model-protocol fixture and local MCP
 server: it checks actual offered tools, static Bearer headers, tool boundaries,

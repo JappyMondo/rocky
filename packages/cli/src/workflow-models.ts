@@ -30,7 +30,7 @@ export async function askAgentModel(
   for (const key of ['harness', 'model', 'effort'] as const) {
     const title =
       key === 'harness'
-        ? 'harness (opencode / claude-code)'
+        ? 'harness (opencode / claude-code / codex)'
         : key === 'model'
           ? 'model identifier'
           : 'variant / effort (explicit value, e.g. high)';

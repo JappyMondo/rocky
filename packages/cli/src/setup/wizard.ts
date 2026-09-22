@@ -289,11 +289,11 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 
     const harness = await askUntil(
       prompter,
-      'Harness for new Rocky profiles (opencode or claude-code) [opencode]:',
+      'Harness for new Rocky profiles (opencode, claude-code or codex) [opencode]:',
       (answer) => {
         const value = answer.trim() || 'opencode';
-        if (value !== 'opencode' && value !== 'claude-code')
-          throw new Error('Choose opencode or claude-code.');
+        if (!agentModelSchema.shape.harness.safeParse(value).success)
+          throw new Error('Choose opencode, claude-code or codex.');
         return value;
       },
       maxAttempts,

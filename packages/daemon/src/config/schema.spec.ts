@@ -290,6 +290,25 @@ describe('the harnesses block', () => {
     ).toThrow(/sessionStorage/);
   });
 
+  it('defaults Codex to its native session store and rejects incompatible storage', () => {
+    expect(
+      parseInstanceConfig({
+        harnesses: { codex: {} },
+        workflowDefaults: { harness: 'codex' },
+      }).harnesses.codex.sessionStorage,
+    ).toBe('codex');
+    for (const sessionStorage of ['rocky', 'opencode']) {
+      expect(() =>
+        parseInstanceConfig({ harnesses: { codex: { sessionStorage } } }),
+      ).toThrow(/native codex session storage/);
+    }
+    expect(() =>
+      parseInstanceConfig({
+        harnesses: { opencode: { sessionStorage: 'codex' } },
+      }),
+    ).toThrow(/only available to codex/);
+  });
+
   it('refuses a harness Rocky ships no adapter for, and names the ones it does', () => {
     // NG-579 killed "configurable but untested": an untested stream parser is
     // not degraded, it is broken.
@@ -297,7 +316,7 @@ describe('the harnesses block', () => {
       parseInstanceConfig({ ...oneRepo, harnesses: { cursor: {} } }),
     ).toThrow(/cursor.*claude-code.*opencode/s);
 
-    expect(SHIPPED_HARNESSES).toEqual(['claude-code', 'opencode']);
+    expect(SHIPPED_HARNESSES).toEqual(['claude-code', 'opencode', 'codex']);
   });
 });
 

@@ -4,5 +4,10 @@
 - `opencode-1.17.7-tool-call.jsonl`: inherited from NG-530 commit `8a1dc4c` and subsequent usage corrections through `0d21903`. Kept as prior parser evidence, not a new capture.
 - `claude-synthetic.jsonl`: hand-authored stream contract, **not** an authenticated Claude capture. NG-643's recorded-stream/live-continuation gate remains open.
 - `harness-cli.mjs`: synthetic executable for deterministic process, policy-error, timeout and cancellation tests. It never contacts a model.
+- `codex-cli.mjs`: synthetic Codex process-boundary fixture for arguments, transcripts, errors and cancellation. It is not an authenticated Codex capture.
 
 `opencode-cli.spec.ts` additionally exercises the actual OpenCode CLI against local model-protocol and MCP fixtures. This proves native request/tool/config behavior without claiming external model or OAuth eligibility. No fixture contains an actual credential.
+
+`codex-cli.spec.ts` exercises Codex CLI 0.153.4 against a local Responses API fixture, including MCP discovery and file reads, native continuation, denied repository writes, allowed edits, bash, evidence directories and required-server failures. It uses an isolated native home and no external credentials. This is native CLI evidence, not live model-account acceptance.
+
+The separately gated Codex tests in `live.spec.ts` passed on 2026-09-22 with installed CLI 0.153.4, existing authentication and its built-in default model. They verified a real MCP file read and same-thread continuation, plus a disposable coding ticket through Rocky's Agent runner: file repair, shell tests, structured result, journaled usage and reopening the completed Run without another invocation. No external ticket was created or live account transcript committed. This verifies that account's default model at that time, not every model ID.

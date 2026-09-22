@@ -476,7 +476,10 @@ export function buildCli(
 
   const modelOptions = (command: Command) =>
     command
-      .option('--harness <harness>', 'Agent harness: opencode or claude-code.')
+      .option(
+        '--harness <harness>',
+        'Agent harness: opencode, claude-code or codex.',
+      )
       .option(
         '--model <model>',
         'Explicit model identifier saved in the workflow.',

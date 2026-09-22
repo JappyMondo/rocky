@@ -21,7 +21,7 @@ function runner(
   return { calls, run };
 }
 const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' });
-function adapter(name: 'claude-code' | 'opencode') {
+function adapter(name: 'claude-code' | 'opencode' | 'codex') {
   return SHIPPED_ADAPTERS[name];
 }
 
@@ -150,9 +150,10 @@ describe('the shipped Harness adapters', () => {
       ),
     ).toMatchObject({ ok: false });
   });
-  it('covers exactly two runnable adapters, not a configurable registry', () => {
+  it('covers exactly three runnable adapters, not a configurable registry', () => {
     expect(Object.keys(SHIPPED_ADAPTERS).sort()).toEqual([
       'claude-code',
+      'codex',
       'opencode',
     ]);
     expect(getHarnessAdapter('claude-code')).toBe(adapter('claude-code'));

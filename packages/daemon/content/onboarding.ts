@@ -79,7 +79,7 @@ export function createOnboarding(services: OnboardingServices) {
         const answer = await ctx.question({
           title: `Choose ${role} model`,
           body:
-            'Enter the harness, full model ID and explicit variant/effort separated by spaces: opencode provider/model high, or claude-code full-model-id high. These settings are saved in the workflow; harness defaults are never used.' +
+            'Enter the harness, full model ID and explicit variant/effort separated by spaces: opencode provider/model high, claude-code full-model-id high, or codex full-model-id high. These settings are saved in the workflow; harness defaults are never used.' +
             (attempt ? ' The previous answer was incomplete or invalid.' : ''),
           ...(same ? { options: ['Same as main agent'] } : {}),
         });

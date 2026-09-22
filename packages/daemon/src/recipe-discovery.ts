@@ -145,7 +145,7 @@ export function agentRecipeGenerator(config: ConfigStore): RecipeGenerator {
       env,
       model: selected.model,
       effort: selected.effort,
-      sessionStorage: 'rocky',
+      sessionStorage: selected.harness === 'codex' ? 'codex' : 'rocky',
       capabilities: ['read'],
       mcpServers: [],
       prompt: [

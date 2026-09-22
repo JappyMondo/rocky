@@ -92,7 +92,7 @@ export type AgentCapability = 'read' | 'edit' | 'bash';
 export interface AgentHarnessInvocation {
   cwd: string;
   prompt: string;
-  sessionStorage: 'rocky' | 'opencode';
+  sessionStorage: 'rocky' | 'opencode' | 'codex';
   model?: string;
   effort?: string;
   capabilities: readonly AgentCapability[];
@@ -165,7 +165,7 @@ export interface AgentOptions {
     {
       command: string;
       env: NodeJS.ProcessEnv;
-      sessionStorage: 'rocky' | 'opencode';
+      sessionStorage: 'rocky' | 'opencode' | 'codex';
     }
   >;
   signal?: AbortSignal;
@@ -224,7 +224,7 @@ async function adapterFor(
     typeof adapter.resume !== 'function'
   ) {
     throw new Error(
-      `Harness #20 returned no runnable adapter for ${name}; configure claude-code or opencode in the instance config.`,
+      `Harness #20 returned no runnable adapter for ${name}; configure claude-code, opencode or codex in the instance config.`,
     );
   }
   return adapter as AgentHarnessAdapter;
@@ -310,7 +310,7 @@ export function createAgent(
       const config = runtime.harnesses[harness];
       if (!adapter || !config) {
         throw new Error(
-          `Unknown Harness ${harness}; configure claude-code or opencode in the instance config`,
+          `Unknown Harness ${harness}; configure claude-code, opencode or codex in the instance config`,
         );
       }
 

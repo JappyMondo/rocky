@@ -178,7 +178,7 @@ export const AI_NODES: FlowNodeDefinition[] = [
         key: 'harness',
         label: 'Harness',
         kind: 'select',
-        options: ['opencode', 'claude-code'],
+        options: ['opencode', 'claude-code', 'codex'],
         default: 'opencode',
         visibleWhen: { key: 'source', value: 'custom' },
       },
