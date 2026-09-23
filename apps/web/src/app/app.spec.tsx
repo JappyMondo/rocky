@@ -1,4 +1,7 @@
-import type { RepositoryProfileView } from '@rocky/local-contracts';
+import {
+  defaultFlowSettings,
+  type RepositoryProfileView,
+} from '@rocky/local-contracts';
 import {
   act,
   cleanup,
@@ -24,6 +27,108 @@ const defaultSlots = {
   planner: { name: 'Planner' },
 };
 const defaultSource = `export const models = ${JSON.stringify(defaultSlots)}; export default [defaultWorkflow];`;
+
+it('creates a unified profile, saves repository and automation settings, and restores its saved draft', async () => {
+  window.history.replaceState({}, '', '/profiles');
+  const source = JSON.stringify({
+    version: 2,
+    name: 'Simple',
+    models: {},
+    settings: defaultFlowSettings(),
+    nodes: [
+      {
+        id: 'start',
+        name: 'Start',
+        type: 'trigger',
+        parameters: { kind: 'manual', name: 'test' },
+        position: { x: 0, y: 0 },
+      },
+      {
+        id: 'end',
+        name: 'Done',
+        type: 'finish',
+        parameters: { outcome: 'completed' },
+        position: { x: 250, y: 0 },
+      },
+    ],
+    edges: [
+      { id: 'next', source: 'start', sourceHandle: 'next', target: 'end' },
+    ],
+  });
+  const request = daemon({
+    profileDefaults: () => ({
+      body: {
+        workflow: { source, triggers: ['test'] },
+        modelSlots: {},
+        grants: { harness: 'codex', capabilities: [], mcp: [] },
+        prompts: [],
+        rules: [],
+        secretEnv: [],
+      },
+    }),
+    profiles: (init) =>
+      init?.method === 'PUT'
+        ? {
+            body: {
+              ...JSON.parse(String(init.body)),
+              revision: 'saved',
+              modelSlots: {},
+              prompts: [],
+              rules: [],
+              secretEnv: [],
+            },
+          }
+        : { body: { profiles: [] } },
+  });
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }));
+  fireEvent.change(await screen.findByLabelText('Profile id'), {
+    target: { value: 'unified' },
+  });
+  fireEvent.change(screen.getByLabelText('Folder name'), {
+    target: { value: 'web' },
+  });
+  fireEvent.change(screen.getByLabelText('Remote URL'), {
+    target: { value: 'https://github.com/acme/web' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Automation' }));
+  fireEvent.change(screen.getByLabelText('CI repair attempts'), {
+    target: { value: '7' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Agents & access' }));
+  const access = within(
+    screen.getAllByRole('region', { name: 'Source control settings' })[0],
+  );
+  fireEvent.change(access.getByLabelText('Commit author name'), {
+    target: { value: 'custom' },
+  });
+  fireEvent.change(access.getByLabelText('Commit author name value'), {
+    target: { value: 'Workflow bot' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  await screen.findByText('Profile saved');
+  const saved = JSON.parse(
+    String(
+      request.mock.calls.find(
+        ([path, init]) => path === '/api/profiles' && init?.method === 'PUT',
+      )?.[1]?.body,
+    ),
+  );
+  expect(saved).toMatchObject({
+    configurationVersion: 1,
+    automation: { ciCap: 7 },
+    sourceControl: { git: { name: 'Workflow bot' } },
+    repos: [{ name: 'web', url: 'https://github.com/acme/web' }],
+  });
+  fireEvent.change(access.getByLabelText('Commit author name value'), {
+    target: { value: 'Unsaved' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Discard/ }));
+  expect(
+    (access.getByLabelText('Commit author name value') as HTMLInputElement)
+      .value,
+  ).toBe('Workflow bot');
+});
 function fillOtherModels() {
   for (const name of ['Implementation', 'Planner']) {
     fireEvent.change(screen.getByLabelText(`${name} model`), {

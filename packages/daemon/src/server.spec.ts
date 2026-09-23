@@ -2,13 +2,21 @@
  * AC1: the daemon serves a health endpoint and the web shell on one port,
  * `127.0.0.1:7625` by default.
  *
- * These drive a listening socket rather than Fastify's `inject`, because the
- * bind address and the port are half of what the AC asserts.
+ * These drive real listening sockets on OS-assigned ports. The default-port
+ * test also checks the requested listen options before redirecting its bind.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import { DEFAULT_HOST, DEFAULT_PORT, startDaemon } from './server.js';
 import type { RunningDaemon } from './server.js';
@@ -45,12 +53,26 @@ describe('the defaults', () => {
     expect(DEFAULT_PORT).toBe(7625);
   });
 
-  it('are what an unconfigured daemon actually binds', async () => {
-    daemon = await startDaemon({ webRoot });
+  it('are passed to the listener when the daemon is unconfigured', async () => {
+    const requested = vi.fn();
+    daemon = await startDaemon({
+      webRoot,
+      registerLocalApi: async (app) => {
+        const listen = app.listen.bind(app);
+        vi.spyOn(app, 'listen').mockImplementationOnce(async (options) => {
+          requested(options);
+          // Keep the real socket/health check without occupying the user's port.
+          return listen({ host: DEFAULT_HOST, port: 0 });
+        });
+      },
+    });
+    expect(requested).toHaveBeenCalledExactlyOnceWith({
+      host: '127.0.0.1',
+      port: 7625,
+    });
+    expect(daemon.url).toBe(`http://127.0.0.1:${daemon.port}`);
 
-    expect(daemon.url).toBe('http://127.0.0.1:7625');
-
-    const response = await fetch('http://127.0.0.1:7625/api/health');
+    const response = await fetch(`${daemon.url}/api/health`);
     expect(response.status).toBe(200);
   });
 });
@@ -181,11 +203,12 @@ describe('the shutdown route', () => {
 
 describe('the bind address and port', () => {
   it('are configurable, so the docs can carry the exposure warning', async () => {
-    daemon = await startDaemon({ host: '127.0.0.1', port: 7626, webRoot });
+    daemon = await startDaemon({ host: 'localhost', port: 0, webRoot });
 
-    expect(daemon.port).toBe(7626);
+    expect(daemon.host).toBe('localhost');
+    expect(daemon.port).toBeGreaterThan(0);
 
-    const response = await fetch('http://127.0.0.1:7626/api/health');
+    const response = await fetch(`${daemon.url}/api/health`);
     expect(response.status).toBe(200);
   });
 });

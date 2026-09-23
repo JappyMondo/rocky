@@ -504,6 +504,9 @@ export function createProductionRuntime(
         screenshotDir: options.paths.run(run.runId).screenshotsDir,
         snapshotDir: options.paths.run(run.runId).snapshotDir,
         cwd: options.paths.run(run.runId).workspaceDir,
+        gitMetadataDirectories: run.execution?.members.map((member) =>
+          options.paths.repo(member.name),
+        ),
         sessionDir: options.paths.run(run.runId).sessionsDir,
         harness: 'claude-code',
         harnesses: {

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import {
   chmod,
@@ -29,7 +30,10 @@ it.runIf(process.env.ROCKY_CODEX_POLICY_TESTS === '1')(
       model: string;
       reasoning?: { effort: string };
     }[] = [];
-    let action: { kind: 'patch'; path: string } | { kind: 'bash' } | undefined;
+    let action:
+      | { kind: 'patch'; path: string }
+      | { kind: 'bash'; cmd?: string }
+      | undefined;
     let actionSent = false;
     const server = createServer(async (req, res) => {
       if (req.method !== 'POST') {
@@ -110,7 +114,9 @@ it.runIf(process.env.ROCKY_CODEX_POLICY_TESTS === '1')(
                 id: 'shell_fixture',
                 call_id: 'shell_call',
                 name: 'exec_command',
-                arguments: JSON.stringify({ cmd: 'printf shell-ok' }),
+                arguments: JSON.stringify({
+                  cmd: action.cmd ?? 'printf shell-ok',
+                }),
                 status: 'completed',
               };
       }
@@ -248,6 +254,65 @@ it.runIf(process.env.ROCKY_CODEX_POLICY_TESTS === '1')(
         name: 'bash',
       });
       expect(JSON.stringify(requests.at(-1)?.input)).toContain('shell-ok');
+
+      const source = join(root, 'source');
+      const gitWorktree = join(root, 'git-worktree');
+      execFileSync('git', ['init', '-b', 'main', source]);
+      execFileSync(
+        'git',
+        ['-C', source, 'commit', '--allow-empty', '-m', 'base'],
+        {
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: 'Test',
+            GIT_AUTHOR_EMAIL: 'test@example.invalid',
+            GIT_COMMITTER_NAME: 'Test',
+            GIT_COMMITTER_EMAIL: 'test@example.invalid',
+          },
+        },
+      );
+      execFileSync('git', [
+        '-C',
+        source,
+        'worktree',
+        'add',
+        '-b',
+        'issue',
+        gitWorktree,
+      ]);
+      await writeFile(join(gitWorktree, 'change.txt'), 'new\n');
+      action = {
+        kind: 'bash',
+        cmd: 'git add change.txt && git -c user.name=Test -c user.email=test@example.invalid commit -m change',
+      };
+      actionSent = false;
+      await codex.run({
+        ...input,
+        cwd: gitWorktree,
+        capabilities: ['edit', 'bash'],
+        transcriptPath: join(root, 'git-blocked.jsonl'),
+      });
+      expect(JSON.stringify(requests.at(-1)?.input)).toMatch(
+        /Permission denied|Operation not permitted/,
+      );
+      expect(
+        execFileSync('git', ['-C', gitWorktree, 'status', '--short'], {
+          encoding: 'utf8',
+        }).trim(),
+      ).toBe('?? change.txt');
+      actionSent = false;
+      await codex.run({
+        ...input,
+        cwd: gitWorktree,
+        capabilities: ['edit', 'bash'],
+        gitMetadataDirectories: [join(source, '.git')],
+        transcriptPath: join(root, 'git.jsonl'),
+      });
+      expect(
+        execFileSync('git', ['-C', gitWorktree, 'log', '-1', '--format=%s'], {
+          encoding: 'utf8',
+        }).trim(),
+      ).toBe('change');
 
       const evidence = join(root, 'evidence');
       await mkdir(evidence);

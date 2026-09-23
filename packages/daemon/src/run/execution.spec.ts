@@ -109,8 +109,8 @@ it('composes grouped delegation and manual admission through the real Boot and i
   ).toEqual({
     input: {
       members: [
-        { name: 'app', path: 'app', lead: true },
-        { name: 'api', path: 'api', lead: false },
+        { name: 'app', path: 'app', lead: true, baseBranch: 'main' },
+        { name: 'api', path: 'api', lead: false, baseBranch: 'main' },
       ],
     },
     title: 'Frozen title',

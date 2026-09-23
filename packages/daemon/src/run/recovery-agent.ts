@@ -104,6 +104,9 @@ export async function recoverWithAgent(options: {
         const agent = createAgent(steps, {
           snapshotDir: paths.run(run.runId).snapshotDir,
           cwd: paths.run(run.runId).workspaceDir,
+          gitMetadataDirectories: run.execution?.members.map((member) =>
+            paths.repo(member.name),
+          ),
           sessionDir: join(folder, 'sessions'),
           harness: model.harness,
           harnesses: {

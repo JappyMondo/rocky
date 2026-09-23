@@ -121,9 +121,7 @@ export function deliveryAgents(
       flow.nodes.find((node) => node.id === coordinatorId)?.type ===
         'delivery.recap'
     ) {
-      const review = flow.nodes.find(
-        (node) => node.type === 'delivery.review',
-      );
+      const review = flow.nodes.find((node) => node.type === 'delivery.review');
       if (review) agents = attachedNodes(flow, review.id, 'agent:fixer');
     }
     if (agents.length !== 1)

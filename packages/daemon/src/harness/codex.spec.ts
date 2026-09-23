@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { chmod, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -253,6 +254,63 @@ it('runs and resumes only its own transcript and preserves model, effort and pro
   await expect(
     codex.resume({ ...input, sessionId: '--last' }),
   ).rejects.toMatchObject({ retryable: false });
+});
+
+it('grants Git metadata writes for an editable linked worktree', async () => {
+  const input = await invocation();
+  const source = join(input.cwd, 'source');
+  const worktree = join(input.cwd, 'workspace');
+  execFileSync('git', ['init', '-b', 'main', source]);
+  execFileSync('git', ['-C', source, 'commit', '--allow-empty', '-m', 'base'], {
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Test',
+      GIT_AUTHOR_EMAIL: 'test@example.invalid',
+      GIT_COMMITTER_NAME: 'Test',
+      GIT_COMMITTER_EMAIL: 'test@example.invalid',
+    },
+  });
+  execFileSync('git', [
+    '-C',
+    source,
+    'worktree',
+    'add',
+    '-b',
+    'issue',
+    worktree,
+  ]);
+  const gitDir = execFileSync(
+    'git',
+    ['-C', worktree, 'rev-parse', '--absolute-git-dir'],
+    {
+      encoding: 'utf8',
+    },
+  ).trim();
+  const commonDir = execFileSync(
+    'git',
+    ['-C', worktree, 'rev-parse', '--git-common-dir'],
+    { encoding: 'utf8' },
+  ).trim();
+  const result = await codex.run({
+    ...input,
+    cwd: worktree,
+    capabilities: ['edit', 'bash'],
+    gitMetadataDirectories: [commonDir],
+  });
+  const args = JSON.parse(result.text).args as string[];
+  expect(gitDir.startsWith(commonDir)).toBe(true);
+  expect(args).toContainEqual(
+    expect.stringContaining(`"${commonDir}"="write"`),
+  );
+  const readOnly = await codex.run({
+    ...input,
+    cwd: worktree,
+    capabilities: ['read', 'bash'],
+    gitMetadataDirectories: [commonDir],
+  });
+  expect((JSON.parse(readOnly.text).args as string[]).join(' ')).not.toContain(
+    `"${commonDir}"="write"`,
+  );
 });
 
 it.each(['missing-result', 'wrong-session', 'auth-error'])(

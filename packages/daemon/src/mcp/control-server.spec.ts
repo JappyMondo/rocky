@@ -287,3 +287,189 @@ it('preserves masked values by repository name when reordering and rejects proto
   ).toThrow();
   expect(() => mergeConfiguration({}, { token: '[redacted]' })).toThrow();
 });
+
+it('forwards run controls, profile revisions and connection lifecycle requests with their scoped payloads', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>(
+    async () => new Response('{"ok":true}'),
+  );
+  const server = createRockyMcpServer({
+    address: async () => ({ host: '::1', port: 12345 }),
+    fetch,
+  });
+  const client = new Client({ name: 'contract-test', version: '1' });
+  const [left, right] = InMemoryTransport.createLinkedPair();
+  await server.connect(right);
+  await client.connect(left);
+  cleanup.push(
+    () => server.close(),
+    () => client.close(),
+  );
+  const requestId = '3c1ad5b0-1995-4a7e-a773-219fe46e8713';
+  const cases: Array<
+    [string, Record<string, unknown>, string, string, unknown?]
+  > = [
+    ['rocky_status', {}, 'GET', '/api/health'],
+    ['rocky_intake_failures', {}, 'GET', '/api/intake-failures'],
+    ['rocky_profiles_list', {}, 'GET', '/api/profiles'],
+    ['rocky_profile_defaults', {}, 'GET', '/api/profile-defaults'],
+    [
+      'rocky_profile_save',
+      { id: 'demo', revision: 'v1' },
+      'PUT',
+      '/api/profiles',
+      { id: 'demo', revision: 'v1' },
+    ],
+    [
+      'rocky_profile_delete',
+      { id: 'demo', revision: 'v1' },
+      'DELETE',
+      '/api/profiles',
+      { id: 'demo', revision: 'v1' },
+    ],
+    [
+      'rocky_profile_routing_get',
+      { profileId: 'demo' },
+      'GET',
+      '/api/profiles/demo/routing',
+    ],
+    [
+      'rocky_profile_routing_update',
+      { profileId: 'demo', revision: 'v2', labels: ['product'], teams: [] },
+      'PUT',
+      '/api/profiles/demo/routing',
+      { revision: 'v2', labels: ['product'], teams: [] },
+    ],
+    [
+      'rocky_run_steer',
+      { runId: 'ENG-1-run', requestId, message: 'Check the tests' },
+      'POST',
+      '/api/runs/ENG-1-run/steer',
+      { requestId, message: 'Check the tests' },
+    ],
+    [
+      'rocky_run_retry',
+      { runId: 'ENG-1-run', requestId, stepKey: '2', expectedBoot: 1 },
+      'POST',
+      '/api/runs/ENG-1-run/retry-step',
+      { requestId, stepKey: '2', expectedBoot: 1 },
+    ],
+    [
+      'rocky_run_answer',
+      {
+        runId: 'ENG-1-run',
+        stepKey: '0/1/2',
+        generation: 'g1',
+        answer: { decision: 'reject', reason: 'Needs changes' },
+      },
+      'POST',
+      '/api/runs/ENG-1-run/answer',
+      {
+        stepKey: '0/1/2',
+        generation: 'g1',
+        answer: { decision: 'reject', reason: 'Needs changes' },
+      },
+    ],
+    [
+      'rocky_run_recover_session',
+      { runId: 'ENG-1-run' },
+      'POST',
+      '/api/runs/ENG-1-run/recover-session',
+    ],
+    [
+      'rocky_run_diff',
+      { runId: 'ENG-1-run', diffId: 'diff1' },
+      'GET',
+      '/api/runs/ENG-1-run/diffs/diff1',
+    ],
+    [
+      'rocky_run_report',
+      { runId: 'ENG-1-run', reportId: 'report1' },
+      'GET',
+      '/api/runs/ENG-1-run/reports/report1',
+    ],
+    ['rocky_connections_list', {}, 'GET', '/api/connections'],
+    [
+      'rocky_connection_check',
+      { profileId: 'demo', name: 'api' },
+      'POST',
+      '/api/connections/profiles/demo/mcp/api/check',
+    ],
+    [
+      'rocky_connection_login',
+      {
+        profileId: 'demo',
+        name: 'api',
+        clientId: 'test-client',
+        callbackPort: 0,
+      },
+      'POST',
+      '/api/connections/profiles/demo/mcp/api/login',
+      { clientId: 'test-client', callbackPort: 0 },
+    ],
+    [
+      'rocky_login_get',
+      { id: 'login1' },
+      'GET',
+      '/api/connections/logins/login1',
+    ],
+    [
+      'rocky_login_cancel',
+      { id: 'login1' },
+      'DELETE',
+      '/api/connections/logins/login1',
+    ],
+    ['rocky_linear_login', {}, 'POST', '/api/connections/linear/login'],
+    ['rocky_linear_check', {}, 'POST', '/api/connections/linear/check'],
+  ];
+  for (const [name, args, method, path, body] of cases) {
+    const result = await client.callTool({ name, arguments: args });
+    expect(result.isError, name).toBeUndefined();
+    const [url, init] = fetch.mock.calls.at(-1)!;
+    expect(url).toBe(`http://[::1]:12345${path}`);
+    expect(init).toMatchObject({
+      method,
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
+    });
+    expect(init?.body).toBe(
+      body === undefined ? undefined : JSON.stringify(body),
+    );
+  }
+  fetch.mockRejectedValueOnce(new Error('Connection lost'));
+  expect(
+    await client.callTool({ name: 'rocky_status', arguments: {} }),
+  ).toMatchObject({
+    isError: true,
+    content: [
+      { type: 'text', text: expect.stringContaining('Check `rocky status`') },
+    ],
+  });
+});
+
+it.each([
+  { host: 'remote.test', port: 7625 },
+  { host: '127.0.0.1', port: 0 },
+  { host: '127.0.0.1', port: 65536 },
+  { host: '127.0.0.1', port: 1.5 },
+])(
+  'rejects an unsafe or unbound daemon address %j before sending requests',
+  async (address) => {
+    const fetch = vi.fn();
+    const server = createRockyMcpServer({
+      address: async () => address,
+      fetch,
+    });
+    const client = new Client({ name: 'contract-test', version: '1' });
+    const [left, right] = InMemoryTransport.createLinkedPair();
+    await server.connect(right);
+    await client.connect(left);
+    cleanup.push(
+      () => server.close(),
+      () => client.close(),
+    );
+    expect(
+      await client.callTool({ name: 'rocky_status', arguments: {} }),
+    ).toMatchObject({ isError: true });
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);

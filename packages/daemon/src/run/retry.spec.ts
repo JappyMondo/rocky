@@ -198,6 +198,23 @@ it('offers explicit retries for failed Steps and finalization, without invalidat
   ])
     expect(retryStepKey([{ ...base, ...change }, end])).toBe('0');
   expect(retryStepKey([{ ...base, status: 'done' }, end])).toBe('2');
+  expect(
+    retryStepKey([
+      {
+        ...base,
+        step: 'scm.armAutoMerge:service:key',
+        status: 'done',
+        result: {
+          refused: true,
+          repo: 'service',
+          reason: 'invalid_response',
+          message: 'SCM response did not match the platform schema.',
+          fix: 'Verify the server version and supported API.',
+        },
+      },
+      end,
+    ]),
+  ).toBe('0');
   expect(retryStepKey([end])).toBe('2');
   expect(
     retryStepKey([

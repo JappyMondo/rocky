@@ -502,6 +502,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         command: string,
       ) => { exitCode: number; stdout: string; stderr: string } | undefined;
       comment?: (body: string) => void;
+      recap?: () => { id: string; url: string };
       scm?: (operation: string, count: number, args: unknown[]) => unknown;
       triggers?: Triggers;
       continuation?: boolean;
@@ -678,7 +679,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                     trace.push('visualRecap');
                     return {
                       status: 'done',
-                      result: {
+                      result: options.recap?.() ?? {
                         id: 'r_fixture',
                         url: 'https://rocky.test/recap',
                       },
@@ -787,6 +788,323 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       },
     };
   }
+
+  it.skipIf(mode === 'legacy')(
+    'addresses conversations across repositories with scoped paths and one recap per PR',
+    async () => {
+      const flow = parseFlow(flowSource);
+      const manual = flowTriggers(
+        JSON.stringify(flow),
+        new URL('../../content/.rocky/', import.meta.url).pathname,
+      ).find((t) => t.kind === 'manual')!;
+      const f = repositoryFixture({
+        triggers: [{ kind: 'linear.onDelegate', workflow: manual.workflow }],
+        scm: (operation, _count, args) => {
+          if (operation === 'reviewThreads')
+            return [
+              {
+                pr: args[0],
+                id: 'first',
+                path: 'src/a.ts',
+                line: 4,
+                body: 'Fix this',
+                resolved: false,
+              },
+              {
+                pr: args[0],
+                id: 'second',
+                body: 'Explain this',
+                resolved: false,
+              },
+              { pr: args[0], id: 'resolved', body: 'Done', resolved: true },
+              {
+                pr: args[0],
+                id: 'readonly',
+                body: 'Info',
+                resolved: false,
+                resolvable: false,
+              },
+            ];
+          return undefined;
+        },
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }, i) => ({
+                    id,
+                    status: i % 2 ? 'disagreed' : 'fixed',
+                    note: i % 2 ? 'Required by callers.' : 'Added a guard.',
+                  }),
+                ),
+              }
+            : undefined,
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'finished',
+        outcome: 'completed',
+      });
+      expect(
+        f.calls.find((c) => c.name === 'fixer')?.input.complaints,
+      ).toMatchObject([
+        { file: 'fixture/src/a.ts', line: 4 },
+        { file: 'fixture' },
+        { file: 'settings/src/a.ts', line: 4 },
+        { file: 'settings' },
+      ]);
+      expect(
+        f.scmCalls
+          .filter((c) => c.operation === 'replyToThread')
+          .map((c) => c.args[1]),
+      ).toEqual([
+        'Fixed in abc. Added a guard.',
+        'Required by callers.',
+        'Fixed in abc. Added a guard.',
+        'Required by callers.',
+      ]);
+      expect(f.trace.filter((t) => t === 'visualRecap')).toHaveLength(2);
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each(['fixed', 'disagreed'] as const)(
+    'repairs or exhausts a recap audit in a frozen flow without recovery edges (%s)',
+    async (status) => {
+      const flow = parseFlow(flowSource);
+      flow.edges = flow.edges.filter(
+        (e) =>
+          !(
+            e.source === 'recap' &&
+            ['retry', 'exhausted'].includes(e.sourceHandle)
+          ),
+      );
+      let recaps = 0;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => {
+          if (recaps++ === 0)
+            throw Object.assign(new Error('Evidence audit failed'), {
+              name: 'RecapAuditError',
+              problems: ['Diagram does not match the change.'],
+            });
+          return { id: 'repaired', url: 'https://rocky.test/repaired' };
+        },
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({ id, status, note: 'Checked the diagram.' }),
+                ),
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject(
+        status === 'fixed'
+          ? { status: 'parked' }
+          : { status: 'finished', outcome: 'exhausted' },
+      );
+      expect(
+        f.calls.find((c) => c.name === 'fixer')?.input.complaints,
+      ).toMatchObject([
+        { file: 'fixture', text: 'Diagram does not match the change.' },
+      ]);
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+      if (status === 'fixed') expect(recaps).toBe(3);
+    },
+  );
+
+  it
+    .skipIf(mode === 'legacy')
+    .each([
+      'ci_must_pass',
+      'head_changed',
+      'requested_changes',
+      'protected_branch',
+    ])(
+    'revalidates recoverable merge refusals and stops permanent refusals (%s)',
+    async (reason) => {
+      const f = repositoryFixture({
+        scm: (operation, count, args) =>
+          operation === 'armAutoMerge' && count === 1
+            ? {
+                refused: true,
+                reason,
+                message: 'Platform refused merge',
+                fix: 'Resolve the platform requirement',
+                pr: args[0],
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      f.approve();
+      f.merge();
+      const result = await f.boot();
+      expect(result).toMatchObject(
+        reason === 'protected_branch'
+          ? { status: 'failed' }
+          : { status: 'parked' },
+      );
+      expect(calledRepos(f, 'armAutoMerge')).toEqual(['fixture']);
+      expect(f.trace.some((t) => t.includes('Platform refused merge'))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each(['head_changed', 'permission_denied'])(
+    'does not merge when post-approval CI refuses the request (%s)',
+    async (reason) => {
+      const f = repositoryFixture({
+        scm: (operation, count) =>
+          operation === 'waitForCi' && count === 3
+            ? {
+                refused: true,
+                repo: 'fixture',
+                reason,
+                message: 'CI refused',
+                fix: 'Check the head and access',
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: reason === 'head_changed' ? 'parked' : 'failed',
+      });
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+    },
+  );
+
+  it
+    .skipIf(mode === 'legacy')
+    .each(['ci_still_running', 'requested_changes', 'protected_branch'])(
+    'revalidates or asks for help when the platform is not ready after approval (%s)',
+    async (reason) => {
+      let checked = false;
+      const f = repositoryFixture({
+        scm: (operation, count, args) => {
+          if (operation === 'checkMergeReady' && count === 1) {
+            checked = true;
+            return {
+              refused: true,
+              repo: 'fixture',
+              reason,
+              message: 'Platform not ready',
+              fix: 'Resolve the requirement',
+              pr: args[0],
+            };
+          }
+          if (
+            operation === 'reviewThreads' &&
+            checked &&
+            reason === 'requested_changes'
+          )
+            return [
+              {
+                pr: args[0],
+                id: 'D1',
+                body: 'Explain the behavior',
+                line: 7,
+                resolved: false,
+              },
+              {
+                pr: args[0],
+                id: 'D2',
+                body: 'Already addressed',
+                resolved: true,
+              },
+              {
+                pr: args[0],
+                id: 'D3',
+                body: 'Information only',
+                resolvable: false,
+                resolved: false,
+              },
+            ];
+          if (operation === 'replyToThread')
+            return {
+              refused: true,
+              repo: 'fixture',
+              reason: 'head_changed',
+              message: 'New revision',
+              fix: 'Recheck',
+            };
+          return undefined;
+        },
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({
+                    id,
+                    status: 'disagreed',
+                    note: 'Required by callers.',
+                  }),
+                ),
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+      if (reason === 'protected_branch') {
+        f.answer({
+          decision: 'reject',
+          reason: 'Cannot satisfy the platform requirement',
+        });
+        expect(await f.boot()).toMatchObject({ status: 'failed' });
+      } else if (reason === 'requested_changes') {
+        expect(
+          f.calls.find((call) => call.name === 'fixer')?.input.complaints,
+        ).toMatchObject([
+          { file: 'fixture/.', line: 7, text: 'Explain the behavior' },
+        ]);
+        expect(
+          f.scmCalls.find((call) => call.operation === 'replyToThread')
+            ?.args[2],
+        ).toEqual({ resolve: false });
+      }
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'hands off every changed repository when merging is outside the ticket scope',
+    async () => {
+      const f = repositoryFixture({
+        agent: (name) =>
+          name === 'refiner'
+            ? {
+                status: 'clear',
+                delivery: {
+                  kind: 'pull-request',
+                  merge: false,
+                  stateChanges: false,
+                },
+                scope: 'Prepare a PR',
+                decisions: ['A human will merge the PRs.'],
+                acceptanceCriteria: ['Return an empty list for empty input.'],
+                outOfScope: [],
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'completed',
+      });
+      const comment = f.trace.find((t) =>
+        t.startsWith('comment:Ready for review:'),
+      );
+      expect(comment).toContain('https://example.test/fixture/pr/1');
+      expect(comment).toContain('https://example.test/settings/pr/1');
+      expect(calledRepos(f, 'armAutoMerge')).toEqual([]);
+    },
+  );
 
   it('opens a draft before reviews, parks at the final Checkpoint, and records Done only after actual merge', async () => {
     const f = fixture();

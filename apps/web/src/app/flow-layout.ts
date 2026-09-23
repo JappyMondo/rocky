@@ -12,7 +12,7 @@ import {
   isAttachedAgent,
   type WorkflowFlow,
 } from '@rocky/local-contracts';
-import { visibleComponents } from './flow-components.js';
+import { componentTree, visibleComponents } from './flow-components.js';
 
 type MeasuredNode = {
   id: string;
@@ -38,6 +38,7 @@ export function layoutFlow(
     height: Math.max(sizes.get(id)?.height ?? 72, ports(id).length ? 108 : 72),
   });
   const roots = visibleComponents(flow, null);
+  const workspaces = [...roots].map((root) => componentTree(flow, root));
   const graph = new Graph<GraphLabel, NodeLabel, EdgeLabel>({
     multigraph: true,
   });
@@ -92,8 +93,27 @@ export function layoutFlow(
     if (placed.has(id)) return;
     placed.add(id);
     const dimensions = size(id, true);
-    if (!roots.has(id))
-      positions.set(id, { x: center - dimensions.width / 2, y });
+    if (!roots.has(id)) {
+      const x = center - dimensions.width / 2;
+      // Shared providers have one position across several workspaces. Reserve
+      // space for every co-visible consumer and provider, including later roots.
+      const neighbours = [...positions]
+        .filter(([other]) =>
+          workspaces.some((group) => group.has(id) && group.has(other)),
+        )
+        .sort(([, a], [, b]) => a.y - b.y);
+      for (const [other, position] of neighbours) {
+        const occupied = size(other, true);
+        if (
+          x < position.x + occupied.width + 45 &&
+          x + dimensions.width + 45 > position.x &&
+          y < position.y + occupied.height + 100 &&
+          y + dimensions.height + 100 > position.y
+        )
+          y = position.y + occupied.height + 100;
+      }
+      positions.set(id, { x, y });
+    }
     const nested = children(id);
     const width =
       nested.reduce((sum, child) => sum + measure(child), 0) +

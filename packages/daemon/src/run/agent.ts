@@ -96,6 +96,7 @@ export interface AgentHarnessInvocation {
   model?: string;
   effort?: string;
   capabilities: readonly AgentCapability[];
+  gitMetadataDirectories?: readonly string[];
   evidenceDirectories?: readonly string[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
@@ -159,6 +160,7 @@ export interface AgentOptions {
   snapshotDir: string;
   cwd: string;
   sessionDir: string;
+  gitMetadataDirectories?: readonly string[];
   harness: string;
   harnesses: Record<
     string,
@@ -668,6 +670,7 @@ export function createAgent(
                 model: opts.model,
                 effort: opts.effort,
                 capabilities: opts.tools ?? [],
+                gitMetadataDirectories: runtime.gitMetadataDirectories,
                 ...(runtime.screenshotDir &&
                 opts.tools?.includes('read') &&
                 !opts.tools.includes('edit')

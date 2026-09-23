@@ -18,6 +18,7 @@ import { KeyedMutex } from './mutex.js';
 import { followConfigReloads, reconcileClones, type ReconcileReport } from './reconcile.js'; // prettier-ignore
 import { createUpstream, makeTempDir, type Upstream } from './upstream.fixtures.js'; // prettier-ignore
 import type { RepoContext } from './context.js';
+import { PUBLIC_MODE, serializeJson, writeAtomic } from '../atomic-write.js';
 
 const savedEnv = { ...process.env };
 
@@ -135,9 +136,18 @@ describe('following the config watcher', () => {
     });
 
     try {
-      writeConfig({
-        repos: [entry('niotix', upstream.url), entry('niota-api', sibling.url)],
-      });
+      // An in-place save immediately after watch registration can be coalesced
+      // with creation on macOS. Use the same atomic save as Rocky and editors.
+      await writeAtomic(
+        paths.configFile,
+        serializeJson({
+          repos: [
+            entry('niotix', upstream.url),
+            entry('niota-api', sibling.url),
+          ],
+        }),
+        PUBLIC_MODE,
+      );
 
       // The report, not the directory: the directory exists part-way through
       // the clone, so waiting on it would race the report that follows.
@@ -168,7 +178,11 @@ describe('following the config watcher', () => {
     });
     follower.close();
 
-    writeConfig({ repos: [entry('niotix', upstream.url)] });
+    await writeAtomic(
+      paths.configFile,
+      serializeJson({ repos: [entry('niotix', upstream.url)] }),
+      PUBLIC_MODE,
+    );
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     expect(reports).toEqual([]);

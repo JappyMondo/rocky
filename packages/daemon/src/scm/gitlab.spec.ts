@@ -617,6 +617,51 @@ it('confirms auto-merge by rereading an MR after GitLab omits fields from the mu
   transport.done();
 });
 
+it('confirms merge-train enrollment by reading the train after GitLab omits fields from its mutation response', async () => {
+  const ready = {
+    ...mr,
+    draft: false,
+    detailed_merge_status: 'mergeable',
+    merge_when_pipeline_succeeds: false,
+  };
+  const train = {
+    id: 9,
+    status: 'fresh',
+    target_branch: 'main',
+    merge_request: { id: 100, iid: 7 },
+    pipeline: null,
+  };
+  const path = `${root}/merge_trains/merge_requests/7`;
+  const transport = scriptedFetch([
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: ready,
+    },
+    { path: '/api/v4/version', value: { version: '19.1.0-ee' } },
+    { path: root, value: { id: 5, merge_trains_enabled: true } },
+    { path, status: 404, value: {} },
+    {
+      path: `${root}/merge_requests/7?include_rebase_in_progress=true`,
+      value: ready,
+    },
+    {
+      path,
+      method: 'POST',
+      body: { sha: 'abc', auto_merge: true },
+      value: { id: 9 },
+    },
+    { path, value: train },
+  ]);
+
+  await expect(
+    createGitLabScm({ ...options, fetch: transport.fetch }).armAutoMerge({
+      ...pr,
+      draft: false,
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  transport.done();
+});
+
 it.each([
   [{ ...mr, state: 'locked', draft: false }, { status: 'waiting' }],
   [
@@ -710,6 +755,10 @@ it.each([false, true])(
             {
               path: `${root}/merge_trains/merge_requests/7`,
               method: 'POST',
+              value: { id: 9 },
+            },
+            {
+              path: `${root}/merge_trains/merge_requests/7`,
               value: {
                 id: 9,
                 status: 'fresh',

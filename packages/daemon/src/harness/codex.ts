@@ -106,20 +106,28 @@ async function executeCodex(
       }
     }
     const edit = input.capabilities.includes('edit');
+    const gitMetadata =
+      edit && input.capabilities.includes('bash')
+        ? (input.gitMetadataDirectories ?? []).map((directory) => [
+            resolve(directory),
+            'write',
+          ])
+        : [];
     const config: Record<string, unknown> = {
       approval_policy: 'never',
       default_permissions: 'rocky',
       permissions: {
         rocky: {
           extends: edit ? ':workspace' : ':read-only',
-          filesystem: Object.fromEntries(
-            input.capabilities.includes('read') && !edit
+          filesystem: Object.fromEntries([
+            ...gitMetadata,
+            ...(input.capabilities.includes('read') && !edit
               ? (input.evidenceDirectories ?? []).map((directory) => [
                   resolve(directory),
                   'write',
                 ])
-              : [],
-          ),
+              : []),
+          ]),
           network: { enabled: input.capabilities.includes('bash') },
         },
       },

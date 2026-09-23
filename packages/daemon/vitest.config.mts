@@ -6,7 +6,7 @@ export default defineConfig({
     name: '@rocky/daemon',
     environment: 'node',
     include: ['src/**/*.spec.ts'],
-    // The suite binds real ports, including the default 7625.
+    // Keep real-server and child-process integration tests from competing.
     fileParallelism: false,
     // These start a real server rather than injecting; on a cold run the
     // plugin load alone can outlast vitest's 5s default. The whole suite takes
@@ -25,6 +25,7 @@ export default defineConfig({
       // child-process coverage with the parent suite.
       exclude: [
         'src/run/boot-child.ts',
+        'src/run/mermaid-check.ts',
         'src/run/loading/loader.ts',
         'src/run/loading/validate-child.ts',
         'src/run/loading/validate-worker.ts',
