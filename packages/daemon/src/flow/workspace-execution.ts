@@ -615,7 +615,10 @@ async function terminateOwnedGroup(pid: number) {
       process.kill(-pid, name);
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+      // The detached shell may have exited before cleanup. If its process
+      // group ID was reused by another user, it is no longer ours to signal.
+      if (['ESRCH', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? ''))
+        return false;
       throw error;
     }
   };

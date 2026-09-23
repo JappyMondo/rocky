@@ -277,6 +277,43 @@ it.each([true, false])(
     expect(exec).toHaveBeenCalledOnce();
   },
 );
+
+it('ignores EPERM while cleaning up a detached service process group', async () => {
+  const f = await fixture();
+  f.repo.services = [
+    {
+      ...serviceRecipe('api'),
+      start: 'start-api',
+      endpoints: [
+        { name: 'web', locator: { kind: 'fixed', url: 'http://localhost:4000/' } },
+      ],
+      readiness: { endpoint: 'web', attempts: 1, intervalMs: 1 },
+    },
+  ];
+  const exec = vi.fn(async () => ({ pid: 123 }));
+  const step = vi.fn(async (_label, work) => work());
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('ready')));
+  const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+    if (pid === -123)
+      throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+    return true;
+  });
+  try {
+    const runtime = new WorkspaceExecution(
+      { exec, step, ports: [] } as unknown as WorkflowContext,
+      f.input,
+      [f.repo],
+      f.root,
+      true,
+    );
+    await runtime.start(['web-id/api'], 'ui');
+    await expect(runtime.stop('ui')).resolves.toBeUndefined();
+    expect(kill).toHaveBeenCalledWith(-123, 'SIGTERM');
+  } finally {
+    kill.mockRestore();
+  }
+});
+
 it('executes from the selected repo cwd, expands only explicit environment references and enforces timeout', async () => {
   const f = await fixture();
   vi.stubEnv('ROCKY_RUN_DIR', undefined);
