@@ -106,6 +106,33 @@ it('prepares and disposes an isolated agent environment', async () => {
   expect(dispose).toHaveBeenCalledOnce();
 });
 
+it('keeps long implementation work visible and gives it enough time to finish', async () => {
+  const f = fixture();
+  f.options.heartbeatIntervalMs = 10;
+  f.run.mockImplementationOnce(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return {
+      text: '<result>{"summary":"done"}</result>',
+      sessionId: 'session-1',
+      events: [],
+    };
+  });
+  await runBoot({
+    journalPath: join(dir, 'long-agent.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Run checks.' },
+        { label: 'Implement', tools: ['read', 'edit', 'bash'] },
+      );
+      return 'completed';
+    },
+  });
+  expect(f.run.mock.calls[0][0].timeoutMs).toBeGreaterThan(60 * 60_000);
+  expect(
+    (await openJournal(join(dir, 'long-agent.jsonl'))).latest(0)?.progress,
+  ).toMatchObject({ live: { summary: expect.stringContaining('elapsed') } });
+});
+
 it('returns the original schema fields plus summary and replays without a conversation', async () => {
   const f = fixture();
   const results: unknown[] = [];

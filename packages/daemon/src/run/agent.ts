@@ -115,6 +115,7 @@ export type AgentHarnessEvent =
   | { kind: 'text'; text: string }
   | { kind: 'tool-call'; name: string }
   | { kind: 'tool-result'; name: string }
+  | { kind: 'heartbeat'; summary: string }
   | { kind: 'turn-boundary' };
 
 const LIVE_OUTPUT_LIMIT = 12_000;
@@ -128,6 +129,8 @@ export function describeAgentEvent(event: AgentHarnessEvent): string {
       return `Running ${event.name}…`;
     case 'tool-result':
       return `Finished ${event.name}.`;
+    case 'heartbeat':
+      return event.summary;
     case 'turn-boundary':
       return 'Agent is preparing its next action…';
   }
@@ -195,6 +198,7 @@ export interface AgentOptions {
     instructions?: string;
     dispose(): Promise<void>;
   }>;
+  heartbeatIntervalMs?: number;
 }
 
 class SteerBoundary extends Error {
@@ -351,7 +355,13 @@ export function createAgent(
       }
 
       const signal = runtime.signal ?? new AbortController().signal;
-      const timeout = opts.timeout ?? 30 * 60_000;
+      // Implementation checks in large repositories can exceed half an hour;
+      // keep the shorter default for read-only agents and explicit overrides.
+      const timeout =
+        opts.timeout ??
+        (opts.tools?.includes('edit') && opts.tools.includes('bash')
+          ? 90 * 60_000
+          : 30 * 60_000);
       if (!Number.isFinite(timeout) || timeout <= 0) {
         throw new Error(
           'Agent timeout must be a positive number of milliseconds',
@@ -424,8 +434,12 @@ export function createAgent(
       // Serialize the latter and join them before settling the Step so a live
       // preview can never be lost behind the final result.
       let eventWrites = Promise.resolve();
+      let lastActivityAt = Date.now();
+      let lastEventSummary = 'Starting agent…';
       const streamEvent = (event: AgentHarnessEvent, sessionId: string) => {
         const summary = describeAgentEvent(event);
+        lastActivityAt = Date.now();
+        lastEventSummary = summary;
         const previous = progress.live?.output ?? '';
         const output =
           event.kind === 'text'
@@ -746,6 +760,38 @@ export function createAgent(
                 },
               };
               let result: AgentHarnessResult;
+              const heartbeat = setInterval(() => {
+                if (
+                  Date.now() - lastActivityAt <
+                  (runtime.heartbeatIntervalMs ?? 30_000)
+                )
+                  return;
+                const elapsed = Math.floor(
+                  (Date.now() - progress.startedAt) / 60_000,
+                );
+                const remaining = Math.max(
+                  0,
+                  Math.ceil((progress.deadline - Date.now()) / 60_000),
+                );
+                const summary = `${lastEventSummary} (${elapsed}m elapsed; ${remaining}m until timeout)`;
+                progress = {
+                  ...progress,
+                  live: { output: progress.live?.output ?? '', summary },
+                };
+                eventWrites = eventWrites.then(() => handle.update(progress));
+                void eventWrites.catch(() => undefined);
+                if (progress.sessionId) {
+                  try {
+                    runtime.onEvent?.(
+                      handle.identity,
+                      { kind: 'heartbeat', summary },
+                      progress.sessionId,
+                    );
+                  } catch {
+                    // Presentation must never strand the Agent Step.
+                  }
+                }
+              }, runtime.heartbeatIntervalMs ?? 30_000);
               try {
                 if (continuation) {
                   if (!continuation.sessionId) {
@@ -768,6 +814,8 @@ export function createAgent(
                   if (await continueWithSteers(progress.sessionId)) break;
                 }
                 throw error;
+              } finally {
+                clearInterval(heartbeat);
               }
               await boundaryWrite;
               await eventWrites;
