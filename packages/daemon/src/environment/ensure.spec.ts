@@ -529,6 +529,21 @@ it('bounds slow setup and rejects missing dependencies without treating them as 
   });
   expect(Date.now() - started).toBeLessThan(2000);
 });
+it('allows a configured long install to use its own timeout during baseline provisioning', async () => {
+  const f = await fixture();
+  f.repo.commands[0].timeoutMs = 1_800_000;
+  const result = await ensureEnvironment(f.ctx, f.execution, {
+    label: 'baseline',
+    allowSetup: true,
+  });
+  expect(result.status).toBe('ready');
+  expect(
+    f.receipts.find((receipt) =>
+      receipt.label.endsWith('setup allowance web/install'),
+    )?.result,
+  ).toBeGreaterThanOrEqual(1_800_000 - 1000);
+  await f.execution.stop('done');
+});
 it('accepts a versioned catalog repair after exhaustion and preserves implementation on journal replay', async () => {
   const { createDeliveryOperations } = await import('../flow/delivery.js');
   const { JournalWriter } = await import('../run/writer.js');

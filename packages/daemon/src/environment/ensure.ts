@@ -177,7 +177,22 @@ export async function ensureEnvironment(
       'Authorize the required service dependencies before provisioning.',
       'human',
     );
-  const budget = Math.min(600_000, Math.max(1, request.timeoutMs ?? 120_000));
+  // A profile may allow a long initial install. The shared default must cover
+  // the configured setup and verification commands; otherwise a short hidden
+  // deadline overrides their explicit timeouts before implementation begins.
+  const configuredBudget =
+    setup.reduce((total, { command }) => total + command.timeoutMs, 0) +
+    selected.reduce(
+      (total, { recipe }) =>
+        total +
+        (catalog.find((entry) => entry.id === recipe.verify)?.command
+          .timeoutMs ?? 0),
+      0,
+    );
+  const budget = Math.max(
+    1,
+    request.timeoutMs ?? Math.max(120_000, configuredBudget),
+  );
   const maxRepairs = Math.min(2, Math.max(0, request.maxRepairs ?? 1));
   const started = Date.now();
   let previous = '';
