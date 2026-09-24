@@ -265,8 +265,8 @@ export function createProductionRuntime(
                 ...process.env,
                 ...memberEnv,
               })
-            : memberEnv,
-          { signal, cwd: options.paths.root, allowCli: cliSelected },
+            : { ...process.env, ...memberEnv },
+          { signal, cwd: options.paths.root },
         );
         const input = {
           repo: {

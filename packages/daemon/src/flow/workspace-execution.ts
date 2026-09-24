@@ -172,7 +172,13 @@ export class WorkspaceExecution {
     if (!entry) throw Error('Unknown environment verifier.');
     const task = {
       ...entry.command,
-      env: { ...entry.command.env, ...this.endpointEnvironment(entry.command) },
+      // Setup probes run unattended. Package managers such as pnpm need this
+      // to replace stale dependencies without asking for terminal input.
+      env: {
+        CI: 'true',
+        ...entry.command.env,
+        ...this.endpointEnvironment(entry.command),
+      },
     };
     const command = await this.shell(
       entry.repository,
