@@ -32,6 +32,30 @@ afterEach(() => {
 });
 
 describe('public SDK over injected HTTP', () => {
+  it('retries a transient network failure for a read but never replays a mutation', async () => {
+    const viewer = { data: { viewer: { id: 'app-user', name: 'Rocky' } } };
+    const readFetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(Response.json(viewer));
+    await expect(httpClient(readFetch).viewer()).resolves.toEqual({
+      id: 'app-user',
+      name: 'Rocky',
+    });
+    expect(readFetch).toHaveBeenCalledTimes(2);
+
+    const writeFetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockRejectedValueOnce(new TypeError('fetch failed'));
+    await expect(
+      httpClient(writeFetch).postComment({
+        id: 'comment-id',
+        issueId: 'issue-id',
+        body: 'hello',
+      }),
+    ).rejects.toThrow('fetch failed');
+    expect(writeFetch).toHaveBeenCalledOnce();
+  });
   it('rechecks a shared cooldown extended by another in-flight response', async () => {
     vi.useFakeTimers();
     let complete!: (response: Response) => void;
