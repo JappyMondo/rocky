@@ -47,6 +47,26 @@ export class DeliveryRepositories {
       throw new Error(`${repo}: ${command}\n${result.stderr}`);
     return result.stdout.trim();
   }
+  private async push(repo: string, branch: string) {
+    const command = 'git push origin HEAD';
+    const initial = await this.exec(repo, command);
+    if (initial.exitCode === 0) return;
+    if (
+      !/\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/.test(
+        initial.stderr,
+      )
+    )
+      throw new Error(`${repo}: ${command}\n${initial.stderr}`);
+
+    // A previous Boot may have pushed a fixer commit before losing its result.
+    // Preserve that remote work and our new local fix without rewriting the PR.
+    await this.shell(
+      repo,
+      `git fetch --no-tags origin ${quote(`refs/heads/${branch}`)}`,
+    );
+    await this.shell(repo, 'git merge --no-edit -X ours FETCH_HEAD');
+    await this.shell(repo, command);
+  }
   get current() {
     return this.members.flatMap((m) => this.prs.get(m.name) ?? []);
   }
@@ -107,7 +127,7 @@ export class DeliveryRepositories {
         `git diff --name-only ${quote(`${this.base(member.name)}...HEAD`)}`,
       );
       if (!changed && !existing) continue;
-      const head = await this.shell(member.name, 'git rev-parse HEAD');
+      let head = await this.shell(member.name, 'git rev-parse HEAD');
       if (existing?.state === 'merged') {
         if (head !== existing.headSha)
           throw new Error(
@@ -120,7 +140,8 @@ export class DeliveryRepositories {
         throw new Error(
           `${member.name} is not on the issue branch ${this.ctx.branch}.`,
         );
-      await this.shell(member.name, 'git push origin HEAD');
+      await this.push(member.name, branch);
+      head = await this.shell(member.name, 'git rev-parse HEAD');
       const pr = existing
         ? { ...existing, headSha: head }
         : requireRepositoryResult(
