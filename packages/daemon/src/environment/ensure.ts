@@ -234,9 +234,8 @@ export async function ensureEnvironment(
           break;
         }
       }
-      await ctx.step(
-        `${label}: setup allowance ${entry.id}`,
-        () => Math.max(0, budget - (Date.now() - started)),
+      await ctx.step(`${label}: setup allowance ${entry.id}`, () =>
+        Math.max(0, budget - (Date.now() - started)),
       );
       // The receipt keeps replay aligned, but its old time allowance must not
       // constrain a fresh probe after the configured command timeout changes.

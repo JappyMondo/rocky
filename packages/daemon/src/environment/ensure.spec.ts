@@ -336,14 +336,16 @@ it('uses the current setup budget when a replayed allowance is stale', async () 
   );
   const probe = f.execution.probe.bind(f.execution);
   const timeouts: number[] = [];
-  vi.spyOn(f.execution, 'probe').mockImplementation(async (id, timeoutMs, checks, secretEnv) => {
-    if (id === 'web/install') {
-      timeouts.push(timeoutMs);
-      await writeFile(join(f.repoDir, '.prepared'), '');
-      return { exitCode: 0, stdout: '' };
-    }
-    return probe(id, timeoutMs, checks, secretEnv);
-  });
+  vi.spyOn(f.execution, 'probe').mockImplementation(
+    async (id, timeoutMs, checks, secretEnv) => {
+      if (id === 'web/install') {
+        timeouts.push(timeoutMs);
+        await writeFile(join(f.repoDir, '.prepared'), '');
+        return { exitCode: 0, stdout: '' };
+      }
+      return probe(id, timeoutMs, checks, secretEnv);
+    },
+  );
   const result = await ensureEnvironment(f.ctx, f.execution, {
     label: 'baseline',
     allowSetup: true,
