@@ -185,6 +185,16 @@ export interface AgentOptions {
     names: readonly string[],
     signal: AbortSignal,
   ) => Promise<ResolvedMcpServer[]>;
+  prepareEnvironment?: (
+    harness: string,
+    tools: readonly AgentCapability[],
+    env: NodeJS.ProcessEnv,
+    signal: AbortSignal,
+  ) => Promise<{
+    env: NodeJS.ProcessEnv;
+    instructions?: string;
+    dispose(): Promise<void>;
+  }>;
 }
 
 class SteerBoundary extends Error {
@@ -536,8 +546,21 @@ export function createAgent(
         return true;
       };
 
+      let preparedEnvironment:
+        | Awaited<ReturnType<NonNullable<AgentOptions['prepareEnvironment']>>>
+        | undefined;
       try {
         while (true) {
+          if (!preparedEnvironment && runtime.prepareEnvironment) {
+            preparedEnvironment = await runtime.prepareEnvironment(
+              harness,
+              opts.tools ?? [],
+              config.env,
+              signal,
+            );
+            if (preparedEnvironment.instructions)
+              prompt += `\n\nRuntime environment: ${preparedEnvironment.instructions}`;
+          }
           if (progress.phase === 'backoff') {
             await new Promise<void>((resolve, reject) => {
               const timer = setTimeout(() => {
@@ -661,6 +684,7 @@ export function createAgent(
                 prompt: continuation?.prompt ?? prompt,
                 env: {
                   ...config.env,
+                  ...preparedEnvironment?.env,
                   ROCKY_BROWSER_SESSION: `rocky-${createHash('sha256').update(runtime.sessionDir).update(handle.identity).digest('hex').slice(0, 16)}`,
                   ROCKY_NODE: process.execPath,
                   ROCKY_MERMAID_CHECK: fileURLToPath(
@@ -883,6 +907,7 @@ export function createAgent(
           }
         }
       } finally {
+        await preparedEnvironment?.dispose();
         accepting = false;
         await unregister?.();
         for (const pending of queued.values()) {

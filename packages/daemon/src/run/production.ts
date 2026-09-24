@@ -46,6 +46,7 @@ import { loadMcpRuntime, type McpRuntime } from './mcp-contract.js';
 import { WorkflowRuntime, type WorkflowRuntimeOptions } from './lifecycle.js';
 import type { BootRequest } from './worker.js';
 import { recoverWithAgent } from './recovery-agent.js';
+import { prepareCodexEnvironment } from './codex-environment.js';
 import { currentRunModels } from './current-models.js';
 import { currentRunSourceControl } from './source-control.js';
 
@@ -508,6 +509,14 @@ export function createProductionRuntime(
           options.paths.repo(member.name),
         ),
         sessionDir: options.paths.run(run.runId).sessionsDir,
+        prepareEnvironment: async (harness, tools, agentEnv, agentSignal) =>
+          harness === 'codex' && tools.includes('bash')
+            ? prepareCodexEnvironment(
+                options.paths.run(run.runId).workspaceDir,
+                agentEnv,
+                agentSignal,
+              )
+            : { env: {}, dispose: async () => undefined },
         harness: 'claude-code',
         harnesses: {
           get 'claude-code'() {
