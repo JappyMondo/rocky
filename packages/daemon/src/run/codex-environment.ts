@@ -64,7 +64,10 @@ async function chromeExecutable(
   return (await executable(installed)) ? installed : undefined;
 }
 
-async function projectNodeBin(cwd: string): Promise<string | undefined> {
+async function projectNodeBin(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
   const members = await readdir(cwd, { withFileTypes: true }).catch(() => []);
   for (const root of [
     cwd,
@@ -79,8 +82,7 @@ async function projectNodeBin(cwd: string): Promise<string | undefined> {
       .replace(/^v/, '');
     if (!/^\d+\.\d+\.\d+$/.test(requested)) continue;
     const bin = join(
-      homedir(),
-      '.nvm',
+      env.NVM_DIR ?? join(homedir(), '.nvm'),
       'versions',
       'node',
       `v${requested}`,
@@ -134,7 +136,7 @@ export async function prepareCodexEnvironment(
   signal.addEventListener('abort', onAbort, { once: true });
   try {
     const currentPath = inherited.PATH ?? process.env.PATH ?? '';
-    const nodeBin = await projectNodeBin(cwd);
+    const nodeBin = await projectNodeBin(cwd, inherited);
     const path = nodeBin ? `${nodeBin}:${currentPath}` : currentPath;
     if (nodeBin) env.PATH = path;
     const cli = await commandOnPath('agent-browser', path);
