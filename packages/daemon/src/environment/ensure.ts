@@ -234,10 +234,13 @@ export async function ensureEnvironment(
           break;
         }
       }
-      const allowance = await ctx.step(
+      await ctx.step(
         `${label}: setup allowance ${entry.id}`,
         () => Math.max(0, budget - (Date.now() - started)),
       );
+      // The receipt keeps replay aligned, but its old time allowance must not
+      // constrain a fresh probe after the configured command timeout changes.
+      const allowance = Math.max(0, budget - (Date.now() - started));
       if (!allowance) {
         live = blocked(
           entry.id,

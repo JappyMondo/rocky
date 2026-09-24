@@ -327,6 +327,31 @@ it('restarts crashed services with fresh endpoints and leaves unrelated data int
   expect(await readFile(join(f.root, 'persistent-data'), 'utf8')).toBe('keep');
   await f.execution.stop('done');
 });
+it('uses the current setup budget when a replayed allowance is stale', async () => {
+  const f = await fixture();
+  f.repo.commands[0].timeoutMs = 1_800_000;
+  const step = f.ctx.step;
+  vi.spyOn(f.ctx, 'step').mockImplementation(async (label, work) =>
+    label.includes('setup allowance') ? 1 : step(label, work),
+  );
+  const probe = f.execution.probe.bind(f.execution);
+  const timeouts: number[] = [];
+  vi.spyOn(f.execution, 'probe').mockImplementation(async (id, timeoutMs, checks, secretEnv) => {
+    if (id === 'web/install') {
+      timeouts.push(timeoutMs);
+      await writeFile(join(f.repoDir, '.prepared'), '');
+      return { exitCode: 0, stdout: '' };
+    }
+    return probe(id, timeoutMs, checks, secretEnv);
+  });
+  const result = await ensureEnvironment(f.ctx, f.execution, {
+    label: 'baseline',
+    allowSetup: true,
+  });
+  expect(result.status).toBe('ready');
+  expect(timeouts[0]).toBeGreaterThan(120_000);
+  await f.execution.stop('done');
+}, 15_000);
 it.each([false, true])(
   'replays environment receipts on polls and checks live setup on working Boots (broken setup: %s)',
   async (breakSetup) => {
