@@ -354,6 +354,24 @@ it('uses the current setup budget when a replayed allowance is stale', async () 
   expect(timeouts[0]).toBeGreaterThan(120_000);
   await f.execution.stop('done');
 }, 15_000);
+it('keeps a recorded zero setup allowance on the same replay path', async () => {
+  const f = await fixture();
+  const step = f.ctx.step;
+  vi.spyOn(f.ctx, 'step').mockImplementation(async (label, work) =>
+    label.includes('setup allowance') ? 0 : step(label, work),
+  );
+  const probe = vi.spyOn(f.execution, 'probe');
+  const result = await ensureEnvironment(f.ctx, f.execution, {
+    label: 'baseline',
+    allowSetup: true,
+    maxRepairs: 0,
+  });
+  expect(result).toMatchObject({
+    status: 'blocked',
+    blocker: { capability: 'web/install', code: 'budget' },
+  });
+  expect(probe).not.toHaveBeenCalled();
+});
 it.each([false, true])(
   'replays environment receipts on polls and checks live setup on working Boots (broken setup: %s)',
   async (breakSetup) => {

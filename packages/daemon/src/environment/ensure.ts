@@ -234,12 +234,18 @@ export async function ensureEnvironment(
           break;
         }
       }
-      await ctx.step(`${label}: setup allowance ${entry.id}`, () =>
-        Math.max(0, budget - (Date.now() - started)),
+      const recordedAllowance = await ctx.step(
+        `${label}: setup allowance ${entry.id}`,
+        () => Math.max(0, budget - (Date.now() - started)),
       );
       // The receipt keeps replay aligned, but its old time allowance must not
       // constrain a fresh probe after the configured command timeout changes.
-      const allowance = Math.max(0, budget - (Date.now() - started));
+      // Preserve a zero receipt: that Boot skipped the probe entirely, so adding
+      // one now would diverge from the recorded workflow path.
+      const allowance =
+        recordedAllowance <= 0
+          ? 0
+          : Math.max(0, budget - (Date.now() - started));
       if (!allowance) {
         live = blocked(
           entry.id,
