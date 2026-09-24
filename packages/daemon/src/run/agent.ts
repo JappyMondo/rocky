@@ -773,7 +773,11 @@ export function createAgent(
                   0,
                   Math.ceil((progress.deadline - Date.now()) / 60_000),
                 );
-                const summary = `${lastEventSummary} (${elapsed}m elapsed; ${remaining}m until timeout)`;
+                const quiet = Math.max(
+                  1,
+                  Math.floor((Date.now() - lastActivityAt) / 60_000),
+                );
+                const summary = `${lastEventSummary} (no new output for ${quiet}m; ${elapsed}m elapsed; ${remaining}m until timeout)`;
                 progress = {
                   ...progress,
                   live: { output: progress.live?.output ?? '', summary },
