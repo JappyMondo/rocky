@@ -75,6 +75,7 @@ it('keeps isolated caches when browser tools are unavailable', async () => {
   try {
     expect(prepared.env.ROCKY_BROWSER_CDP_PORT).toBeUndefined();
     expect(prepared.env.NX_DAEMON).toBe('false');
+    expect(prepared.env.ZDOTDIR).toMatch(/\/zsh$/);
     expect(prepared.instructions).toContain('install agent-browser');
   } finally {
     await prepared.dispose();
@@ -120,6 +121,12 @@ it('selects the project Node version from NVM_DIR', async () => {
       controller.signal,
     );
     expect(prepared.env.PATH).toBe(`${bin}:`);
+    if (existsSync('/bin/zsh')) {
+      const selected = await exec('/bin/zsh', ['-lc', 'command -v node'], {
+        env: { ...process.env, ...prepared.env },
+      });
+      expect(selected.stdout.trim()).toBe(join(bin, 'node'));
+    }
     controller.abort();
     await prepared.dispose();
   } finally {

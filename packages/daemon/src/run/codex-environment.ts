@@ -122,6 +122,14 @@ export async function prepareCodexEnvironment(
     npm_config_cache: join(root, 'npm'),
     npm_config_devdir: join(root, 'node-gyp'),
   };
+  const zshDir = join(root, 'zsh');
+  const setShellPath = async (path: string) => {
+    await mkdir(zshDir, { recursive: true, mode: 0o700 });
+    await writeFile(join(zshDir, '.zprofile'), `export PATH=${quote(path)}\n`, {
+      mode: 0o600,
+    });
+    env.ZDOTDIR = zshDir;
+  };
   let browser: OwnedCommand | undefined;
   let stopping: Promise<void> | undefined;
   const stop = () =>
@@ -139,6 +147,7 @@ export async function prepareCodexEnvironment(
     const nodeBin = await projectNodeBin(cwd, inherited);
     const path = nodeBin ? `${nodeBin}:${currentPath}` : currentPath;
     if (nodeBin) env.PATH = path;
+    await setShellPath(path);
     const cli = await commandOnPath('agent-browser', path);
     const chrome = cli ? await chromeExecutable(inherited) : undefined;
     if (!cli || !chrome) {
@@ -189,6 +198,7 @@ export async function prepareCodexEnvironment(
       { mode: 0o700 },
     );
     env.PATH = `${binDir}:${path}`;
+    await setShellPath(env.PATH);
     env.AGENT_BROWSER_SOCKET_DIR = socketDir;
     env.AGENT_BROWSER_IDLE_TIMEOUT_MS = '60000';
     env.ROCKY_BROWSER_CDP_PORT = String(port);
