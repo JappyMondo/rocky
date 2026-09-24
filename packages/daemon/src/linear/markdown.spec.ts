@@ -63,6 +63,12 @@ it('accepts Linear host autolinks and escaped Git output in failure activities',
   ).toBe(true);
   expect(
     sameMarkdown(
+      'To github.com:Attraccess',
+      'To [github.com](<https://github.com>):Attraccess',
+    ),
+  ).toBe(true);
+  expect(
+    sameMarkdown(
       original,
       persisted.replace('http://github.com', 'http://attacker.test'),
     ),
