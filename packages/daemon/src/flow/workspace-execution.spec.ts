@@ -285,14 +285,20 @@ it('ignores EPERM while cleaning up a detached service process group', async () 
       ...serviceRecipe('api'),
       start: 'start-api',
       endpoints: [
-        { name: 'web', locator: { kind: 'fixed', url: 'http://localhost:4000/' } },
+        {
+          name: 'web',
+          locator: { kind: 'fixed', url: 'http://localhost:4000/' },
+        },
       ],
       readiness: { endpoint: 'web', attempts: 1, intervalMs: 1 },
     },
   ];
   const exec = vi.fn(async () => ({ pid: 123 }));
   const step = vi.fn(async (_label, work) => work());
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('ready')));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('ready')),
+  );
   const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
     if (pid === -123)
       throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
