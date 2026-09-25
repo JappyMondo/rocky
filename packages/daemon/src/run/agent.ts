@@ -256,7 +256,8 @@ async function adapterFor(
 
 function blockerRecoveryPrompt(blocker: string | undefined): string {
   return `Diagnose the blocker once using only the existing grants and remaining deadline. Previous blocker: ${blocker ?? 'Unknown blocker'}
-If actual missing authorization, credentials, hardware, a human decision or an unavailable tool prevents progress, return the blocked envelope immediately; do not bypass it or change external systems.
+First check the supplied validationResponsibility and repositoryCatalog: a matching non-manual command is owned by host Workflow validation. If only that configured check is denied by your sandbox, finish the assigned source work, name the command ID in the normal result and report validation as pending; do not claim success for an unexecuted check or bypass permissions. No such handoff exists for unconfigured or manual commands.
+If actual missing authorization, credentials, hardware, a human decision or an unavailable tool prevents your remaining assigned work, return the blocked envelope immediately; do not bypass it or change external systems.
 If an available repository command fails or hangs, inspect its logs, scripts, subprocesses and narrower checks to identify and repair the underlying local cause. Stop only processes owned by this task. Do not repeat equivalent stalled commands, weaken checks, fabricate evidence, or treat partial validation as complete. Preserve committed work. Rerun the repository's actual affected validation after a concrete repair. Return the normal result only on verified completion; otherwise return the precise remaining blocked envelope. This is the single diagnostic recovery opportunity, not permission for an unbounded retry.`;
 }
 
