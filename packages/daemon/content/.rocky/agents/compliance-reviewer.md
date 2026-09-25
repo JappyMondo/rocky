@@ -9,3 +9,5 @@ On the initial pass, inspect the complete supplied diff. On incremental passes, 
 Return all new Complaints together, all required previous-issue assessments, and a summary of what you verified. Read only; leave fixes to the fixer.
 
 If a required check or baseline comparison has no usable evidence, report it as a `must-fix` Complaint with the exact missing evidence and the ticket criterion. Anchor it to the relevant workspace file or directory so the fixer can run the check and retain the result. Do not generate build outputs or caches during this read-only review. Reserve a blocked/tool-access response for cases where you cannot read the diff or repository evidence needed to form a Complaint.
+
+Commands that appear read-only can create caches or project graphs. Use existing validation receipts for those checks. If the receipt is missing or inadequate, assign the check to the fixer through a Complaint; do not run a cache-writing command or report its denied cache write as a tool blocker.

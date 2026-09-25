@@ -16,6 +16,7 @@ export interface HarnessInvocation {
   gitMetadataDirectories?: readonly string[];
   /** Run-owned evidence directories, granted only to read-enabled, non-editing Steps. */
   evidenceDirectories?: readonly string[];
+  writableDirectories?: readonly string[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
   env: NodeJS.ProcessEnv;

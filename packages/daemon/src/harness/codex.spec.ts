@@ -307,10 +307,11 @@ it('grants Git metadata writes for an editable linked worktree', async () => {
     cwd: worktree,
     capabilities: ['read', 'bash'],
     gitMetadataDirectories: [commonDir],
+    writableDirectories: ['/tmp/rocky-agent-runtime'],
   });
-  expect((JSON.parse(readOnly.text).args as string[]).join(' ')).not.toContain(
-    `"${commonDir}"="write"`,
-  );
+  const readOnlyArgs = (JSON.parse(readOnly.text).args as string[]).join(' ');
+  expect(readOnlyArgs).not.toContain(`"${commonDir}"="write"`);
+  expect(readOnlyArgs).toContain('"/tmp/rocky-agent-runtime"="write"');
 });
 
 it.each(['missing-result', 'wrong-session', 'auth-error'])(
