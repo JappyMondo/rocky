@@ -2562,17 +2562,36 @@
 
 .ticketGroup {
   border-top: 1px solid var(--border);
-  padding: 20px 22px;
+  padding: 14px 22px;
 }
 .ticketHeader {
   display: flex;
   gap: 20px;
-  align-items: start;
-  justify-content: space-between;
-  margin-bottom: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ticketIdentity {
+  flex: 1;
+  min-width: 180px;
+}
+.ticketHeader time {
+  color: #6c7464;
+  font-size: 11px;
+}
+.ticketHeader > button {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+.ticketHeader h2 button {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
 }
 .ticketHeader h2 {
-  margin: 5px 0 0;
+  margin: 4px 0;
   font-size: 15px;
   font-weight: 600;
   line-height: 1.5;
@@ -2645,8 +2664,10 @@
     padding: 16px 12px;
   }
   .ticketHeader {
-    flex-direction: column;
-    gap: 6px;
+    gap: 10px;
+  }
+  .ticketIdentity {
+    flex-basis: 100%;
   }
   .attemptRow {
     gap: 10px;

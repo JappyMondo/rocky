@@ -111,20 +111,57 @@ export function RunsOverview({
   const pages = Math.max(1, Math.ceil(filtered.length / 10));
   const currentPage = Math.min(page, pages - 1);
   const shown = filtered.slice(currentPage * 10, currentPage * 10 + 10);
-  const row = (run: RunSummary, latest: RunSummary) => (
-    <div key={run.runId} className={styles.attemptRow}>
-      <button
-        className={styles.attemptLink}
-        onClick={() => openRun(run.runId)}
-        aria-label={`Open run ${run.runId}`}
-      >
-        <strong>{run.runId}</strong>
-        <small>
-          {run.runId === latest.runId
-            ? 'Latest attempt'
-            : `Earlier attempt · latest ${latest.runId}`}
-        </small>
-      </button>
+  const row = (
+    run: RunSummary,
+    latest: RunSummary,
+    group?: ReturnType<typeof groupRuns>[number],
+  ) => (
+    <div
+      key={run.runId}
+      className={group ? styles.ticketHeader : styles.attemptRow}
+    >
+      {group ? (
+        <div className={styles.ticketIdentity}>
+          <span className={styles.issueMeta}>
+            {latest.issue.identifier} / {run.runId} ·{' '}
+            {run.runId === latest.runId
+              ? 'Latest attempt'
+              : `Earlier attempt · latest ${latest.runId}`}{' '}
+            · {group.attempts.length}{' '}
+            {group.attempts.length === 1 ? 'attempt' : 'attempts'}
+          </span>
+          <h2 aria-label={latest.issue.title}>
+            <button
+              onClick={() => openRun(run.runId)}
+              aria-label={`Open run ${run.runId}`}
+            >
+              {latest.issue.title}
+            </button>
+          </h2>
+          <span className={styles.ticketRepo}>
+            {[
+              ...new Set(
+                group.attempts.flatMap(
+                  (attempt) => attempt.repos ?? [attempt.repo],
+                ),
+              ),
+            ].join(', ')}
+          </span>
+        </div>
+      ) : (
+        <button
+          className={styles.attemptLink}
+          onClick={() => openRun(run.runId)}
+          aria-label={`Open run ${run.runId}`}
+        >
+          <strong>{run.runId}</strong>
+          <small>
+            {run.runId === latest.runId
+              ? 'Latest attempt'
+              : `Earlier attempt · latest ${latest.runId}`}
+          </small>
+        </button>
+      )}
       <Status {...runState(run)} />
       <time dateTime={run.createdAt}>{dateLabel(run.createdAt)}</time>
       {run.settledAt && <span className={styles.settledBadge}>Settled</span>}
@@ -311,26 +348,7 @@ export function RunsOverview({
                   role="listitem"
                   aria-label={`Ticket ${group.latest.issue.identifier}`}
                 >
-                  <header className={styles.ticketHeader}>
-                    <div>
-                      <span className={styles.issueMeta}>
-                        {group.latest.issue.identifier} ·{' '}
-                        {group.attempts.length}{' '}
-                        {group.attempts.length === 1 ? 'attempt' : 'attempts'}
-                      </span>
-                      <h2>{group.latest.issue.title}</h2>
-                    </div>
-                    <span className={styles.ticketRepo}>
-                      {[
-                        ...new Set(
-                          group.attempts.flatMap(
-                            (run) => run.repos ?? [run.repo],
-                          ),
-                        ),
-                      ].join(', ')}
-                    </span>
-                  </header>
-                  {row(group.visible[0], group.latest)}
+                  {row(group.visible[0], group.latest, group)}
                   {group.visible.length > 1 && (
                     <details
                       className={styles.attemptHistory}
