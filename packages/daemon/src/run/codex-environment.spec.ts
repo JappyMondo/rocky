@@ -48,6 +48,9 @@ it('prepares and disposes an isolated browser using available host tools', async
     expect(prepared.env.PATH?.split(':')[0]).toMatch(/\/bin$/);
     expect(prepared.env.AGENT_BROWSER_SOCKET_DIR).toContain('sockets');
     expect(prepared.instructions).toContain('host browser');
+    expect(prepared.writableDirectories).toEqual([
+      prepared.env.NX_CACHE_DIRECTORY!.replace(/\/nx-cache$/, ''),
+    ]);
     expect(
       existsSync(prepared.env.NX_CACHE_DIRECTORY!.replace(/\/nx-cache$/, '')),
     ).toBe(true);

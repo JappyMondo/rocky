@@ -98,6 +98,7 @@ export interface AgentHarnessInvocation {
   capabilities: readonly AgentCapability[];
   gitMetadataDirectories?: readonly string[];
   evidenceDirectories?: readonly string[];
+  writableDirectories?: readonly string[];
   mcpServers: readonly ResolvedMcpServer[];
   command: string;
   env: NodeJS.ProcessEnv;
@@ -196,6 +197,7 @@ export interface AgentOptions {
   ) => Promise<{
     env: NodeJS.ProcessEnv;
     instructions?: string;
+    writableDirectories?: readonly string[];
     dispose(): Promise<void>;
   }>;
   heartbeatIntervalMs?: number;
@@ -709,6 +711,7 @@ export function createAgent(
                 effort: opts.effort,
                 capabilities: opts.tools ?? [],
                 gitMetadataDirectories: runtime.gitMetadataDirectories,
+                writableDirectories: preparedEnvironment?.writableDirectories,
                 ...(runtime.screenshotDir &&
                 opts.tools?.includes('read') &&
                 !opts.tools.includes('edit')

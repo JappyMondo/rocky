@@ -86,6 +86,7 @@ it('prepares and disposes an isolated agent environment', async () => {
   f.options.prepareEnvironment = vi.fn(async () => ({
     env: { NX_CACHE_DIRECTORY: '/tmp/isolated-nx' },
     instructions: 'Use the prepared browser.',
+    writableDirectories: ['/tmp/isolated-runtime'],
     dispose,
   }));
   await runBoot({
@@ -102,6 +103,9 @@ it('prepares and disposes an isolated agent environment', async () => {
   expect(f.run.mock.calls[0][0].env.NX_CACHE_DIRECTORY).toBe(
     '/tmp/isolated-nx',
   );
+  expect(f.run.mock.calls[0][0].writableDirectories).toEqual([
+    '/tmp/isolated-runtime',
+  ]);
   expect(f.run.mock.calls[0][0].prompt).toContain('Use the prepared browser.');
   expect(dispose).toHaveBeenCalledOnce();
 });

@@ -121,6 +121,10 @@ async function executeCodex(
           extends: edit ? ':workspace' : ':read-only',
           filesystem: Object.fromEntries([
             ...gitMetadata,
+            ...(input.writableDirectories ?? []).map((directory) => [
+              resolve(directory),
+              'write',
+            ]),
             ...(input.capabilities.includes('read') && !edit
               ? (input.evidenceDirectories ?? []).map((directory) => [
                   resolve(directory),
