@@ -37,6 +37,8 @@ export interface FlowSettings {
   recoveryVersion?: 1;
   /** New snapshots reconcile local CI fixer work before requesting a retry. */
   ciRetryVersion?: 1;
+  /** Publish scope decisions as durable ticket comments in new snapshots. */
+  scopeCommentVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
   execution?: import('./workspace.js').WorkspaceRepository[];
   /** Explicit opt-in preserves positional replay for older frozen flows. */
@@ -405,6 +407,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   mergeReadinessVersion: 1,
   recoveryVersion: 1,
   ciRetryVersion: 1,
+  scopeCommentVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -496,6 +499,8 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (s.scopeCommentVersion !== undefined && s.scopeCommentVersion !== 1)
+    throw new Error('Unsupported scope comment version.');
   if (s.ciRetryVersion !== undefined && s.ciRetryVersion !== 1)
     throw new Error('Unsupported CI retry version.');
   if (s.recoveryVersion !== undefined && s.recoveryVersion !== 1)

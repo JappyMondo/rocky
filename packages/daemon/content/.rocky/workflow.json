@@ -40,7 +40,8 @@
     "maxTransitions": 500,
     "pullRequests": "all-changed",
     "recoveryVersion": 1,
-    "ciRetryVersion": 1
+    "ciRetryVersion": 1,
+    "scopeCommentVersion": 1
   },
   "nodes": [
     {

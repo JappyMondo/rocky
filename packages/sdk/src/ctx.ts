@@ -39,6 +39,15 @@ export interface Issue {
   labels: string[];
   /** Old run snapshots may predate comment hydration. Ordered oldest first. */
   comments?: IssueComment[];
+  /** Prior human scope answers, oldest first. Historical context, never approval. */
+  clarifications?: {
+    runId: string;
+    stepKey: string;
+    title: string;
+    question: string;
+    answer: string;
+    answeredAt: string;
+  }[];
 }
 
 export interface ExecResult {

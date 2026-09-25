@@ -1,4 +1,5 @@
 import { readJournal } from './journal.js';
+import { priorClarifications } from './prior-clarifications.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   retryStepKey,
@@ -435,6 +436,11 @@ export class RunScheduler {
           throw new Error('Admission preparation returned a different issue');
         if (request.manual && !input.trigger)
           throw new Error('Manual admission must name its Trigger');
+        const clarifications = await priorClarifications(
+          this.options.paths,
+          [...this.runs.values()],
+          input,
+        );
         return this.mutate(async () => {
           if (this.closed) throw new Error('The Run scheduler is closed');
           const run = newRunHeader({
@@ -447,6 +453,9 @@ export class RunScheduler {
             now: this.options.now().toISOString(),
           });
           run.issue = structuredClone(input.issue);
+          // Only runner-owned prior question answers can populate this evidence.
+          delete run.issue.clarifications;
+          if (clarifications.length) run.issue.clarifications = clarifications;
           if (request.requestId) run.admissionId = request.requestId;
           if (input.linear) run.linear = structuredClone(input.linear);
           if (input.execution) run.execution = structuredClone(input.execution);

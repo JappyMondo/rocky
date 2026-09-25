@@ -100,6 +100,7 @@ export async function prepareProfileSnapshot(
       const flow = parseFlow(workflowSource);
       flow.settings.recoveryVersion = 1;
       flow.settings.ciRetryVersion = 1;
+      flow.settings.scopeCommentVersion = 1;
       flow.settings.uiConfigurationVersion = 1;
       flow.settings.mergeReadinessVersion = 1;
       workflowSource = JSON.stringify(flow);

@@ -80,6 +80,83 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it.skipIf(mode === 'legacy')(
+    'supplies prior human answers and their scope-only reuse policy to the refiner',
+    async () => {
+      const clarifications = [
+        {
+          runId: 'TEST-1-1',
+          stepKey: '2',
+          title: 'Scope',
+          question: 'What about empty input?',
+          answer: 'Return an empty list.',
+          answeredAt: '2026-09-04T09:00:30.000Z',
+        },
+      ];
+      const f = fixture({ clarifications });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(
+        f.calls.find((call) => call.name === 'refiner')?.input,
+      ).toMatchObject({
+        issue: { clarifications },
+        clarificationPolicy: expect.stringContaining('never approve a merge'),
+      });
+      expect(
+        f.trace.find(
+          (line) =>
+            line.startsWith('comment:') &&
+            line.includes('Scope decision record'),
+        ),
+      ).toContain('Source: TEST-1-1, question 2');
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'publishes refinement as a ticket comment once and preserves old journal replay (enabled=%s)',
+    async (enabled) => {
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.scopeCommentVersion = 1;
+      else delete flow.settings.scopeCommentVersion;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const scopePosts = () =>
+        f.trace.filter((line) => line.includes('Scope decision record'));
+      expect(scopePosts()).toHaveLength(1);
+      expect(scopePosts()[0]).toMatch(enabled ? /^comment:/ : /^post:/);
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(scopePosts()).toHaveLength(1);
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'does not start implementation when persisting the scope comment fails',
+    async () => {
+      const f = fixture({
+        comment: () => {
+          throw new Error('Ticket comment unavailable');
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'failed' });
+      expect(
+        f.calls.some((call) => ['planner', 'implementer'].includes(call.name)),
+      ).toBe(false);
+    },
+  );
+
   function repositoryFixture(options: Parameters<typeof fixture>[0] = {}) {
     const flow = JSON.parse(flowSource);
     flow.settings.pullRequests = 'all-changed';
@@ -854,6 +931,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   function fixture(
     options: {
       comments?: import('@rocky/sdk').IssueComment[];
+      clarifications?: import('@rocky/sdk').Issue['clarifications'];
       members?: import('@rocky/sdk').WorkflowInput['members'];
       agent?: (
         name: string,
@@ -906,6 +984,9 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                 url: 'https://example.test/issue/1',
                 labels: [],
                 ...(options.comments ? { comments: options.comments } : {}),
+                ...(options.clarifications
+                  ? { clarifications: options.clarifications }
+                  : {}),
               },
               profile: {
                 ...newRepositoryProfile({
@@ -2839,7 +2920,8 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(
       f.trace.find(
         (line) =>
-          line.startsWith('post:') && line.includes('Scope decision record'),
+          line.startsWith(mode === 'flow' ? 'comment:' : 'post:') &&
+          line.includes('Scope decision record'),
       ),
     ).toContain('Scope decision record');
     expect(
@@ -2893,9 +2975,13 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     }
     expect(f.trace.some((line) => line.includes('git push'))).toBe(false);
     expect(f.trace).toContain(`comment:${body}`);
-    expect(f.trace.filter((line) => line.startsWith('comment:'))).toHaveLength(
-      1,
-    );
+    expect(
+      f.trace.filter(
+        (line) =>
+          line.startsWith('comment:') &&
+          !line.includes('Scope decision record'),
+      ),
+    ).toHaveLength(1);
     expect(f.trace).not.toContain('Done');
     const calls = f.calls.length;
     expect(await f.boot()).toMatchObject({
@@ -2954,9 +3040,13 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       body: 'Incomplete',
       problems: expect.arrayContaining(['Missing the storage connection.']),
     });
-    expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([
-      'comment:Complete architecture',
-    ]);
+    expect(
+      f.trace.filter(
+        (line) =>
+          line.startsWith('comment:') &&
+          !line.includes('Scope decision record'),
+      ),
+    ).toEqual(['comment:Complete architecture']);
     expect(f.trace).toContain(mode === 'legacy' ? 'In Review' : 'Done');
     expect(f.scmCalls).toEqual([]);
   });
@@ -3009,7 +3099,13 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         body: 'Incomplete',
         problems: expect.arrayContaining(['Missing architecture.']),
       });
-      expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([]);
+      expect(
+        f.trace.filter(
+          (line) =>
+            line.startsWith('comment:') &&
+            !line.includes('Scope decision record'),
+        ),
+      ).toEqual([]);
     },
   );
 
@@ -3039,15 +3135,22 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(
       f.calls.filter(({ name }) => name === 'deliverable-writer'),
     ).toHaveLength(5);
-    expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([]);
+    expect(
+      f.trace.filter(
+        (line) =>
+          line.startsWith('comment:') &&
+          !line.includes('Scope decision record'),
+      ),
+    ).toEqual([]);
     expect(f.trace).not.toContain('In Review');
     expect(f.scmCalls).toEqual([]);
   });
 
   it('does not complete or advance state when comment delivery fails', async () => {
     const f = fixture({
-      comment: () => {
-        throw new Error('Linear unavailable');
+      comment: (body) => {
+        if (!body.includes('Scope decision record'))
+          throw new Error('Linear unavailable');
       },
       agent: (name) => {
         if (name === 'refiner') return commentScope;
@@ -3352,8 +3455,10 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(
       f.calls.filter((c) => c.name === 'deliverable-reviewer'),
     ).toHaveLength(2);
-    expect(f.trace.filter((t) => t.startsWith('comment:'))).toEqual([
-      'comment:Valid diagram',
-    ]);
+    expect(
+      f.trace.filter(
+        (t) => t.startsWith('comment:') && !t.includes('Scope decision record'),
+      ),
+    ).toEqual(['comment:Valid diagram']);
   });
 });

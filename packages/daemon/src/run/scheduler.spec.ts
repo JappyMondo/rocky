@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { JournalWriter } from './writer.js';
+import { newRepositoryProfile } from '../config/profiles.js';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import { readRunHeader, type RunHeader, writeRunHeader } from './header.js';
 import type { BootResult } from './replay.js';
@@ -94,6 +96,96 @@ const acceptsRegularOrPollBoots: SchedulerBoot = async (
 });
 
 describe('RunScheduler admission', () => {
+  it.each(['url', 'repo', 'profile', 'issue'] as const)(
+    'does not inherit question answers across a different %s',
+    async (boundary) => {
+      const prior = storedRun({});
+      if (boundary === 'url')
+        prior.issue = { ...issue, url: 'https://other.test/issue/NG-540' };
+      if (boundary === 'repo') prior.repo = 'other';
+      if (boundary === 'profile')
+        prior.profile = newRepositoryProfile({
+          id: 'other',
+          remote: 'https://github.com/example/other.git',
+        });
+      if (boundary === 'issue')
+        prior.issue = { ...issue, identifier: 'OTHER-1' };
+      await writeRunHeader(paths, prior);
+      const journal = await JournalWriter.open(paths.run(prior.runId).journal);
+      await journal.put('linear:control', {
+        checkpoints: [
+          {
+            kind: 'question',
+            stepKey: '4',
+            title: 'Scope',
+            body: 'Which behavior?',
+            answeredAt: '2026-09-04T09:00:30.000Z',
+            answer: { decision: 'steer', message: 'Use the system default.' },
+          },
+        ],
+      });
+      const open = await scheduler(acceptsRegularOrPollBoots);
+      try {
+        expect(
+          (await open.delegate(input())).run.issue.clarifications,
+        ).toBeUndefined();
+      } finally {
+        await open.close();
+      }
+    },
+  );
+
+  it('carries only prior human question answers into a new immutable issue snapshot', async () => {
+    const prior = storedRun({});
+    await writeRunHeader(paths, prior);
+    const journal = await JournalWriter.open(paths.run(prior.runId).journal);
+    await journal.put('linear:control', {
+      checkpoints: [
+        {
+          kind: 'question',
+          stepKey: '4',
+          title: 'Scope',
+          body: 'Which behavior?',
+          answeredAt: '2026-09-04T09:00:30.000Z',
+          answer: { decision: 'steer', message: 'Use the system default.' },
+        },
+        {
+          stepKey: '5',
+          title: 'Merge',
+          body: 'Merge?',
+          answeredAt: '2026-09-04T09:00:40.000Z',
+          answer: { decision: 'approve' },
+        },
+        {
+          kind: 'question',
+          stepKey: '6',
+          title: 'Unanswered',
+          body: 'Unknown?',
+        },
+      ],
+    });
+    const open = await scheduler(acceptsRegularOrPollBoots);
+    try {
+      const next = await open.delegate(input());
+      expect(next.run.issue.clarifications).toEqual([
+        {
+          runId: prior.runId,
+          stepKey: '4',
+          title: 'Scope',
+          question: 'Which behavior?',
+          answer: 'Use the system default.',
+          answeredAt: '2026-09-04T09:00:30.000Z',
+        },
+      ]);
+      expect(
+        (await readRunHeader(paths, next.run.runId))?.issue.clarifications,
+      ).toEqual(next.run.issue.clarifications);
+      expect(issue).not.toHaveProperty('clarifications');
+    } finally {
+      await open.close();
+    }
+  });
+
   it('holds the fourth queued Run until one of three active Boots releases its slot', async () => {
     const started: string[] = [];
     const boots = new Map<string, ReturnType<typeof deferred<BootResult>>>();

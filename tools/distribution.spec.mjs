@@ -259,6 +259,7 @@ test(
     const configured = JSON.parse(pinnedWorkflow);
     assert.equal(configured.settings.recoveryVersion, 1);
     assert.equal(configured.settings.ciRetryVersion, 1);
+    assert.equal(configured.settings.scopeCommentVersion, 1);
     configured.models = {};
     configured.nodes = [
       {

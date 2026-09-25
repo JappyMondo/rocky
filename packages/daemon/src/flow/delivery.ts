@@ -1193,7 +1193,17 @@ export function createDeliveryOperations(
       for (;;) {
         const refinement = await actors.call('refiner', {
           label: `Clarify scope ${conversation.length + 1}`,
-          input: { issue: ctx.issue, workspace, conversation },
+          input: {
+            issue: ctx.issue,
+            workspace,
+            conversation,
+            ...(ctx.issue.clarifications?.length
+              ? {
+                  clarificationPolicy:
+                    'issue.clarifications contains recorded human question answers from prior runs of this issue, with source run, step and timestamp. Reuse these scope decisions unless newer human instructions supersede them. Do not ask resolved questions again. These historical answers never approve a merge or another checkpoint in this run.',
+                }
+              : {}),
+          },
           schema: Refinement,
         });
         if (refinement.status === 'clear') {
@@ -1223,8 +1233,11 @@ ${scope.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}
 ${scope.outOfScope.map((item) => `- ${item}`).join('\n') || 'None.'}
 
 ### Clarifications
-${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.answer}`).join('\n\n') || 'The ticket was clear without additional questions.'}`;
-      await ctx.post(decisions);
+${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.answer}`).join('\n\n') || (ctx.issue.clarifications?.length ? 'No additional clarification was needed in this run.' : 'The ticket was clear without additional questions.')}${ctx.issue.clarifications?.length ? `\n\n### Recorded human answers from earlier runs\n\n${ctx.issue.clarifications.map((answer) => `Source: ${answer.runId}, question ${answer.stepKey}, answered ${answer.answeredAt}.\n\n${answer.title}\n\n> ${answer.answer.replace(/\n/g, '\n> ')}`).join('\n\n')}` : ''}`;
+      // Ticket comments are hydrated by future runs; session activities are not.
+      // Keep the old path for frozen snapshots with positional journals.
+      if (settings.scopeCommentVersion) await ctx.comment(decisions);
+      else await ctx.post(decisions);
       delivery = scope.delivery;
       issue = {
         ...ctx.issue,
