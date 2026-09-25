@@ -156,7 +156,7 @@ export async function prepareCodexEnvironment(
       return {
         env,
         instructions:
-          'Rocky isolated Nx and package caches for this agent and selected the installed Node version from .nvmrc when available. Use node and pnpm directly; this noninteractive shell need not run nvm use. If browser checks are required, install agent-browser and Chrome for Testing on the host.',
+          'Rocky isolated Nx and package caches for this agent and selected the installed Node version from .nvmrc when available. Use node and pnpm directly; this noninteractive shell need not run nvm use. Keep the supplied cache paths; do not create repository-local Nx, npm, or Electron caches. If browser checks are required, install agent-browser and Chrome for Testing on the host.',
         dispose: stop,
       };
     }
@@ -207,7 +207,7 @@ export async function prepareCodexEnvironment(
     return {
       env,
       instructions:
-        'Rocky selected the installed Node version from .nvmrc when available and isolated Nx and package caches. Use node and pnpm directly; this noninteractive shell need not run nvm use. Rocky started an isolated host browser. Use agent-browser with $ROCKY_BROWSER_SESSION normally; Rocky connects it through CDP. Close only your session when done.',
+        'Rocky selected the installed Node version from .nvmrc when available and isolated Nx and package caches. Use node and pnpm directly; this noninteractive shell need not run nvm use. Keep the supplied cache paths; do not create repository-local Nx, npm, or Electron caches. Rocky started an isolated host browser. Use agent-browser with $ROCKY_BROWSER_SESSION normally; Rocky connects it through CDP. Close only your session when done.',
       dispose: stop,
     };
   } catch (error) {
