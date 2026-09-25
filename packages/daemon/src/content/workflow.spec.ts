@@ -1402,7 +1402,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   );
 
   it.skipIf(mode !== 'flow').each([false, true])(
-    'continues exhausted reviews for exactly another five rounds and survives replay (legacy results=%s)',
+    'continues exhausted reviews for exactly another five rounds and survives replay (legacy journal=%s)',
     async (legacy) => {
       const f = fixture({
         continuation: true,
@@ -1436,7 +1436,16 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
           .trimEnd()
           .split('\n')
           .map((line) => JSON.parse(line));
-        for (const row of rows) {
+        // Simulate a Run recorded before CI was observed ahead of compliance.
+        const ciSeqs = [...new Set<number>(
+          rows
+            .filter((row) => row.step === 'scm:waitForCi')
+            .map((row) => row.seq),
+        )].sort((a, b) => a - b);
+        const retained = rows.filter((row) => !ciSeqs.includes(row.seq));
+        for (const row of retained)
+          row.seq -= ciSeqs.filter((seq) => seq < row.seq).length;
+        for (const row of retained) {
           if (row.step === 'agent' && Array.isArray(row.result?.complaints)) {
             delete row.result.previousIssues;
             for (const complaint of row.result.complaints)
@@ -1445,7 +1454,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         }
         await writeFile(
           path,
-          rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
+          retained.map((row) => JSON.stringify(row)).join('\n') + '\n',
         );
       }
       const history = await readFile(path, 'utf8');
@@ -1466,7 +1475,9 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         undefined,
         true,
       );
-      expect(await f.boot()).toMatchObject({
+      const resumed = await f.boot();
+      if (resumed.status === 'failed') throw new Error(JSON.stringify(resumed));
+      expect(resumed).toMatchObject({
         status: 'finished',
         outcome: 'exhausted',
       });

@@ -1324,11 +1324,14 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       ctx.stage('Compliance');
       // Observe CI as soon as a draft exists. A review may use its entire
       // retry budget, so the later CI gate alone cannot hand failures to its fixer.
-      for (const candidate of repositories?.open ?? [pr]) {
-        if (settings.ciSkipRepositories?.includes(candidate.repo)) continue;
-        const ci = await checkCi(candidate);
-        if (ci.complaints.length) return exhaust(ci.complaints);
-        if (ci.changed) return 'retry';
+      // Recorded pre-watcher reviews retain their original step order on replay.
+      if (!ctx.replaying || ctx.replayStep === 'scm:waitForCi') {
+        for (const candidate of repositories?.open ?? [pr]) {
+          if (settings.ciSkipRepositories?.includes(candidate.repo)) continue;
+          const ci = await checkCi(candidate);
+          if (ci.complaints.length) return exhaust(ci.complaints);
+          if (ci.changed) return 'retry';
+        }
       }
       const compliance = await review(
         'compliance-reviewer',
