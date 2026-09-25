@@ -46,6 +46,7 @@ import { loadMcpRuntime, type McpRuntime } from './mcp-contract.js';
 import { WorkflowRuntime, type WorkflowRuntimeOptions } from './lifecycle.js';
 import type { BootRequest } from './worker.js';
 import { recoverWithAgent } from './recovery-agent.js';
+import { prepareCodexEnvironment } from './codex-environment.js';
 import { currentRunModels } from './current-models.js';
 import { currentRunSourceControl } from './source-control.js';
 
@@ -265,8 +266,8 @@ export function createProductionRuntime(
                 ...process.env,
                 ...memberEnv,
               })
-            : memberEnv,
-          { signal, cwd: options.paths.root, allowCli: cliSelected },
+            : { ...process.env, ...memberEnv },
+          { signal, cwd: options.paths.root },
         );
         const input = {
           repo: {
@@ -508,6 +509,14 @@ export function createProductionRuntime(
           options.paths.repo(member.name),
         ),
         sessionDir: options.paths.run(run.runId).sessionsDir,
+        prepareEnvironment: async (harness, tools, agentEnv, agentSignal) =>
+          harness === 'codex' && tools.includes('bash')
+            ? prepareCodexEnvironment(
+                options.paths.run(run.runId).workspaceDir,
+                agentEnv,
+                agentSignal,
+              )
+            : { env: {}, dispose: async () => undefined },
         harness: 'claude-code',
         harnesses: {
           get 'claude-code'() {
@@ -804,10 +813,21 @@ export function createProductionRuntime(
                   },
                 }) as Promise<StepOutcome<Answer>>,
               comment: (markdown: string) =>
-                steps.step('linear.comment', {}, async () => {
-                  await mirrorFor(run).comment(effectId(markdown), markdown);
-                  return { status: 'done', result: undefined };
-                }),
+                steps
+                  .step('linear.comment', {}, async () => {
+                    const id = await mirrorFor(run).comment(
+                      effectId(markdown),
+                      markdown,
+                    );
+                    return {
+                      status: 'done',
+                      result: {
+                        id,
+                        ...(run.linear ? { issueId: run.linear.issueId } : {}),
+                      },
+                    };
+                  })
+                  .then(() => undefined),
               post: async (markdown: string) =>
                 mirrorFor(run).post(effectId(`post:${markdown}`), markdown),
               linear: {

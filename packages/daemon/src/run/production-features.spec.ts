@@ -114,6 +114,7 @@ const content = {
 const roots: string[] = [];
 beforeEach(() => {
   vi.resetAllMocks();
+  spies.comment.mockResolvedValue('comment-verified');
   spies.preflight.mockResolvedValue(undefined);
   spies.openPr.mockResolvedValue(pr);
   spies.revision.mockResolvedValue({
@@ -131,6 +132,7 @@ beforeEach(() => {
   });
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -437,12 +439,17 @@ it.each(['profile', 'token', 'remote'] as const)(
       return 'completed';
     });
     if (failure === 'profile') f.run.profile = undefined;
-    else if (failure === 'token')
+    else if (failure === 'token') {
+      if (!f.run.profile) throw new Error('Missing fixture profile');
+      f.run.profile.sourceControl = {
+        github: { tokenEnv: 'MISSING_PROFILE_TOKEN' },
+      };
+      await writeRepositoryProfile(f.paths, f.run.profile);
       await writeCredentials(f.paths, {
         linear: { accessToken: 'fixture' },
         repos: {},
       });
-    else {
+    } else {
       if (!f.run.execution) throw new Error('Missing fixture execution');
       f.run.execution.members[0].url = 'https://example.test/unsupported.git';
     }
@@ -1041,3 +1048,30 @@ it.each(['github', 'gitlab'] as const)(
     }
   },
 );
+
+it('uses ambient GitHub credentials for built-in SCM when no source is selected', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.scm.openPr({ title: 'Change', body: '', draft: true });
+    return 'completed';
+  });
+  if (!f.run.profile) throw new Error('Missing fixture profile');
+  f.run.profile.settings.secretEnv = [];
+  await writeRepositoryProfile(f.paths, f.run.profile);
+  await writeRunHeader(f.paths, f.run);
+  await writeCredentials(f.paths, {
+    linear: { accessToken: 'fixture' },
+    repos: { app: {} },
+  });
+  vi.stubEnv('GH_TOKEN', 'ambient-gh-token');
+  vi.stubEnv('GITHUB_TOKEN', '');
+  try {
+    expect(
+      await f.runtime.boot(f.run, 'run', new AbortController().signal),
+    ).toMatchObject({ status: 'finished' });
+    expect(spies.scmAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'ambient-gh-token' }),
+    );
+  } finally {
+    await f.runtime.close();
+  }
+});

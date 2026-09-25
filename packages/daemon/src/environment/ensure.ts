@@ -234,10 +234,18 @@ export async function ensureEnvironment(
           break;
         }
       }
-      const allowance = await ctx.step(
+      const recordedAllowance = await ctx.step(
         `${label}: setup allowance ${entry.id}`,
         () => Math.max(0, budget - (Date.now() - started)),
       );
+      // The receipt keeps replay aligned, but its old time allowance must not
+      // constrain a fresh probe after the configured command timeout changes.
+      // Preserve a zero receipt: that Boot skipped the probe entirely, so adding
+      // one now would diverge from the recorded workflow path.
+      const allowance =
+        recordedAllowance <= 0
+          ? 0
+          : Math.max(0, budget - (Date.now() - started));
       if (!allowance) {
         live = blocked(
           entry.id,
@@ -460,22 +468,23 @@ export function interpretVerification(
       'product',
     );
   const checks = Array.isArray(value.checks) ? value.checks : [];
+  const failedChecks = recipe.checks.filter((checkId) => {
+    const matching = checks.filter((check) => check && check.id === checkId);
+    return (
+      matching.length !== 1 ||
+      matching[0].executed !== true ||
+      matching[0].passed !== true
+    );
+  });
   if (
     result.exitCode !== 0 ||
     value.status !== 'passed' ||
-    !recipe.checks.every((id) => {
-      const matching = checks.filter((c) => c && c.id === id);
-      return (
-        matching.length === 1 &&
-        matching[0].executed === true &&
-        matching[0].passed === true
-      );
-    })
+    failedChecks.length > 0
   )
     return blocked(
       id,
       'verification',
-      'A required assertion was not executed successfully. Repair prerequisites or supply a working verifier; do not waive the check.',
+      `A required assertion was not executed successfully.${failedChecks.length ? ` Failed checks: ${failedChecks.join(', ')}.` : ''} Repair prerequisites or supply a working verifier; do not waive the check.`,
     );
   return undefined;
 }

@@ -99,6 +99,39 @@ it('labels CI receipts with their repository so companion CI is not mistaken for
   ]);
 });
 
+it('uses only completed Linear publication and state steps as delivery evidence', () => {
+  const entry = (
+    seq: number,
+    step: string,
+    result: unknown,
+    label?: string,
+  ): JournalEntry => ({
+    v: 1,
+    seq,
+    boot: 1,
+    step,
+    label,
+    status: 'done',
+    startedAt: '2026-09-15T08:00:00Z',
+    result,
+  });
+  const evidence = recapWorkflowEvidence([
+    entry(1, 'agent', { id: 'invented' }),
+    entry(2, 'linear.comment', { id: 'comment-1', issueId: 'issue-1' }),
+    entry(3, 'step', { state: 'Done' }, 'Confirm delivered issue state'),
+  ]);
+  expect(evidence.receipts).toEqual([
+    expect.objectContaining({
+      kind: 'linear-comment',
+      result: { id: 'comment-1', issueId: 'issue-1' },
+    }),
+    expect.objectContaining({
+      kind: 'linear-state',
+      result: { state: 'Done' },
+    }),
+  ]);
+});
+
 it('distinguishes an unpushed companion commit from remote delivery', async () => {
   const root = await mkdtemp(join(tmpdir(), 'recap-evidence-'));
   const execute = promisify(execFile);

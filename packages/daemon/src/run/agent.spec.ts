@@ -80,6 +80,59 @@ it('grants only the Run evidence directory to read-enabled Steps without edit ac
   ]);
 });
 
+it('prepares and disposes an isolated agent environment', async () => {
+  const f = fixture();
+  const dispose = vi.fn(async () => undefined);
+  f.options.prepareEnvironment = vi.fn(async () => ({
+    env: { NX_CACHE_DIRECTORY: '/tmp/isolated-nx' },
+    instructions: 'Use the prepared browser.',
+    dispose,
+  }));
+  await runBoot({
+    journalPath: join(dir, 'prepared-agent.jsonl'),
+    workflow: async (steps) => {
+      const agent = createAgent(steps, f.options);
+      await agent(
+        { prompt: 'Inspect.' },
+        { label: 'Inspect', tools: ['bash'] },
+      );
+      return 'completed';
+    },
+  });
+  expect(f.run.mock.calls[0][0].env.NX_CACHE_DIRECTORY).toBe(
+    '/tmp/isolated-nx',
+  );
+  expect(f.run.mock.calls[0][0].prompt).toContain('Use the prepared browser.');
+  expect(dispose).toHaveBeenCalledOnce();
+});
+
+it('keeps long implementation work visible and gives it enough time to finish', async () => {
+  const f = fixture();
+  f.options.heartbeatIntervalMs = 10;
+  f.run.mockImplementationOnce(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return {
+      text: '<result>{"summary":"done"}</result>',
+      sessionId: 'session-1',
+      events: [],
+    };
+  });
+  await runBoot({
+    journalPath: join(dir, 'long-agent.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Run checks.' },
+        { label: 'Implement', tools: ['read', 'edit', 'bash'] },
+      );
+      return 'completed';
+    },
+  });
+  expect(f.run.mock.calls[0][0].timeoutMs).toBeGreaterThan(179 * 60_000);
+  expect(
+    (await openJournal(join(dir, 'long-agent.jsonl'))).latest(0)?.progress,
+  ).toMatchObject({ live: { summary: expect.stringContaining('elapsed') } });
+});
+
 it('returns the original schema fields plus summary and replays without a conversation', async () => {
   const f = fixture();
   const results: unknown[] = [];

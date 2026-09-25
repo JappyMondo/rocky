@@ -4,23 +4,13 @@ import type { WorkflowContext } from '@rocky/sdk';
 import { createDeliveryOperations } from './delivery.js';
 import type { DeliveryAgents } from './agents.js';
 
-it('returns a recap audit finding to a Linear-comment deliverable writer', async () => {
-  const visualRecap = vi
-    .fn()
-    .mockRejectedValueOnce(
-      Object.assign(
-        new Error('Visual recap failed its evidence audit after two passes.'),
-        {
-          name: 'RecapAuditError',
-          problems: ['The overview diagram still gives the wrong path.'],
-        },
-      ),
-    )
-    .mockResolvedValue({ id: 'recap', url: 'http://rocky.test/recap' });
-  const writer = vi
-    .fn()
-    .mockResolvedValueOnce({ body: 'Initial explanation.' })
-    .mockResolvedValueOnce({ body: 'Corrected explanation.' });
+it('confirms a Linear comment and closes the issue before the recap', async () => {
+  const calls: string[] = [];
+  const visualRecap = vi.fn(async () => {
+    calls.push('recap');
+    return { id: 'recap', url: 'http://rocky.test/recap' };
+  });
+  const writer = vi.fn().mockResolvedValue({ body: 'Explanation.' });
   const ctx = {
     issue: {
       identifier: 'TEST-1',
@@ -38,16 +28,23 @@ it('returns a recap audit finding to a Linear-comment deliverable writer', async
       stderr: '',
     }),
     post: vi.fn(),
-    comment: vi.fn(),
+    comment: vi.fn(async () => {
+      calls.push('comment');
+    }),
     visualRecap,
-    linear: { setState: vi.fn() },
+    step: vi.fn(async (_label: string, fn: () => Promise<unknown>) => fn()),
+    linear: {
+      setState: vi.fn(async () => {
+        calls.push('state');
+      }),
+    },
   } as unknown as WorkflowContext;
   const agents = {
     call: vi.fn(async (role: string, options?: { input?: unknown }) => {
       if (role === 'refiner')
         return {
           status: 'clear',
-          delivery: { kind: 'linear-comment', stateChanges: false },
+          delivery: { kind: 'linear-comment', stateChanges: true },
           scope: 'Explain the change.',
           decisions: [],
           acceptanceCriteria: [],
@@ -69,12 +66,30 @@ it('returns a recap audit finding to a Linear-comment deliverable writer', async
 
   expect(await delivery('clarify', agents)).toBe('comment');
   expect(await delivery('deliverable', agents)).toBe('completed');
-  expect(writer).toHaveBeenCalledTimes(2);
-  expect(writer.mock.calls[1][0]).toMatchObject({
-    previous: {
-      body: 'Initial explanation.',
-      problems: ['The overview diagram still gives the wrong path.'],
-    },
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(ctx.comment).toHaveBeenCalledWith('Explanation.');
+  expect(ctx.linear.setState).toHaveBeenCalledWith('Done');
+  expect(calls).toEqual(['state', 'comment', 'state', 'recap']);
+
+  // A recorded run that already saved its recap must finish its old order.
+  // Reordering its next comment Step would make its journal diverge.
+  Object.assign(ctx, {
+    replaying: true,
+    replayStep: 'linear.comment',
+    replayedStep: (key: string) => key === 'reviewReport.save',
   });
-  expect(ctx.comment).toHaveBeenCalledWith('Corrected explanation.');
+  calls.length = 0;
+  expect(await delivery('deliverable', agents)).toBe('completed');
+  expect(calls).toEqual(['recap', 'comment', 'state']);
+  expect(ctx.linear.setState).toHaveBeenCalledWith('In Review');
+
+  Object.assign(ctx, { replaying: false });
+  calls.length = 0;
+  visualRecap.mockRejectedValueOnce(new Error('Recap audit failed'));
+  await expect(delivery('deliverable', agents)).rejects.toThrow(
+    'Recap audit failed',
+  );
+  expect(calls).toEqual(['comment', 'state']);
+  expect(visualRecap).toHaveBeenCalledTimes(3);
+  expect(writer).toHaveBeenCalledTimes(3);
 });

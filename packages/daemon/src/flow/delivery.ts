@@ -334,9 +334,12 @@ export function createDeliveryOperations(
         });
         if ('refused' in ci) {
           if (ci.reason !== 'head_changed') requireScm(ci);
+          passedCiHeads.delete(`${candidate.repo}\0${candidate.headSha}`);
           ready = false;
-        } else if (ci.status !== 'passed' || ci.headSha !== candidate.headSha)
+        } else if (ci.status !== 'passed' || ci.headSha !== candidate.headSha) {
+          passedCiHeads.delete(`${candidate.repo}\0${candidate.headSha}`);
           ready = false;
+        }
       }
     }
     if (ready && !pendingThreads.length) {
@@ -484,7 +487,7 @@ export function createDeliveryOperations(
     commands,
     repositoryCatalog: settings.execution,
     instruction:
-      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
+      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
   };
   async function push() {
     if (repositories) {
@@ -605,6 +608,11 @@ export function createDeliveryOperations(
     const reviewHistory = history.snapshot();
     const result = await actors.call(name, {
       label: `${name} ${revision}/${reviewCap}`,
+      // Acceptance review must be able to verify executable criteria itself.
+      // This also repairs retained Run snapshots whose graph only wired read.
+      ...(name === 'compliance-reviewer'
+        ? { tools: ['read', 'bash'] as const }
+        : {}),
       input: {
         issue,
         delivery,
@@ -660,7 +668,10 @@ export function createDeliveryOperations(
     return { complaints, resolutions: fixed.resolutions };
   }
 
+  const passedCiHeads = new Set<string>();
   async function checkCi(candidate: ScmPr = pr) {
+    const key = `${candidate.repo}\0${candidate.headSha}`;
+    if (passedCiHeads.has(key)) return { changed: false, complaints: [] };
     let ci = requireScm(
       await ctx.scm.waitForCi(candidate, { logTailLines: ciLogLines }),
     );
@@ -676,6 +687,9 @@ export function createDeliveryOperations(
           issue,
           delivery,
           failedJobs: ci.failedJobs,
+          pullRequest: candidate,
+          ciRepairPolicy:
+            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
           commands,
           ...(repositories ? { repository: candidate.repo } : {}),
         },
@@ -696,6 +710,7 @@ export function createDeliveryOperations(
           'CI returned another head. Refresh the branch and run validation again.',
         );
     }
+    if (ci.status === 'passed') passedCiHeads.add(key);
     return {
       changed: false,
       complaints:
@@ -1149,23 +1164,47 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           ...review.assessments.flatMap((item) => item.problems),
         ]);
         if (!problems.length) {
-          ctx.stage('Visual recap');
-          try {
-            await ctx.visualRecap({
+          const recap = () =>
+            ctx.visualRecap({
               deliverable: draft.body,
               title: issue.title,
               scope,
               agents: actors.recap(),
             });
-          } catch (error) {
-            if (!isRecapAuditError(error)) throw error;
-            previous = { body: draft.body, problems: error.problems };
-            continue;
+          // Older runs recorded the recap before delivery. Preserve that order
+          // while replaying their immutable journal.
+          if (
+            ctx.replaying &&
+            (ctx.replayStep?.startsWith('reviewReport.') ||
+              (ctx.replayStep === 'linear.comment' &&
+                ctx.replayedStep?.('reviewReport.save')))
+          ) {
+            ctx.stage('Visual recap');
+            try {
+              await recap();
+            } catch (error) {
+              if (!isRecapAuditError(error)) throw error;
+              previous = { body: draft.body, problems: error.problems };
+              continue;
+            }
+            ctx.stage('Deliver');
+            await ctx.comment(draft.body);
+            if (delivery.stateChanges) await ctx.linear.setState(states.review);
+            return 'completed';
           }
           ctx.stage('Deliver');
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
           await ctx.comment(draft.body);
-          if (delivery.stateChanges) await ctx.linear.setState(states.review);
+          if (delivery.stateChanges) {
+            await ctx.linear.setState(states.done);
+            await ctx.step('Confirm delivered issue state', () => ({
+              state: states.done,
+            }));
+          }
+          ctx.stage('Visual recap');
+          // This recap now sees the verified publication and state receipts.
+          // A recap audit failure must not redraft and post a second comment.
+          await recap();
           return 'completed';
         }
         previous = { body: draft.body, problems };
@@ -1230,6 +1269,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async validate() {
       revision++;
+      passedCiHeads.clear();
       if (revision > reviewCap)
         return exhaust([
           {
@@ -1306,6 +1346,21 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async compliance() {
       ctx.stage('Compliance');
+      // Observe CI as soon as a draft exists. A review may use its entire
+      // retry budget, so the later CI gate alone cannot hand failures to its fixer.
+      // Recorded pre-watcher reviews retain their original step order on replay.
+      if (
+        !ctx.replaying ||
+        ctx.replayStep === 'scm:waitForCi' ||
+        ctx.replayStep?.startsWith('scm.waitForCi:')
+      ) {
+        for (const candidate of repositories?.open ?? [pr]) {
+          if (settings.ciSkipRepositories?.includes(candidate.repo)) continue;
+          const ci = await checkCi(candidate);
+          if (ci.complaints.length) return exhaust(ci.complaints);
+          if (ci.changed) return 'retry';
+        }
+      }
       const compliance = await review(
         'compliance-reviewer',
         revision,

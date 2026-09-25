@@ -285,7 +285,10 @@ async function writeIdentity(ctx: RepoContext, dir: string): Promise<void> {
 }
 
 async function isWorktree(dir: string): Promise<boolean> {
-  return gitOk(['rev-parse', '--is-inside-work-tree'], { cwd: dir });
+  return await git(['rev-parse', '--is-inside-work-tree'], { cwd: dir }).then(
+    ({ stdout }) => stdout.trim() === 'true',
+    () => false,
+  );
 }
 
 /**

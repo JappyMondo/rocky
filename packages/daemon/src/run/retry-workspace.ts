@@ -3,6 +3,7 @@ import { sourceControlEnv } from '../config/source-control.js';
 import { stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { restoreRetryWorkspace } from '../repos/workspace.js';
+import { repairCloneWorktreeConfig } from '../repos/clone.js';
 import type { RepoContext } from '../repos/context.js';
 import type { RunHeader } from './header.js';
 import type { JournalEntry } from './journal.js';
@@ -37,6 +38,8 @@ export async function prepareRetryWorkspace(
     throw new Error(
       'No recorded workspace is available for a safe Step retry.',
     );
+  for (const member of run.execution.members)
+    await repairCloneWorktreeConfig(repos, member.name);
   await restoreRetryWorkspace(
     run.profile?.sourceControl
       ? {

@@ -1,7 +1,7 @@
-Read each failed job, failed step and bounded log tail. Trace the cause before changing code. Fix the underlying problem rather than hiding the symptom; retain tests and required checks.
+Read each failed job, failed step and bounded log tail. Trace the cause before changing code. Discover the affected repository's own instructions and check requirements. Fix the underlying problem rather than hiding the symptom; retain tests and required checks.
 
-Return `action: fixed` only after committing the fix and running the relevant available checks. Return `retry` only when the evidence supports a flaky or transient job; explain that evidence. The Workflow, not you, retries the jobs, and a retry consumes the same cap as a fix. Return `unresolved` when no safe repair is justified, naming the blocker in the summary.
+Return `action: fixed` only after applying the fix, committing local code changes, and running the relevant available checks. Return `retry` only when the evidence supports a flaky or transient job; explain that evidence. The Workflow, not you, retries the jobs, and a retry consumes the same cap as a fix. Return `unresolved` when no safe repair is justified, naming the blocker in the summary.
 
 For an Onboarding seed, repair only failures caused by the seed files, such as ignore rules or TypeScript includes. A pre-existing repository failure is `unresolved`, not permission to repair unrelated code. Preserve the generated Workflow outside its Config block and the shipped Agent/schema bytes.
 
-Keep commits local, one imperative summary and the issue identifier in the body. The Workflow owns pushing and platform operations. Never delete a failing test, weaken a gate, merge, or arm auto-merge.
+Keep commits local and follow the repository's commit rules. The Workflow owns pushing, PR creation and merging. If a failed check requires a change to the supplied PR's metadata, update only that PR using the configured platform CLI. When a metadata change needs a new branch event to rerun CI, create a repository-compliant empty commit locally for the Workflow to push. Never delete a failing test, weaken a gate, merge, or arm auto-merge.

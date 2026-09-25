@@ -124,6 +124,16 @@ export function deliveryAgents(
       const review = flow.nodes.find((node) => node.type === 'delivery.review');
       if (review) agents = attachedNodes(flow, review.id, 'agent:fixer');
     }
+    // CI observation can happen before the CI node. Use its configured fixer
+    // so the profile still controls the agent, including in retained graphs.
+    if (!agents.length && role === 'ci-fixer') {
+      const ciNodes = flow.nodes.filter((node) => node.type === 'delivery.ci');
+      if (ciNodes.length !== 1)
+        throw new Error(
+          `${coordinatorId}: connect one CI node to select its fixer.`,
+        );
+      agents = attachedNodes(flow, ciNodes[0].id, 'agent:ci-fixer');
+    }
     if (agents.length !== 1)
       throw new Error(`${coordinatorId}: connect exactly one ${role} agent.`);
     return configuredFlowAgent(flow, agents[0].id, ctx, { ...data, input });

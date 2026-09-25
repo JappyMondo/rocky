@@ -8,13 +8,18 @@ function plainUrl(node: {
   children?: { type: string; value?: string }[];
 }) {
   const text = node.children?.[0];
+  const label = text?.value ?? '';
+  const destination = node.url ?? '';
   return node.type === 'link' &&
-    /^https?:\/\//i.test(node.url ?? '') &&
+    /^https?:\/\//i.test(destination) &&
     !node.title &&
     node.children?.length === 1 &&
     text?.type === 'text' &&
-    text.value === node.url
-    ? { type: 'text', value: node.url }
+    (label === destination ||
+      (/^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(label) &&
+        (destination === `http://${label}` ||
+          destination === `https://${label}`)))
+    ? { type: 'text', value: label }
     : node;
 }
 

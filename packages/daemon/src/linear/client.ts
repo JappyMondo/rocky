@@ -504,7 +504,9 @@ export class RockyLinearClient {
       } catch (error) {
         const retryable =
           error instanceof Error &&
-          /Linear API answered 5\d\d:/.test(error.message);
+          (/Linear API answered 5\d\d:/.test(error.message) ||
+            error instanceof TypeError ||
+            /fetch failed/i.test(error.message));
         if (!retryable || attempt === 2) throw error;
         await this.wait(250 * 2 ** attempt);
       }
@@ -521,6 +523,8 @@ export class RockyLinearClient {
     variables?: Variables,
   ): Promise<ResponseData> {
     const deadline = this.now() + 30_000;
+    // Only a query can be repeated after an ambiguous transport failure.
+    const readOnly = /^\s*(?:query\b|\{)/i.test(query);
     for (let attempt = 0; attempt < 3; attempt++) {
       while (this.nextRequestAt > this.now()) {
         if (this.nextRequestAt > deadline)
@@ -529,14 +533,30 @@ export class RockyLinearClient {
           );
         await this.wait(this.nextRequestAt - this.now());
       }
-      const response = await this.doFetch('https://api.linear.app/graphql', {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ query, variables }),
-      });
+      let response: Response;
+      try {
+        response = await this.doFetch('https://api.linear.app/graphql', {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ query, variables }),
+        });
+      } catch (error) {
+        const transportFailure =
+          error instanceof TypeError ||
+          (error instanceof Error && /fetch failed/i.test(error.message));
+        if (
+          !readOnly ||
+          !transportFailure ||
+          attempt === 2 ||
+          this.options.signal?.aborted
+        )
+          throw error;
+        await this.wait(250 * 2 ** attempt);
+        continue;
+      }
       const retryAfter = response.headers.get('retry-after');
       let retryAt =
         retryAfter === null ? 0 : this.now() + Number(retryAfter) * 1000;

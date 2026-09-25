@@ -343,7 +343,7 @@ export class LinearRunMirror {
   }
 
   /** Explicit Workflow deliverables retain stable identities across replay. */
-  comment(commentId: string, body: string): Promise<void> {
+  comment(commentId: string, body: string): Promise<string> {
     return this.serialize(async () => {
       await this.allowed('working');
       const payload = await this.frozen(
@@ -366,6 +366,7 @@ export class LinearRunMirror {
         if (!result.success || result.id !== payload.id)
           throw new Error('Linear did not confirm the ticket comment.');
       });
+      return payload.id;
     });
   }
 

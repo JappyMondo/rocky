@@ -7,7 +7,57 @@ import { expect, it, vi } from 'vitest';
 import type { WorkflowContext } from '@rocky/sdk';
 import { DeliveryRepositories } from './repositories.js';
 
-it('uses each configured target branch, pushes only changed members, and rejects uncommitted companion work', async () => {
+it.each([
+  ['app: git rev-parse HEAD', 2],
+  ['settings: git status --porcelain', 1],
+])(
+  'replays only the historical post-push HEAD read (%s)',
+  async (label, reads) => {
+    const commands: string[] = [];
+    const ctx = {
+      branch: 'issue-1',
+      replaying: true,
+      replayStep: 'exec',
+      replayLabel: label,
+      exec: async (command: string) => {
+        commands.push(command);
+        return {
+          exitCode: 0,
+          stdout: command.includes('git diff --name-only')
+            ? 'src/a.ts\n'
+            : command.includes('git rev-parse HEAD')
+              ? 'abc\n'
+              : command.includes('git branch --show-current')
+                ? 'issue-1\n'
+                : '',
+          stderr: '',
+        };
+      },
+      scm: {
+        openPr: async () => ({
+          repo: 'app',
+          id: 'app',
+          number: 1,
+          url: 'https://example.test/app/pull/1',
+          sourceBranch: 'issue-1',
+          baseBranch: 'main',
+          headSha: 'abc',
+          state: 'open',
+          draft: true,
+        }),
+      },
+    } as unknown as WorkflowContext;
+    const repositories = new DeliveryRepositories(ctx, {
+      members: [{ name: 'app', path: 'app', lead: true, baseBranch: 'main' }],
+    });
+    await repositories.sync('Example change', 'Description');
+    expect(
+      commands.filter((command) => command.includes('git rev-parse HEAD')),
+    ).toHaveLength(reads);
+  },
+);
+
+it('uses each configured target branch, preserves remote fixer commits, and rejects uncommitted companion work', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rocky-delivery-'));
   const execute = promisify(execFile);
   const env = {
@@ -75,15 +125,30 @@ it('uses each configured target branch, pushes only changed members, and rejects
       state: 'open',
       draft: true,
     }));
+    const recordedCommands: string[] = [];
     const ctx = {
       branch: 'issue-1',
       scm: { openPr },
       exec: async (command: string) => {
-        const { stdout, stderr } = await execute('/bin/sh', ['-c', command], {
-          cwd: root,
-          env,
-        });
-        return { exitCode: 0, stdout, stderr };
+        recordedCommands.push(command);
+        try {
+          const { stdout, stderr } = await execute('/bin/sh', ['-c', command], {
+            cwd: root,
+            env,
+          });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error) {
+          const failure = error as Error & {
+            code?: number;
+            stdout?: string;
+            stderr?: string;
+          };
+          return {
+            exitCode: failure.code ?? 1,
+            stdout: failure.stdout ?? '',
+            stderr: failure.stderr ?? failure.message,
+          };
+        }
       },
     } as unknown as WorkflowContext;
     const repositories = new DeliveryRepositories(ctx, { members });
@@ -93,6 +158,13 @@ it('uses each configured target branch, pushes only changed members, and rejects
     expect(patch).toContain('+28');
     expect(patch).not.toContain('b/app/setting.txt');
     await repositories.sync('Use 28 days', 'Requested change');
+    // Completed pushes in older Boots recorded only the first HEAD read.
+    // A new read here shifts every later journal Step and breaks replay.
+    expect(
+      recordedCommands.filter((command) =>
+        command.includes('git rev-parse HEAD'),
+      ),
+    ).toHaveLength(1);
     expect(openPr).toHaveBeenCalledTimes(1);
     expect(openPr).toHaveBeenCalledWith({
       repo: 'settings',
@@ -113,9 +185,48 @@ it('uses each configured target branch, pushes only changed members, and rejects
     expect(await repositories.diff(repositories.heads)).toBe('');
     await repositories.sync('Use 28 days', 'Requested change');
     expect(openPr).toHaveBeenCalledTimes(1);
+
+    // A previous Boot pushed a fix, then the current Boot committed a newer
+    // fix on the retained worktree before learning the remote had advanced.
+    await git(root, 'clone', 'remote.git', 'previous-boot');
+    const previous = join(root, 'previous-boot');
+    await git(previous, 'config', 'user.name', 'Fixture');
+    await git(previous, 'config', 'user.email', 'fixture@example.invalid');
+    await git(previous, 'checkout', '-b', 'issue-1', 'origin/issue-1');
+    await writeFile(join(previous, 'setting.txt'), '29\n');
+    await git(previous, 'commit', '-am', 'Previous fixer');
+    const previousHead = await git(previous, 'rev-parse', 'HEAD');
+    await git(previous, 'push', 'origin', 'HEAD');
     await writeFile(join(settings, 'setting.txt'), '30\n');
+    await git(settings, 'commit', '-am', 'Current fixer');
+    await repositories.sync('Use 30 days', 'Current fix');
+    const mergedHead = await git(settings, 'rev-parse', 'HEAD');
+    expect(await git(settings, 'show', '-s', '--format=%s', 'HEAD')).toBe(
+      'fix: reconcile concurrent branch updates',
+    );
+    expect(mergedHead).toBe(
+      await git(
+        root,
+        '--git-dir=remote.git',
+        'rev-parse',
+        'refs/heads/issue-1',
+      ),
+    );
+    expect(await git(settings, 'show', 'HEAD:setting.txt')).toBe('30');
+    expect(
+      await git(
+        settings,
+        'merge-base',
+        '--is-ancestor',
+        previousHead,
+        mergedHead,
+      ),
+    ).toBe('');
+    expect(repositories.heads).toEqual({ settings: mergedHead });
+
+    await writeFile(join(settings, 'setting.txt'), '31\n');
     await expect(
-      repositories.sync('Use 30 days', 'Uncommitted'),
+      repositories.sync('Use 31 days', 'Uncommitted'),
     ).rejects.toThrow('settings has uncommitted work');
     expect(
       await git(
@@ -124,7 +235,7 @@ it('uses each configured target branch, pushes only changed members, and rejects
         'rev-parse',
         'refs/heads/issue-1',
       ),
-    ).toBe(head);
+    ).toBe(mergedHead);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

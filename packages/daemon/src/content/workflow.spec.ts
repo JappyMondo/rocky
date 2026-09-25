@@ -323,6 +323,101 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   );
 
   it.skipIf(mode === 'legacy')(
+    'hands failed CI to its fixer before a persistent compliance review exhausts',
+    async () => {
+      const failedJob = {
+        id: 'arbitrary-check',
+        name: 'repository gate',
+        failedSteps: ['Verify repository policy'],
+        logTail: 'The submitted change violates a repository policy.',
+      };
+      const f = repositoryFixture({
+        scm: (operation) =>
+          operation === 'waitForCi'
+            ? { status: 'failed', headSha: 'abc', failedJobs: [failedJob] }
+            : undefined,
+        agent: (name, input) => {
+          if (name === 'ci-fixer') return { action: 'unresolved' };
+          if (name === 'compliance-reviewer')
+            return {
+              complaints: [
+                {
+                  id: `${input.namespace}/persistent`,
+                  file: 'src/a.ts',
+                  text: 'Acceptance evidence is incomplete.',
+                  quote: 'Return an empty list.',
+                },
+              ],
+            };
+          if (name === 'fixer')
+            return {
+              resolutions: (input.complaints as { id: string }[]).map(
+                ({ id }) => ({ id, status: 'fixed', note: 'Patched.' }),
+              ),
+            };
+          return undefined;
+        },
+      });
+      const first = await f.boot();
+      if (first.status === 'failed') throw new Error(JSON.stringify(first));
+      expect(first).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      const ciFixer = f.calls.find((call) => call.name === 'ci-fixer');
+      expect(ciFixer?.input.failedJobs).toEqual([failedJob]);
+      expect(ciFixer?.input.pullRequest).toMatchObject({ repo: 'fixture' });
+      expect(ciFixer?.options?.tools).toContain('bash');
+      expect(f.trace).not.toContain('compliance-reviewer');
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'revalidates after an early CI repair before compliance review',
+    async () => {
+      let failed = false;
+      const f = repositoryFixture({
+        scm: (operation, _count, args) => {
+          if (
+            operation === 'waitForCi' &&
+            (args[0] as { repo: string }).repo === 'fixture' &&
+            !failed
+          ) {
+            failed = true;
+            return {
+              status: 'failed',
+              headSha: 'abc',
+              failedJobs: [
+                {
+                  id: 'gate',
+                  name: 'repository gate',
+                  failedSteps: ['Verify change'],
+                  logTail: 'Failed.',
+                },
+              ],
+            };
+          }
+          return undefined;
+        },
+        agent: (name) =>
+          name === 'ci-fixer' ? { action: 'fixed' } : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        1,
+      );
+      expect(f.trace.indexOf('ci-fixer')).toBeLessThan(
+        f.trace.indexOf('compliance-reviewer'),
+      );
+      expect(calledRepos(f, 'waitForCi')).toEqual([
+        'fixture',
+        'fixture',
+        'settings',
+      ]);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
     'can deliver only a changed companion without creating an empty lead PR',
     async () => {
       const f = repositoryFixture({
@@ -1352,7 +1447,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   );
 
   it.skipIf(mode !== 'flow').each([false, true])(
-    'continues exhausted reviews for exactly another five rounds and survives replay (legacy results=%s)',
+    'continues exhausted reviews for exactly another five rounds and survives replay (legacy journal=%s)',
     async (legacy) => {
       const f = fixture({
         continuation: true,
@@ -1386,7 +1481,18 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
           .trimEnd()
           .split('\n')
           .map((line) => JSON.parse(line));
-        for (const row of rows) {
+        // Simulate a Run recorded before CI was observed ahead of compliance.
+        const ciSeqs = [
+          ...new Set<number>(
+            rows
+              .filter((row) => row.step === 'scm:waitForCi')
+              .map((row) => row.seq),
+          ),
+        ].sort((a, b) => a - b);
+        const retained = rows.filter((row) => !ciSeqs.includes(row.seq));
+        for (const row of retained)
+          row.seq -= ciSeqs.filter((seq) => seq < row.seq).length;
+        for (const row of retained) {
           if (row.step === 'agent' && Array.isArray(row.result?.complaints)) {
             delete row.result.previousIssues;
             for (const complaint of row.result.complaints)
@@ -1395,13 +1501,18 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         }
         await writeFile(
           path,
-          rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
+          retained.map((row) => JSON.stringify(row)).join('\n') + '\n',
         );
       }
       const history = await readFile(path, 'utf8');
       const count = (name: string) =>
         f.calls.filter((call) => call.name === name).length;
       expect(count('compliance-reviewer')).toBe(5);
+      expect(
+        f.calls
+          .filter((call) => call.name === 'compliance-reviewer')
+          .every((call) => call.options?.tools?.includes('bash')),
+      ).toBe(true);
       const before = f.calls.length;
       const writer = await JournalWriter.open(path);
       await writer.retry(
@@ -1411,7 +1522,9 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         undefined,
         true,
       );
-      expect(await f.boot()).toMatchObject({
+      const resumed = await f.boot();
+      if (resumed.status === 'failed') throw new Error(JSON.stringify(resumed));
+      expect(resumed).toMatchObject({
         status: 'finished',
         outcome: 'exhausted',
       });
@@ -2573,7 +2686,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([
       'comment:Complete architecture',
     ]);
-    expect(f.trace.at(-1)).toBe('In Review');
+    expect(f.trace).toContain(mode === 'legacy' ? 'In Review' : 'Done');
     expect(f.scmCalls).toEqual([]);
   });
 

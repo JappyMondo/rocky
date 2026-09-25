@@ -49,3 +49,28 @@ it('accepts Linear autolinking bare URLs without losing changed targets or code'
 it('does not equate relative links with ordinary text', () => {
   expect(sameMarkdown('approve', '[approve](approve)')).toBe(false);
 });
+
+it('accepts Linear host autolinks and escaped Git output in failure activities', () => {
+  const original =
+    'To github.com:Attraccess/Attraccess.git\n ! [rejected] HEAD -> att-777 (fetch first)';
+  const persisted =
+    'To [github.com](<http://github.com>):Attraccess/Attraccess.git\n ! \\[rejected\\] HEAD -> att-777 (fetch first)';
+  expect(
+    sameActivityContent(
+      { type: 'error', body: persisted },
+      { type: 'error', body: original },
+    ),
+  ).toBe(true);
+  expect(
+    sameMarkdown(
+      'To github.com:Attraccess',
+      'To [github.com](<https://github.com>):Attraccess',
+    ),
+  ).toBe(true);
+  expect(
+    sameMarkdown(
+      original,
+      persisted.replace('http://github.com', 'http://attacker.test'),
+    ),
+  ).toBe(false);
+});

@@ -168,6 +168,10 @@ export interface WorkflowContext {
   readonly polling?: boolean;
   /** Key of the next recorded Step, for compatibility at an explicit migration boundary. */
   readonly replayStep?: string;
+  /** Label of the next recorded Step, for distinguishing same-key migration paths. */
+  readonly replayLabel?: string;
+  /** Whether an earlier completed Step with this key is being replayed. */
+  readonly replayedStep?: (key: string) => boolean;
 
   /** Display-only: takes no seq, stamps later entries, and re-executes on replay. */
   stage(label: string): void;

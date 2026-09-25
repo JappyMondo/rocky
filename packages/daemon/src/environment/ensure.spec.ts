@@ -258,6 +258,24 @@ it.each([
     interpretVerification('web/login', capability, { exitCode: 0, stdout }),
   ).toMatchObject({ status: 'blocked', blocker: { code } });
 });
+it('identifies the failed configured assertion in a sanitized verifier receipt', () => {
+  const result = interpretVerification('web/login', capability, {
+    exitCode: 0,
+    stdout: JSON.stringify({
+      status: 'failed',
+      checks: [
+        { id: 'login', executed: true, passed: true },
+        { id: 'feature', executed: true, passed: false },
+      ],
+    }),
+  });
+  expect(result).toMatchObject({
+    status: 'blocked',
+    blocker: { code: 'verification' },
+  });
+  if (result?.status !== 'blocked') throw new Error('Expected a blocker.');
+  expect(result.blocker.action).toContain('feature');
+});
 it('does not provision without authorization and classifies human blockers without retrying', async () => {
   const f = await fixture();
   expect(
@@ -326,6 +344,51 @@ it('restarts crashed services with fresh endpoints and leaves unrelated data int
     expect(second.context.endpoints).not.toEqual(first.context.endpoints);
   expect(await readFile(join(f.root, 'persistent-data'), 'utf8')).toBe('keep');
   await f.execution.stop('done');
+});
+it('uses the current setup budget when a replayed allowance is stale', async () => {
+  const f = await fixture();
+  f.repo.commands[0].timeoutMs = 1_800_000;
+  const step = f.ctx.step;
+  vi.spyOn(f.ctx, 'step').mockImplementation(async (label, work) =>
+    label.includes('setup allowance') ? 1 : step(label, work),
+  );
+  const probe = f.execution.probe.bind(f.execution);
+  const timeouts: number[] = [];
+  vi.spyOn(f.execution, 'probe').mockImplementation(
+    async (id, timeoutMs, checks, secretEnv) => {
+      if (id === 'web/install') {
+        timeouts.push(timeoutMs);
+        await writeFile(join(f.repoDir, '.prepared'), '');
+        return { exitCode: 0, stdout: '' };
+      }
+      return probe(id, timeoutMs, checks, secretEnv);
+    },
+  );
+  const result = await ensureEnvironment(f.ctx, f.execution, {
+    label: 'baseline',
+    allowSetup: true,
+  });
+  expect(result.status).toBe('ready');
+  expect(timeouts[0]).toBeGreaterThan(120_000);
+  await f.execution.stop('done');
+}, 15_000);
+it('keeps a recorded zero setup allowance on the same replay path', async () => {
+  const f = await fixture();
+  const step = f.ctx.step;
+  vi.spyOn(f.ctx, 'step').mockImplementation(async (label, work) =>
+    label.includes('setup allowance') ? 0 : step(label, work),
+  );
+  const probe = vi.spyOn(f.execution, 'probe');
+  const result = await ensureEnvironment(f.ctx, f.execution, {
+    label: 'baseline',
+    allowSetup: true,
+    maxRepairs: 0,
+  });
+  expect(result).toMatchObject({
+    status: 'blocked',
+    blocker: { capability: 'web/install', code: 'budget' },
+  });
+  expect(probe).not.toHaveBeenCalled();
 });
 it.each([false, true])(
   'replays environment receipts on polls and checks live setup on working Boots (broken setup: %s)',

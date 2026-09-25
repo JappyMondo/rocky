@@ -95,17 +95,22 @@ export function recapWorkflowEvidence(
     .flatMap((entry) => {
       const result = record(entry.result);
       const kind =
-        typeof result.exitCode === 'number'
-          ? 'command'
-          : typeof result.headSha === 'string' &&
-              ['passed', 'failed', 'pending', 'not-configured'].includes(
-                String(result.status),
-              )
-            ? 'ci'
-            : typeof result.url === 'string' &&
-                typeof result.number === 'number'
-              ? 'pull-request'
-              : undefined;
+        entry.step === 'linear.comment' && typeof result.id === 'string'
+          ? 'linear-comment'
+          : entry.label === 'Confirm delivered issue state' &&
+              typeof result.state === 'string'
+            ? 'linear-state'
+            : typeof result.exitCode === 'number'
+              ? 'command'
+              : typeof result.headSha === 'string' &&
+                  ['passed', 'failed', 'pending', 'not-configured'].includes(
+                    String(result.status),
+                  )
+                ? 'ci'
+                : typeof result.url === 'string' &&
+                    typeof result.number === 'number'
+                  ? 'pull-request'
+                  : undefined;
       if (!kind) return [];
       // Shell steps include git plumbing; retain checks with output and failed commands.
       if (

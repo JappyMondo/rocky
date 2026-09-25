@@ -15,6 +15,7 @@ import { retryRecordSchema } from './retry.js';
 import { runBoot } from './replay.js';
 import { appendEntry, readJournal } from './journal.js';
 import type { BootRequest } from './worker.js';
+import { prepareCodexEnvironment } from './codex-environment.js';
 
 export const RECOVERY_VIEW_KEY = 'recovery:latest';
 
@@ -108,6 +109,14 @@ export async function recoverWithAgent(options: {
             paths.repo(member.name),
           ),
           sessionDir: join(folder, 'sessions'),
+          prepareEnvironment: async (harness, tools, agentEnv, agentSignal) =>
+            harness === 'codex' && tools.includes('bash')
+              ? prepareCodexEnvironment(
+                  paths.run(run.runId).workspaceDir,
+                  agentEnv,
+                  agentSignal,
+                )
+              : { env: {}, dispose: async () => undefined },
           harness: model.harness,
           harnesses: {
             [model.harness]: {
