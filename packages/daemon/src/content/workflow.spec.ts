@@ -1511,7 +1511,10 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       expect(
         f.calls
           .filter((call) => call.name === 'compliance-reviewer')
-          .every((call) => call.options?.tools?.includes('bash')),
+          .every((call) =>
+            call.options?.tools?.length === 1 &&
+            call.options.tools[0] === 'read',
+          ),
       ).toBe(true);
       const before = f.calls.length;
       const writer = await JournalWriter.open(path);
