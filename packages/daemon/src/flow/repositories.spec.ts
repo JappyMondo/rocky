@@ -75,10 +75,12 @@ it('uses each configured target branch, preserves remote fixer commits, and reje
       state: 'open',
       draft: true,
     }));
+    const recordedCommands: string[] = [];
     const ctx = {
       branch: 'issue-1',
       scm: { openPr },
       exec: async (command: string) => {
+        recordedCommands.push(command);
         try {
           const { stdout, stderr } = await execute('/bin/sh', ['-c', command], {
             cwd: root,
@@ -106,6 +108,13 @@ it('uses each configured target branch, preserves remote fixer commits, and reje
     expect(patch).toContain('+28');
     expect(patch).not.toContain('b/app/setting.txt');
     await repositories.sync('Use 28 days', 'Requested change');
+    // Completed pushes in older Boots recorded only the first HEAD read.
+    // A new read here shifts every later journal Step and breaks replay.
+    expect(
+      recordedCommands.filter((command) =>
+        command.includes('git rev-parse HEAD'),
+      ),
+    ).toHaveLength(1);
     expect(openPr).toHaveBeenCalledTimes(1);
     expect(openPr).toHaveBeenCalledWith({
       repo: 'settings',

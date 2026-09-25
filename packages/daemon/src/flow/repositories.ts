@@ -47,10 +47,10 @@ export class DeliveryRepositories {
       throw new Error(`${repo}: ${command}\n${result.stderr}`);
     return result.stdout.trim();
   }
-  private async push(repo: string, branch: string) {
+  private async push(repo: string, branch: string): Promise<boolean> {
     const command = 'git push origin HEAD';
     const initial = await this.exec(repo, command);
-    if (initial.exitCode === 0) return;
+    if (initial.exitCode === 0) return false;
     if (
       !/\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/.test(
         initial.stderr,
@@ -66,6 +66,7 @@ export class DeliveryRepositories {
     );
     await this.shell(repo, 'git merge --no-edit -X ours FETCH_HEAD');
     await this.shell(repo, command);
+    return true;
   }
   get current() {
     return this.members.flatMap((m) => this.prs.get(m.name) ?? []);
@@ -140,8 +141,8 @@ export class DeliveryRepositories {
         throw new Error(
           `${member.name} is not on the issue branch ${this.ctx.branch}.`,
         );
-      await this.push(member.name, branch);
-      head = await this.shell(member.name, 'git rev-parse HEAD');
+      if (await this.push(member.name, branch))
+        head = await this.shell(member.name, 'git rev-parse HEAD');
       const pr = existing
         ? { ...existing, headSha: head }
         : requireRepositoryResult(
