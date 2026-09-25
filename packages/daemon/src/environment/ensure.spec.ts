@@ -258,6 +258,23 @@ it.each([
     interpretVerification('web/login', capability, { exitCode: 0, stdout }),
   ).toMatchObject({ status: 'blocked', blocker: { code } });
 });
+it('identifies the failed configured assertion in a sanitized verifier receipt', () => {
+  const result = interpretVerification('web/login', capability, {
+    exitCode: 0,
+    stdout: JSON.stringify({
+      status: 'failed',
+      checks: [
+        { id: 'login', executed: true, passed: true },
+        { id: 'feature', executed: true, passed: false },
+      ],
+    }),
+  });
+  expect(result).toMatchObject({
+    status: 'blocked',
+    blocker: { code: 'verification' },
+  });
+  expect(result?.blocker.action).toContain('feature');
+});
 it('does not provision without authorization and classifies human blockers without retrying', async () => {
   const f = await fixture();
   expect(
