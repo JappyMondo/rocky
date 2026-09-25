@@ -32,6 +32,8 @@ export class PreflightError extends Error {
  * Consumer adapters are required to observe the signal, but Preflight's first
  * minute is a Run guarantee even when an injected adapter fails to do so.
  */
+class ProbeBudgetExceeded extends Error {}
+
 function withinBudget<T>(
   work: Promise<T>,
   signal: AbortSignal,
@@ -39,7 +41,10 @@ function withinBudget<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error(`probe exceeded the ${budget} ms budget`)),
+      () =>
+        reject(
+          new ProbeBudgetExceeded(`probe exceeded the ${budget} ms budget`),
+        ),
       budget,
     );
     const cancelled = () => reject(signal.reason);
@@ -83,11 +88,7 @@ export async function runPreflight(
       };
       const safeError = (subject: string, error: unknown) => {
         options.signal.throwIfAborted();
-        if (
-          timeout.aborted ||
-          (error instanceof Error &&
-            error.message === `probe exceeded the ${budget} ms budget`)
-        )
+        if (timeout.aborted || error instanceof ProbeBudgetExceeded)
           return `${subject}: probe exceeded the ${budget} ms budget; verify API responsiveness and retry. Permission remains unknown.`;
         if (
           error instanceof ScmError ||

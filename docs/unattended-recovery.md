@@ -1,0 +1,23 @@
+# Unattended delivery recovery
+
+The September 25 run audit found three recurring gaps:
+
+- ATT-777, ATT-842 and ATT-1079 repeatedly reached the frontend while the API capability check still failed. One capability probe caused teardown and a fresh install/start cycle, preventing a slow backend from settling.
+- ATT-764 and ATT-842 recorded blocked UI sweeps (first-time setup, missing local fixtures and reachability). Recovery restarted services but never handed the actual diagnostic evidence to an agent.
+- ATT-920 retained uncommitted implementation work and failed at PR delivery. Agent completion did not imply a deliverable commit.
+
+The default workflow now waits for executable environment assertions within the configured service readiness attempts and command timeout. It keeps the owned service processes alive while waiting. Access, unsupported and product blockers are not treated as startup delays. The probe remains one journaled process step, preserving older journal ordering.
+
+New run snapshots carry `settings.recoveryVersion: 1`. They allow at most two environment diagnosis/repair calls per delivery attempt, separate from product review limits. The connected implementation agent handles baseline setup; the connected fixer handles UI prerequisites. They receive repository configuration, the exact blocked check notes and existing verification context. They can repair local worktree prerequisites and select configured commands for host execution. Manual commands and their manual prerequisites remain forbidden. Missing external permission or authority remains a blocker.
+
+Selected setup commands run through the same dependency, endpoint and executable-verifier boundary as ordinary provisioning. A UI repair sends the run back through validation and review before another full UI sweep. An agent's repair claim never supplies verification evidence. The extra validation cycle does not consume the final product-review allowance.
+
+Uncommitted delivery work returns to the connected implementation/fixer agent up to twice. Rocky checks status again before opening/pushing PRs. It never discards work or blindly commits it to clear the gate. Compliance review still checks whether the requested implementation is complete.
+
+Existing frozen snapshots without the recovery version keep their original control flow. Installing this runtime does not rewrite old snapshots, approve checkpoints or restart failed runs. New snapshots enable recovery even for previously saved profiles. Service readiness polling also benefits older snapshots because it adds no journal steps.
+
+Regression coverage uses project-neutral real services and temporary worktrees: delayed capability readiness, local fixture repair through the host catalog, repair replay without duplicate agent calls, unfinished commits, bounded failure, pre-recovery snapshot replay, and CI-fixer reachability before review exhaustion. Build/distribution checks cover the installed package separately from source tests.
+
+The final live audit also exposed ATT-893 failing a compliance review because optional Chrome preparation failed, and ATT-1098 receiving CI cleanup output instead of the original diagnostic, followed by a Linear activity readback mismatch. Browser-only startup errors now leave non-browser agents operational, with an explicit blocked-coverage instruction; cancellation still stops preparation. Failed-job logs retain bounded early error context alongside the final log lines. New recovery-version runs fence unresolved complaint JSON with a collision-safe Markdown fence so Linear cannot interpret embedded log fragments as links or formatting. These paths have deterministic regression coverage; existing persisted mismatched Linear effects are not rewritten.
+
+The full suite additionally reproduced a preflight deadline race: the remaining-budget timer could fire before the overall abort signal, but its shorter duration was compared to the original duration as an error string. A typed timeout now preserves the correct diagnostic regardless of elapsed setup time; the test explicitly advances the deadline calculation.

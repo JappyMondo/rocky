@@ -292,7 +292,11 @@ export class ScmHttp {
     );
   }
 
-  async logTail(path: string, lines: number): Promise<string> {
+  async logTail(
+    path: string,
+    lines: number,
+    includeFailures = false,
+  ): Promise<string> {
     if (!Number.isSafeInteger(lines) || lines < 0 || lines > 10000)
       throw new Error('logTailLines must be between 0 and 10000');
     if (lines === 0) return '';
@@ -331,6 +335,34 @@ export class ScmHttp {
         );
     }
     let tail = '';
+    // Keep early diagnostic windows as well as the suffix: cleanup often buries
+    // the actual failure. Both collections stay bounded while streaming.
+    const evidenceBudget =
+      includeFailures && lines >= 10 ? Math.min(500, Math.floor(lines / 2)) : 0;
+    const evidence = new Map<number, string>();
+    const preceding: { index: number; text: string }[] = [];
+    let pending = '';
+    let index = 0;
+    let following = 0;
+    const observe = (text: string) => {
+      const line = { index: index++, text: text.slice(0, 2000) };
+      if (
+        /\b(?:error|fail(?:ed|ure)?|fatal|assertionerror|traceback)\b/i.test(
+          text,
+        )
+      ) {
+        for (const prior of preceding) {
+          if (evidence.size < evidenceBudget)
+            evidence.set(prior.index, prior.text);
+        }
+        following = 8;
+      }
+      if (following > 0 && evidence.size < evidenceBudget)
+        evidence.set(line.index, line.text);
+      following = Math.max(0, following - 1);
+      preceding.push(line);
+      if (preceding.length > 3) preceding.shift();
+    };
     if (!response.body) return tail;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -338,7 +370,14 @@ export class ScmHttp {
       while (true) {
         this.options.signal?.throwIfAborted();
         const chunk = await reader.read();
-        tail += decoder.decode(chunk.value, { stream: !chunk.done });
+        const decoded = decoder.decode(chunk.value, { stream: !chunk.done });
+        tail += decoded;
+        if (evidenceBudget > 0) {
+          const complete = (pending + decoded).split('\n');
+          pending = (complete.pop() ?? '').slice(-2_000_000);
+          for (const line of complete) observe(line);
+          if (chunk.done && pending) observe(pending);
+        }
         // Keep a bounded suffix while downloading, including a possible final newline.
         tail = tail
           .split('\n')
@@ -350,7 +389,16 @@ export class ScmHttp {
     } finally {
       await reader.cancel();
     }
-    return tail.replace(/\n$/, '').split('\n').slice(-lines).join('\n');
+    const suffix = tail.replace(/\n$/, '').split('\n').slice(-lines);
+    const early = [...evidence]
+      .filter(([position]) => position < index - suffix.length)
+      .map(([, text]) => text);
+    if (!early.length) return suffix.join('\n');
+    return [
+      ...early,
+      '[... intervening log omitted; final log lines follow ...]',
+      ...suffix.slice(-(lines - early.length - 1)),
+    ].join('\n');
   }
 
   async graphql<T>(

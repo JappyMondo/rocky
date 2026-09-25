@@ -227,3 +227,33 @@ it('keeps malformed GraphQL payloads and unavailable log downloads fail closed',
     'logTailLines must be between 0 and 10000',
   );
 });
+
+it('preserves early failure evidence when cleanup output buries it beyond the tail', async () => {
+  const log = [
+    'setup',
+    'FAIL widget.spec: expected ready, received offline',
+    'at widget.spec:42',
+    ...Array.from({ length: 400 }, (_, i) => `cleanup ${i}`),
+  ].join('\n');
+  const client = http(
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (let i = 0; i < log.length; i += 17)
+              controller.enqueue(
+                new TextEncoder().encode(log.slice(i, i + 17)),
+              );
+            controller.close();
+          },
+        }),
+      ),
+  );
+  const excerpt = await client.logTail('/logs', 40, true);
+  expect(excerpt).toContain(
+    'FAIL widget.spec: expected ready, received offline',
+  );
+  expect(excerpt).toContain('at widget.spec:42');
+  expect(excerpt).toContain('cleanup 399');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});

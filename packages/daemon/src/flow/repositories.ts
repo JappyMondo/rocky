@@ -12,6 +12,13 @@ export function requireRepositoryResult<T>(value: T | ScmRefusal): T {
   return value as T;
 }
 
+export class UncommittedWorkError extends Error {
+  constructor(readonly repository: string) {
+    super(`${repository} has uncommitted work. Commit it before PR delivery.`);
+    this.name = 'UncommittedWorkError';
+  }
+}
+
 /** One delivery set, rebuilt by replaying the same per-repository Steps each boot. */
 export class DeliveryRepositories {
   private readonly prs = new Map<string, ScmPr>();
@@ -122,10 +129,7 @@ export class DeliveryRepositories {
     for (const member of this.members) {
       const existing = this.prs.get(member.name);
       const dirty = await this.shell(member.name, 'git status --porcelain');
-      if (dirty)
-        throw new Error(
-          `${member.name} has uncommitted work. Commit it before PR delivery.`,
-        );
+      if (dirty) throw new UncommittedWorkError(member.name);
       const changed = await this.shell(
         member.name,
         `git diff --name-only ${quote(`${this.base(member.name)}...HEAD`)}`,

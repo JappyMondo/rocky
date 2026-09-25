@@ -308,6 +308,19 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         status: 'finished',
         outcome: 'exhausted',
       });
+      const posted = f.trace.find((entry) =>
+        entry.startsWith('post:Unresolved Complaints:'),
+      );
+      expect(posted).toContain('```json\n');
+      expect(
+        JSON.parse(posted!.split('```json\n')[1].split('\n```')[0]),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining('CI did not pass'),
+          }),
+        ]),
+      );
       expect(calledRepos(f, 'waitForCi')).toEqual(['fixture', 'settings']);
       expect(f.calls.find((c) => c.name === 'ci-fixer')?.input.repository).toBe(
         'settings',
@@ -583,6 +596,145 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       '{\n  "mcpServers": {}\n}\n',
     );
   });
+
+  it.skipIf(mode === 'legacy')(
+    'returns uncommitted implementation to its agent before PR delivery',
+    async () => {
+      let dirty = true;
+      const flow = JSON.parse(flowSource);
+      flow.settings.recoveryVersion = 1;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('status --porcelain')
+            ? { exitCode: 0, stdout: dirty ? ' M src/a.ts' : '', stderr: '' }
+            : undefined,
+        agent: (name, _input, count) => {
+          if (name === 'implementer' && count === 2) {
+            dirty = false;
+            return { summary: 'Completed and committed.' };
+          }
+          return undefined;
+        },
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'parked',
+      });
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(2);
+      expect(
+        f.calls.filter((call) => call.name === 'implementer')[1].input,
+      ).toMatchObject({
+        recovery: { kind: 'uncommitted-work', repository: 'fixture' },
+      });
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(2);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'replays a pre-recovery snapshot journal without inserting recovery steps',
+    async () => {
+      const flow = JSON.parse(flowSource);
+      delete flow.settings.recoveryVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(1);
+      expect(
+        f.calls.some((call) => call.options?.label?.includes('repair 1/2')),
+      ).toBe(false);
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([false, true])(
+    'bounds unfinished-work recovery and preserves the old snapshot boundary (%s)',
+    async (enabled) => {
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.recoveryVersion = 1;
+      else delete flow.settings.recoveryVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('status --porcelain')
+            ? { exitCode: 0, stdout: ' M src/a.ts', stderr: '' }
+            : undefined,
+        agent: (name) =>
+          name === 'implementer' ? { summary: 'Still blocked.' } : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'failed',
+        error: { message: expect.stringContaining('uncommitted work') },
+      });
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(enabled ? 3 : 1);
+      expect(calledRepos(f, 'openPr')).toEqual([]);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'revalidates and reviews work repaired after a passing review',
+    async () => {
+      let dirty = false;
+      const f = repositoryFixture({
+        exec: (command) =>
+          command.includes('status --porcelain')
+            ? { exitCode: 0, stdout: dirty ? ' M src/a.ts' : '', stderr: '' }
+            : undefined,
+        agent: (name, _input, count) => {
+          if (name === 'reviewer' && count === 1) dirty = true;
+          if (name === 'fixer') {
+            dirty = false;
+            return { summary: 'Committed recovered work.' };
+          }
+          return undefined;
+        },
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'parked',
+      });
+      expect(f.calls.filter((call) => call.name === 'reviewer')).toHaveLength(
+        2,
+      );
+      expect(
+        f.calls.filter((call) => call.name === 'compliance-reviewer'),
+      ).toHaveLength(2);
+      expect(f.calls.filter((call) => call.name === 'fixer')).toHaveLength(1);
+    },
+  );
 
   function fixture(
     options: {

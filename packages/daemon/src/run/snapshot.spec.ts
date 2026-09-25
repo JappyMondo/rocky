@@ -144,7 +144,7 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
     version: 2,
     name: 'test',
     models: {},
-    settings: defaultFlowSettings(),
+    settings: { ...defaultFlowSettings(), recoveryVersion: undefined },
     nodes: [
       {
         id: 'start',
@@ -180,6 +180,12 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
   ).toBe(1);
   expect(profile.workflow.source).toBe(source);
   expect(JSON.parse(source).settings.uiConfigurationVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.recoveryVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.recoveryVersion).toBeUndefined();
 });
 
 it('validates the runnable shipped profile without loading repository .rocky', async () => {

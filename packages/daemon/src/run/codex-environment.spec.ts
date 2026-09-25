@@ -1,3 +1,4 @@
+import { access } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -212,14 +213,14 @@ it('stops browser preparation when an agent is cancelled before DevTools opens',
         },
         controller.signal,
       ),
-    ).rejects.toThrow('Chrome did not open a DevTools port');
+    ).rejects.toThrow(/abort/i);
   } finally {
     clearTimeout(timer);
     await rm(workspace, { recursive: true, force: true });
   }
 });
 
-it('reports an unavailable DevTools endpoint and removes temporary browser state', async () => {
+it('keeps code agents usable when the optional browser fails and disposes all state', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'rocky-browser-error-'));
   const bin = join(workspace, 'bin');
   await mkdir(bin);
@@ -240,16 +241,22 @@ it('reports an unavailable DevTools endpoint and removes temporary browser state
     mode: 0o700,
   });
   try {
-    await expect(
-      prepareCodexEnvironment(
-        workspace,
-        {
-          PATH: `${bin}:${process.env.PATH ?? ''}`,
-          AGENT_BROWSER_EXECUTABLE_PATH: chrome,
-        },
-        new AbortController().signal,
-      ),
-    ).rejects.toThrow('Chrome DevTools endpoint is unavailable');
+    const prepared = await prepareCodexEnvironment(
+      workspace,
+      {
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        AGENT_BROWSER_EXECUTABLE_PATH: chrome,
+      },
+      new AbortController().signal,
+    );
+    expect(prepared.env.NX_CACHE_DIRECTORY).toContain('rb-');
+    expect(prepared.env.ROCKY_BROWSER_CDP_PORT).toBeUndefined();
+    expect(prepared.instructions).toContain(
+      'Chrome DevTools endpoint is unavailable',
+    );
+    expect(prepared.instructions).toContain('blocked');
+    await prepared.dispose();
+    await expect(access(prepared.writableDirectories[0])).rejects.toThrow();
   } finally {
     server.close();
     await rm(workspace, { recursive: true, force: true });

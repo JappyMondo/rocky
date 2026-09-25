@@ -660,6 +660,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             logTail: await http.logTail(
               `${root}/actions/jobs/${job.id}/logs`,
               input.logTailLines,
+              true,
             ),
           });
         if (!failed.length)

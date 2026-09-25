@@ -170,31 +170,42 @@ export async function prepareCodexEnvironment(
       mkdir(socketDir, { recursive: true, mode: 0o700 }),
       mkdir(binDir, { recursive: true, mode: 0o700 }),
     ]);
-    browser = startCommand(
-      `${quote(chrome)} --headless --no-first-run --no-default-browser-check --disable-background-networking --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --user-data-dir=${quote(profile)} about:blank`,
-      { cwd: root, background: true, signal },
-    );
-    await browser.result;
     let port: number | undefined;
-    const deadline = Date.now() + 15_000;
-    while (Date.now() < deadline && !signal.aborted) {
-      const contents = await readFile(
-        join(profile, 'DevToolsActivePort'),
-        'utf8',
-      ).catch(() => '');
-      const found = Number.parseInt(contents.split('\n')[0] ?? '', 10);
-      if (Number.isInteger(found) && found > 0 && found < 65536) {
-        port = found;
-        break;
+    try {
+      browser = startCommand(
+        `${quote(chrome)} --headless --no-first-run --no-default-browser-check --disable-background-networking --remote-debugging-address=127.0.0.1 --remote-debugging-port=0 --user-data-dir=${quote(profile)} about:blank`,
+        { cwd: root, background: true, signal },
+      );
+      await browser.result;
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline && !signal.aborted) {
+        const contents = await readFile(
+          join(profile, 'DevToolsActivePort'),
+          'utf8',
+        ).catch(() => '');
+        const found = Number.parseInt(contents.split('\n')[0] ?? '', 10);
+        if (Number.isInteger(found) && found > 0 && found < 65536) {
+          port = found;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (!port) throw new Error('Chrome did not open a DevTools port.');
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+        signal,
+      });
+      if (!response.ok)
+        throw new Error('Chrome DevTools endpoint is unavailable.');
+    } catch (error) {
+      signal.throwIfAborted();
+      await browser?.stop();
+      return {
+        env,
+        writableDirectories: [root],
+        instructions: `Rocky isolated package and Nx caches. Keep the supplied cache paths. The optional host browser could not start: ${error instanceof Error ? error.message : String(error)}. Continue repository inspection, implementation and non-browser validation. If browser validation is required, diagnose the browser failure or report that coverage as blocked; never claim an unexecuted browser check passed.`,
+        dispose: stop,
+      };
     }
-    if (!port) throw new Error('Chrome did not open a DevTools port.');
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
-      signal,
-    });
-    if (!response.ok)
-      throw new Error('Chrome DevTools endpoint is unavailable.');
     const wrapper = join(binDir, 'agent-browser');
     await writeFile(
       wrapper,

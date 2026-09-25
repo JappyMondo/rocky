@@ -159,6 +159,7 @@ export class WorkspaceExecution {
     timeoutMs: number,
     checks: string[],
     secretEnv: string[] = [],
+    readiness = { attempts: 1, intervalMs: 0 },
   ) {
     if (this.polling) {
       // Consume the original process Step, but never inspect or kill its old PID.
@@ -189,7 +190,18 @@ export class WorkspaceExecution {
       this.runDir,
       `environment-probe-${randomUUID()}.json`,
     );
-    const timeout = Math.max(1, Math.min(timeoutMs, entry.command.timeoutMs));
+    // A verifier's per-invocation deadline must not cut short the service's
+    // configured startup window. The enclosing environment budget still wins.
+    const timeout = Math.max(
+      1,
+      Math.min(
+        timeoutMs,
+        Math.max(
+          entry.command.timeoutMs,
+          readiness.attempts * readiness.intervalMs,
+        ),
+      ),
+    );
     const script = `
 const { spawn } = require('node:child_process');
 const { writeFileSync } = require('node:fs');
@@ -198,7 +210,10 @@ setInterval(() => {}, 1000);
 if (${JSON.stringify(secretEnv)}.some(name => !process.env[name])) {
   writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify({exitCode:0, stdout:JSON.stringify({status:'blocked',reason:'credentials'})}), {mode:0o600});
 } else {
-const child = spawn(${JSON.stringify(command)}, { shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
+let attempt = 0;
+function run() {
+attempt++;
+const child = spawn(${JSON.stringify(command)}, { shell: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: ${entry.command.timeoutMs} });
 let text = '', overflow = false;
 child.stdout.setEncoding('utf8');
 child.stdout.on('data', chunk => { if (text.length + chunk.length > 1048576) { overflow = true; text = ''; } else if (!overflow) text += chunk; });
@@ -216,8 +231,18 @@ child.on('close', code => {
       }),
     }),
   };
+  // A listening frontend does not mean its backend or fixtures are ready.
+  // Retry only executable environment assertions, never access or product blockers.
+  if (Number.isInteger(code) && !overflow && value?.status === 'failed' && !value.reason &&
+      Array.isArray(value.checks) && value.checks.length &&
+      attempt < ${Math.max(1, readiness.attempts)}) {
+    setTimeout(run, ${Math.max(0, readiness.intervalMs)});
+    return;
+  }
   writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(result), { mode: 0o600 });
 });
+}
+run();
 }`;
     const child = await this.ctx.exec(
       `${quote(process.execPath)} -e ${quote(script)}`,

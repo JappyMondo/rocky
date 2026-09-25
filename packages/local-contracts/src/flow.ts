@@ -33,6 +33,8 @@ export interface FlowSettings {
   /** Snapshot-only replay version: older runs planned/fixed missing UI configuration. */
   uiConfigurationVersion?: 1;
   environmentVersion?: 1;
+  /** Autonomous recovery applies only to new snapshots; old journals retain their path. */
+  recoveryVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
   execution?: import('./workspace.js').WorkspaceRepository[];
   /** Explicit opt-in preserves positional replay for older frozen flows. */
@@ -399,6 +401,7 @@ export const flowNodeDefinition = (type: string) =>
 export const defaultFlowSettings = (): FlowSettings => ({
   workspaceSetup: true,
   mergeReadinessVersion: 1,
+  recoveryVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -490,6 +493,8 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (s.recoveryVersion !== undefined && s.recoveryVersion !== 1)
+    throw new Error('Unsupported recovery version.');
   if (s.environmentVersion !== undefined && s.environmentVersion !== 1)
     throw new Error('Unsupported environment version.');
   if (s.uiConfigurationVersion !== undefined && s.uiConfigurationVersion !== 1)

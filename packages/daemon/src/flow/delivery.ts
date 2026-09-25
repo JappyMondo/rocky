@@ -7,7 +7,7 @@ import type {
   VerifiedEnvironment,
   EnvironmentBlocker,
 } from '@rocky/local-contracts';
-import { DeliveryRepositories } from './repositories.js';
+import { DeliveryRepositories, UncommittedWorkError } from './repositories.js';
 import {
   WorkspaceExecution,
   catalogEntries,
@@ -82,15 +82,28 @@ async function loadRules(ctx: WorkflowContext, snapshotDir: string) {
   });
 }
 
+function unresolvedPost(complaints: readonly Complaint[], recovery = false) {
+  const json = JSON.stringify(complaints, null, 2);
+  if (!recovery) return `Unresolved Complaints:\n${json}`;
+  // Arbitrary log text must not become Markdown links or formatting. Choose a
+  // fence longer than any embedded backticks so the evidence stays literal.
+  const fence = '`'.repeat(
+    Math.max(
+      3,
+      ...[...json.matchAll(/`+/g)].map(([match]) => match.length + 1),
+    ),
+  );
+  return `Unresolved Complaints:\n\n${fence}json\n${json}\n${fence}`;
+}
+
 async function giveUp(
   ctx: WorkflowContext,
   pr: ScmPr,
   complaints: readonly Complaint[],
+  recovery = false,
 ) {
   requireScm(await ctx.scm.markDraft(pr, true));
-  await ctx.post(
-    `Unresolved Complaints:\n${JSON.stringify(complaints, null, 2)}`,
-  );
+  await ctx.post(unresolvedPost(complaints, recovery));
   return 'exhausted' as const;
 }
 
@@ -148,7 +161,11 @@ export function createDeliveryOperations(
   );
   const serverLog = join(runDir, 'dev-server.log');
   let { commands, ui, readiness } = settings;
-  const { states, reviewCap, ciCap, ciLogLines } = settings;
+  const { states, ciCap, ciLogLines } = settings;
+  let { reviewCap } = settings;
+  let environmentAgentRepairs = 0;
+  let deliveryRepairs = 0;
+  const recoverySetup = new Set<string>();
   let continuation = 0;
   let repairedUi = false;
   let repairedInstall = false;
@@ -174,7 +191,7 @@ export function createDeliveryOperations(
       label,
       services,
       capabilities,
-      setup,
+      setup: [...new Set([...setup, ...recoverySetup])],
       allowSetup: settings.workspaceSetup === true,
       ...(services.length ? { requiredKinds: ['browser' as const] } : {}),
     });
@@ -219,6 +236,66 @@ export function createDeliveryOperations(
     resume: () => Promise<string>,
   ): Promise<string> {
     ctx.stage('Environment: blocked');
+    // This snapshot version is the migration boundary. Never insert new agent
+    // Steps into immutable journals created before autonomous recovery existed.
+    if (
+      settings.recoveryVersion &&
+      execution &&
+      settings.execution?.length &&
+      environmentAgentRepairs < 2 &&
+      settings.workspaceSetup &&
+      (blocker.kind === 'environment' || blocker.code === 'credentials') &&
+      blocker.code !== 'authorization'
+    ) {
+      environmentAgentRepairs++;
+      await execution.stop('Before environment repair');
+      const available = catalogEntries(settings.execution ?? []).filter(
+        ({ command }) => command.policy !== 'manual',
+      );
+      const role = resume === operations.implement ? 'implementer' : 'fixer';
+      const repair = await actors.call(role, {
+        label: `Environment diagnosis and repair ${environmentAgentRepairs}/2`,
+        input: {
+          issue,
+          delivery,
+          plan,
+          workspace,
+          blocker,
+          commands,
+          environment: environmentContext,
+          validationResponsibility,
+          availableCommands: available,
+          instruction:
+            'This call is only environment recovery, not full implementation. Diagnose the supplied environment blocker in the assigned isolated worktrees. Read repository instructions, setup scripts and actual check evidence. Repair missing local dependencies, fixtures, documented development authentication or preview reachability. Select existing non-manual catalog command IDs for the Workflow to execute on the host when sandbox execution is insufficient. Do not weaken checks, invent credentials, claim coverage you did not execute, change external systems, or substitute a mock for required real integration. Preserve prior work and commit any source fixes locally. Return repaired only when a concrete repair was made or selected; otherwise explain the precise remaining blocker. The Workflow reruns validation and the complete UI sweep after repair.',
+        },
+        schema: z.object({
+          action: z.enum(['repaired', 'blocked']),
+          commands: z.array(z.string()),
+          summary: z.string(),
+        }),
+      });
+      // Agent selection does not grant authority to execute manual commands or
+      // manual prerequisites. Check the complete dependency closure first.
+      const selected = dependencyOrder(
+        catalogEntries(settings.execution ?? []),
+        repair.commands,
+        ({ command }) => command.dependsOn,
+      );
+      if (selected.some(({ command }) => command.policy === 'manual'))
+        throw new Error('Environment recovery cannot execute manual commands.');
+      if (repair.action === 'repaired') {
+        for (const entry of selected) recoverySetup.add(entry.id);
+        // The next ensureEnvironment executes the selected setup with endpoint
+        // dependencies and live verifiers; no agent assertion replaces evidence.
+        changes.push(repair.summary);
+        if (resume === operations.implement) return resume();
+        await push();
+        // Environment recovery has its own bounded allowance. Revalidate any
+        // source changes without stealing the last product-review iteration.
+        reviewCap++;
+        return 'retry';
+      }
+    }
     // Environment blockers do not enter review/fixer history or consume its cap.
     await ctx.post(
       `Environment blocked (${blocker.kind}/${blocker.code}): ${blocker.capability}. ${blocker.action}`,
@@ -487,19 +564,53 @@ export function createDeliveryOperations(
     commands,
     repositoryCatalog: settings.execution,
     instruction:
-      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
+      'The supplied verified environment records setup already completed by the Workflow. Reuse it; do not rerun installers inside the Agent unless concrete evidence shows dependencies are missing or stale. The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
   };
-  async function push() {
+  async function push(role = 'fixer') {
     if (repositories) {
-      await repositories.sync(
-        `${issue.identifier}: ${issue.title}`,
-        description,
-      );
+      let repaired = false;
+      for (;;) {
+        try {
+          await repositories.sync(
+            `${issue.identifier}: ${issue.title}`,
+            description,
+          );
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof UncommittedWorkError) ||
+            !settings.recoveryVersion ||
+            deliveryRepairs >= 2
+          )
+            throw error;
+          deliveryRepairs++;
+          repaired = true;
+          const fixed = await actors.call(role, {
+            label: `Complete uncommitted work ${deliveryRepairs}/2`,
+            input: {
+              issue,
+              delivery,
+              plan,
+              commands,
+              validationResponsibility,
+              recovery: {
+                kind: 'uncommitted-work',
+                repository: error.repository,
+              },
+              instruction:
+                'The preceding agent left uncommitted work. Inspect the current branch and repository instructions, complete the requested implementation, repair local prerequisites and commit completed changes. Preserve all prior work. Do not merely commit an incomplete fragment or discard changes to make status clean. Run repository checks, report evidence and any remaining blocker. Keep commits local; the Workflow owns PR delivery.',
+            },
+            schema: z.object({ summary: z.string() }),
+          });
+          changes.push(fixed.summary);
+        }
+      }
       pr = repositories.current[0];
-      return;
+      return repaired;
     }
     await shell(ctx, 'git push origin HEAD');
     pr = { ...pr, headSha: await shell(ctx, 'git rev-parse HEAD') };
+    return false;
   }
 
   async function exhaust(complaints: readonly Complaint[]) {
@@ -509,11 +620,11 @@ export function createDeliveryOperations(
       ? await (async () => {
           await repositories.markDraft(true);
           await ctx.post(
-            `Unresolved Complaints:\n${JSON.stringify(complaints, null, 2)}`,
+            unresolvedPost(complaints, settings.recoveryVersion === 1),
           );
           return 'exhausted' as const;
         })()
-      : await giveUp(ctx, pr, complaints);
+      : await giveUp(ctx, pr, complaints, settings.recoveryVersion === 1);
     if (continuations === 0) return outcome;
     continuations--;
     continuation++;
@@ -684,7 +795,7 @@ export function createDeliveryOperations(
           failedJobs: ci.failedJobs,
           pullRequest: candidate,
           ciRepairPolicy:
-            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
+            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. The supplied logs are bounded excerpts, not complete job logs. If they lack the original diagnostic, retrieve the failed job’s full log with the configured platform CLI using its supplied job ID before declaring the repair unresolved; inspect the failed step and run the affected repository check locally when feasible. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
           commands,
           ...(repositories ? { repository: candidate.repo } : {}),
         },
@@ -693,7 +804,7 @@ export function createDeliveryOperations(
       changes.push(fix.summary);
       if (fix.action === 'unresolved') break;
       if (fix.action === 'fixed') {
-        await push();
+        await push('ci-fixer');
         return { changed: true, complaints: [] };
       }
       requireScm(await ctx.scm.retryFailedJobs(candidate));
@@ -862,20 +973,27 @@ export function createDeliveryOperations(
           (check) => check.verdict === 'blocked',
         );
         if (blocked?.verdict === 'blocked')
-          throw new EnvironmentBlocked({
-            kind: ['credentials', 'permission', 'external'].includes(
-              blocked.reason,
-            )
-              ? 'human'
-              : 'environment',
-            code:
-              blocked.reason === 'environment'
-                ? 'verification'
-                : blocked.reason,
-            capability: blocked.id,
-            action:
-              'UI inspection could not execute a required check. Repair the environment or supply the required access, then resume without waiving coverage.',
-          });
+          throw new EnvironmentBlocked(
+            {
+              kind: ['credentials', 'permission', 'external'].includes(
+                blocked.reason,
+              )
+                ? 'human'
+                : 'environment',
+              code:
+                blocked.reason === 'environment'
+                  ? 'verification'
+                  : blocked.reason,
+              capability: blocked.id,
+              action: `UI inspection could not execute required coverage. ${result.results
+                .filter((check) => check.verdict === 'blocked')
+                .map((check) => `${check.id}: ${check.note}`)
+                .join(
+                  '\n',
+                )}. Repair local prerequisites or supply required access; do not waive checks.`,
+            },
+            true,
+          );
         observations = result.results.flatMap((result) => result.observations);
         uiSummary = `${result.summary}\n${result.results.map((check) => `- ${check.id}: ${check.verdict}. ${check.note}`).join('\n')}`;
       }
@@ -1005,7 +1123,7 @@ export function createDeliveryOperations(
         );
     }
     if (revalidate) {
-      await push();
+      await push('merger');
       return 'retry';
     }
     if (!(await readyAfterApproval())) return retryMerge();
@@ -1244,12 +1362,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           delivery,
           plan,
           commands,
+          environment: environmentContext,
           validationResponsibility,
         },
       });
       if (!repositories) await shell(ctx, 'git push origin HEAD');
       description = `${issue.url}\n\n${plan.summary}`;
-      if (repositories) await push();
+      if (repositories) await push('implementer');
       else
         pr = requireScm(
           await ctx.scm.openPr({
@@ -1460,7 +1579,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               triage.capabilities ?? [],
             );
             if (result.status === 'blocked')
-              return environmentFailure(result.blocker, operations.ui);
+              return await environmentFailure(result.blocker, operations.ui);
             endpoints = result.context.endpoints;
           } else endpoints = await execution.start(selected, label);
           for (const id of selected) {
@@ -1488,8 +1607,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             }
           }
         } catch (error) {
-          if (!(error instanceof EnvironmentBlocked) || ctx.replaying)
+          if (
+            !(error instanceof EnvironmentBlocked) ||
+            (ctx.replaying && !(settings.recoveryVersion && error.recorded))
+          )
             throw error;
+          if (settings.recoveryVersion)
+            return await environmentFailure(error.blocker, operations.ui);
           await execution.stop(label);
           if (
             error.blocker.kind === 'environment' &&
@@ -1626,7 +1750,12 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         return 'retry';
       }
       reviewerState = { complaints: [], resolutions: [] };
-      await push();
+      if (await push()) {
+        // A repair after a passing review changes its subject. Validate and
+        // review that new head before CI, publication or approval.
+        reviewCap++;
+        return 'retry';
+      }
 
       return 'next';
     },
@@ -1816,7 +1945,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             `Could not adopt the platform branch update: ${merge.stderr}`,
           );
         }
-        await push();
+        await push('merger');
         return 'retry';
       }
       if (answer?.decision !== 'approve')
