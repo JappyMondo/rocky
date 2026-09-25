@@ -514,6 +514,18 @@ export class RockyLinearClient {
     throw new Error('Linear read exhausted its retry budget.');
   }
 
+  /** A successful mutation can precede visibility in Linear's filtered reads. */
+  private async readPersistedEffect<T>(
+    read: () => Promise<T | null>,
+  ): Promise<T | null> {
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const row = await this.retryTransientRead(read);
+      if (row) return row;
+      if (attempt < 6) await this.wait(100 * 2 ** attempt);
+    }
+    return null;
+  }
+
   private async request<
     ResponseData,
     Variables extends Record<string, unknown>,
@@ -746,7 +758,7 @@ export class RockyLinearClient {
       } catch (error) {
         failure = error;
       }
-      row = await this.retryTransientRead(() => sdk.activity(options.id));
+      row = await this.readPersistedEffect(() => sdk.activity(options.id));
       if (!row)
         throw (
           failure ??
@@ -869,7 +881,7 @@ export class RockyLinearClient {
       } catch (error) {
         failure = error;
       }
-      row = await sdk.comment(options.id);
+      row = await this.readPersistedEffect(() => sdk.comment(options.id));
       if (!row)
         throw (
           failure ??
