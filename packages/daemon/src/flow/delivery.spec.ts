@@ -82,4 +82,14 @@ it('confirms a Linear comment and closes the issue before the recap', async () =
   expect(await delivery('deliverable', agents)).toBe('completed');
   expect(calls).toEqual(['recap', 'comment', 'state']);
   expect(ctx.linear.setState).toHaveBeenCalledWith('In Review');
+
+  Object.assign(ctx, { replaying: false });
+  calls.length = 0;
+  visualRecap.mockRejectedValueOnce(new Error('Recap audit failed'));
+  await expect(delivery('deliverable', agents)).rejects.toThrow(
+    'Recap audit failed',
+  );
+  expect(calls).toEqual(['comment', 'state']);
+  expect(visualRecap).toHaveBeenCalledTimes(3);
+  expect(writer).toHaveBeenCalledTimes(3);
 });
