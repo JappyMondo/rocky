@@ -323,6 +323,56 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   );
 
   it.skipIf(mode === 'legacy')(
+    'hands failed CI to its fixer before a persistent compliance review exhausts',
+    async () => {
+      const failedJob = {
+        id: 'arbitrary-check',
+        name: 'repository gate',
+        failedSteps: ['Verify repository policy'],
+        logTail: 'The submitted change violates a repository policy.',
+      };
+      const f = repositoryFixture({
+        scm: (operation) =>
+          operation === 'waitForCi'
+            ? { status: 'failed', headSha: 'abc', failedJobs: [failedJob] }
+            : undefined,
+        agent: (name, input) => {
+          if (name === 'ci-fixer') return { action: 'unresolved' };
+          if (name === 'compliance-reviewer')
+            return {
+              complaints: [
+                {
+                  id: `${input.namespace}/persistent`,
+                  file: 'src/a.ts',
+                  text: 'Acceptance evidence is incomplete.',
+                  quote: 'Return an empty list.',
+                },
+              ],
+            };
+          if (name === 'fixer')
+            return {
+              resolutions: (input.complaints as { id: string }[]).map(
+                ({ id }) => ({ id, status: 'fixed', note: 'Patched.' }),
+              ),
+            };
+          return undefined;
+        },
+      });
+      const first = await f.boot();
+      if (first.status === 'failed') throw new Error(JSON.stringify(first));
+      expect(first).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      const ciFixer = f.calls.find((call) => call.name === 'ci-fixer');
+      expect(ciFixer?.input.failedJobs).toEqual([failedJob]);
+      expect(ciFixer?.input.pullRequest).toMatchObject({ repo: 'fixture' });
+      expect(ciFixer?.options?.tools).toContain('bash');
+      expect(f.trace).not.toContain('compliance-reviewer');
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
     'can deliver only a changed companion without creating an empty lead PR',
     async () => {
       const f = repositoryFixture({
@@ -1402,6 +1452,11 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       const count = (name: string) =>
         f.calls.filter((call) => call.name === name).length;
       expect(count('compliance-reviewer')).toBe(5);
+      expect(
+        f.calls
+          .filter((call) => call.name === 'compliance-reviewer')
+          .every((call) => call.options?.tools?.includes('bash')),
+      ).toBe(true);
       const before = f.calls.length;
       const writer = await JournalWriter.open(path);
       await writer.retry(

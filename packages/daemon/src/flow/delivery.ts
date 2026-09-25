@@ -334,9 +334,12 @@ export function createDeliveryOperations(
         });
         if ('refused' in ci) {
           if (ci.reason !== 'head_changed') requireScm(ci);
+          passedCiHeads.delete(`${candidate.repo}\0${candidate.headSha}`);
           ready = false;
-        } else if (ci.status !== 'passed' || ci.headSha !== candidate.headSha)
+        } else if (ci.status !== 'passed' || ci.headSha !== candidate.headSha) {
+          passedCiHeads.delete(`${candidate.repo}\0${candidate.headSha}`);
           ready = false;
+        }
       }
     }
     if (ready && !pendingThreads.length) {
@@ -605,6 +608,11 @@ export function createDeliveryOperations(
     const reviewHistory = history.snapshot();
     const result = await actors.call(name, {
       label: `${name} ${revision}/${reviewCap}`,
+      // Acceptance review must be able to verify executable criteria itself.
+      // This also repairs retained Run snapshots whose graph only wired read.
+      ...(name === 'compliance-reviewer'
+        ? { tools: ['read', 'bash'] as const }
+        : {}),
       input: {
         issue,
         delivery,
@@ -660,7 +668,10 @@ export function createDeliveryOperations(
     return { complaints, resolutions: fixed.resolutions };
   }
 
+  const passedCiHeads = new Set<string>();
   async function checkCi(candidate: ScmPr = pr) {
+    const key = `${candidate.repo}\0${candidate.headSha}`;
+    if (passedCiHeads.has(key)) return { changed: false, complaints: [] };
     let ci = requireScm(
       await ctx.scm.waitForCi(candidate, { logTailLines: ciLogLines }),
     );
@@ -676,6 +687,9 @@ export function createDeliveryOperations(
           issue,
           delivery,
           failedJobs: ci.failedJobs,
+          pullRequest: candidate,
+          ciRepairPolicy:
+            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
           commands,
           ...(repositories ? { repository: candidate.repo } : {}),
         },
@@ -696,6 +710,7 @@ export function createDeliveryOperations(
           'CI returned another head. Refresh the branch and run validation again.',
         );
     }
+    if (ci.status === 'passed') passedCiHeads.add(key);
     return {
       changed: false,
       complaints:
@@ -1230,6 +1245,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async validate() {
       revision++;
+      passedCiHeads.clear();
       if (revision > reviewCap)
         return exhaust([
           {
@@ -1306,6 +1322,14 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async compliance() {
       ctx.stage('Compliance');
+      // Observe CI as soon as a draft exists. A review may use its entire
+      // retry budget, so the later CI gate alone cannot hand failures to its fixer.
+      for (const candidate of repositories?.open ?? [pr]) {
+        if (settings.ciSkipRepositories?.includes(candidate.repo)) continue;
+        const ci = await checkCi(candidate);
+        if (ci.complaints.length) return exhaust(ci.complaints);
+        if (ci.changed) return 'retry';
+      }
       const compliance = await review(
         'compliance-reviewer',
         revision,
