@@ -144,7 +144,16 @@ export class DeliveryRepositories {
         throw new Error(
           `${member.name} is not on the issue branch ${this.ctx.branch}.`,
         );
-      if (await this.push(member.name, branch))
+      const reconciled = await this.push(member.name, branch);
+      // Older Runs recorded a second HEAD read even after a successful push.
+      // Match its exact label so a companion repository's next exec is not
+      // mistaken for that historical read during replay.
+      if (
+        reconciled ||
+        (this.ctx.replaying &&
+          this.ctx.replayStep === 'exec' &&
+          this.ctx.replayLabel === `${member.name}: git rev-parse HEAD`)
+      )
         head = await this.shell(member.name, 'git rev-parse HEAD');
       const pr = existing
         ? { ...existing, headSha: head }

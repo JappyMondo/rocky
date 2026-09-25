@@ -99,6 +99,7 @@ export interface BootContext {
   readonly replaying: boolean;
   readonly polling?: boolean;
   readonly replayStep?: string;
+  readonly replayLabel?: string;
   /**
    * Display-only stage marker: takes no seq, is never journaled as a Step of
    * its own, and stamps `stage` on every entry created after it. The runner
@@ -308,6 +309,9 @@ class BootRunner implements BootContext {
   }
   get replayStep(): string | undefined {
     return this.journal.latest(this.seq)?.step;
+  }
+  get replayLabel(): string | undefined {
+    return this.journal.latest(this.seq)?.label;
   }
 
   stage(label: string): void {

@@ -7,6 +7,56 @@ import { expect, it, vi } from 'vitest';
 import type { WorkflowContext } from '@rocky/sdk';
 import { DeliveryRepositories } from './repositories.js';
 
+it.each([
+  ['app: git rev-parse HEAD', 2],
+  ['settings: git status --porcelain', 1],
+])(
+  'replays only the historical post-push HEAD read (%s)',
+  async (label, reads) => {
+    const commands: string[] = [];
+    const ctx = {
+      branch: 'issue-1',
+      replaying: true,
+      replayStep: 'exec',
+      replayLabel: label,
+      exec: async (command: string) => {
+        commands.push(command);
+        return {
+          exitCode: 0,
+          stdout: command.includes('git diff --name-only')
+            ? 'src/a.ts\n'
+            : command.includes('git rev-parse HEAD')
+              ? 'abc\n'
+              : command.includes('git branch --show-current')
+                ? 'issue-1\n'
+                : '',
+          stderr: '',
+        };
+      },
+      scm: {
+        openPr: async () => ({
+          repo: 'app',
+          id: 'app',
+          number: 1,
+          url: 'https://example.test/app/pull/1',
+          sourceBranch: 'issue-1',
+          baseBranch: 'main',
+          headSha: 'abc',
+          state: 'open',
+          draft: true,
+        }),
+      },
+    } as unknown as WorkflowContext;
+    const repositories = new DeliveryRepositories(ctx, {
+      members: [{ name: 'app', path: 'app', lead: true, baseBranch: 'main' }],
+    });
+    await repositories.sync('Example change', 'Description');
+    expect(
+      commands.filter((command) => command.includes('git rev-parse HEAD')),
+    ).toHaveLength(reads);
+  },
+);
+
 it('uses each configured target branch, preserves remote fixer commits, and rejects uncommitted companion work', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rocky-delivery-'));
   const execute = promisify(execFile);
