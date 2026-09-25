@@ -706,6 +706,7 @@ it('accepts a versioned catalog repair after exhaustion and preserves implementa
             external: () =>
               ({
                 post: async () => undefined,
+                comment: async () => undefined,
                 scm: {
                   openPr: async () => ({
                     headSha: 'head',
@@ -903,160 +904,191 @@ it.each([0, 1])(
   },
 );
 
-it('repairs missing UI fixtures with the configured agent and host catalog, then verifies coverage on the next sweep', async () => {
-  const { createDeliveryOperations } = await import('../flow/delivery.js');
-  const f = await fixture();
-  f.repo.environment.capabilities[0].kind = 'browser';
-  f.repo.environment.capabilities[0].baseline = false;
-  f.repo.commands.push({
-    ...commandRecipe('seed', 'touch .fixture-ready'),
-    policy: 'agent',
-  });
-  const calls: string[] = [];
-  const agents = {
-    call: async (role: string) => {
-      calls.push(role);
-      if (role === 'refiner')
-        return {
-          status: 'clear',
-          scope: 'UI',
-          decisions: [],
-          acceptanceCriteria: [],
-          outOfScope: [],
-          delivery: { kind: 'pull-request', stateChanges: false },
-        };
-      if (role === 'planner') return { steps: [], summary: 'plan' };
-      if (role === 'ui-triage')
-        return { isFrontend: true, selected: ['web/ui'], reason: 'UI' };
-      if (role === 'ui-planner')
-        return {
-          checks: [
-            { id: 'feature', url: '/', action: 'Open', expected: 'Visible' },
-          ],
-          summary: 'check',
-        };
-      if (role === 'fixer')
-        return {
-          action: 'repaired',
-          commands: ['web/seed'],
-          summary: 'Use the documented local seed.',
-        };
-      if (role === 'ui-inspector') {
-        const ready = await readFile(
-          join(f.repoDir, '.fixture-ready'),
-          'utf8',
-        ).then(
-          () => true,
-          () => false,
-        );
-        return {
-          results: [
-            {
-              id: 'feature',
-              verdict: ready ? 'ok' : 'blocked',
-              executed: ready,
-              reason: 'environment',
-              note: 'Missing local fixture',
-              observations: [],
-              screenshots: [],
-            },
-          ],
-          summary: 'inspect',
-        };
-      }
-      return { summary: 'done' };
-    },
-  } as unknown as import('../flow/agents.js').DeliveryAgents;
-  f.repo.environment.capabilities.push({
-    ...capability,
-    id: 'runtime',
-    kind: 'runtime',
-    services: [],
-    verify: 'web/runtime',
-    setup: [],
-    checks: ['runtime'],
-  });
-  f.repo.commands.push(
-    commandRecipe(
-      'runtime',
-      `printf '%s' '{"status":"passed","checks":[{"id":"runtime","executed":true,"passed":true}]}'`,
-    ),
-  );
-  let approved = false;
-  const journalPath = join(f.root, 'recovery-journal.jsonl');
-  const boot = () =>
-    runBoot({
-      journalPath,
-      workflow: async (runner) => {
-        const ctx = createWorkflowContext(
-          runner,
-          {
-            issue: {
-              identifier: 'TEST-1',
-              title: 'UI',
-              description: '',
-              labels: [],
-              url: '',
-            },
-            branch: 'test',
-            ports: [],
-          },
-          {
-            exec: (cmd, background, timeout) =>
-              /git (push|diff|rev-parse)/.test(cmd)
-                ? Promise.resolve({ exitCode: 0, stdout: 'head', stderr: '' })
-                : f.exec(cmd, background, timeout),
-            changedFiles: async () => ['web/view.ts'],
-            external: () =>
-              ({
-                post: async () => undefined,
-                scm: { openPr: async () => ({ headSha: 'head', repo: 'web' }) },
-                checkpoint: async () =>
-                  approved
-                    ? { status: 'done', result: { decision: 'approve' } }
-                    : { status: 'waiting' },
-              }) as never,
-          },
-        );
-        const journaled = {
-          call: (role: string, options: Parameters<typeof agents.call>[1]) =>
-            ctx.step(`agent ${role}`, () => agents.call(role, options)),
-        } as typeof agents;
-        const run = createDeliveryOperations(
-          ctx,
-          f.input,
-          {
-            ...defaultFlowSettings(),
-            recoveryVersion: 1,
-            environmentVersion: 1,
-            workspaceSetup: true,
-            pullRequests: 'lead',
-            execution: [f.repo],
-          },
-          join(f.root, 'snapshot'),
-        );
-        await run('clarify', journaled);
-        await run('plan', journaled);
-        await run('implement', journaled);
-        expect(await run('ui', journaled)).toBe('retry');
-        expect(await run('ui', journaled)).toBe('next');
-        await ctx.checkpoint({ title: 'review', body: '' });
-        return 'completed';
-      },
+it.each([true, false])(
+  'repairs UI fixtures and provisions recap previews across journal replay (new snapshot=%s)',
+  async (recapEnvironment) => {
+    const { createDeliveryOperations } = await import('../flow/delivery.js');
+    const f = await fixture();
+    f.repo.environment.capabilities[0].kind = 'browser';
+    f.repo.environment.capabilities[0].baseline = false;
+    f.repo.commands.push({
+      ...commandRecipe('seed', 'touch .fixture-ready'),
+      policy: 'agent',
     });
-  const first = await boot();
-  expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
-  expect(calls.filter((role) => role === 'fixer')).toHaveLength(1);
-  expect(await readFile(join(f.repoDir, '.fixture-ready'), 'utf8')).toBe('');
-  approved = true;
-  const replay = await boot();
-  expect(replay, JSON.stringify(replay)).toMatchObject({
-    status: 'finished',
-    outcome: 'completed',
-  });
-  expect(calls.filter((role) => role === 'fixer')).toHaveLength(1);
-  expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(2);
-});
+    const calls: string[] = [];
+    const agents = {
+      call: async (role: string) => {
+        calls.push(role);
+        if (role === 'refiner')
+          return {
+            status: 'clear',
+            scope: 'UI',
+            decisions: [],
+            acceptanceCriteria: [],
+            outOfScope: [],
+            delivery: { kind: 'pull-request', stateChanges: false },
+          };
+        if (role === 'planner') return { steps: [], summary: 'plan' };
+        if (role === 'ui-triage')
+          return { isFrontend: true, selected: ['web/ui'], reason: 'UI' };
+        if (role === 'ui-planner')
+          return {
+            checks: [
+              { id: 'feature', url: '/', action: 'Open', expected: 'Visible' },
+            ],
+            summary: 'check',
+          };
+        if (role === 'fixer')
+          return {
+            action: 'repaired',
+            commands: ['web/seed'],
+            summary: 'Use the documented local seed.',
+          };
+        if (role === 'ui-inspector') {
+          const ready = await readFile(
+            join(f.repoDir, '.fixture-ready'),
+            'utf8',
+          ).then(
+            () => true,
+            () => false,
+          );
+          return {
+            results: [
+              {
+                id: 'feature',
+                verdict: ready ? 'ok' : 'blocked',
+                executed: ready,
+                reason: 'environment',
+                note: 'Missing local fixture',
+                observations: [],
+                screenshots: [],
+              },
+            ],
+            summary: 'inspect',
+          };
+        }
+        return { summary: 'done' };
+      },
+    } as unknown as import('../flow/agents.js').DeliveryAgents;
+    f.repo.environment.capabilities.push({
+      ...capability,
+      id: 'runtime',
+      kind: 'runtime',
+      services: [],
+      verify: 'web/runtime',
+      setup: [],
+      checks: ['runtime'],
+    });
+    f.repo.commands.push(
+      commandRecipe(
+        'runtime',
+        `printf '%s' '{"status":"passed","checks":[{"id":"runtime","executed":true,"passed":true}]}'`,
+      ),
+    );
+    let approved = false;
+    let captures = 0;
+    const journalPath = join(f.root, 'recovery-journal.jsonl');
+    const boot = () =>
+      runBoot({
+        journalPath,
+        workflow: async (runner) => {
+          const ctx = createWorkflowContext(
+            runner,
+            {
+              issue: {
+                identifier: 'TEST-1',
+                title: 'UI',
+                description: '',
+                labels: [],
+                url: '',
+              },
+              branch: 'test',
+              ports: [],
+            },
+            {
+              exec: (cmd, background, timeout) =>
+                /git (push|diff|rev-parse)/.test(cmd)
+                  ? Promise.resolve({ exitCode: 0, stdout: 'head', stderr: '' })
+                  : f.exec(cmd, background, timeout),
+              changedFiles: async () => ['web/view.ts'],
+              external: () =>
+                ({
+                  post: async () => undefined,
+                  comment: async () => undefined,
+                  scm: {
+                    openPr: async () => ({ headSha: 'head', repo: 'web' }),
+                  },
+                  visualRecap: async (input: {
+                    scope: {
+                      environment?: {
+                        endpoints: Record<string, Record<string, string>>;
+                      };
+                    };
+                  }) =>
+                    ctx.step('capture preview', async () => {
+                      captures++;
+                      const endpoints = input.scope.environment?.endpoints;
+                      if (recapEnvironment) {
+                        expect(endpoints?.['web/ui']?.web).toBeTruthy();
+                        expect((await fetch(endpoints!['web/ui'].web)).ok).toBe(
+                          true,
+                        );
+                      } else expect(endpoints).toBeUndefined();
+                      return { id: 'recap', url: 'https://example.org/recap' };
+                    }),
+                  checkpoint: async () =>
+                    approved
+                      ? { status: 'done', result: { decision: 'approve' } }
+                      : { status: 'waiting' },
+                }) as never,
+            },
+          );
+          const journaled = {
+            recap: () => ({}),
+            call: (role: string, options: Parameters<typeof agents.call>[1]) =>
+              ctx.step(`agent ${role}`, () => agents.call(role, options)),
+          } as typeof agents;
+          const run = createDeliveryOperations(
+            ctx,
+            f.input,
+            {
+              ...defaultFlowSettings(),
+              recoveryVersion: 1,
+              ...(recapEnvironment
+                ? { recapEnvironmentVersion: 1 as const }
+                : { recapEnvironmentVersion: undefined }),
+              environmentVersion: 1,
+              workspaceSetup: true,
+              pullRequests: 'lead',
+              execution: [f.repo],
+            },
+            join(f.root, 'snapshot'),
+          );
+          await run('clarify', journaled);
+          await run('plan', journaled);
+          await run('implement', journaled);
+          expect(await run('ui', journaled)).toBe('retry');
+          expect(await run('ui', journaled)).toBe('next');
+          expect(await run('recap', journaled)).toBe('next');
+          await ctx.checkpoint({ title: 'review', body: '' });
+          return 'completed';
+        },
+      });
+    const first = await boot();
+    expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
+    expect(calls.filter((role) => role === 'fixer')).toHaveLength(1);
+    expect(await readFile(join(f.repoDir, '.fixture-ready'), 'utf8')).toBe('');
+    approved = true;
+    const replay = await boot();
+    expect(replay, JSON.stringify(replay)).toMatchObject({
+      status: 'finished',
+      outcome: 'completed',
+    });
+    expect(calls.filter((role) => role === 'fixer')).toHaveLength(1);
+    expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(2);
+    expect(captures).toBe(1);
+  },
+);
 
 it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
   'diagnoses baseline setup with a bounded agent repair (%s)',
@@ -1104,6 +1136,7 @@ it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
         labels: [],
       },
       post: async () => undefined,
+      comment: async () => undefined,
       exec: ((cmd: string, opts?: { background?: boolean }) =>
         /git (push|diff|rev-parse)/.test(cmd)
           ? Promise.resolve({ exitCode: 0, stdout: 'head', stderr: '' })

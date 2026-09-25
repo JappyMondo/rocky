@@ -137,6 +137,20 @@ function fixture() {
 }
 
 describe('LinearRunMirror', () => {
+  it('keeps manual issue comments idempotent without creating session activities', async () => {
+    const f = fixture();
+    const options = { ...f.options, sessionId: undefined };
+    await new LinearRunMirror(options).comment('scope', 'Confirmed decisions');
+    await new LinearRunMirror(options).comment('scope', 'Confirmed decisions');
+    await new LinearRunMirror(options).setState('started', 'In Progress');
+    expect(f.comments).toHaveLength(1);
+    expect(f.activities).toEqual([]);
+    expect(f.calls).not.toContain('acknowledge');
+    await expect(
+      new LinearRunMirror(options).post('activity', 'Not a session'),
+    ).rejects.toThrow('no Linear agent session');
+  });
+
   it('acknowledges first, starts once across restart, and maintains one issue permalink across Runs', async () => {
     const f = fixture();
     await new LinearRunMirror(f.options).start();

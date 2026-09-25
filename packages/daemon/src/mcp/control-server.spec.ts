@@ -347,6 +347,13 @@ it('forwards run controls, profile revisions and connection lifecycle requests w
       { requestId, message: 'Check the tests' },
     ],
     [
+      'rocky_run_restart',
+      { runId: 'ENG-1-run', requestId, expectedBoot: 1 },
+      'POST',
+      '/api/runs/ENG-1-run/restart',
+      { requestId, expectedBoot: 1 },
+    ],
+    [
       'rocky_run_retry',
       { runId: 'ENG-1-run', requestId, stepKey: '2', expectedBoot: 1 },
       'POST',

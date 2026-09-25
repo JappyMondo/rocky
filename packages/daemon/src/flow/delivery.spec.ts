@@ -69,7 +69,11 @@ it('confirms a Linear comment and closes the issue before the recap', async () =
   expect(writer).toHaveBeenCalledTimes(1);
   expect(ctx.comment).toHaveBeenCalledWith('Explanation.');
   expect(ctx.linear.setState).toHaveBeenCalledWith('Done');
-  expect(calls).toEqual(['state', 'comment', 'state', 'recap']);
+  expect(ctx.comment).toHaveBeenNthCalledWith(
+    1,
+    expect.stringContaining('Scope decision record'),
+  );
+  expect(calls).toEqual(['comment', 'state', 'comment', 'state', 'recap']);
 
   // A recorded run that already saved its recap must finish its old order.
   // Reordering its next comment Step would make its journal diverge.

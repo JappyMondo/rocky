@@ -179,6 +179,8 @@ export function createDeliveryOperations(
       )
     : undefined;
   let environmentUiRepairs = 0;
+  let recapServices: string[] = [];
+  let recapCapabilities: string[] = [];
   let environmentContext: VerifiedEnvironment | undefined;
   async function ensure(
     services: string[],
@@ -1601,6 +1603,8 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               text: 'UI changes need a dev service. Use Repair configuration and resume, and configure a service in the profile for future Runs.',
             },
           ]);
+        recapServices = selected;
+        recapCapabilities = triage.capabilities ?? [];
         if (!selected.length) return 'next';
         const label = `UI services ${revision}`;
         let retry: Complaint[] | undefined;
@@ -1816,62 +1820,101 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       ctx.stage('Visual recap');
       // Resolve only after the repair passed validation, reviews, and CI.
       await finishMergeThreads();
-      for (const candidate of repositories?.open ?? [pr]) {
-        try {
-          const result = await ctx.visualRecap({
-            pr: candidate,
-            scope: {
-              issue,
-              validationSummary,
-              uiSummary,
-              ...(repositories
-                ? { ...scope, pullRequests: repositories.current }
-                : {}),
-            },
-            agents: actors.recap(),
-          });
-          recaps.set(candidate.repo, result);
-          if (candidate.repo === pr.repo) recap = result;
-        } catch (error) {
-          if (!isRecapAuditError(error)) throw error;
-          const complaints = error.problems.map((text, index) =>
-            Complaint.parse({
-              id: `recap/${revision}/${candidate.repo}/${index + 1}`,
-              file: candidate.repo,
-              text,
-              severity: 'must-fix',
-            }),
-          );
-          const fixed = await actors.call('fixer', {
-            label: `Repair visual recap evidence ${revision}/${reviewCap}`,
-            input: {
-              issue,
-              workspace,
-              delivery,
-              complaints,
-              commands,
-              validationResponsibility,
-              instruction:
-                'Address every recap evidence complaint in the deliverable. Commit and push only the scoped correction. The workflow will revalidate, review, and generate a fresh recap.',
-            },
-            schema: FixReportFor(complaints),
-          });
-          changes.push(fixed.summary);
-          if (!fixed.resolutions.some(({ status }) => status === 'fixed'))
-            return exhaust(complaints);
-          await push();
-          reviewerState = { complaints, resolutions: fixed.resolutions };
-          return 'retry';
+      const provision =
+        settings.recapEnvironmentVersion &&
+        execution &&
+        recapServices.length > 0;
+      const label = `Recap services ${revision}`;
+      let recapEnvironment: VerifiedEnvironment | undefined;
+      try {
+        if (provision && execution) {
+          if (settings.environmentVersion) {
+            const result = await ensure(
+              recapServices,
+              label,
+              recapCapabilities,
+            );
+            if (result.status === 'blocked')
+              return await environmentFailure(result.blocker, operations.recap);
+            recapEnvironment = result.context;
+          } else {
+            recapEnvironment = {
+              version: 1,
+              endpoints: await execution.start(recapServices, label),
+              capabilities: [],
+              limitations: [],
+            };
+          }
         }
-      }
-      if (!recap) {
-        const first = recaps.values().next().value;
-        if (!first)
-          throw new Error('No review report was generated for this delivery.');
-        recap = first;
-      }
+        for (const candidate of repositories?.open ?? [pr]) {
+          try {
+            const result = await ctx.visualRecap({
+              pr: candidate,
+              scope: {
+                issue,
+                validationSummary,
+                uiSummary,
+                ...(recapEnvironment ? { environment: recapEnvironment } : {}),
+                ...(repositories
+                  ? { ...scope, pullRequests: repositories.current }
+                  : {}),
+              },
+              agents: actors.recap(),
+            });
+            recaps.set(candidate.repo, result);
+            if (candidate.repo === pr.repo) recap = result;
+          } catch (error) {
+            if (!isRecapAuditError(error)) throw error;
+            const complaints = error.problems.map((text, index) =>
+              Complaint.parse({
+                id: `recap/${revision}/${candidate.repo}/${index + 1}`,
+                file: candidate.repo,
+                text,
+                severity: 'must-fix',
+              }),
+            );
+            const fixed = await actors.call('fixer', {
+              label: `Repair visual recap evidence ${revision}/${reviewCap}`,
+              input: {
+                issue,
+                workspace,
+                delivery,
+                complaints,
+                commands,
+                validationResponsibility,
+                instruction:
+                  'Address every recap evidence complaint in the deliverable. Commit and push only the scoped correction. The workflow will revalidate, review, and generate a fresh recap.',
+              },
+              schema: FixReportFor(complaints),
+            });
+            changes.push(fixed.summary);
+            if (!fixed.resolutions.some(({ status }) => status === 'fixed'))
+              return exhaust(complaints);
+            await push();
+            reviewerState = { complaints, resolutions: fixed.resolutions };
+            return 'retry';
+          }
+        }
+        if (!recap) {
+          const first = recaps.values().next().value;
+          if (!first)
+            throw new Error(
+              'No review report was generated for this delivery.',
+            );
+          recap = first;
+        }
 
-      return 'next';
+        return 'next';
+      } catch (error) {
+        if (
+          !(error instanceof EnvironmentBlocked) ||
+          (ctx.replaying && !(settings.recoveryVersion && error.recorded))
+        )
+          throw error;
+        return await environmentFailure(error.blocker, operations.recap);
+      } finally {
+        if (provision && execution) await execution.stop(label);
+      }
     },
     async publish() {
       if (repositories) {

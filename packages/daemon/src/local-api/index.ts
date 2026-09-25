@@ -71,6 +71,10 @@ export interface LocalApiOptions {
   profiles?: LocalProfiles;
   connections?: LocalConnections;
   diagrams?: Pick<WorkflowDiagrams, 'read' | 'retry'>;
+  restart?: (
+    runId: string,
+    input: { expectedBoot: number; requestId: string },
+  ) => Promise<{ runId: string; previousRunId: string }>;
   retryStep?: (runId: string, input: RetryRequest) => Promise<void>;
   continuationRounds?: (run: RunHeader) => Promise<number | undefined>;
   recovery?: (runId: string) => Promise<RunDetail['recovery']>;
@@ -910,6 +914,36 @@ export async function registerLocalApi(
     local.get(
       '/api/intake-failures',
       async () => options.intakeFailures?.() ?? [],
+    );
+    local.post<{ Params: { id: string } }>(
+      '/api/runs/:id/restart',
+      async (request, reply) => {
+        const run = await getRun(request.params.id);
+        const input = parse(
+          z
+            .object({
+              expectedBoot: z.number().int().min(1),
+              requestId: z.string().uuid(),
+            })
+            .strict(),
+          request.body,
+        );
+        if (!options.restart)
+          throw new LocalApiError(
+            503,
+            'restart-unavailable',
+            'Workflow restart is unavailable.',
+          );
+        try {
+          return reply.code(202).send(await options.restart(run.runId, input));
+        } catch (error) {
+          throw new LocalApiError(
+            409,
+            'restart-refused',
+            error instanceof Error ? error.message : 'Restart refused.',
+          );
+        }
+      },
     );
     local.post<{ Params: { id: string } }>(
       '/api/runs/:id/recover-session',

@@ -470,6 +470,7 @@ it('runs required validation even when the planner selects nothing, and records 
     exec,
     issue: { identifier: 'TEST-1' },
     post: vi.fn(),
+    comment: vi.fn(),
     scm: { openPr: async () => ({ headSha: 'head' }) },
     stage: vi.fn(),
     changedFiles: async () => ['web/a.ts'],

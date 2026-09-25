@@ -63,6 +63,7 @@ export interface RunAdmission {
   issueIdentifier: string;
   requestId?: string;
   manual?: boolean;
+  restartOf?: { runId: string; expectedBoot: number };
   /** Called only when no live Run exists, outside the scheduler's mutation lock. */
   prepare(runId: string, signal: AbortSignal): Promise<DelegateInput>;
 }
@@ -409,6 +410,30 @@ export class RunScheduler {
               kind: 'existing' as const,
               run: structuredClone(admitted),
             };
+          if (request.restartOf) {
+            const previous = runs.find(
+              (run) => run.runId === request.restartOf!.runId,
+            );
+            if (
+              !previous ||
+              previous.boots !== request.restartOf.expectedBoot ||
+              !(
+                previous.status === 'failed' ||
+                (previous.status === 'finished' &&
+                  previous.outcome === 'exhausted')
+              ) ||
+              runs.some(
+                (run) =>
+                  run.runId !== previous.runId &&
+                  (!isTerminal(run) ||
+                    runNumber(request.issueIdentifier, run.runId) >
+                      runNumber(request.issueIdentifier, previous.runId)),
+              )
+            )
+              throw new Error(
+                'Restart source changed or a newer run exists. Refresh the issue.',
+              );
+          }
           const live = runs.find((run) => !isTerminal(run));
 
           if (live) {

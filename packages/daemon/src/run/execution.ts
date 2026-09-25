@@ -32,6 +32,7 @@ import { commandTestProfile } from '../config/command-test.js';
 
 export interface ExecutionRequest {
   requestId: string;
+  restartOf?: { runId: string; expectedBoot: number };
   issue: Issue;
   branch: string;
   team?: string;
@@ -379,6 +380,7 @@ export async function openExecution(options: ExecutionOptions) {
       const admitted = await scheduler.admit({
         issueIdentifier: request.issue.identifier,
         requestId: request.requestId,
+        restartOf: request.restartOf,
         manual: trigger.kind === 'manual',
         prepare: async (_runId, signal) => {
           const config = options.config();

@@ -136,7 +136,13 @@ export function createScm(
         input,
         async (adapter) => {
           await options.validateWork?.(adapter.repo.id);
-          return { status: 'done', result: await adapter.openPr(input) };
+          let pr = await adapter.openPr(input);
+          // Adopting an existing ready PR must honor a draft delivery request.
+          // Keep this within the existing operation: old recorded ready handles
+          // still replay their historical report steps without new mutations.
+          if (input.draft === true && !pr.draft && pr.state === 'open')
+            pr = await adapter.markDraft(pr, true);
+          return { status: 'done', result: pr };
         },
       );
       if (!('refused' in result) && !result.draft && result.state === 'open')

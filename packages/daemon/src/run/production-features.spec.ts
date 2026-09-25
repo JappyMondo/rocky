@@ -22,6 +22,8 @@ import type { BootRequest } from './worker.js';
 
 const spies = vi.hoisted(() => ({
   load: vi.fn(),
+  issue: vi.fn(),
+  state: vi.fn(),
   checkpoint: vi.fn(),
   comment: vi.fn(),
   postReport: vi.fn(),
@@ -41,6 +43,7 @@ vi.mock('../review-report/workspace.js', () => ({
 vi.mock('../linear/client.js', () => ({
   RockyLinearClient: class {
     uploadFile = spies.upload;
+    issue = spies.issue;
   },
 }));
 vi.mock('../linear/mirror.js', () => ({
@@ -51,6 +54,7 @@ vi.mock('../linear/mirror.js', () => ({
     flushStatus = async () => undefined;
     finish = spies.finish;
     comment = spies.comment;
+    setState = spies.state;
   },
 }));
 vi.mock('../scm/index.js', async (original) => {
@@ -114,6 +118,12 @@ const content = {
 const roots: string[] = [];
 beforeEach(() => {
   vi.resetAllMocks();
+  spies.issue.mockResolvedValue({
+    id: 'issue',
+    teamId: 'team',
+    identifier: 'NG-700',
+    url: 'https://linear.app/issue/NG-700',
+  });
   spies.comment.mockResolvedValue('comment-verified');
   spies.preflight.mockResolvedValue(undefined);
   spies.openPr.mockResolvedValue(pr);
@@ -1080,6 +1090,67 @@ it('uses ambient GitHub credentials for built-in SCM when no source is selected'
     expect(spies.scmAdapter).toHaveBeenCalledWith(
       expect.objectContaining({ token: 'ambient-gh-token' }),
     );
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('gives a manual issue run durable ticket effects and SCM without an agent session', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.post('Confirmed scope');
+    await ctx.comment('Acceptance criteria');
+    await ctx.linear.setState('In Progress');
+    await ctx.scm.openPr({ title: 'Feature', body: 'Scope', draft: true });
+    return 'completed';
+  });
+  delete f.run.linear;
+  await writeRunHeader(f.paths, f.run);
+  spies.openPr.mockResolvedValue({ ...pr, draft: true });
+  try {
+    const result = await f.runtime.boot(
+      f.run,
+      'run',
+      new AbortController().signal,
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'finished',
+    });
+    expect(spies.comment).toHaveBeenCalledWith(
+      expect.any(String),
+      'Confirmed scope',
+    );
+    expect(spies.comment).toHaveBeenCalledWith(
+      expect.any(String),
+      'Acceptance criteria',
+    );
+    expect(spies.state).toHaveBeenCalled();
+    expect(spies.openPr).toHaveBeenCalled();
+  } finally {
+    await f.runtime.close();
+  }
+});
+
+it('refuses a manual issue identity mismatch before allowing ticket effects', async () => {
+  const f = await fixture(async (ctx) => {
+    await ctx.post('Wrong issue');
+    return 'completed';
+  });
+  delete f.run.linear;
+  await writeRunHeader(f.paths, f.run);
+  spies.issue.mockResolvedValue({
+    id: 'other',
+    teamId: 'team',
+    identifier: 'OTHER-1',
+    url: 'https://linear.app/issue/OTHER-1',
+  });
+  try {
+    expect(
+      await f.runtime.boot(f.run, 'run', new AbortController().signal),
+    ).toMatchObject({
+      status: 'failed',
+      error: { message: expect.stringContaining('identity') },
+    });
+    expect(spies.comment).not.toHaveBeenCalled();
   } finally {
     await f.runtime.close();
   }

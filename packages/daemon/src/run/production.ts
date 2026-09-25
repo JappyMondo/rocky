@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { PublicReviews } from '../review-report/public.js';
 import {
   recapPullRequests,
@@ -140,6 +141,7 @@ export function createProductionRuntime(
   // real admitted Linear Run has an access token (hydration could not happen
   // otherwise), so only those Runs receive network-backed production services.
   let servicesEnabled = false;
+  let manualIssue: { issueId: string; teamId: string } | undefined;
   let legacyPreflight = false;
   let mcp: Promise<{ runtime: McpRuntime; config: unknown }> | undefined;
   // A mirror has a small in-memory coalescing buffer. Keep one per Run rather
@@ -152,7 +154,9 @@ export function createProductionRuntime(
   const mirrorFor = (
     run: Parameters<NonNullable<WorkflowRuntimeOptions['external']>>[0],
   ) => {
-    if (!run.linear) throw new Error(`${run.runId}: missing Linear identity`);
+    const identity = run.linear ?? manualIssue;
+    if (!identity)
+      throw new Error(`${run.runId}: missing Linear issue identity`);
     const mirrorId = `${run.runId}:${continuations}:${completionRetry ?? ''}`;
     const existing = mirrors.get(mirrorId);
     if (existing) return existing;
@@ -160,9 +164,9 @@ export function createProductionRuntime(
       runId: run.runId,
       completionAttempt: continuations,
       completionRetry,
-      issueId: run.linear.issueId,
-      sessionId: run.linear.sessionId,
-      teamId: run.linear.teamId,
+      issueId: identity.issueId,
+      sessionId: run.linear?.sessionId,
+      teamId: identity.teamId,
       localOrigin: `http://localhost:${options.config().server.port}`,
       client: linearClient,
       store: {
@@ -345,11 +349,53 @@ export function createProductionRuntime(
       legacyPreflight = (
         await readJournal(options.paths.run(run.runId).journal)
       ).entries.some((entry) => entry.seq === 2 && entry.step === 'preflight');
-      // A browser-fired manual Run is deliberately not an Agent Session. It
-      // still gets the normal local profile, workspace, and Harness, but it
-      // must not create a mirror, invoke SCM preflight, or pretend it can post
-      // Linear effects without a session-owned identity.
+      // Session effects retain their original step ordering. Manual issue runs
+      // resolve only a ticket identity; they never fabricate an agent session.
       servicesEnabled = Boolean(credentials.linear?.accessToken && run.linear);
+      manualIssue = undefined;
+      if (
+        credentials.linear?.accessToken &&
+        !run.linear &&
+        !run.execution.commandTest &&
+        run.issue.url
+      ) {
+        const schema = z.object({
+          issueId: z.string(),
+          teamId: z.string(),
+          identifier: z.string(),
+          url: z.string(),
+        });
+        const saved = await options.request({
+          kind: 'control-get',
+          key: 'manual:linear-issue',
+        });
+        const issue =
+          saved === undefined
+            ? await linearClient.issue(run.issue.identifier)
+            : undefined;
+        const identity = schema.parse(
+          saved ?? {
+            issueId: issue?.id,
+            teamId: issue?.teamId,
+            identifier: issue?.identifier,
+            url: issue?.url,
+          },
+        );
+        if (
+          identity.identifier !== run.issue.identifier ||
+          identity.url !== run.issue.url
+        )
+          throw new Error(
+            'Manual run issue identity does not match its admitted ticket.',
+          );
+        if (saved === undefined)
+          await options.request({
+            kind: 'control-put',
+            key: 'manual:linear-issue',
+            value: identity,
+          });
+        manualIssue = identity;
+      }
       activeRun = run;
       env = {
         ...sourceControlEnv(run.profile?.sourceControl, {
@@ -809,7 +855,7 @@ export function createProductionRuntime(
             },
           }) as Promise<StepOutcome<Answer>>,
         ...options.external?.(run, steps, signal, approvals),
-        ...(servicesEnabled
+        ...(servicesEnabled || manualIssue
           ? {
               visualRecap,
               comment: (markdown: string) =>
@@ -828,8 +874,18 @@ export function createProductionRuntime(
                     };
                   })
                   .then(() => undefined),
-              post: async (markdown: string) =>
-                mirrorFor(run).post(effectId(`post:${markdown}`), markdown),
+              post: async (markdown: string) => {
+                if (run.linear)
+                  await mirrorFor(run).post(
+                    effectId(`post:${markdown}`),
+                    markdown,
+                  );
+                else
+                  await mirrorFor(run).comment(
+                    effectId(`post:${markdown}`),
+                    markdown,
+                  );
+              },
               linear: {
                 setState: async (name: string) =>
                   mirrorFor(run).setState(`state:${name}`, name),

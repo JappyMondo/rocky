@@ -1,3 +1,4 @@
+import { restartRun } from './restart.js';
 import { EnvironmentOnboarding } from '../environment/onboarding.js';
 import {
   PublicReviews,
@@ -405,6 +406,8 @@ export async function createProductionComposition(options: {
           }));
         },
         intakeFailures: () => intakeFailures.list(),
+        restart: (runId, input) =>
+          restartRun(execution, hydrateIssue, runId, input),
         recoverSession: async (runId) => {
           const run = await execution.scheduler.recoverSession(runId);
           if (!run.linear)

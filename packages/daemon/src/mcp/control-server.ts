@@ -222,6 +222,19 @@ const tools: Tool[] = [
     body: (i) => omit(i, 'runId'),
   },
   {
+    name: 'rocky_run_restart',
+    description:
+      'Restart the latest failed or exhausted run using the current saved workflow and fresh ticket context. Preserves the issue branch and prior human scope answers, starts a new journal, and does not carry merge approvals. Supply the current boot and a UUID requestId; reuse it for transport retries.',
+    schema: z.strictObject({
+      ...run,
+      requestId: z.string().uuid(),
+      expectedBoot: z.number().int().min(1),
+    }),
+    method: 'POST',
+    path: (i) => `${runPath(i)}/restart`,
+    body: (i) => omit(i, 'runId'),
+  },
+  {
     name: 'rocky_run_retry',
     description:
       'Retry the failed step advertised by rocky_run_get controls.retryStep. Supply the current boot and a UUID requestId; reuse that UUID for transport retries.',

@@ -96,6 +96,55 @@ const acceptsRegularOrPollBoots: SchedulerBoot = async (
 });
 
 describe('RunScheduler admission', () => {
+  it('checks restart ownership inside the admission reservation', async () => {
+    const prior = storedRun({ status: 'failed', boots: 3 });
+    await writeRunHeader(paths, prior);
+    const journal = await JournalWriter.open(paths.run(prior.runId).journal);
+    await journal.append(
+      {
+        v: 1,
+        seq: 0,
+        step: '$end',
+        status: 'failed',
+        boot: 3,
+        startedAt: prior.createdAt,
+        result: {
+          status: 'failed',
+          error: { name: 'Error', message: 'Failure' },
+        },
+      },
+      { runner: true },
+    );
+    const open = await scheduler(acceptsRegularOrPollBoots);
+    const prepare = vi.fn(async () => input());
+    try {
+      await expect(
+        open.admit({
+          issueIdentifier: issue.identifier,
+          restartOf: { runId: prior.runId, expectedBoot: 2 },
+          prepare,
+        }),
+      ).rejects.toThrow('Restart source changed');
+      expect(prepare).not.toHaveBeenCalled();
+      const next = await open.admit({
+        issueIdentifier: issue.identifier,
+        requestId: 'restart-request',
+        restartOf: { runId: prior.runId, expectedBoot: 3 },
+        prepare,
+      });
+      expect(next.kind).toBe('started');
+      await expect(
+        open.admit({
+          issueIdentifier: issue.identifier,
+          restartOf: { runId: prior.runId, expectedBoot: 3 },
+          prepare,
+        }),
+      ).rejects.toThrow('newer');
+    } finally {
+      await open.close();
+    }
+  });
+
   it.each(['url', 'repo', 'profile', 'issue'] as const)(
     'does not inherit question answers across a different %s',
     async (boundary) => {
