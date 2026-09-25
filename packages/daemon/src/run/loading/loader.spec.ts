@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, expect, it } from 'vitest';
 import { validateSnapshotTriggers } from './validate.js';
-import { resolveSnapshotTrigger } from './loader.js';
+import { resolveFlowRuntimeUrl, resolveSnapshotTrigger } from './loader.js';
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -48,6 +48,39 @@ async function execute(dir: string) {
   ]);
   return JSON.parse(stdout.trim());
 }
+
+it('waits for the packed flow runtime during an in-place CLI upgrade', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-runtime-upgrade-'));
+  directories.push(dir);
+  const packed = pathToFileURL(join(dir, 'flow-runtime.js'));
+  const compiled = pathToFileURL(join(dir, 'compiled.js'));
+  const fallback = pathToFileURL(join(dir, 'fallback.js'));
+  const restore = new Promise<void>((resolve) => {
+    setTimeout(() => {
+      void writeFile(
+        fileURLToPath(packed),
+        'export const flowBindings = () => [];',
+      ).then(resolve);
+    }, 30);
+  });
+  expect(await resolveFlowRuntimeUrl(packed, compiled, fallback, 500)).toEqual(
+    packed,
+  );
+  await restore;
+});
+
+it('reports an incomplete Rocky installation without pointing at a source tree', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-runtime-missing-'));
+  directories.push(dir);
+  await expect(
+    resolveFlowRuntimeUrl(
+      pathToFileURL(join(dir, 'flow-runtime.js')),
+      pathToFileURL(join(dir, 'compiled.js')),
+      pathToFileURL(join(dir, 'fallback.js')),
+      1,
+    ),
+  ).rejects.toThrow('Rocky runtime files are unavailable during installation');
+});
 
 it('loads consumer TypeScript with SDK types, installed exports and relative .js helpers without a build', async () => {
   const dir = await fixture(`

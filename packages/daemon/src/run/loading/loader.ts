@@ -34,6 +34,32 @@ type SnapshotImportScope = {
 
 let snapshotHooksRegistered = false;
 
+class RockyRuntimeUnavailable extends Error {
+  constructor() {
+    super('Rocky runtime files are unavailable during installation');
+    this.name = 'RockyRuntimeUnavailable';
+  }
+}
+
+export async function resolveFlowRuntimeUrl(
+  packed: URL,
+  compiled: URL,
+  fallback: URL,
+  timeoutMs = 30_000,
+): Promise<URL> {
+  if (existsSync(packed)) return packed;
+  if (existsSync(compiled)) return compiled;
+  if (existsSync(fallback)) return fallback;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (existsSync(packed)) return packed;
+    if (existsSync(compiled)) return compiled;
+    if (existsSync(fallback)) return fallback;
+  }
+  throw new RockyRuntimeUnavailable();
+}
+
 function isInsideSnapshot(root: string, path: string) {
   const rel = relative(root, path);
   return rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
@@ -175,11 +201,11 @@ export async function importSnapshotTriggers(
     if (file === flowFile) {
       const packed = new URL('./flow-runtime.js', import.meta.url);
       const compiled = new URL('../../flow/runtime.js', import.meta.url);
-      const runtime = existsSync(packed)
-        ? packed
-        : existsSync(compiled)
-          ? compiled
-          : new URL('../../../dist/flow/runtime.js', import.meta.url);
+      const runtime = await resolveFlowRuntimeUrl(
+        packed,
+        compiled,
+        new URL('../../../dist/flow/runtime.js', import.meta.url),
+      );
       const { flowBindings } = await import(runtime.href);
       return flowBindings(
         readFileSync(flowFile, 'utf8'),
@@ -237,7 +263,9 @@ export async function importSnapshotTriggers(
       'invalid-workflow',
       file,
       error instanceof Error ? (error.stack ?? error.message) : String(error),
-      'Fix the named import or default export in .rocky/workflow.ts; use a nonempty table of unique linear.onDelegate(workflow) and manual(name, workflow) bindings, then retry.',
+      error instanceof RockyRuntimeUnavailable
+        ? 'Complete the Rocky CLI installation, then retry this Run.'
+        : 'Fix the named import or default export in .rocky/workflow.ts; use a nonempty table of unique linear.onDelegate(workflow) and manual(name, workflow) bindings, then retry.',
     );
   }
 }
