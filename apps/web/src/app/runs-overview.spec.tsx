@@ -134,3 +134,9 @@ it('keeps a renamed ticket together using its integration identity', () => {
     ]),
   ).toHaveLength(1);
 });
+
+it('joins retained manual attempts without IDs to the same integrated ticket', () => {
+  const integrated = { ...base, issue: { ...base.issue, id: 'stable-ticket' } };
+  expect(groupRuns([latest, integrated])).toHaveLength(1);
+  expect(groupRuns([integrated, latest])[0].latest.runId).toBe(latest.runId);
+});
