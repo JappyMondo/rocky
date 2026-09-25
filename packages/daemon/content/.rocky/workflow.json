@@ -42,7 +42,8 @@
     "recoveryVersion": 1,
     "ciRetryVersion": 1,
     "scopeCommentVersion": 1,
-    "recapEnvironmentVersion": 1
+    "recapEnvironmentVersion": 1,
+    "validationEnvironmentVersion": 1
   },
   "nodes": [
     {

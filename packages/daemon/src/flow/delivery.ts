@@ -187,6 +187,7 @@ export function createDeliveryOperations(
     label: string,
     capabilities: string[] = [],
     setup: string[] = [],
+    browser = true,
   ): Promise<EnvironmentResult> {
     if (!execution) throw Error('Environment catalog is unavailable.');
     const result = await ensureEnvironment(ctx, execution, {
@@ -195,7 +196,9 @@ export function createDeliveryOperations(
       capabilities,
       setup: [...new Set([...setup, ...recoverySetup])],
       allowSetup: settings.workspaceSetup === true,
-      ...(services.length ? { requiredKinds: ['browser' as const] } : {}),
+      ...(services.length && browser
+        ? { requiredKinds: ['browser' as const] }
+        : {}),
     });
     if (result.status === 'ready') environmentContext = result.context;
     return result;
@@ -1434,29 +1437,55 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       const validations: string[] = [];
       if (execution) {
         const failed = new Set<string>();
-        for (const entry of await selectedCommands('validate')) {
-          if (entry.command.dependsOn.some((id) => failed.has(id))) {
-            failed.add(entry.id);
-            validations.push(
-              `${entry.id}: skipped because a prerequisite failed`,
+        const selected = await selectedCommands('validate');
+        const services = settings.validationEnvironmentVersion
+          ? [
+              ...new Set(
+                selected.flatMap(({ command }) =>
+                  Object.values(command.endpointEnv ?? {}).map(
+                    ({ service }) => service,
+                  ),
+                ),
+              ),
+            ]
+          : [];
+        const label = `Validation services ${revision}`;
+        try {
+          if (services.length) {
+            const result = await ensure(services, label, [], [], false);
+            if (result.status === 'blocked')
+              return await environmentFailure(
+                result.blocker,
+                operations.validate,
+              );
+            ctx.stage('Validate');
+          }
+          for (const entry of selected) {
+            if (entry.command.dependsOn.some((id) => failed.has(id))) {
+              failed.add(entry.id);
+              validations.push(
+                `${entry.id}: skipped because a prerequisite failed`,
+              );
+              continue;
+            }
+            const result = await execution.command(
+              entry.id,
+              `Validate ${entry.id} ${revision}/${reviewCap}`,
             );
-            continue;
+            validations.push(
+              `${entry.id}: ${result.exitCode === 0 ? 'passed' : 'failed'} (${entry.command.command})`,
+            );
+            if (result.exitCode !== 0) {
+              failed.add(entry.id);
+              validationProblems.push({
+                id: `validation/${revision}/${entry.id}`,
+                file: entry.repository.name,
+                text: `${entry.command.name} failed (exit ${result.exitCode}): ${entry.command.command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
+              });
+            }
           }
-          const result = await execution.command(
-            entry.id,
-            `Validate ${entry.id} ${revision}/${reviewCap}`,
-          );
-          validations.push(
-            `${entry.id}: ${result.exitCode === 0 ? 'passed' : 'failed'} (${entry.command.command})`,
-          );
-          if (result.exitCode !== 0) {
-            failed.add(entry.id);
-            validationProblems.push({
-              id: `validation/${revision}/${entry.id}`,
-              file: entry.repository.name,
-              text: `${entry.command.name} failed (exit ${result.exitCode}): ${entry.command.command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
-            });
-          }
+        } finally {
+          if (services.length) await execution.stop(label);
         }
       }
       for (const [name, command] of Object.entries(commands)) {

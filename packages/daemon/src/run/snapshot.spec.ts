@@ -150,6 +150,7 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
       ciRetryVersion: undefined,
       scopeCommentVersion: undefined,
       recapEnvironmentVersion: undefined,
+      validationEnvironmentVersion: undefined,
     },
     nodes: [
       {
@@ -206,6 +207,14 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
       await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
     ).settings.recapEnvironmentVersion,
   ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.validationEnvironmentVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(source).settings.validationEnvironmentVersion,
+  ).toBeUndefined();
   expect(JSON.parse(source).settings.recapEnvironmentVersion).toBeUndefined();
   expect(JSON.parse(source).settings.scopeCommentVersion).toBeUndefined();
   expect(JSON.parse(source).settings.ciRetryVersion).toBeUndefined();

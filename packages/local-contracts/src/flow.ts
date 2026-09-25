@@ -41,6 +41,8 @@ export interface FlowSettings {
   scopeCommentVersion?: 1;
   /** Provision selected UI services for recap capture; old journals retain their order. */
   recapEnvironmentVersion?: 1;
+  /** Provision command endpoint dependencies before validation in new journals. */
+  validationEnvironmentVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
   execution?: import('./workspace.js').WorkspaceRepository[];
   /** Explicit opt-in preserves positional replay for older frozen flows. */
@@ -411,6 +413,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   ciRetryVersion: 1,
   scopeCommentVersion: 1,
   recapEnvironmentVersion: 1,
+  validationEnvironmentVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -502,6 +505,11 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (
+    s.validationEnvironmentVersion !== undefined &&
+    s.validationEnvironmentVersion !== 1
+  )
+    throw new Error('Unsupported validation environment version.');
   if (
     s.recapEnvironmentVersion !== undefined &&
     s.recapEnvironmentVersion !== 1

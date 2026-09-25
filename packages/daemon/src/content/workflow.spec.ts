@@ -841,6 +841,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     async () => {
       const flow = JSON.parse(flowSource);
       delete flow.settings.recoveryVersion;
+      delete flow.settings.validationEnvironmentVersion;
       const f = repositoryFixture({
         triggers: flowTriggers(
           JSON.stringify(flow),
