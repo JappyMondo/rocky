@@ -273,7 +273,8 @@ it('identifies the failed configured assertion in a sanitized verifier receipt',
     status: 'blocked',
     blocker: { code: 'verification' },
   });
-  expect(result?.blocker.action).toContain('feature');
+  if (result?.status !== 'blocked') throw new Error('Expected a blocker.');
+  expect(result.blocker.action).toContain('feature');
 });
 it('does not provision without authorization and classifies human blockers without retrying', async () => {
   const f = await fixture();
