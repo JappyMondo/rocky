@@ -813,10 +813,18 @@ export function createProductionRuntime(
                   },
                 }) as Promise<StepOutcome<Answer>>,
               comment: (markdown: string) =>
-                steps.step('linear.comment', {}, async () => {
-                  await mirrorFor(run).comment(effectId(markdown), markdown);
-                  return { status: 'done', result: undefined };
-                }),
+                steps
+                  .step('linear.comment', {}, async () => {
+                    const id = await mirrorFor(run).comment(
+                      effectId(markdown),
+                      markdown,
+                    );
+                    return {
+                      status: 'done',
+                      result: { id, issueId: run.linear?.issueId },
+                    };
+                  })
+                  .then(() => undefined),
               post: async (markdown: string) =>
                 mirrorFor(run).post(effectId(`post:${markdown}`), markdown),
               linear: {

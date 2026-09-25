@@ -1164,23 +1164,47 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           ...review.assessments.flatMap((item) => item.problems),
         ]);
         if (!problems.length) {
-          ctx.stage('Visual recap');
-          try {
-            await ctx.visualRecap({
+          const recap = () =>
+            ctx.visualRecap({
               deliverable: draft.body,
               title: issue.title,
               scope,
               agents: actors.recap(),
             });
-          } catch (error) {
-            if (!isRecapAuditError(error)) throw error;
-            previous = { body: draft.body, problems: error.problems };
-            continue;
+          // Older runs recorded the recap before delivery. Preserve that order
+          // while replaying their immutable journal.
+          if (
+            ctx.replaying &&
+            (ctx.replayStep?.startsWith('reviewReport.') ||
+              (ctx.replayStep === 'linear.comment' &&
+                ctx.replayedStep?.('reviewReport.save')))
+          ) {
+            ctx.stage('Visual recap');
+            try {
+              await recap();
+            } catch (error) {
+              if (!isRecapAuditError(error)) throw error;
+              previous = { body: draft.body, problems: error.problems };
+              continue;
+            }
+            ctx.stage('Deliver');
+            await ctx.comment(draft.body);
+            if (delivery.stateChanges) await ctx.linear.setState(states.review);
+            return 'completed';
           }
           ctx.stage('Deliver');
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
           await ctx.comment(draft.body);
-          if (delivery.stateChanges) await ctx.linear.setState(states.review);
+          if (delivery.stateChanges) {
+            await ctx.step('Confirm delivered issue state', async () => {
+              await ctx.linear.setState(states.done);
+              return { state: states.done };
+            });
+          }
+          ctx.stage('Visual recap');
+          // This recap now sees the verified publication and state receipts.
+          // A recap audit failure must not redraft and post a second comment.
+          await recap();
           return 'completed';
         }
         previous = { body: draft.body, problems };
@@ -1325,7 +1349,11 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       // Observe CI as soon as a draft exists. A review may use its entire
       // retry budget, so the later CI gate alone cannot hand failures to its fixer.
       // Recorded pre-watcher reviews retain their original step order on replay.
-      if (!ctx.replaying || ctx.replayStep === 'scm:waitForCi') {
+      if (
+        !ctx.replaying ||
+        ctx.replayStep === 'scm:waitForCi' ||
+        ctx.replayStep?.startsWith('scm.waitForCi:')
+      ) {
         for (const candidate of repositories?.open ?? [pr]) {
           if (settings.ciSkipRepositories?.includes(candidate.repo)) continue;
           const ci = await checkCi(candidate);

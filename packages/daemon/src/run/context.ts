@@ -136,6 +136,7 @@ export function createWorkflowContext(
     get replayLabel() {
       return current().replayLabel;
     },
+    replayedStep: (key: string) => current().replayedStep?.(key) ?? false,
     stage: (label: string) => current().stage(label),
     step: <T>(label: string, fn: () => T | Promise<T>) =>
       current().step('step', { label }, async () => ({
