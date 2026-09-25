@@ -132,28 +132,37 @@ describe('activities', () => {
     expect(sdk.createAgentActivity).not.toHaveBeenCalled();
   });
   it('never treats a duplicate-ID error or unverified success as completion', async () => {
-    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const sdk = fakeSdk({
-      createAgentActivity: vi.fn(async () => {
-        throw new Error('duplicate ID');
-      }),
-    });
-    const client = clientWith(sdk);
-    await expect(
-      client.ensureActivity({
-        id,
-        sessionId: 'sess-1',
-        content: { type: 'thought', body: 'Working' },
-      }),
-    ).rejects.toThrow(/duplicate ID/);
-    sdk.createAgentActivity = vi.fn(async () => ({ success: true }));
-    await expect(
-      client.ensureActivity({
-        id,
-        sessionId: 'sess-1',
-        content: { type: 'thought', body: 'Working' },
-      }),
-    ).rejects.toThrow(/could not be verified/);
+    vi.useFakeTimers();
+    try {
+      const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      const sdk = fakeSdk({
+        createAgentActivity: vi.fn(async () => {
+          throw new Error('duplicate ID');
+        }),
+      });
+      const client = clientWith(sdk);
+      const duplicate = expect(
+        client.ensureActivity({
+          id,
+          sessionId: 'sess-1',
+          content: { type: 'thought', body: 'Working' },
+        }),
+      ).rejects.toThrow(/duplicate ID/);
+      await vi.runAllTimersAsync();
+      await duplicate;
+      sdk.createAgentActivity = vi.fn(async () => ({ success: true }));
+      const unverified = expect(
+        client.ensureActivity({
+          id,
+          sessionId: 'sess-1',
+          content: { type: 'thought', body: 'Working' },
+        }),
+      ).rejects.toThrow(/could not be verified/);
+      await vi.runAllTimersAsync();
+      await unverified;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects non-UUID effect IDs before any read or write', async () => {
@@ -262,6 +271,30 @@ describe('activities', () => {
     await expect(
       client.ensureActivity({ id, sessionId: 'other-session', content }),
     ).rejects.toThrow(/mismatch/i);
+  });
+  it('waits for a newly posted activity to become readable without posting twice', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const content = { type: 'action', action: 'Post', parameter: 'Run run-1' };
+    const row = {
+      id,
+      sessionId: 'sess-1',
+      content,
+      ephemeral: false,
+      createdAt: '2026-09-07T00:00:00.000Z',
+    };
+    const activity = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(row);
+    const createAgentActivity = vi.fn(async () => ({ success: true }));
+    const client = clientWith(fakeSdk({ activity, createAgentActivity }));
+
+    await expect(
+      client.ensureActivity({ id, sessionId: 'sess-1', content }),
+    ).resolves.toEqual({ id, success: true });
+    expect(createAgentActivity).toHaveBeenCalledTimes(1);
+    expect(activity).toHaveBeenCalledTimes(3);
   });
   it('reads every page with a one-second overlap, dedupes IDs and sorts by time then ID', async () => {
     const a = {
@@ -477,6 +510,31 @@ describe('comments and attachments', () => {
       client.ensureComment({ id, issueId: 'issue-1', body: 'Different' }),
     ).rejects.toThrow(/mismatch/);
     expect(createComment).toHaveBeenCalledTimes(1);
+  });
+  it('waits for a created comment to become readable without creating another', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const row = {
+      id,
+      issueId: 'issue-1',
+      body: 'Run started',
+      createdAt: '2026-09-07T00:00:00.000Z',
+      sessionId: 'sess-1',
+      userId: 'app-user',
+      parentId: null,
+    };
+    const comment = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(row);
+    const createComment = vi.fn(async () => ({ success: true }));
+    const client = clientWith(fakeSdk({ comment, createComment }));
+
+    await expect(
+      client.ensureComment({ id, issueId: 'issue-1', body: 'Run started' }),
+    ).resolves.toEqual({ id, success: true });
+    expect(createComment).toHaveBeenCalledTimes(1);
+    expect(comment).toHaveBeenCalledTimes(3);
   });
   it('posts a comment, optionally as a reply in one thread', async () => {
     const sdk = fakeSdk();
