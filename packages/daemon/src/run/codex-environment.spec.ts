@@ -75,6 +75,10 @@ it('keeps isolated caches when browser tools are unavailable', async () => {
   try {
     expect(prepared.env.ROCKY_BROWSER_CDP_PORT).toBeUndefined();
     expect(prepared.env.NX_DAEMON).toBe('false');
+    expect(prepared.env.CI).toBe('true');
+    expect(prepared.env.electron_config_cache).toBe(
+      prepared.env.ELECTRON_CACHE,
+    );
     expect(prepared.env.ZDOTDIR).toMatch(/\/zsh$/);
     expect(prepared.instructions).toContain('install agent-browser');
   } finally {

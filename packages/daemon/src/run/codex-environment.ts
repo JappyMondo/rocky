@@ -115,10 +115,12 @@ export async function prepareCodexEnvironment(
     ),
   );
   const env: NodeJS.ProcessEnv = {
+    CI: 'true',
     NX_DAEMON: 'false',
     NX_CACHE_DIRECTORY: join(root, 'nx-cache'),
     NX_WORKSPACE_DATA_DIRECTORY: join(root, 'nx-data'),
     ELECTRON_CACHE: join(root, 'electron'),
+    electron_config_cache: join(root, 'electron'),
     npm_config_cache: join(root, 'npm'),
     npm_config_devdir: join(root, 'node-gyp'),
   };

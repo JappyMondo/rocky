@@ -127,7 +127,7 @@ it('keeps long implementation work visible and gives it enough time to finish', 
       return 'completed';
     },
   });
-  expect(f.run.mock.calls[0][0].timeoutMs).toBeGreaterThan(60 * 60_000);
+  expect(f.run.mock.calls[0][0].timeoutMs).toBeGreaterThan(179 * 60_000);
   expect(
     (await openJournal(join(dir, 'long-agent.jsonl'))).latest(0)?.progress,
   ).toMatchObject({ live: { summary: expect.stringContaining('elapsed') } });

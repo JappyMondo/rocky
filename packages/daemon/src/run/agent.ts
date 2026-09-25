@@ -355,12 +355,12 @@ export function createAgent(
       }
 
       const signal = runtime.signal ?? new AbortController().signal;
-      // Implementation checks in large repositories can exceed half an hour;
+      // Full repository checks can exceed 90 minutes on resource-limited hosts;
       // keep the shorter default for read-only agents and explicit overrides.
       const timeout =
         opts.timeout ??
         (opts.tools?.includes('edit') && opts.tools.includes('bash')
-          ? 90 * 60_000
+          ? 180 * 60_000
           : 30 * 60_000);
       if (!Number.isFinite(timeout) || timeout <= 0) {
         throw new Error(

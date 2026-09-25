@@ -484,7 +484,7 @@ export function createDeliveryOperations(
     commands,
     repositoryCatalog: settings.execution,
     instruction:
-      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
+      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
   };
   async function push() {
     if (repositories) {
