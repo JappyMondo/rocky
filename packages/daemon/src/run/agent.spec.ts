@@ -1,3 +1,5 @@
+import { JournalWriter } from './writer.js';
+import { GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
 import { HarnessContinuationError } from '../harness/types.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -1316,4 +1318,84 @@ it('bounds unfinished-turn reconciliation instead of accepting incomplete work',
   expect(result).toMatchObject({ status: 'failed' });
   expect(f.run).toHaveBeenCalledTimes(9);
   expect(f.resume).toHaveBeenCalledTimes(6);
+});
+
+it.each([false, true])(
+  'gives an edit-capable blocker one bounded diagnostic continuation (still blocked=%s)',
+  async (stillBlocked) => {
+    const f = fixture();
+    const blocked = {
+      text: '<blocked>{"reason":"Validation command hangs","requiredTool":"A completing repository check","fix":"Diagnose the stalled subprocess"}</blocked>',
+      sessionId: 'diagnostic-session',
+      events: [],
+    };
+    f.run.mockResolvedValueOnce(blocked);
+    if (stillBlocked) f.resume.mockResolvedValue(blocked);
+    const result = await runBoot({
+      journalPath: join(dir, 'diagnostic.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, f.options)(
+          { prompt: 'Implement and verify.' },
+          { label: 'implementer', tools: ['read', 'edit', 'bash'] },
+        );
+        return 'completed';
+      },
+    });
+    expect(result.status).toBe(stillBlocked ? 'failed' : 'finished');
+    expect(f.resume).toHaveBeenCalledOnce();
+    expect(f.resume.mock.calls[0][0]).toMatchObject({
+      sessionId: 'diagnostic-session',
+      prompt: expect.stringContaining('single diagnostic recovery opportunity'),
+    });
+    expect(f.resume.mock.calls[0][0].prompt).toContain('do not bypass');
+  },
+);
+
+it('preserves the same agent attempt and owned session across planned daemon stops', async () => {
+  const f = fixture();
+  const path = join(dir, 'shutdown.jsonl');
+  let controller: AbortController | undefined;
+  f.run.mockImplementation(async (input) => {
+    if (controller) {
+      input.onEvent?.({ kind: 'text', text: 'Working' }, 'owned-session');
+      controller.abort();
+      throw new Error('maintenance');
+    }
+    return {
+      text: '<result>{"summary":"verified"}</result>',
+      sessionId: 'owned-session',
+      events: [],
+    };
+  });
+  const boot = () =>
+    runBoot({
+      journalPath: path,
+      signal: controller?.signal,
+      workflow: async (steps) => {
+        await createAgent(steps, { ...f.options, signal: controller?.signal })(
+          { prompt: 'Work.' },
+          { label: 'worker' },
+        );
+        return 'completed';
+      },
+    });
+  for (let count = 0; count < 4; count++) {
+    controller = new AbortController();
+    expect((await boot()).status).toBe('cancelled');
+    const journal = await openJournal(path);
+    expect(journal.latest(0)?.progress).toMatchObject({
+      attempt: 1,
+      sessionId: 'owned-session',
+    });
+    await (
+      await JournalWriter.open(path)
+    ).put(GRACEFUL_SHUTDOWN_CONTROL, journal.nextBoot - 1);
+  }
+  controller = undefined;
+  expect((await boot()).status).toBe('finished');
+  expect(f.resume).toHaveBeenCalledTimes(4);
+  expect(f.resume.mock.calls[0][0]).toMatchObject({
+    sessionId: 'owned-session',
+    prompt: expect.stringContaining('intentionally stopped'),
+  });
 });

@@ -3,7 +3,10 @@ import type { AgentCallOpts } from '@rocky/sdk';
 
 export class AgentBlockedError extends Error {
   readonly retryable = false;
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly blocker?: { reason: string; requiredTool: string; fix: string },
+  ) {
     super(message);
     this.name = 'AgentBlockedError';
   }
@@ -33,6 +36,7 @@ export function checkAgentBlocker(text: string): void {
   }
   throw new AgentBlockedError(
     `${value.reason}\nRequired tool or access: ${value.requiredTool}\nFix: ${value.fix}`,
+    value,
   );
 }
 export function agentToolInstructions(
@@ -56,6 +60,7 @@ export function agentToolInstructions(
         ]
       : []),
     'Only operations assigned to this Step determine whether it is blocked. Do not demand tools or completed effects owned by later or separate Workflow steps. A review of missing/incorrect evidence should return actionable review problems for the responsible Step; it should not attempt to produce that evidence itself.',
+    'A repository command failing, running silently or hanging does not by itself establish a missing tool or access blocker. Within your existing grants, inspect logs, command definitions and owned subprocesses, narrow the failing check, and repair the underlying cause before escalating. Stop only processes owned by your task; preserve validation requirements and report actual evidence.',
     'If a required operation or validation cannot be performed with these tools, stop and return only <blocked>{"reason":"what is blocked","requiredTool":"specific missing capability, command, MCP server or access","fix":"concrete Workflow/configuration change needed"}</blocked>. Do not turn an infrastructure blocker into a content defect, repeat equivalent failed calls, fabricate verification, or attempt to bypass the grants. This alternative envelope replaces the normal result schema.',
   ].join('\n');
 }

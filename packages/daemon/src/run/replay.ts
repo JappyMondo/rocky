@@ -72,6 +72,8 @@ export interface EffectHandle {
   fail(error: Error): never;
   /** Stable sequence path, including each enclosing parallel sequence/index. */
   readonly identity: string;
+  /** The previous invocation was intentionally stopped by the daemon. */
+  readonly plannedInterruption?: boolean;
   /** Detached current progress; undefined until first updated. */
   readonly progress: unknown;
   update(progress: unknown): Promise<void>;
@@ -758,6 +760,12 @@ class BootRunner implements BootContext {
           return this.fail(error);
         },
         identity: `${this.identityPrefix}${seq}`,
+        plannedInterruption:
+          recorded?.status === 'running' &&
+          typeof this.journal.getControl(GRACEFUL_SHUTDOWN_CONTROL) ===
+            'number' &&
+          recorded.boot <=
+            Number(this.journal.getControl(GRACEFUL_SHUTDOWN_CONTROL)),
         get progress() {
           return structuredClone(progress);
         },
