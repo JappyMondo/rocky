@@ -1437,11 +1437,13 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
           .split('\n')
           .map((line) => JSON.parse(line));
         // Simulate a Run recorded before CI was observed ahead of compliance.
-        const ciSeqs = [...new Set<number>(
-          rows
-            .filter((row) => row.step === 'scm:waitForCi')
-            .map((row) => row.seq),
-        )].sort((a, b) => a - b);
+        const ciSeqs = [
+          ...new Set<number>(
+            rows
+              .filter((row) => row.step === 'scm:waitForCi')
+              .map((row) => row.seq),
+          ),
+        ].sort((a, b) => a - b);
         const retained = rows.filter((row) => !ciSeqs.includes(row.seq));
         for (const row of retained)
           row.seq -= ciSeqs.filter((seq) => seq < row.seq).length;
