@@ -785,6 +785,7 @@ export function createDeliveryOperations(
       throw new Error(
         'CI returned another head. Refresh the branch and run validation again.',
       );
+    let retryRefusal: ScmRefusal | undefined;
     while (ci.status === 'failed' && ciAttempts < ciCap) {
       ciAttempts++;
       const fix = await actors.call('ci-fixer', {
@@ -793,6 +794,7 @@ export function createDeliveryOperations(
           issue,
           delivery,
           failedJobs: ci.failedJobs,
+          ...(retryRefusal ? { retryRefusal } : {}),
           pullRequest: candidate,
           ciRepairPolicy:
             'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. The supplied logs are bounded excerpts, not complete job logs. If they lack the original diagnostic, retrieve the failed job’s full log with the configured platform CLI using its supplied job ID before declaring the repair unresolved; inspect the failed step and run the affected repository check locally when feasible. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
@@ -807,7 +809,26 @@ export function createDeliveryOperations(
         await push('ci-fixer');
         return { changed: true, complaints: [] };
       }
-      requireScm(await ctx.scm.retryFailedJobs(candidate));
+      if (settings.ciRetryVersion) {
+        // A retry label is advisory: agents may have created commits or left
+        // uncommitted repairs. Reconcile the complete delivery and revalidate
+        // changed heads before consuming a retry against the old remote SHA.
+        const before = repositories?.revision ?? pr.headSha;
+        await push('ci-fixer');
+        if ((repositories?.revision ?? pr.headSha) !== before)
+          return { changed: true, complaints: [] };
+      }
+      const retry = await ctx.scm.retryFailedJobs(candidate);
+      if (settings.ciRetryVersion && retry && 'refused' in retry) {
+        retryRefusal = retry;
+        // Retry refusal is evidence for the fixer, not a successful retry.
+        // The existing CI allowance bounds integration recovery attempts.
+        if (retry.reason === 'head_changed' || retry.reason === 'not_open')
+          requireScm(retry);
+        continue;
+      }
+      requireScm(retry);
+      retryRefusal = undefined;
       ci = requireScm(
         await ctx.scm.waitForCi(candidate, { logTailLines: ciLogLines }),
       );

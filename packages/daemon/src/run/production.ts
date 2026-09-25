@@ -795,23 +795,23 @@ export function createProductionRuntime(
         await visualRecap({ pr }, false);
       };
       return {
+        checkpoint: async (request, stepKey) =>
+          options.request({
+            kind: 'checkpoint',
+            stepKey,
+            request: {
+              ...request,
+              digest: {
+                diffStat: 'See run report',
+                ci: 'See run activity',
+                unresolved: 0,
+              },
+            },
+          }) as Promise<StepOutcome<Answer>>,
         ...options.external?.(run, steps, signal, approvals),
         ...(servicesEnabled
           ? {
               visualRecap,
-              checkpoint: async (request, stepKey) =>
-                options.request({
-                  kind: 'checkpoint',
-                  stepKey,
-                  request: {
-                    ...request,
-                    digest: {
-                      diffStat: 'See run report',
-                      ci: 'See run activity',
-                      unresolved: 0,
-                    },
-                  },
-                }) as Promise<StepOutcome<Answer>>,
               comment: (markdown: string) =>
                 steps
                   .step('linear.comment', {}, async () => {

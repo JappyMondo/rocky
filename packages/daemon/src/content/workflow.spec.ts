@@ -430,6 +430,121 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     },
   );
 
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'checks actual branch revisions before a CI retry and replays the migration boundary (enabled=%s)',
+    async (enabled) => {
+      let head = 'abc';
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.ciRetryVersion = 1;
+      else delete flow.settings.ciRetryVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('git rev-parse HEAD')
+            ? { exitCode: 0, stdout: head, stderr: '' }
+            : undefined,
+        scm: (operation, count, args) =>
+          operation === 'waitForCi'
+            ? {
+                status: count === 1 ? 'failed' : 'passed',
+                headSha: (args[0] as { headSha: string }).headSha,
+                failedJobs:
+                  count === 1
+                    ? [
+                        {
+                          id: 'gate',
+                          name: 'repository check',
+                          failedSteps: [],
+                          logTail: 'Transient failure',
+                        },
+                      ]
+                    : [],
+              }
+            : undefined,
+        agent: (name) => {
+          if (name !== 'ci-fixer') return undefined;
+          head = 'def';
+          return {
+            action: 'retry',
+            summary: 'Created a local commit for fresh CI.',
+          };
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const checks = f.scmCalls.filter(
+        (call) => call.operation === 'waitForCi',
+      );
+      expect(checks[1].args[0]).toMatchObject({
+        headSha: enabled ? 'def' : 'abc',
+      });
+      expect(calledRepos(f, 'retryFailedJobs')).toHaveLength(enabled ? 0 : 1);
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        1,
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'returns a refused CI retry to the fixer as evidence instead of claiming it ran',
+    async () => {
+      const refusal = {
+        refused: true,
+        repo: 'fixture',
+        reason: 'permission_denied',
+        message: 'External check cannot be rerequested.',
+        fix: 'Inspect provider access.',
+      };
+      const f = repositoryFixture({
+        scm: (operation, _count, args) =>
+          operation === 'retryFailedJobs'
+            ? refusal
+            : operation === 'waitForCi'
+              ? {
+                  status: 'failed',
+                  headSha: (args[0] as { headSha: string }).headSha,
+                  failedJobs: [
+                    {
+                      id: 'check',
+                      name: 'External review',
+                      failedSteps: [],
+                      logTail: 'Rate limited',
+                    },
+                  ],
+                }
+              : undefined,
+        agent: (name, input, count) => {
+          if (name !== 'ci-fixer') return undefined;
+          if (count === 2) expect(input.retryRefusal).toEqual(refusal);
+          return {
+            action: count === 1 ? 'retry' : 'unresolved',
+            summary: 'Provider access is required.',
+          };
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calledRepos(f, 'retryFailedJobs')).toHaveLength(1);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        2,
+      );
+    },
+  );
+
   it.skipIf(mode === 'legacy')(
     'can deliver only a changed companion without creating an empty lead PR',
     async () => {

@@ -258,6 +258,7 @@ test(
     // Execute a config graph through the packed loader, outside the workspace.
     const configured = JSON.parse(pinnedWorkflow);
     assert.equal(configured.settings.recoveryVersion, 1);
+    assert.equal(configured.settings.ciRetryVersion, 1);
     configured.models = {};
     configured.nodes = [
       {

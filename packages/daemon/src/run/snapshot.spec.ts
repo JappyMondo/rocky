@@ -144,7 +144,11 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
     version: 2,
     name: 'test',
     models: {},
-    settings: { ...defaultFlowSettings(), recoveryVersion: undefined },
+    settings: {
+      ...defaultFlowSettings(),
+      recoveryVersion: undefined,
+      ciRetryVersion: undefined,
+    },
     nodes: [
       {
         id: 'start',
@@ -185,6 +189,12 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
       await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
     ).settings.recoveryVersion,
   ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.ciRetryVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.ciRetryVersion).toBeUndefined();
   expect(JSON.parse(source).settings.recoveryVersion).toBeUndefined();
 });
 

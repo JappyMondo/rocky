@@ -232,9 +232,14 @@ async function fixture(
   return { paths, run, runtime, request, config, records };
 }
 
-it.each(['question', 'checkpoint'] as const)(
-  'wires production %s through parent IPC and resumes its durable answer',
-  async (kind) => {
+it.each([
+  ['question', true],
+  ['checkpoint', true],
+  ['question', false],
+  ['checkpoint', false],
+] as const)(
+  'wires production %s through parent IPC with Linear=%s and resumes its durable answer',
+  async (kind, linear) => {
     const completed = vi.fn();
     const f = await fixture(async (ctx) => {
       const answer = await ctx[kind]({
@@ -244,6 +249,10 @@ it.each(['question', 'checkpoint'] as const)(
       completed(answer);
       return 'completed';
     });
+    if (!linear) {
+      delete f.run.linear;
+      await writeRunHeader(f.paths, f.run);
+    }
     spies.checkpoint
       .mockResolvedValueOnce({ status: 'waiting' })
       .mockResolvedValueOnce({
@@ -264,7 +273,7 @@ it.each(['question', 'checkpoint'] as const)(
       expect(spies.checkpoint).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: 'checkpoint',
-          stepKey: '2',
+          stepKey: linear ? '2' : '1',
           request: expect.objectContaining({
             title: 'Which behavior?',
             ...(kind === 'question' ? { kind: 'question' } : {}),

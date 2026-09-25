@@ -105,15 +105,15 @@ export async function createProductionComposition(options: {
     const cached = controls.get(runId);
     if (cached) return cached;
     const run = await execution.scheduler.get(runId);
-    if (!run?.linear) return undefined;
+    if (!run) return undefined;
     const journal = await execution.journal(runId);
     const control = new LinearRunControl({
       store: journal,
       client,
       runId,
-      sessionId: run.linear.sessionId,
-      issueId: run.linear.issueId,
-      appUserId: run.linear.appUserId,
+      sessionId: run.linear?.sessionId,
+      issueId: run.linear?.issueId,
+      appUserId: run.linear?.appUserId,
       runUrl: `${options.localOrigin ?? `http://localhost:${options.config.current.server.port}`}/runs/${encodeURIComponent(runId)}`,
       beforeElicitation: async () => undefined,
       parked: async () => undefined,
@@ -145,7 +145,7 @@ export async function createProductionComposition(options: {
       prepareOnboardingSnapshot(options.paths, signal),
     checkpoint: async (runId, stepKey, request) => {
       const control = await controlFor(runId);
-      if (!control) throw new Error(`Run ${runId} has no Linear control`);
+      if (!control) throw new Error(`Run ${runId} has no run control`);
       return control.checkpoint(stepKey, request);
     },
     agentSteer: {
@@ -379,12 +379,12 @@ export async function createProductionComposition(options: {
         currentCheckpoint: async (id) => (await controlView(id)).checkpoint,
         answer: async (id, input) => {
           const control = await controlFor(id);
-          if (!control) throw new Error(`Run ${id} has no Linear control`);
+          if (!control) throw new Error(`Run ${id} has no run control`);
           return control.answer({ ...input, requestId: randomUUID() });
         },
         steer: async (id, input) => {
           const control = await controlFor(id);
-          if (!control) throw new Error(`Run ${id} has no Linear control`);
+          if (!control) throw new Error(`Run ${id} has no run control`);
           const receipt = await control.steer(input);
           return {
             requestId: receipt.requestId,

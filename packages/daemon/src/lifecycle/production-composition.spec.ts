@@ -62,6 +62,7 @@ vi.mock('../linear/control.js', async (original) => ({
       cancel(): void;
       beforeElicitation(): Promise<void>;
     };
+    checkpoint = vi.fn(async () => ({ status: 'waiting' }));
     reconcile = vi.fn(async () => undefined);
     prompted = vi.fn(async () => undefined);
     openConversation = vi.fn(async () => undefined);
@@ -365,6 +366,21 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
   expect(control.answer).toHaveBeenCalledWith(
     expect.objectContaining({ answer: { decision: 'approve' } }),
   );
+  execution.scheduler.get.mockResolvedValueOnce({
+    ...run,
+    runId: 'local-run',
+    linear: undefined,
+  });
+  await expect(
+    options.checkpoint('local-run', '2', {
+      title: 'Clarify',
+      body: 'Which behavior?',
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  expect(fakes.controls.at(-1)?.options).toMatchObject({
+    runId: 'local-run',
+    sessionId: undefined,
+  });
   await app.close();
   await composition.close();
 });

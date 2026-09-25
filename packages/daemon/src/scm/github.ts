@@ -806,6 +806,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         runSchema,
         'workflow_runs',
       );
+      let requested = false;
       for (const run of runs.filter(
         (run) =>
           run.head_sha === pr.headSha &&
@@ -827,7 +828,55 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           `${root}/actions/runs/${run.id}/rerun-failed-jobs`,
           z.object({}),
         );
+        requested = true;
       }
+      const checks = await http.list(
+        `${root}/commits/${encodeURIComponent(pr.headSha)}/check-runs?filter=latest`,
+        checkSchema,
+        'check_runs',
+      );
+      for (const check of checks) {
+        if (check.head_sha !== pr.headSha)
+          throw refuse(
+            options.repo.id,
+            'head_changed',
+            'Check retry reports a different head.',
+            'Refresh the current PR before retrying.',
+            pr,
+          );
+        if (
+          check.status !== 'completed' ||
+          successful(check.conclusion) ||
+          runs.some((run) =>
+            check.details_url?.includes(`/actions/runs/${run.id}/`),
+          )
+        )
+          continue;
+        const current = await read(pr);
+        checkHead(pr, current);
+        if (current.state !== 'open')
+          throw refuse(
+            options.repo.id,
+            'not_open',
+            'PR is not open.',
+            'Inspect the PR before requesting an external check retry.',
+            current,
+          );
+        await http.request(
+          'POST',
+          `${root}/check-runs/${check.id}/rerequest`,
+          z.object({}),
+        );
+        requested = true;
+      }
+      if (!requested)
+        throw refuse(
+          options.repo.id,
+          'unsupported',
+          'No failed Actions run or rerequestable check run was found.',
+          'Inspect current CI status and the integration provider. A legacy commit status has no generic retry API; use repository-documented recovery without weakening its gate.',
+          pr,
+        );
     },
     async reviewThreads(pr: Pr): Promise<ReviewThread[]> {
       const verified = await read(pr);

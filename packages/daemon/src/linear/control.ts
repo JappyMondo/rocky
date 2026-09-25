@@ -173,9 +173,10 @@ export interface LinearRunControlOptions {
     session(sessionId: string): Promise<LinearSessionSummary>;
   };
   runId: string;
-  sessionId: string;
-  issueId: string;
-  appUserId: string;
+  /** Absent for local-only controls; no remote activities or polling. */
+  sessionId?: string;
+  issueId?: string;
+  appUserId?: string;
   runUrl: string;
   /** Lifecycle fence checked before any elicitation is emitted. */
   beforeElicitation(): Promise<void>;
@@ -391,24 +392,28 @@ export class LinearRunControl {
       if (!checkpoint.emitted) {
         await this.options.beforeElicitation();
         if (this.stopping) throw new Error('The Run has stopped');
-        const result = await this.options.client.ensureActivity({
-          id: checkpoint.activityId,
-          sessionId: this.options.sessionId,
-          content: { type: 'elicitation', body: checkpoint.body },
-          ...(checkpoint.kind === 'question'
-            ? {}
-            : {
-                signal: 'select' as const,
-                signalMetadata: {
-                  options: [
-                    { label: 'Approve', value: checkpoint.approveValue },
-                    { label: 'Reject', value: checkpoint.rejectValue },
-                  ],
-                },
-              }),
-        });
-        if (!result.success || result.id !== checkpoint.activityId)
-          throw new Error('Linear did not confirm the Checkpoint elicitation');
+        if (this.options.sessionId) {
+          const result = await this.options.client.ensureActivity({
+            id: checkpoint.activityId,
+            sessionId: this.options.sessionId,
+            content: { type: 'elicitation', body: checkpoint.body },
+            ...(checkpoint.kind === 'question'
+              ? {}
+              : {
+                  signal: 'select' as const,
+                  signalMetadata: {
+                    options: [
+                      { label: 'Approve', value: checkpoint.approveValue },
+                      { label: 'Reject', value: checkpoint.rejectValue },
+                    ],
+                  },
+                }),
+          });
+          if (!result.success || result.id !== checkpoint.activityId)
+            throw new Error(
+              'Linear did not confirm the Checkpoint elicitation',
+            );
+        }
         checkpoint.emitted = true;
         await this.save(state);
       }
@@ -590,6 +595,7 @@ export class LinearRunControl {
 
   async prompted(event: AgentSessionEvent): Promise<IntakeResult> {
     if (
+      !this.options.sessionId ||
       event.sessionId !== this.options.sessionId ||
       event.appUserId !== this.options.appUserId ||
       (event.issueId !== undefined && event.issueId !== this.options.issueId)
@@ -635,6 +641,8 @@ export class LinearRunControl {
   }
 
   private flushNotices(): Promise<void> {
+    if (!this.options.sessionId) return Promise.resolve();
+    const sessionId = this.options.sessionId;
     return this.exclusive(async () => {
       const state = await this.state();
       if (
@@ -647,7 +655,7 @@ export class LinearRunControl {
         if (notice.sent) continue;
         if (this.stopping || (await this.options.ended?.())) return;
         const input = {
-          sessionId: this.options.sessionId,
+          sessionId,
           content: {
             type: 'action',
             action: notice.action,
@@ -854,6 +862,8 @@ export class LinearRunControl {
 
   /** Read-only while waiting. The same intake handles webhook, local and recovery. */
   reconcile(): Promise<void> {
+    if (!this.options.sessionId) return Promise.resolve();
+    const sessionId = this.options.sessionId;
     if (this.reconciliation) return this.reconciliation;
     const work = async () => {
       const state = await this.exclusive(() => this.state());
@@ -863,7 +873,7 @@ export class LinearRunControl {
         return;
       }
       if (this.stopping) return;
-      const session = await this.options.client.session(this.options.sessionId);
+      const session = await this.options.client.session(sessionId);
       if (
         session.id !== this.options.sessionId ||
         session.issueId !== this.options.issueId ||
@@ -889,9 +899,7 @@ export class LinearRunControl {
       }
       // A full overlapping scan is safe when caches are lost. IDs in the Journal
       // are the dedupe truth; an activity cursor must never be the only copy.
-      const activities = await this.options.client.activities(
-        this.options.sessionId,
-      );
+      const activities = await this.options.client.activities(sessionId);
       for (const activity of activities) {
         if (this.stopping) return;
         if (activity.sessionId !== this.options.sessionId)

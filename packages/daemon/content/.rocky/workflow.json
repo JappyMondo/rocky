@@ -39,7 +39,8 @@
     "ciLogLines": 200,
     "maxTransitions": 500,
     "pullRequests": "all-changed",
-    "recoveryVersion": 1
+    "recoveryVersion": 1,
+    "ciRetryVersion": 1
   },
   "nodes": [
     {

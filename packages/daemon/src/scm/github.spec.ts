@@ -682,6 +682,10 @@ it('retries only current-head failed Actions runs', async () => {
       status: 201,
       value: {},
     },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: { check_runs: [] },
+    },
   ]);
   await createGitHubScm({
     ...githubOptions,
@@ -1471,3 +1475,70 @@ it.each([false, true])(
     }
   },
 );
+
+it.each([201, 403])(
+  'requests external check retries and reports denied permission (HTTP %s)',
+  async (status) => {
+    const transport = scriptedFetch([
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+        value: { workflow_runs: [] },
+      },
+      {
+        path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+        value: {
+          check_runs: [
+            {
+              id: 81,
+              name: 'External review',
+              head_sha: 'abc',
+              status: 'completed',
+              conclusion: 'failure',
+              details_url: 'https://review.test',
+            },
+          ],
+        },
+      },
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/check-runs/81/rerequest',
+        method: 'POST',
+        status,
+        value: {},
+      },
+    ]);
+    const retry = createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr());
+    if (status === 403)
+      await expect(retry).rejects.toMatchObject({
+        refusal: { reason: 'permission_denied' },
+      });
+    else await retry;
+    transport.done();
+  },
+);
+
+it('refuses an empty CI retry instead of reporting that an external status was retried', async () => {
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+      value: { workflow_runs: [] },
+    },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: { check_runs: [] },
+    },
+  ]);
+  await expect(
+    createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr()),
+  ).rejects.toMatchObject({ refusal: { reason: 'unsupported' } });
+  expect(transport.calls.every((call) => call.method === 'GET')).toBe(true);
+  transport.done();
+});
