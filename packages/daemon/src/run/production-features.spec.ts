@@ -114,6 +114,7 @@ const content = {
 const roots: string[] = [];
 beforeEach(() => {
   vi.resetAllMocks();
+  spies.comment.mockResolvedValue('comment-verified');
   spies.preflight.mockResolvedValue(undefined);
   spies.openPr.mockResolvedValue(pr);
   spies.revision.mockResolvedValue({

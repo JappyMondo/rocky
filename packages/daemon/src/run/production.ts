@@ -821,7 +821,10 @@ export function createProductionRuntime(
                     );
                     return {
                       status: 'done',
-                      result: { id, issueId: run.linear?.issueId },
+                      result: {
+                        id,
+                        ...(run.linear ? { issueId: run.linear.issueId } : {}),
+                      },
                     };
                   })
                   .then(() => undefined),
