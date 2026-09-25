@@ -373,6 +373,51 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
   );
 
   it.skipIf(mode === 'legacy')(
+    'revalidates after an early CI repair before compliance review',
+    async () => {
+      let failed = false;
+      const f = repositoryFixture({
+        scm: (operation, _count, args) => {
+          if (
+            operation === 'waitForCi' &&
+            (args[0] as { repo: string }).repo === 'fixture' &&
+            !failed
+          ) {
+            failed = true;
+            return {
+              status: 'failed',
+              headSha: 'abc',
+              failedJobs: [
+                {
+                  id: 'gate',
+                  name: 'repository gate',
+                  failedSteps: ['Verify change'],
+                  logTail: 'Failed.',
+                },
+              ],
+            };
+          }
+          return undefined;
+        },
+        agent: (name) =>
+          name === 'ci-fixer' ? { action: 'fixed' } : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        1,
+      );
+      expect(f.trace.indexOf('ci-fixer')).toBeLessThan(
+        f.trace.indexOf('compliance-reviewer'),
+      );
+      expect(calledRepos(f, 'waitForCi')).toEqual([
+        'fixture',
+        'fixture',
+        'settings',
+      ]);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
     'can deliver only a changed companion without creating an empty lead PR',
     async () => {
       const f = repositoryFixture({
