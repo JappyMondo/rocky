@@ -73,6 +73,72 @@ afterEach(async () => {
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
+it('refreshes a dirty delivery status after recovery commits the worktree', async () => {
+  const { JournalWriter } = await import('./writer.js');
+  const { retryStepKey } = await import('./retry.js');
+  const root = await mkdtemp(join(tmpdir(), 'rocky-retry-delivery-'));
+  roots.push(root);
+  const path = join(root, 'journal.jsonl');
+  let dirty = true;
+  let statusChecks = 0;
+  let implementations = 0;
+  const workflow = async (ctx: BootContext) => {
+    await ctx.step('agent', { label: 'implementation' }, async () => {
+      implementations++;
+      return { status: 'done', result: 'implementation complete' };
+    });
+    const status = await ctx.step(
+      'exec',
+      { label: 'attraccess: git status --porcelain' },
+      async () => {
+        statusChecks++;
+        return {
+          status: 'done',
+          result: {
+            exitCode: 0,
+            stdout: dirty ? 'M file.ts\n' : '',
+            stderr: '',
+          },
+        };
+      },
+    );
+    if (status.stdout.trim())
+      throw new Error(
+        'attraccess has uncommitted work. Commit it before PR delivery.',
+      );
+    return 'completed' as const;
+  };
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'failed',
+  );
+  // Existing runs may already have retried the terminal barrier. Those
+  // append-only records must remain readable after changing the retry key.
+  await appendFile(
+    path,
+    JSON.stringify({
+      v: JOURNAL_FORMAT_VERSION,
+      kind: 'retry',
+      requestId: 'legacy-barrier',
+      stepKey: '2',
+      recordedAt: new Date().toISOString(),
+    }) + '\n',
+  );
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'failed',
+  );
+  const original = await readFile(path, 'utf8');
+  expect(retryStepKey((await readJournal(path)).entries)).toBe('1');
+  await (await JournalWriter.open(path)).retry('retry-after-commit', '1');
+  dirty = false;
+  expect((await runBoot({ journalPath: path, workflow })).status).toBe(
+    'finished',
+  );
+  expect({ statusChecks, implementations }).toEqual({
+    statusChecks: 2,
+    implementations: 1,
+  });
+  expect((await readFile(path, 'utf8')).startsWith(original)).toBe(true);
+});
 it('reruns a final nonzero exec result instead of replaying its cached failure, retaining legacy finalization retries', async () => {
   const { JournalWriter } = await import('./writer.js');
   const { retryStepKey } = await import('./retry.js');
