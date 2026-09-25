@@ -1,3 +1,4 @@
+import { HarnessContinuationError } from '../harness/types.js';
 import { readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -822,6 +823,22 @@ export function createAgent(
                 if (boundaryController.signal.reason instanceof SteerBoundary) {
                   if (!progress.sessionId) throw error;
                   if (await continueWithSteers(progress.sessionId)) break;
+                }
+                if (
+                  error instanceof HarnessContinuationError &&
+                  progress.nudges.length < 2
+                ) {
+                  attemptSignal.throwIfAborted();
+                  progress = {
+                    ...progress,
+                    sessionId: error.sessionId,
+                    phase: 'resume',
+                    continuation: 'schema',
+                    repairError: error.message,
+                    nudges: [...progress.nudges, { error: error.message }],
+                  };
+                  await handle.update(progress);
+                  continue;
                 }
                 throw error;
               } finally {

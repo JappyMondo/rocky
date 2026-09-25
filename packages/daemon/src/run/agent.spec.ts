@@ -1,3 +1,4 @@
+import { HarnessContinuationError } from '../harness/types.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -209,6 +210,35 @@ it('persists streamed Agent text before the Step settles', async () => {
     events: [],
   });
   await expect(boot).resolves.toMatchObject({ status: 'finished' });
+});
+
+it('resumes an unfinished native turn in its owned session and replays without another invocation', async () => {
+  const f = fixture();
+  f.run.mockRejectedValueOnce(
+    new HarnessContinuationError(
+      'Unfinished tools: reconcile interrupted commands before returning the result.',
+      'session-1',
+    ),
+  );
+  const boot = () =>
+    runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, f.options)(
+          { prompt: 'Count.' },
+          { label: 'counter', schema: z.object({ count: z.number() }) },
+        );
+        return 'merged';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'finished', outcome: 'merged' });
+  expect(f.resume).toHaveBeenCalledOnce();
+  expect(f.resume.mock.calls[0]?.[0]).toMatchObject({
+    sessionId: 'session-1',
+    prompt: expect.stringContaining('Unfinished tools'),
+  });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(f.run).toHaveBeenCalledTimes(2);
 });
 
 it('nudges refinements twice in the same session, then burns three attempts with durable metadata', async () => {
@@ -1266,4 +1296,24 @@ it('describes the actual grants and avoids impossible branch checks for read-onl
   expect(prompt).toContain('Enabled MCP servers: none');
   expect(prompt).toContain('Do not inspect .git/HEAD');
   expect(prompt).toContain('<blocked>');
+});
+
+it('bounds unfinished-turn reconciliation instead of accepting incomplete work', async () => {
+  const f = fixture();
+  f.run.mockRejectedValue(
+    new HarnessContinuationError('Unfinished tools', 'session-1'),
+  );
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Finish.' },
+        { label: 'work' },
+      );
+      return 'merged';
+    },
+  });
+  expect(result).toMatchObject({ status: 'failed' });
+  expect(f.run).toHaveBeenCalledTimes(9);
+  expect(f.resume).toHaveBeenCalledTimes(6);
 });

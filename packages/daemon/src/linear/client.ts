@@ -583,6 +583,16 @@ export class RockyLinearClient {
         }
       }
       this.nextRequestAt = Math.max(this.nextRequestAt, retryAt);
+      if (
+        readOnly &&
+        response.status >= 500 &&
+        response.status <= 599 &&
+        attempt < 2
+      ) {
+        await response.body?.cancel();
+        await this.wait(250 * 2 ** attempt);
+        continue;
+      }
       const parsed = z
         .object({
           data: z.unknown().optional(),

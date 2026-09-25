@@ -64,3 +64,14 @@ export class HarnessError extends Error {
     this.name = 'HarnessError';
   }
 }
+
+/** A completed native turn needs reconciliation in its owned session before acceptance. */
+export class HarnessContinuationError extends HarnessError {
+  constructor(
+    message: string,
+    readonly sessionId: string,
+  ) {
+    super(message);
+    this.name = 'HarnessContinuationError';
+  }
+}

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import { codex, parseCodexStream } from './codex.js';
 import { getHarnessAdapter } from './adapter.js';
-import type { HarnessInvocation } from './types.js';
+import { HarnessContinuationError, type HarnessInvocation } from './types.js';
 
 const sessionId = '0199a213-81c0-7800-8aa1-bbab2a035a53';
 const start = { type: 'thread.started', thread_id: sessionId };
@@ -437,4 +437,47 @@ it('checks Codex login on stderr without leaking API-key status', async () => {
     ok: true,
     detail: expect.stringContaining('CODEX_API_KEY'),
   });
+});
+
+it('preserves the owned native session when a completed turn leaves tools unfinished', () => {
+  expect(() =>
+    parse(
+      start,
+      {
+        type: 'item.started',
+        item: { id: 'pending', type: 'command_execution' },
+      },
+      message,
+      end,
+    ),
+  ).toThrow(HarnessContinuationError);
+  try {
+    parse(
+      start,
+      {
+        type: 'item.started',
+        item: { id: 'pending', type: 'command_execution' },
+      },
+      message,
+      end,
+    );
+  } catch (error) {
+    expect(error).toMatchObject({
+      sessionId,
+      message: expect.stringContaining('pending (bash)'),
+    });
+  }
+});
+
+it('preserves the continuation error through process cleanup and allows an owned resume', async () => {
+  const input = await invocation();
+  await expect(
+    codex.run({ ...input, env: { ...input.env, FIXTURE_MODE: 'unfinished' } }),
+  ).rejects.toMatchObject({ name: 'HarnessContinuationError', sessionId });
+  const result = await codex.resume({
+    ...input,
+    sessionId,
+    prompt: 'Reconcile pending work.',
+  });
+  expect(result.sessionId).toBe(sessionId);
 });
