@@ -608,11 +608,6 @@ export function createDeliveryOperations(
     const reviewHistory = history.snapshot();
     const result = await actors.call(name, {
       label: `${name} ${revision}/${reviewCap}`,
-      // Acceptance review must be able to verify executable criteria itself.
-      // This also repairs retained Run snapshots whose graph only wired read.
-      ...(name === 'compliance-reviewer'
-        ? { tools: ['read', 'bash'] as const }
-        : {}),
       input: {
         issue,
         delivery,

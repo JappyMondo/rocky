@@ -175,6 +175,23 @@ export function retryStepKey(
     (step.status !== 'done' || failedCommand(step) || refusedScm(step))
   )
     return String(step.seq);
+  // PR delivery can throw after a successful status command reports dirty
+  // files. A recovery agent may commit those files, but reopening only $end
+  // would replay the old stdout and fail again against the clean worktree.
+  const deliveryStatus = step?.label?.match(/^(.+): git status --porcelain$/);
+  if (
+    step?.step === 'exec' &&
+    step.status === 'done' &&
+    deliveryStatus &&
+    end.error?.message ===
+      `${deliveryStatus[1]} has uncommitted work. Commit it before PR delivery.` &&
+    typeof step.result === 'object' &&
+    step.result !== null &&
+    'stdout' in step.result &&
+    typeof step.result.stdout === 'string' &&
+    step.result.stdout.trim()
+  )
+    return String(step.seq);
   // An integration or workflow can throw between journaled Steps. Reopen the
   // terminal barrier without manufacturing a failed Step or rerunning successes.
   if (steps.every((entry) => entry.status === 'done')) return String(end.seq);
