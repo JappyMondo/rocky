@@ -106,6 +106,12 @@ describe('the launchd unit', () => {
     expect(unit).not.toContain('<string>--detach</string>');
   });
 
+  it('allows graceful journal shutdown before launchd forces termination', () => {
+    expect(unitFor(paths, MAC())).toContain(
+      '<key>ExitTimeOut</key>\n  <integer>60</integer>',
+    );
+  });
+
   it('names the node binary and the entry point it was installed with', () => {
     const unit = unitFor(paths, MAC());
 

@@ -196,6 +196,9 @@ ${args}
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <!-- Allow owned agents to stop and journal their interruption before SIGKILL. -->
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
 ${environmentVariables}
   <!-- The daemon writes its own rotated log; these catch anything that dies
        before logging is up. -->

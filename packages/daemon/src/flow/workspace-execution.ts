@@ -345,22 +345,58 @@ run();
         if (endpoints[id]) {
           if (!this.verified) continue;
           let live = false;
-          try {
+          // A recheck has the same readiness policy as initial startup. One
+          // slow response (for example during a dev-server rebuild) is not
+          // evidence that the service crashed. Keep polling inside the existing
+          // receipt so pre-change journals retain exactly the same Step order.
+          for (
+            let attempt = 0;
+            attempt < service.readiness.attempts;
+            attempt++
+          ) {
+            this.signal?.throwIfAborted();
+            if (Date.now() >= deadline) break;
             const owner = this.running.find((entry) => entry.id === id);
-            if (!owner) throw Error('Service has no current owner.');
-            process.kill(owner.pid, 0);
-            const response = await fetch(
-              endpoints[id][service.readiness.endpoint],
-              {
-                signal: AbortSignal.timeout(
-                  Math.max(1, Math.min(1000, deadline - Date.now())),
+            if (!owner) break;
+            try {
+              process.kill(owner.pid, 0);
+            } catch {
+              break;
+            }
+            try {
+              const response = await fetch(
+                endpoints[id][service.readiness.endpoint],
+                {
+                  signal: AbortSignal.timeout(
+                    Math.max(
+                      1,
+                      Math.min(
+                        service.readiness.intervalMs,
+                        deadline - Date.now(),
+                      ),
+                    ),
+                  ),
+                },
+              );
+              live = response.ok;
+              await response.body?.cancel();
+            } catch {
+              live = false;
+            }
+            if (live) break;
+            if (attempt + 1 < service.readiness.attempts)
+              await new Promise((done) =>
+                setTimeout(
+                  done,
+                  Math.max(
+                    1,
+                    Math.min(
+                      service.readiness.intervalMs,
+                      deadline - Date.now(),
+                    ),
+                  ),
                 ),
-              },
-            );
-            live = response.ok;
-            await response.body?.cancel();
-          } catch {
-            live = false;
+              );
           }
           const receipt = await this.ctx.step(
             `${label}: recheck ${id}`,

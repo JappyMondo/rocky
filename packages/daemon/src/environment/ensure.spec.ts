@@ -232,7 +232,9 @@ it('verifies documented local login and feature reachability with real dependent
     );
     expect(JSON.stringify(f.receipts)).not.toContain('local-development-only');
     await f.execution.stop('done');
-    expect(await readFile(join(f.repoDir, '.prepared'), 'utf8')).toBe('');
+    expect(
+      await readFile(join(f.root, 'workspace/web/.prepared'), 'utf8'),
+    ).toBe('');
     expect(
       (await readdir(f.root)).some((name) =>
         name.startsWith('environment-probe-'),
@@ -345,6 +347,56 @@ it('restarts crashed services with fresh endpoints and leaves unrelated data int
   expect(await readFile(join(f.root, 'persistent-data'), 'utf8')).toBe('keep');
   await f.execution.stop('done');
 });
+it.each([false, true])(
+  'polls transient service recheck failures without changing receipts (replay=%s)',
+  async (replay) => {
+    const f = await fixture();
+    await writeFile(join(f.root, 'workspace/web/.prepared'), 'ready');
+    await f.execution.start(['web/api'], 'service');
+    const receiptsBefore = f.receipts.length;
+    if (replay) {
+      // A pre-change journal has one successful recheck receipt, irrespective
+      // of how many live HTTP probes the current Boot needs.
+      f.ctx.step = async <T>(_label: string, _work: () => T | Promise<T>) =>
+        ({ ready: true }) as T;
+    }
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('temporary timeout'))
+      .mockResolvedValueOnce(new Response('', { status: 503 }));
+    try {
+      await expect(
+        f.execution.start(['web/api'], 'service'),
+      ).resolves.toHaveProperty('web/api');
+      expect(fetch).toHaveBeenCalledTimes(3);
+      if (!replay)
+        expect(f.receipts.slice(receiptsBefore)).toEqual([
+          { label: 'service: recheck web/api', result: { ready: true } },
+        ]);
+    } finally {
+      fetch.mockRestore();
+      await f.execution.stop('done');
+    }
+  },
+);
+it('bounds unhealthy service rechecks by the configured readiness attempts', async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, 'workspace/web/.prepared'), 'ready');
+  await f.execution.start(['web/api'], 'service');
+  f.repo.services[0].readiness.attempts = 2;
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockRejectedValue(new Error('unavailable'));
+  try {
+    await expect(f.execution.start(['web/api'], 'service')).rejects.toThrow(
+      'did not become ready',
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    fetch.mockRestore();
+    await f.execution.stop('done');
+  }
+});
 it('uses the current setup budget when a replayed allowance is stale', async () => {
   const f = await fixture();
   f.repo.commands[0].timeoutMs = 1_800_000;
@@ -358,7 +410,7 @@ it('uses the current setup budget when a replayed allowance is stale', async () 
     async (id, timeoutMs, checks, secretEnv) => {
       if (id === 'web/install') {
         timeouts.push(timeoutMs);
-        await writeFile(join(f.repoDir, '.prepared'), '');
+        await writeFile(join(f.root, 'workspace/web/.prepared'), '');
         return { exitCode: 0, stdout: '' };
       }
       return probe(id, timeoutMs, checks, secretEnv);
