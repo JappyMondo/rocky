@@ -151,6 +151,9 @@ it('uses each configured target branch, preserves remote fixer commits, and reje
     await git(settings, 'commit', '-am', 'Current fixer');
     await repositories.sync('Use 30 days', 'Current fix');
     const mergedHead = await git(settings, 'rev-parse', 'HEAD');
+    expect(await git(settings, 'show', '-s', '--format=%s', 'HEAD')).toBe(
+      'fix: reconcile concurrent branch updates',
+    );
     expect(mergedHead).toBe(
       await git(
         root,

@@ -64,7 +64,10 @@ export class DeliveryRepositories {
       repo,
       `git fetch --no-tags origin ${quote(`refs/heads/${branch}`)}`,
     );
-    await this.shell(repo, 'git merge --no-edit -X ours FETCH_HEAD');
+    await this.shell(
+      repo,
+      "git merge --no-edit -X ours -m 'fix: reconcile concurrent branch updates' FETCH_HEAD",
+    );
     await this.shell(repo, command);
     return true;
   }

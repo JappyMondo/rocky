@@ -84,6 +84,10 @@ function ended(run: RunHeader | undefined): boolean {
   );
 }
 
+function rockyIssueBranch(identifier: string): string {
+  return `rocky-${identifier.toLowerCase()}`;
+}
+
 /** Build the real intake path; callers must not substitute an acknowledge-only handler. */
 export async function createProductionComposition(options: {
   paths: RockyPaths;
@@ -192,7 +196,7 @@ export async function createProductionComposition(options: {
         labels: issue.labels,
         url: issue.url,
       },
-      branch: issue.identifier.toLowerCase(),
+      branch: rockyIssueBranch(issue.identifier),
       team: issue.teamId,
       linear: {
         issueId: issue.id,
@@ -449,7 +453,7 @@ export async function createProductionComposition(options: {
               labels: issue.labels,
               url: issue.url,
             },
-            branch: issue.identifier.toLowerCase(),
+            branch: rockyIssueBranch(issue.identifier),
             team: issue.teamId,
             ...(profileId === undefined ? {} : { profileId }),
           });

@@ -230,6 +230,7 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
   });
   expect(fakes.delegate).toHaveBeenCalledWith(
     expect.objectContaining({
+      branch: 'rocky-ng-700',
       issue: expect.objectContaining({
         identifier: 'NG-700',
         description: 'immutable description',
@@ -310,7 +311,10 @@ it('hydrates a signed delegation, isolates foreign prompts, and exposes durable 
   expect(manual.statusCode).toBe(201);
   expect(execution.manual).toHaveBeenCalledWith(
     'start',
-    expect.objectContaining({ issue: expect.objectContaining({ comments }) }),
+    expect.objectContaining({
+      branch: 'rocky-ng-700',
+      issue: expect.objectContaining({ comments }),
+    }),
   );
   expect(fakes.comments).toHaveBeenCalledWith('issue-1');
   fakes.comments.mockRejectedValueOnce(new Error('Comments unavailable'));
