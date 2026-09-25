@@ -2686,7 +2686,7 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([
       'comment:Complete architecture',
     ]);
-    expect(f.trace.at(-1)).toBe('In Review');
+    expect(f.trace).toContain(mode === 'legacy' ? 'In Review' : 'Done');
     expect(f.scmCalls).toEqual([]);
   });
 

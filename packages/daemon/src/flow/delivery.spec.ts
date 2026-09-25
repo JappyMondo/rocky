@@ -70,4 +70,16 @@ it('confirms a Linear comment and closes the issue before the recap', async () =
   expect(ctx.comment).toHaveBeenCalledWith('Explanation.');
   expect(ctx.linear.setState).toHaveBeenCalledWith('Done');
   expect(calls).toEqual(['state', 'comment', 'state', 'recap']);
+
+  // A recorded run that already saved its recap must finish its old order.
+  // Reordering its next comment Step would make its journal diverge.
+  Object.assign(ctx, {
+    replaying: true,
+    replayStep: 'linear.comment',
+    replayedStep: (key: string) => key === 'reviewReport.save',
+  });
+  calls.length = 0;
+  expect(await delivery('deliverable', agents)).toBe('completed');
+  expect(calls).toEqual(['recap', 'comment', 'state']);
+  expect(ctx.linear.setState).toHaveBeenCalledWith('In Review');
 });

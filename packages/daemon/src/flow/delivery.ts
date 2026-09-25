@@ -1196,10 +1196,10 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
           await ctx.comment(draft.body);
           if (delivery.stateChanges) {
-            await ctx.step('Confirm delivered issue state', async () => {
-              await ctx.linear.setState(states.done);
-              return { state: states.done };
-            });
+            await ctx.linear.setState(states.done);
+            await ctx.step('Confirm delivered issue state', () => ({
+              state: states.done,
+            }));
           }
           ctx.stage('Visual recap');
           // This recap now sees the verified publication and state receipts.
