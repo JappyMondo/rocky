@@ -236,6 +236,8 @@ export async function openExecution(options: ExecutionOptions) {
   const scheduler = await RunScheduler.open({
     paths: options.paths,
     maxRuns: options.config().concurrency.maxRuns,
+    putControl: async (path, key, value) =>
+      (await writer(path)).put(key, value),
     boot: async (run, kind, signal) => {
       for (const member of run.execution?.members ?? [])
         await repairCloneWorktreeConfig(options.repos, member.name);

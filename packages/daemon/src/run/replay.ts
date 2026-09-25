@@ -17,6 +17,7 @@
  */
 import type { RunOutcome } from '@rocky/sdk';
 
+import { GRACEFUL_SHUTDOWN_CONTROL, interruptedBootCount } from './journal.js';
 import {
   END_STEP,
   JOURNAL_FORMAT_VERSION,
@@ -219,7 +220,10 @@ function replayableParallelError(recorded: RecordedError): Error {
 }
 
 /** Presents one persisted branch array through the normal replay lookup API. */
-function journalFor(entries: readonly JournalEntry[]): Journal {
+function journalFor(
+  entries: readonly JournalEntry[],
+  getControl: Journal['getControl'],
+): Journal {
   const latest = new Map<number, JournalEntry>();
   const bySeq = new Map<number, JournalEntry[]>();
   for (const entry of entries) {
@@ -233,22 +237,17 @@ function journalFor(entries: readonly JournalEntry[]): Journal {
   }
   return {
     entries,
-    getControl: () => undefined,
+    getControl,
     truncated: false,
     nextBoot: 1,
     end: undefined,
     latest: (seq) => latest.get(seq),
     isInterrupted: (seq) => latest.get(seq)?.status === 'running',
     interruptedBoots(seq) {
-      const boots = new Set<number>();
-      for (const entry of bySeq.get(seq) ?? []) {
-        if (entry.status === 'running') {
-          boots.add(entry.boot);
-        } else {
-          boots.clear();
-        }
-      }
-      return boots.size;
+      return interruptedBootCount(
+        bySeq.get(seq) ?? [],
+        getControl(GRACEFUL_SHUTDOWN_CONTROL),
+      );
     },
   };
 }
@@ -560,7 +559,7 @@ class BootRunner implements BootContext {
       (branch, index) =>
         new BootRunner(
           this.boot,
-          journalFor(branch),
+          journalFor(branch, this.journal.getControl),
           async (entry) => {
             // Later parent snapshots must not retain values owned by Workflow code.
             branch.push(structuredClone(entry));

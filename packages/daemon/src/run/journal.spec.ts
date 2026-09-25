@@ -6,6 +6,8 @@
  * These are the file-format tests. The replay semantics built on top of them
  * live in `replay.spec.ts`.
  */
+import { JournalWriter } from './writer.js';
+import { GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
 import {
   mkdirSync,
   mkdtempSync,
@@ -335,4 +337,18 @@ describe('the crash-loop counter', () => {
 
     expect((await openJournal(path)).interruptedBoots(1)).toBe(0);
   });
+});
+
+it('counts subsequent genuine interruptions after the planned shutdown boundary', async () => {
+  await appendEntry(
+    path,
+    entry({ seq: 1, status: 'running', boot: 1, ms: undefined }),
+  );
+  await (await JournalWriter.open(path)).put(GRACEFUL_SHUTDOWN_CONTROL, 1);
+  for (const boot of [2, 3, 4])
+    await appendEntry(
+      path,
+      entry({ seq: 1, status: 'running', boot, ms: undefined }),
+    );
+  expect((await openJournal(path)).interruptedBoots(1)).toBe(3);
 });

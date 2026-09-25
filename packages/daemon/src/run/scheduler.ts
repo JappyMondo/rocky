@@ -1,4 +1,5 @@
-import { readJournal } from './journal.js';
+import { readJournal, GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
+import { JournalWriter } from './writer.js';
 import { priorClarifications } from './prior-clarifications.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -83,6 +84,7 @@ export interface RunSchedulerOptions {
   onError?: (error: unknown) => void;
   /** Production shares this writer with Boot children and control intake. */
   append?: typeof appendEntry;
+  putControl?: (path: string, key: string, value: unknown) => Promise<void>;
   /** Releases only a terminal Run's safely reclaimable workspace. */
   releaseTerminalWorkspace?(run: RunHeader): Promise<void>;
 }
@@ -765,6 +767,22 @@ export class RunScheduler {
         const run = this.runs.get(id);
         if (run) await this.options.cancellation?.kill(run);
         await execution.done;
+        // All owned writers have stopped. Persist intent outside positional
+        // Steps so old workflow snapshots retain their replay sequence.
+        const path = this.options.paths.run(id).journal;
+        const journal = await readJournal(path);
+        if (!journal.end && journal.nextBoot > 1) {
+          if (this.options.putControl)
+            await this.options.putControl(
+              path,
+              GRACEFUL_SHUTDOWN_CONTROL,
+              journal.nextBoot - 1,
+            );
+          else
+            await (
+              await JournalWriter.open(path)
+            ).put(GRACEFUL_SHUTDOWN_CONTROL, journal.nextBoot - 1);
+        }
       }),
     );
     await Promise.allSettled([...this.preparing]);
