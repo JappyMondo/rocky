@@ -185,6 +185,21 @@ async function enableWorktreeConfig(dir: string): Promise<void> {
   await gitOk(['config', '--unset', '--local', 'core.bare'], { cwd: dir });
 }
 
+/** Repair a shared bare setting before a retained worktree is used on a new Boot. */
+export async function repairCloneWorktreeConfig(
+  ctx: RepoContext,
+  name: string,
+): Promise<void> {
+  await ctx.mutex.run(name, async () => {
+    const dir = ctx.paths.repo(name);
+    if (
+      (await isCloned(dir)) &&
+      (await gitOk(['config', '--local', '--get', 'core.bare'], { cwd: dir }))
+    )
+      await enableWorktreeConfig(dir);
+  });
+}
+
 /**
  * `origin/HEAD` as a plain branch name. Absent when the upstream is empty, or
  * when it has no HEAD to speak of — hence optional rather than guessed.

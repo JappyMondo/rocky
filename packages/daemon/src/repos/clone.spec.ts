@@ -13,7 +13,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import { ensureInstanceLayout } from '../config/store.js';
-import { CloneError, cloneStatus, ensureClone } from './clone.js';
+import {
+  CloneError,
+  cloneStatus,
+  ensureClone,
+  repairCloneWorktreeConfig,
+} from './clone.js';
 import { git, gitOk } from './git.js';
 import { KeyedMutex } from './mutex.js';
 import { createUpstream, makeTempDir, type Upstream } from './upstream.fixtures.js'; // prettier-ignore
@@ -139,6 +144,23 @@ describe('the first clone', () => {
     expect(
       await gitOk(['config', '--local', '--get', 'core.bare'], { cwd: dir }),
     ).toBe(false);
+  });
+
+  it('repairs a shared bare setting before a retained worktree resumes', async () => {
+    const { dir } = await ensureClone(ctx, entry());
+    await git(['config', '--local', 'core.bare', 'true'], { cwd: dir });
+    expect(
+      await gitOk(['config', '--local', '--get', 'core.bare'], { cwd: dir }),
+    ).toBe(true);
+
+    await repairCloneWorktreeConfig(ctx, entry().name);
+
+    expect(
+      await gitOk(['config', '--local', '--get', 'core.bare'], { cwd: dir }),
+    ).toBe(false);
+    expect(
+      (await git(['rev-parse', '--is-bare-repository'], { cwd: dir })).stdout,
+    ).toBe('true');
   });
 });
 

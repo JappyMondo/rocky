@@ -8,6 +8,7 @@ import { prepareRetryWorkspace } from './retry-workspace.js';
 import { currentRunSourceControl } from './source-control.js';
 import { rm } from 'node:fs/promises';
 import { createWorkspace, releaseCleanWorkspace } from '../repos/workspace.js';
+import { repairCloneWorktreeConfig } from '../repos/clone.js';
 import type { Issue } from '@rocky/sdk';
 import type { RockyPaths } from '../config/paths.js';
 import {
@@ -234,7 +235,11 @@ export async function openExecution(options: ExecutionOptions) {
   const scheduler = await RunScheduler.open({
     paths: options.paths,
     maxRuns: options.config().concurrency.maxRuns,
-    boot: runtime.boot,
+    boot: async (run, kind, signal) => {
+      for (const member of run.execution?.members ?? [])
+        await repairCloneWorktreeConfig(options.repos, member.name);
+      return runtime.boot(run, kind, signal);
+    },
     cancellation: options.preserve
       ? { kill: runtime.kill, cleanup: options.preserve }
       : undefined,
