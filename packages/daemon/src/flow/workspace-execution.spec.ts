@@ -537,7 +537,7 @@ it('serializes verified service launches for the same repository until readiness
     f.root,
     true,
   );
-  let releaseFirst = () => undefined;
+  let releaseFirst: () => void = () => undefined;
   const firstResponse = new Promise<Response>((resolve) => {
     releaseFirst = () => resolve(new Response('ready'));
   });
