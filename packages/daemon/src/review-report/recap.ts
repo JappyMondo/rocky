@@ -307,8 +307,9 @@ export async function generateRecapContent(input: {
     const evidence = input.context.workflowEvidence as
       { scopeDecision?: { acceptanceCriteria?: string[] } } | undefined;
     const criteria = evidence?.scopeDecision?.acceptanceCriteria ?? [];
-    const assessed =
-      version === 2 ? DecisionNarrative.parse(narrative).requirements : [];
+    const decisionNarrative =
+      version === 2 ? DecisionNarrative.parse(narrative) : undefined;
+    const assessed = decisionNarrative?.requirements ?? [];
     if (
       version === 2 &&
       criteria.some(
@@ -318,6 +319,16 @@ export async function generateRecapContent(input: {
     )
       groundingProblems.push(
         'Assess every supplied acceptance criterion exactly once, preserving its wording.',
+      );
+    if (
+      version === 2 &&
+      decisionNarrative?.decision.status === 'ready' &&
+      assessed.some((requirement) =>
+        ['gap', 'unverified'].includes(requirement.status),
+      )
+    )
+      groundingProblems.push(
+        'A recap with gap or unverified requirements cannot be marked ready for handoff.',
       );
     previousProblems = [
       ...groundingProblems,
