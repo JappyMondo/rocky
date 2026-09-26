@@ -13,10 +13,11 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-Runtime commit installed and byte-verified in both global locations: `467a6eb` (UI fixture preparation). This handover commit changes documentation only. All recovery commits are on `fix/unattended-recovery`; inspect its history and [the implementation notes](unattended-recovery.md).
+Runtime commit installed and byte-verified in both global locations: `e2d9106` (bounded CI retry refusal). All recovery commits are on `fix/unattended-recovery`; inspect its history and [the implementation notes](unattended-recovery.md).
 
 Important recent commits:
 
+- `e2d9106`: classify GitHub check-run retry HTTP 404 and stop repeating the same refused request after fixer review on new snapshots; preserve old-journal replay.
 - `467a6eb`: versioned UI fixture preparation before inspection, exact planned-check coverage, source provenance, relative URLs, screenshot evidence, bounded setup/recheck, source changes return through validation.
 - `540ae24`: per-ticket cleanup locking so long removal does not block unrelated controls.
 - `df2657c`: safe published workspace/cache cleanup, free-disk admission guard, authorized environment repair command IDs.
@@ -30,11 +31,12 @@ Both main checkout and the original `/Users/jappy/.t3/worktrees/rocky/t3code-48f
 ## Latest verification and remaining uncertainty
 
 - Fixture helper, environment integration, snapshot and workflow regressions passed. Final expanded environment integration: 35 tests passed, including source-change revalidation and old/new journal replay.
-- Daemon typecheck/lint passed. Local packaged distribution smoke test passed on isolated port 47625.
-- Both installed distributions matched the tarball's main, boot child, flow runtime and UI entry bytes. Daemon health returned OK; browser UI loaded.
+- Daemon typecheck/lint passed (lint: 0 errors, 78 existing warnings). CI/workflow/SCM/snapshot regressions: 176 passed, 55 skipped; the new refusal test was red before the fix and passed afterward. Local packaged distribution smoke test passed on isolated port 47625.
+- Both installed distributions matched the tested tarball's main and boot child bytes and contain the new version flag. Daemon health returned OK after restart. Browser UI has not been rechecked in this update.
 - ATT-764-3 was **finished/exhausted**, not successful. It reached real UI states but lacked repeatable fixtures for some planned variants. Its published clean worktree was removed safely; root screenshot evidence was retained.
-- Restart created **ATT-764-4**, with `snapshot/workflow.json` containing `settings.uiFixtureVersion: 1`. API and agent-browser showed it queued. **No live end-to-end fixture-stage success has yet been demonstrated.** Observe its actual preparation and inspector results when admitted.
-- Latest live sample at handover: ATT-764-4 and ATT-777-4 queued; ATT-893-2, ATT-1079-4 and ATT-842-2 running; ATT-920-2 and ATT-1098-3 parked; ATT-1089-4 finished/exhausted; ATT-776-1 completed. Parked does not inherently mean failed; inspect its controls/checkpoint. Historical failed attempts remain visible until settled.
+- Restart created **ATT-764-4**, with `snapshot/workflow.json` containing `settings.uiFixtureVersion: 1`. It remains queued. **No live end-to-end fixture-stage success has yet been demonstrated.** Observe its actual preparation and inspector results when admitted.
+- ATT-1089-4 exhausted after an external Kody Code Review failure reported no available upstream accounts. GitHub returned HTTP 404 to its check-run retry. Rocky repeated that refusal through 15 fixer attempts. The installed fix prevents this loop in **new** snapshots; ATT-1089-4 remains exhausted and its PR #1887 remains draft with failed CI. Do not treat local validation as a pass or restart it until there is a useful recovery path for the provider failure.
+- Latest live sample after installation: ATT-764-4 queued; ATT-777-4, ATT-893-2 and ATT-842-2 running; ATT-1079-4, ATT-920-2 and ATT-1098-3 parked; ATT-1089-4 finished/exhausted; ATT-776-1 completed. Parked does not inherently mean failed; inspect its controls/checkpoint. Historical failed attempts remain visible until settled.
 
 ## Runtime locations and controls
 
