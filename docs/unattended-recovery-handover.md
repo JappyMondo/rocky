@@ -13,10 +13,13 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-Runtime commit installed and byte-verified in both global locations: `e2d9106` (bounded CI retry refusal). All recovery commits are on `fix/unattended-recovery`; inspect its history and [the implementation notes](unattended-recovery.md).
+Runtime commit installed and byte-verified in both global locations: `4f2b173` (fixture screenshot write grant). All recovery commits are on `fix/unattended-recovery`; inspect its history and [the implementation notes](unattended-recovery.md). Draft PR [#51](https://github.com/JappyMondo/rocky/pull/51) passed its four checks at this runtime commit; it remains draft pending live recovery evidence and review.
 
 Important recent commits:
 
+- `4f2b173`: create and grant only the Run screenshot directory to an opted-in fixture preparer.
+- `5dccb09`: preserve `summary` when validating a discriminated-union agent result; ATT-764-4 had returned valid setup JSON that the wrapper rejected.
+- `36fa317`: cover navigation from a hidden settled attempt; web function coverage cleared its unchanged CI threshold.
 - `e2d9106`: classify GitHub check-run retry HTTP 404 and stop repeating the same refused request after fixer review on new snapshots; preserve old-journal replay.
 - `467a6eb`: versioned UI fixture preparation before inspection, exact planned-check coverage, source provenance, relative URLs, screenshot evidence, bounded setup/recheck, source changes return through validation.
 - `540ae24`: per-ticket cleanup locking so long removal does not block unrelated controls.
@@ -31,12 +34,13 @@ Both main checkout and the original `/Users/jappy/.t3/worktrees/rocky/t3code-48f
 ## Latest verification and remaining uncertainty
 
 - Fixture helper, environment integration, snapshot and workflow regressions passed. Final expanded environment integration: 35 tests passed, including source-change revalidation and old/new journal replay.
-- Daemon typecheck/lint passed (lint: 0 errors, 78 existing warnings). CI/workflow/SCM/snapshot regressions: 176 passed, 55 skipped; the new refusal test was red before the fix and passed afterward. Local packaged distribution smoke test passed on isolated port 47625.
+- Daemon typecheck/lint passed (lint: 0 errors, 78 existing warnings). Latest focused agent/fixture regressions: 45 passed; the union-result and screenshot-grant tests were red before their fixes. Web coverage passed at 93.84% functions against 93.77% required. Local packaged distribution smoke test passed on isolated port 47625.
 - Both installed distributions matched the tested tarball's main and boot child bytes and contain the new version flag. Daemon health returned OK after restart. Browser UI has not been rechecked in this update.
 - ATT-764-3 was **finished/exhausted**, not successful. It reached real UI states but lacked repeatable fixtures for some planned variants. Its published clean worktree was removed safely; root screenshot evidence was retained.
-- Restart created **ATT-764-4**, with `snapshot/workflow.json` containing `settings.uiFixtureVersion: 1`. It remains queued. **No live end-to-end fixture-stage success has yet been demonstrated.** Observe its actual preparation and inspector results when admitted.
+- **ATT-764-4** has `settings.uiFixtureVersion: 1`. Its first preparation retry exposed the union-result bug; the second exposed the missing screenshot grant. After both installed fixes, its retained Step 57 returned `setup` for configured `attraccess/seed-ui`. Host `install` and `seed-ui` exited 0; runtime and browser capabilities reverified. It is now running `Prepare UI fixtures 1/attraccess/web/2` at Step 70. The agent reached the seeded login but reported a browser command stall. **No complete fixture set or independent inspector result has yet been demonstrated.** Inspect the eventual Step 70 receipt before claiming success.
+- **ATT-893-2** failed during UI inspection after its recorded frontend URL `localhost:4201` displayed a different app. The later listener on port 4201 belonged to ATT-777-4. This suggests an endpoint ownership or service-lifecycle problem after maintenance, but the exact mechanism is unproven. Preserve its retained workspace and journal; establish a project-neutral repro before another runtime fix or retry.
 - ATT-1089-4 exhausted after an external Kody Code Review failure reported no available upstream accounts. GitHub returned HTTP 404 to its check-run retry. Rocky repeated that refusal through 15 fixer attempts. The installed fix prevents this loop in **new** snapshots; ATT-1089-4 remains exhausted and its PR #1887 remains draft with failed CI. Do not treat local validation as a pass or restart it until there is a useful recovery path for the provider failure.
-- Latest live sample after installation: ATT-764-4 queued; ATT-777-4, ATT-893-2 and ATT-842-2 running; ATT-1079-4, ATT-920-2 and ATT-1098-3 parked; ATT-1089-4 finished/exhausted; ATT-776-1 completed. Parked does not inherently mean failed; inspect its controls/checkpoint. Historical failed attempts remain visible until settled.
+- Latest live sample: ATT-764-4 and ATT-1098-3 running; ATT-1079-4 and ATT-777-4 parked; ATT-842-2 and ATT-1089-4 finished/exhausted; ATT-893-2 failed as above; ATT-920-2 failed with `EnvironmentBlocked` after a previously verified `attraccess/install` failed on a later Boot; ATT-776-1 completed. Parked does not inherently mean failed; inspect its controls/checkpoint. Historical failed attempts remain visible until settled.
 
 ## Runtime locations and controls
 
