@@ -489,6 +489,79 @@ it('starts dependency services and records endpoints, then stops in reverse orde
   expect(exec.mock.calls[2][0]).toContain('-102');
   expect(exec.mock.calls[3][0]).toContain('-101');
 });
+it('serializes verified service launches for the same repository until readiness', async () => {
+  const f = await fixture();
+  f.repo.services = [
+    {
+      ...serviceRecipe('web'),
+      portEnv: '',
+      start: 'start-web',
+      endpoints: [
+        {
+          name: 'web',
+          locator: { kind: 'fixed', url: 'http://127.0.0.1:4312/' },
+        },
+      ],
+      readiness: { endpoint: 'web', attempts: 5, intervalMs: 50 },
+    },
+  ];
+  const children: ReturnType<typeof startCommand>[] = [];
+  const makeContext = () => {
+    const exec = vi.fn(async () => {
+      const child = startCommand('sleep 30', {
+        cwd: f.root,
+        background: true,
+      });
+      children.push(child);
+      return child.result;
+    });
+    return {
+      exec,
+      step: async <T>(_label: string, work: () => T | Promise<T>) => work(),
+      ports: [],
+    } as unknown as WorkflowContext & { exec: typeof exec };
+  };
+  const firstContext = makeContext();
+  const secondContext = makeContext();
+  const first = new WorkspaceExecution(
+    firstContext,
+    f.input,
+    [f.repo],
+    f.root,
+    true,
+  );
+  const second = new WorkspaceExecution(
+    secondContext,
+    f.input,
+    [f.repo],
+    f.root,
+    true,
+  );
+  let releaseFirst = () => undefined;
+  const firstResponse = new Promise<Response>((resolve) => {
+    releaseFirst = () => resolve(new Response('ready'));
+  });
+  const fetch = vi
+    .fn()
+    .mockImplementationOnce(() => firstResponse)
+    .mockImplementation(async () => new Response('ready'));
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const startingFirst = first.start(['web-id/web'], 'first');
+    await vi.waitFor(() => expect(firstContext.exec).toHaveBeenCalledOnce());
+    const startingSecond = second.start(['web-id/web'], 'second');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(secondContext.exec).not.toHaveBeenCalled();
+    releaseFirst();
+    expect(await startingFirst).toHaveProperty('web-id/web');
+    expect(await startingSecond).toHaveProperty('web-id/web');
+    expect(secondContext.exec).toHaveBeenCalledOnce();
+  } finally {
+    releaseFirst();
+    await Promise.all([first.stop('done'), second.stop('done')]);
+    await Promise.all(children.map((child) => child.stop()));
+  }
+});
 it('runs required validation even when the planner selects nothing, and records skipped optional checks', async () => {
   const f = await fixture();
   f.repo.commands = [
