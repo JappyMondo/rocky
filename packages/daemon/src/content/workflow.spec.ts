@@ -3651,6 +3651,119 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     },
   );
 
+  it.skipIf(mode === 'legacy')(
+    'replays a pre-guard approval and repairs its non-ready recap without merging',
+    async () => {
+      const oldFlow = parseFlow(flowSource);
+      delete oldFlow.settings.recapDecisionVersion;
+      let recaps = 0;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(oldFlow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => ({
+          id: `report-${++recaps}`,
+          url: `https://rocky.test/report-${recaps}`,
+          decision: {
+            status: 'needs-attention',
+            summary: 'A required check is missing.',
+            actions: ['Run the check.'],
+          },
+        }),
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions:
+                  (input.complaints as { id: string }[] | undefined)?.map(
+                    ({ id }) => ({
+                      id,
+                      status: id.startsWith('recap/') ? 'disagreed' : 'fixed',
+                      note: 'Evidence is still missing.',
+                    }),
+                  ) ?? [],
+              }
+            : undefined,
+      });
+      const first = await f.boot();
+      expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
+      expect(recaps).toBeGreaterThan(0);
+      f.answer({
+        decision: 'steer',
+        message: 'Rocky recap recovery: A required check is missing.',
+      });
+      const second = await f.boot();
+      expect(second, JSON.stringify(second)).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.scmCalls.some(({ operation }) => operation === 'armAutoMerge'),
+      ).toBe(false);
+      expect(
+        f.calls.find(
+          ({ name, input }) =>
+            name === 'fixer' &&
+            typeof input.steer === 'string' &&
+            input.steer.startsWith('Rocky recap recovery:'),
+        )?.input.issue,
+      ).toMatchObject({
+        description: expect.stringContaining('Automated recap recovery'),
+      });
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'blocks an approval that races with legacy recap recovery',
+    async () => {
+      const oldFlow = parseFlow(flowSource);
+      delete oldFlow.settings.recapDecisionVersion;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(oldFlow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => ({
+          id: 'report',
+          url: 'https://rocky.test/report',
+          decision: {
+            status: 'needs-attention',
+            summary: 'A required check is missing.',
+            actions: ['Run the check.'],
+          },
+        }),
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions:
+                  (input.complaints as { id: string }[] | undefined)?.map(
+                    ({ id }) => ({
+                      id,
+                      status: 'disagreed',
+                      note: 'The check is still missing.',
+                    }),
+                  ) ?? [],
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      f.approve();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.scmCalls.some(({ operation }) => operation === 'armAutoMerge'),
+      ).toBe(false);
+      expect(
+        f.scmCalls.some(
+          ({ operation, args }) =>
+            operation === 'markDraft' && args[1] === true,
+        ),
+      ).toBe(true);
+    },
+  );
+
   it('feeds previous-session answers to refinement and downstream planning', async () => {
     const comments = [
       {

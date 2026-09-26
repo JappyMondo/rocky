@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,6 +10,8 @@ import { rockyPaths } from '../config/paths.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { newRunHeader } from '../run/header.js';
 import { JournalWriter } from '../run/writer.js';
+import { LocalArtifacts } from '../local-api/artifacts.js';
+import type { ReviewReport } from '@rocky/local-contracts';
 import type { ExecutionIntegration } from '../run/execution.js';
 import type { AgentSessionEvent } from '../linear/events.js';
 
@@ -116,6 +118,118 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+});
+
+it('answers a legacy approval from its published non-ready recap before polling it again', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-recap-checkpoint-'));
+  roots.push(root);
+  const paths = rockyPaths(root);
+  const runId = 'TEST-1';
+  const run = newRunHeader({
+    runId,
+    issue: {
+      identifier: 'TEST',
+      title: 'Complete a repository-neutral task',
+      description: 'Keep the package usable.',
+      labels: [],
+      url: 'https://linear.example.test/issue/TEST',
+    },
+    branch: 'test',
+    repo: 'fixture',
+    trigger: 'linear.onDelegate',
+    now: '2026-09-26T12:00:00.000Z',
+  });
+  const execution = {
+    scheduler: {
+      get: vi.fn(async () => run),
+      list: vi.fn(async () => [run]),
+      poll: vi.fn(),
+      stop: vi.fn(),
+    },
+    journal: vi.fn(async () => ({})),
+  };
+  fakes.openExecution.mockResolvedValue(
+    execution as unknown as ExecutionIntegration,
+  );
+  const config = {
+    current: parseInstanceConfig({
+      server: { host: '127.0.0.1', port: 7625 },
+      repos: [
+        {
+          name: 'fixture',
+          label: 'Fixture',
+          url: 'https://github.com/example/fixture.git',
+          baseBranch: 'main',
+        },
+      ],
+    }),
+  } as ConfigStore;
+  const runPaths = paths.run(runId);
+  await mkdir(runPaths.snapshotDir, { recursive: true });
+  await writeFile(
+    join(runPaths.snapshotDir, 'workflow.json'),
+    JSON.stringify({
+      settings: {},
+      nodes: [{ type: 'delivery.approval' }],
+    }),
+  );
+  const reportId = `r_${'a'.repeat(32)}`;
+  const headSha = 'b'.repeat(40);
+  const report: ReviewReport = {
+    id: reportId,
+    runId,
+    createdAt: '2026-09-26T12:00:00.000Z',
+    title: 'Package review',
+    summary: 'The package still needs a check.',
+    decision: {
+      status: 'needs-attention',
+      summary: 'Installation has not been checked.',
+      actions: ['Run the install check.'],
+    },
+    problems: [{ problem: 'Missing check', solution: 'Run it.' }],
+    diagrams: [],
+    verification: [],
+    limitations: [],
+    visuallyReviewable: false,
+    visuals: [],
+    pr: {
+      repo: 'fixture',
+      number: 12,
+      url: 'https://github.com/example/fixture/pull/12',
+      headSha,
+      baseSha: 'c'.repeat(40),
+    },
+  };
+  await new LocalArtifacts(paths).saveReport(runId, report);
+  await (
+    await JournalWriter.open(runPaths.journal)
+  ).append({
+    v: 1,
+    seq: 0,
+    step: 'reviewReport.publish',
+    status: 'done',
+    result: { reportId, headSha },
+    boot: 1,
+    startedAt: '2026-09-26T12:00:00.000Z',
+  });
+  const composition = await createProductionComposition({ paths, config });
+  const options = fakes.openExecution.mock.calls[0]?.[0];
+  await expect(
+    options.checkpoint(runId, '0', {
+      title: 'Approve this change?',
+      body: 'Review the change.',
+    }),
+  ).resolves.toEqual({ status: 'waiting' });
+  expect(fakes.controls[0]?.answer).toHaveBeenCalledWith({
+    stepKey: '0',
+    generation: 'generation-1',
+    requestId: 'legacy-recap:generation-1',
+    answer: {
+      decision: 'steer',
+      message: expect.stringContaining('Installation has not been checked.'),
+    },
+  });
+  await composition.close();
 });
 
 it('hydrates a signed delegation, isolates foreign prompts, and exposes durable local control', async () => {

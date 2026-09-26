@@ -30,6 +30,7 @@ import {
   type ReviewThread,
   type WorkflowInput,
   type CheckpointAnswer,
+  type VisualRecapResult,
   z,
 } from '@rocky/sdk';
 import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
@@ -429,7 +430,7 @@ export function createDeliveryOperations(
       ? new DeliveryRepositories(ctx, workspace)
       : undefined;
   const reviewedRepositoryHeads = new Map<string, Record<string, string>>();
-  const recaps = new Map<string, { url: string }>();
+  const recaps = new Map<string, VisualRecapResult>();
   let actors: DeliveryAgents;
   const history = new ReviewHistory();
   const reviewedHeads = new Map<string, string>();
@@ -442,6 +443,7 @@ export function createDeliveryOperations(
   let description = '';
   const changes: string[] = [];
   let ciAttempts = 0;
+  let legacyRecapRepair = false;
   let mergeReadiness = settings.mergeReadinessVersion === 1;
   let pendingThreads: ReviewThread[] = [];
   let threadReplies: {
@@ -595,7 +597,7 @@ export function createDeliveryOperations(
     'No local validation commands configured; see CI and review evidence.';
   let server: { pid: number } | undefined;
   let revision = 0;
-  let recap!: { url: string };
+  let recap!: VisualRecapResult;
   let answer: CheckpointAnswer | undefined;
   const diff = () =>
     repositories
@@ -2205,8 +2207,10 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               },
               agents: actors.recap(),
             });
+            // Old journals already contain the ready-flip after this report.
+            // The checkpoint migration enables this guard on its next cycle.
             if (
-              settings.recapDecisionVersion &&
+              (settings.recapDecisionVersion || legacyRecapRepair) &&
               result.decision?.status !== 'ready'
             )
               throw new RecapAuditError([
@@ -2331,9 +2335,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       if (answer.decision === 'steer') {
         if (repositories) await repositories.markDraft(true);
         else pr = requireScm(await ctx.scm.markDraft(pr, true));
+        const recapRecovery = answer.message.startsWith(
+          'Rocky recap recovery:',
+        );
+        if (recapRecovery) legacyRecapRepair = true;
         issue = {
           ...issue,
-          description: `${issue.description}\n\n### Human steering\n${answer.message}`,
+          description: `${issue.description}\n\n### ${recapRecovery ? 'Automated recap recovery' : 'Human steering'}\n${answer.message}`,
         };
         ticket = `${issue.title}\n${issue.description}`;
         serviceChecks.clear();
@@ -2349,6 +2357,17 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async merge() {
       ctx.stage('Merge');
+      // A legacy snapshot may already have requested approval for an
+      // unresolved recap. Even an approval that raced with recovery cannot
+      // authorize merging that revision.
+      if (
+        [...recaps.values()].some(
+          (report) => report.decision?.status !== 'ready',
+        )
+      ) {
+        legacyRecapRepair = true;
+        return retryMerge();
+      }
       if (repositories) return mergeRepositories();
       const update = requireScm(await ctx.scm.updateBranch(pr));
       const adoptSource =
