@@ -123,7 +123,7 @@ export const retentionSchema = z.looseObject({
 });
 
 export const concurrencySchema = z.looseObject({
-  maxRuns: z.number().int().min(1).default(3),
+  maxRuns: z.number().int().min(1).default(1),
   /** Disk admission reserve; does not interrupt work already in flight. */
   minFreeDiskGiB: z.number().finite().min(0).optional(),
 });

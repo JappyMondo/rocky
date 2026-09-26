@@ -44,8 +44,8 @@ function stored(id: string) {
   });
 }
 
-it('uses default cap 3 and refuses invalid caps', async () => {
-  expect(parseInstanceConfig({}).concurrency).toEqual({ maxRuns: 3 });
+it('uses default cap 1 and refuses invalid caps', async () => {
+  expect(parseInstanceConfig({}).concurrency).toEqual({ maxRuns: 1 });
   for (const maxRuns of [0, -1, 1.5, NaN])
     await expect(
       RunScheduler.open({
