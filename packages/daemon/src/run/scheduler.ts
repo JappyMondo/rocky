@@ -719,11 +719,20 @@ export class RunScheduler {
 
   private async releaseTerminalWorkspace(run: RunHeader): Promise<void> {
     if (!isTerminal(run) || !this.options.releaseTerminalWorkspace) return;
-    try {
-      await this.options.releaseTerminalWorkspace(structuredClone(run));
-    } catch (error) {
-      this.report(error);
-    }
+    await this.admissions.run(run.issue.identifier, async () => {
+      const current = await this.mutate(async () => {
+        const latest = this.runs.get(run.runId);
+        return !this.closed && latest && isTerminal(latest)
+          ? structuredClone(latest)
+          : undefined;
+      });
+      if (!current) return;
+      try {
+        await this.options.releaseTerminalWorkspace!(current);
+      } catch (error) {
+        this.report(error);
+      }
+    });
   }
 
   /** One active Boot per Run, even when webhook and timer race. */
@@ -772,12 +781,12 @@ export class RunScheduler {
       this.options.now().getTime() >= this.nextWorkspaceSweepAt
     ) {
       this.nextWorkspaceSweepAt = this.options.now().getTime() + 300_000;
-      await this.mutate(async () => {
-        for (const run of this.runs.values()) {
-          if (isTerminal(run) && !this.executions.has(run.runId))
-            await this.releaseTerminalWorkspace(run);
-        }
-      });
+      // Removal can take minutes for a large dependency tree. Serialize it
+      // against this issue's retry/admission, never against unrelated Runs.
+      for (const run of this.runs.values()) {
+        if (isTerminal(run) && !this.executions.has(run.runId))
+          await this.releaseTerminalWorkspace(run);
+      }
     }
     await this.drain();
   }

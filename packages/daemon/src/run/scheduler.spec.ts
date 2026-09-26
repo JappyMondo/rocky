@@ -937,3 +937,30 @@ it('retries retained terminal workspace cleanup after restart without touching l
   expect(cleanup).toHaveBeenCalledOnce();
   await instance.close();
 });
+
+it('does not block unrelated admissions while a terminal workspace is being removed', async () => {
+  await writeRunHeader(paths, storedRun({}));
+  const removal = deferred<void>();
+  const cleanup = vi.fn(() => removal.promise);
+  const instance = await scheduler(
+    async () => ({
+      status: 'parked',
+      reason: 'checkpoint',
+      boot: 1,
+      replayed: 0,
+      executed: 0,
+    }),
+    3,
+    { releaseTerminalWorkspace: cleanup },
+  );
+  const tick = instance.tick();
+  await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+  try {
+    const next = await instance.delegate(input('NG-OTHER'));
+    expect(next.kind).toBe('started');
+  } finally {
+    removal.resolve();
+    await tick;
+    await instance.close();
+  }
+});
