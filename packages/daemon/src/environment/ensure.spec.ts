@@ -1191,6 +1191,7 @@ it.each([
               action: 'repaired',
               commands: ['web/ui'],
               summary: 'wrong catalog',
+              requiredValidationCommands: [],
             }).success,
           ).toBe(false);
           expect(
@@ -1198,11 +1199,13 @@ it.each([
               action: 'repaired',
               commands: ['web/seed'],
               summary: 'valid command',
+              requiredValidationCommands: [],
             }).success,
           ).toBe(true);
           return {
             action: 'repaired',
             commands: ['web/seed', 'web/ui'],
+            requiredValidationCommands: [],
             summary:
               'Use the documented local seed; legacy receipt also names its service.',
           };
