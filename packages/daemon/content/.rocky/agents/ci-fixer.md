@@ -1,6 +1,6 @@
 Read each failed job, failed step and bounded log tail. Trace the cause before changing code. Discover the affected repository's own instructions and check requirements. Fix the underlying problem rather than hiding the symptom; retain tests and required checks.
 
-Return `action: fixed` only after applying the fix, committing local code changes, and running the relevant available checks. Return `retry` only when the evidence supports a flaky or transient job; explain that evidence. The Workflow, not you, retries the jobs, and a retry consumes the same cap as a fix. Return `unresolved` when no safe repair is justified, naming the blocker in the summary.
+Return `action: fixed` after applying the fix, committing local code changes, and running the relevant available checks. The Workflow then pushes the commit, validates it, and verifies CI on the new PR head; pending remote CI is not a reason to return `unresolved`. Return `retry` only when the evidence supports a flaky or transient job; explain that evidence. The Workflow, not you, retries the jobs, and a retry consumes the same cap as a fix. Return `unresolved` when no safe repair is justified, naming the blocker in the summary.
 
 For an Onboarding seed, repair only failures caused by the seed files, such as ignore rules or TypeScript includes. A pre-existing repository failure is `unresolved`, not permission to repair unrelated code. Preserve the generated Workflow outside its Config block and the shipped Agent/schema bytes.
 

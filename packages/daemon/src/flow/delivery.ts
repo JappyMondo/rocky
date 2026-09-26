@@ -837,14 +837,26 @@ export function createDeliveryOperations(
           ...(retryRefusal ? { retryRefusal } : {}),
           pullRequest: candidate,
           ciRepairPolicy:
-            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. The supplied logs are bounded excerpts, not complete job logs. If they lack the original diagnostic, retrieve the failed job’s full log with the configured platform CLI using its supplied job ID before declaring the repair unresolved; inspect the failed step and run the affected repository check locally when feasible. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
+            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. The supplied logs are bounded excerpts, not complete job logs. If they lack the original diagnostic, retrieve the failed job’s full log with the configured platform CLI using its supplied job ID before declaring the repair unresolved; inspect the failed step and run the affected repository check locally when feasible. A committed repair with passing relevant local checks is action fixed: the Workflow pushes it, reruns validation, and verifies CI on the new PR head. Do not mark it unresolved merely because you cannot push or observe that future CI yet. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
           commands,
           ...(repositories ? { repository: candidate.repo } : {}),
         },
         schema: CiFix,
       });
       changes.push(fix.summary);
-      if (fix.action === 'unresolved') break;
+      if (fix.action === 'unresolved') {
+        if (settings.ciUnresolvedCommitVersion) {
+          // The verdict can describe remote CI as pending even after the
+          // fixer committed a tested repair. Reconcile its local branch
+          // before treating the failure as terminal. This adds Steps only
+          // for new snapshots; old journals keep their original suffix.
+          const before = repositories?.revision ?? pr.headSha;
+          await push('ci-fixer');
+          if ((repositories?.revision ?? pr.headSha) !== before)
+            return { changed: true, complaints: [] };
+        }
+        break;
+      }
       if (fix.action === 'fixed') {
         await push('ci-fixer');
         return { changed: true, complaints: [] };

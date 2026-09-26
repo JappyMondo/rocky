@@ -39,6 +39,8 @@ export interface FlowSettings {
   ciRetryVersion?: 1;
   /** New snapshots stop retrying an unchanged CI refusal after fixer review. */
   ciRetryRefusalVersion?: 1;
+  /** Inspect local CI fixer commits even when its verdict says unresolved. */
+  ciUnresolvedCommitVersion?: 1;
   /** Publish scope decisions as durable ticket comments in new snapshots. */
   scopeCommentVersion?: 1;
   /** Deliver a reviewed comment and close its issue before writing the final recap. */
@@ -426,6 +428,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   recoveryVersion: 1,
   ciRetryVersion: 1,
   ciRetryRefusalVersion: 1,
+  ciUnresolvedCommitVersion: 1,
   scopeCommentVersion: 1,
   commentDeliveryVersion: 1,
   recapDecisionVersion: 1,
@@ -560,6 +563,11 @@ export function parseFlow(source: string): WorkflowFlow {
     throw new Error('Unsupported CI retry version.');
   if (s.ciRetryRefusalVersion !== undefined && s.ciRetryRefusalVersion !== 1)
     throw new Error('Unsupported CI retry refusal version.');
+  if (
+    s.ciUnresolvedCommitVersion !== undefined &&
+    s.ciUnresolvedCommitVersion !== 1
+  )
+    throw new Error('Unsupported CI unresolved commit version.');
   if (s.recoveryVersion !== undefined && s.recoveryVersion !== 1)
     throw new Error('Unsupported recovery version.');
   if (s.environmentVersion !== undefined && s.environmentVersion !== 1)

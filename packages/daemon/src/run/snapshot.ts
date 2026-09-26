@@ -101,6 +101,7 @@ export async function prepareProfileSnapshot(
       flow.settings.recoveryVersion = 1;
       flow.settings.ciRetryVersion = 1;
       flow.settings.ciRetryRefusalVersion = 1;
+      flow.settings.ciUnresolvedCommitVersion = 1;
       flow.settings.scopeCommentVersion = 1;
       flow.settings.commentDeliveryVersion = 1;
       flow.settings.recapDecisionVersion = 1;

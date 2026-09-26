@@ -578,6 +578,86 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     },
   );
 
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'preserves a committed CI repair despite an unresolved agent verdict and replays old journals (enabled=%s)',
+    async (enabled) => {
+      let localHead = 'abc';
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.ciUnresolvedCommitVersion = 1;
+      else delete flow.settings.ciUnresolvedCommitVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('git rev-parse HEAD')
+            ? { exitCode: 0, stdout: localHead, stderr: '' }
+            : undefined,
+        scm: (operation, count, args) =>
+          operation === 'waitForCi'
+            ? {
+                status: count === 1 ? 'failed' : 'passed',
+                headSha: (args[0] as { headSha: string }).headSha,
+                failedJobs:
+                  count === 1
+                    ? [
+                        {
+                          id: 'gate',
+                          name: 'repository check',
+                          failedSteps: [],
+                          logTail: 'Failed assertion',
+                        },
+                      ]
+                    : [],
+              }
+            : undefined,
+        agent: (name) => {
+          if (name !== 'ci-fixer') return undefined;
+          localHead = 'def';
+          return {
+            action: 'unresolved',
+            summary: 'Committed and locally checked; remote CI is pending.',
+          };
+        },
+      });
+      const first = await f.boot();
+      expect(first).toMatchObject(
+        enabled
+          ? { status: 'parked' }
+          : { status: 'finished', outcome: 'exhausted' },
+      );
+      const checks = f.scmCalls.filter(
+        (call) => call.operation === 'waitForCi',
+      );
+      const heads = checks.map(
+        (call) => (call.args[0] as { headSha: string }).headSha,
+      );
+      expect(heads[0]).toBe('abc');
+      expect(heads.slice(1)).toEqual(enabled ? ['def', 'def'] : []);
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      if (enabled) {
+        f.approve();
+        f.merge();
+        expect(await f.boot()).toMatchObject({
+          status: 'finished',
+          outcome: 'merged',
+        });
+      } else {
+        expect(await f.boot()).toMatchObject({
+          status: 'finished',
+          outcome: 'exhausted',
+        });
+      }
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        1,
+      );
+    },
+  );
+
   it.skipIf(mode === 'legacy')(
     'returns a refused CI retry to the fixer as evidence instead of claiming it ran',
     async () => {
