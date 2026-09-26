@@ -841,6 +841,9 @@ export function createDeliveryOperations(
         if ((repositories?.revision ?? pr.headSha) !== before)
           return { changed: true, complaints: [] };
       }
+      // The fixer has already received this refusal. Repeating the same
+      // request against an unchanged head supplies no new evidence.
+      if (settings.ciRetryRefusalVersion && retryRefusal) break;
       const retry = await ctx.scm.retryFailedJobs(candidate);
       if (settings.ciRetryVersion && retry && 'refused' in retry) {
         retryRefusal = retry;

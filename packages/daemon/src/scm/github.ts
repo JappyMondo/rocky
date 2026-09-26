@@ -862,11 +862,23 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             'Inspect the PR before requesting an external check retry.',
             current,
           );
-        await http.request(
-          'POST',
-          `${root}/check-runs/${check.id}/rerequest`,
-          z.object({}),
-        );
+        try {
+          await http.request(
+            'POST',
+            `${root}/check-runs/${check.id}/rerequest`,
+            z.object({}),
+          );
+        } catch (error) {
+          if (error instanceof ScmError && error.status === 404)
+            throw refuse(
+              options.repo.id,
+              'unsupported',
+              `GitHub cannot rerequest check run ${check.id} (HTTP 404).`,
+              'Inspect the current check and the provider app access; use a provider-supported retry path without bypassing CI.',
+              current,
+            );
+          throw error;
+        }
         requested = true;
       }
       if (!requested)

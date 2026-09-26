@@ -37,6 +37,8 @@ export interface FlowSettings {
   recoveryVersion?: 1;
   /** New snapshots reconcile local CI fixer work before requesting a retry. */
   ciRetryVersion?: 1;
+  /** New snapshots stop retrying an unchanged CI refusal after fixer review. */
+  ciRetryRefusalVersion?: 1;
   /** Publish scope decisions as durable ticket comments in new snapshots. */
   scopeCommentVersion?: 1;
   /** Provision selected UI services for recap capture; old journals retain their order. */
@@ -413,6 +415,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   mergeReadinessVersion: 1,
   recoveryVersion: 1,
   ciRetryVersion: 1,
+  ciRetryRefusalVersion: 1,
   scopeCommentVersion: 1,
   recapEnvironmentVersion: 1,
   validationEnvironmentVersion: 1,
@@ -524,6 +527,8 @@ export function parseFlow(source: string): WorkflowFlow {
     throw new Error('Unsupported scope comment version.');
   if (s.ciRetryVersion !== undefined && s.ciRetryVersion !== 1)
     throw new Error('Unsupported CI retry version.');
+  if (s.ciRetryRefusalVersion !== undefined && s.ciRetryRefusalVersion !== 1)
+    throw new Error('Unsupported CI retry refusal version.');
   if (s.recoveryVersion !== undefined && s.recoveryVersion !== 1)
     throw new Error('Unsupported recovery version.');
   if (s.environmentVersion !== undefined && s.environmentVersion !== 1)

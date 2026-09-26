@@ -622,6 +622,66 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     },
   );
 
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'replays the CI retry refusal boundary with an unchanged head (enabled=%s)',
+    async (enabled) => {
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.ciRetryRefusalVersion = 1;
+      else delete flow.settings.ciRetryRefusalVersion;
+      const refusal = {
+        refused: true,
+        repo: 'fixture',
+        reason: 'unsupported',
+        message: 'External check cannot be rerequested.',
+        fix: 'Use the check provider recovery path.',
+      };
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        scm: (operation, _count, args) =>
+          operation === 'retryFailedJobs'
+            ? refusal
+            : operation === 'waitForCi'
+              ? {
+                  status: 'failed',
+                  headSha: (args[0] as { headSha: string }).headSha,
+                  failedJobs: [
+                    {
+                      id: 'check',
+                      name: 'External review',
+                      failedSteps: [],
+                      logTail: 'Provider unavailable',
+                    },
+                  ],
+                }
+              : undefined,
+        agent: (name, input, count) => {
+          if (name !== 'ci-fixer') return undefined;
+          if (count === 2) expect(input.retryRefusal).toEqual(refusal);
+          return { action: 'retry', summary: 'No repository change.' };
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calledRepos(f, 'retryFailedJobs')).toHaveLength(enabled ? 1 : 3);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        enabled ? 2 : 3,
+      );
+      const journal = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      const callCount = f.calls.length;
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(f.calls).toHaveLength(callCount);
+      expect(await readFile(join(dir, 'journal.jsonl'), 'utf8')).toBe(journal);
+    },
+  );
+
   it.skipIf(mode === 'legacy')(
     'can deliver only a changed companion without creating an empty lead PR',
     async () => {

@@ -1476,8 +1476,8 @@ it.each([false, true])(
   },
 );
 
-it.each([201, 403])(
-  'requests external check retries and reports denied permission (HTTP %s)',
+it.each([201, 403, 404])(
+  'requests external check retries and reports unavailable requests (HTTP %s)',
   async (status) => {
     const transport = scriptedFetch([
       { path: '/repos/team/repo/pulls/7', value: githubPull },
@@ -1515,6 +1515,10 @@ it.each([201, 403])(
     if (status === 403)
       await expect(retry).rejects.toMatchObject({
         refusal: { reason: 'permission_denied' },
+      });
+    else if (status === 404)
+      await expect(retry).rejects.toMatchObject({
+        refusal: { reason: 'unsupported' },
       });
     else await retry;
     transport.done();
