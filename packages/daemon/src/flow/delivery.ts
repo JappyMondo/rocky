@@ -1048,6 +1048,7 @@ export function createDeliveryOperations(
               actors.call('fixer', {
                 label: `Prepare UI fixtures ${revision}/${serviceKey}/${attempt}`,
                 screenshotWrite: true,
+                blockedAsResult: !!settings.uiFixtureRecoveryVersion,
                 input: {
                   issue,
                   workspace,

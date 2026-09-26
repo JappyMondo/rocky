@@ -13,10 +13,11 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-Commits through `d7d6268` on `fix/unattended-recovery` contain the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, and mandatory rechecks for previously failed configured commands. See [the implementation notes](unattended-recovery.md). The local `rocky-0.2.0.tgz` has SHA-256 `f05bc226f33af1e214d0e31eb6e5e6a8387ab362401adac502792197da6c18cb`. It passed the isolated distribution smoke test and was installed into both global prefixes at 11:22 UTC. Both installed `dist/main.js` files have SHA-256 `b6ea8f439e15dc5ca5a884ab9e9fba7622082ce842abd88b39ce9b765050c453`, and both `dist/flow-runtime.js` files have SHA-256 `26777472c07363eadf5f18bdfb8583263669550154f9e3641aecfa90117e7a2f`; these match the archive. Daemon and ingress LaunchAgents restarted and health returned OK. All four checks passed on draft PR [#51](https://github.com/JappyMondo/rocky/pull/51) at 11:26 UTC. This is not live end-to-end acceptance.
+The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, and journal-safe fixture blocker handling. See [the implementation notes](unattended-recovery.md). The local `rocky-0.2.0.tgz` has SHA-256 `db00045fa3be4f156a5a88c5f1364f1281ea8b894de53e70de13d85a0e8e4bec`. It passed the isolated distribution smoke test and was installed into both global prefixes at 11:58 UTC. Both installed `dist/main.js` files have SHA-256 `b6ea8f439e15dc5ca5a884ab9e9fba7622082ce842abd88b39ce9b765050c453`, both `dist/boot-child.js` files have SHA-256 `2fa6bcf2cc03cb5c24dd2a26b9318b9721dbd894afb216b19cc835a336ba9252`, and both `dist/flow-runtime.js` files have SHA-256 `360e01e50f383004c3059c7380192486be7b41f546fd8d9d6ed119480c82ca14`; these match the archive. Daemon and ingress LaunchAgents restarted and health returned OK. All four checks passed on the previous head of draft PR [#51](https://github.com/JappyMondo/rocky/pull/51); the new blocker change has not yet completed CI. This is not live end-to-end acceptance.
 
 Important recent commits:
 
+- Current blocker change: accept a validated agent blocker inside the journaled fixture Step on new recovery snapshots, then route it through bounded repair; older snapshots retain the exception path.
 - `f0133e5`, `d7d6268`: preserve actual CI assertions in bounded log excerpts and force previously failed configured validation commands into subsequent new-snapshot validation rounds; then format the changes.
 - `0cd1e37`: route blocked UI fixture preparation through bounded environment repair on new snapshots; preserve old journal order.
 - `23f80bd`: gate comment and PR handoffs on recap readiness, reuse successful setup receipts on retained runs, bind UI plans to the current endpoint, and preserve old journal replay.
@@ -32,9 +33,17 @@ Important recent commits:
 - `d53e482`, `b040c86`: same-session maintenance continuation and planned shutdowns excluded from crash-loop accounting.
 - Earlier commits cover refinement comments/prior answers, fresh-snapshot restart, CI retry SHA synchronization, worktree adoption, service provisioning for validation/recaps, settled runs and ticket grouping.
 
-The main checkout was clean after `d7d6268` was pushed. The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover.
+The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover. Recheck the main checkout and remote before further edits.
 
-## Live recovery audit, 2026-09-26 11:26 UTC
+## Live recovery update, 2026-09-26 12:00 UTC
+
+- ATT-764-5 failed at fixture Step 84 after its agent emitted a valid `<blocked>` envelope for unsupported read-only/header previews and a resource detail request that did not complete. Rocky's agent runtime threw `AgentBlockedError`, bypassing the structured blocked-result path and leaving a failed journal receipt. The new opt-in `blockedAsResult` converts that envelope *inside* the journaled Step only when the configured schema accepts it. An integration test with the real delivery and journal replay path passed after an initial implementation failed on replay. ATT-764-5's Step 84 retry was accepted and is **queued**; this is not yet live verification of recovery. Payload: `/tmp/rocky-durable-retry-ATT-764-5.json`.
+- ATT-920-2's CI fixer received the exact WAGO audit assertion. The full local plugin E2E target passed, isolated reruns passed, and the fixer requested a GitHub job retry without changing source. The rerun `plugins` and aggregate `precommit-check` are now green. CI Step 185 is done, but the Run is **queued** for its next review; it has not completed.
+- ATT-777-4 exhausted because a seeded admin required an existing authenticator code and signup returned HTTP 500. Fresh successor ATT-777-5 is **running** with `uiFixtureRecoveryVersion: 1` and `validationRecheckVersion: 1`. A source-backed option to seed a separate isolated user was steered to it; no browser verdict yet.
+- ATT-893-3 is **running** its first compliance-review fixer. ATT-1098-3 has green PR CI but is **queued** after its old-snapshot validation omitted a locally failed plugin check. Its held steer requires that exact check to pass before completion.
+- Tests for the new blocker handoff: eight focused delivery/replay integration cases, five agent blocker cases, and 119 workflow/UI-fixture cases passed with 59 expected skips. Daemon and SDK typecheck/lint passed. The installed archive passed isolated distribution smoke. No new live Run has completed all required work successfully.
+
+## Earlier live recovery audit, 2026-09-26 11:26 UTC
 
 - ATT-776-1 was historically marked `completed` even though its recap said the comment and closure were unverified. Its explanatory comment existed in Linear, but the issue was In Review. The issue was moved to Done and read back with `completedAt` set. The historical recap remains a record of the earlier incomplete handoff. New snapshots gate completion on a ready recap and confirmed Linear state; the project-neutral non-ready and old-journal replay tests pass.
 - ATT-920-2 passed the previously failing setup replay and local test, lint, typecheck, build, seed and E2E commands. A CodeQL CI failure was repaired on PR #1888 and its rerun passed. The later `plugins` CI job failed in `audit-hooks.integration.spec.ts`: the stalled rotation dispatch test expected two audit records and got one. The old bounded CI excerpt lost this assertion after many warning matches. The new extractor was verified against the real job log and preserves it. The run is **queued** for its CI fixer; a steer with the exact failure evidence is held for the next agent turn. No successful CI repair has been observed.
@@ -65,7 +74,7 @@ Control requests require JSON and `Origin: http://127.0.0.1:7625`:
 - `POST /api/runs/ID/restart`: `{expectedBoot, requestId}`. Latest failed/exhausted run only; returns successor with current workflow snapshot and hydrated ticket context. Old journal remains intact.
 - `requestId` is a UUID. Save payload before sending and reuse it after uncertain transport results; do not create duplicate successors.
 
-Latest restart payloads: `/tmp/rocky-durable-restart-ATT-764-4.json` and `/tmp/rocky-durable-restart-ATT-893-2.json`. Temporary files are conveniences and may disappear.
+Latest retry payload: `/tmp/rocky-durable-retry-ATT-764-5.json`. Recent restart payloads: `/tmp/rocky-durable-restart-ATT-777-4.json`, `/tmp/rocky-durable-restart-ATT-764-4.json`, and `/tmp/rocky-durable-restart-ATT-893-2.json`. Temporary files are conveniences and may disappear.
 
 ## Diagnostic sequence for another failure
 

@@ -1352,6 +1352,83 @@ it('stops a missing-tool blocker without schema repair or automatic retry', asyn
   expect(f.resume).not.toHaveBeenCalled();
 });
 
+it('journals a schema-accepted blocker as a replayable result only when opted in', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<blocked>{"reason":"environment","requiredTool":"A local preview","fix":"Create a supported fixture"}</blocked>',
+    sessionId: 'blocked-session',
+    events: [],
+  });
+  const journalPath = join(dir, 'recoverable-blocker.jsonl');
+  const schema = z.object({
+    status: z.literal('blocked'),
+    reason: z.literal('environment'),
+    summary: z.string(),
+  });
+  const boot = () =>
+    runBoot({
+      journalPath,
+      workflow: async (steps) => {
+        const result = await createAgent(steps, f.options)(
+          { prompt: 'Prepare a local fixture.' },
+          {
+            label: 'fixture',
+            tools: ['read'],
+            schema,
+            blockedAsResult: true,
+          },
+        );
+        expect(result).toEqual({
+          status: 'blocked',
+          reason: 'environment',
+          summary: 'A local preview. Create a supported fixture',
+        });
+        return 'completed';
+      },
+    });
+  expect(await boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(await boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.run).toHaveBeenCalledOnce();
+  expect((await openJournal(journalPath)).latest(0)).toMatchObject({
+    status: 'done',
+  });
+});
+
+it('does not turn an unsupported blocker into a passing agent result', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<blocked>{"reason":"permission","requiredTool":"An account","fix":"Grant access"}</blocked>',
+    sessionId: 'blocked-session',
+    events: [],
+  });
+  const result = await runBoot({
+    journalPath: join(dir, 'unsupported-blocker.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Prepare a local fixture.' },
+        {
+          label: 'fixture',
+          tools: ['read'],
+          schema: z.object({ status: z.literal('ready'), summary: z.string() }),
+          blockedAsResult: true,
+        },
+      );
+      return 'completed';
+    },
+  });
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: { name: 'AgentBlockedError' },
+  });
+  expect(f.run).toHaveBeenCalledOnce();
+});
+
 it('describes the actual grants and avoids impossible branch checks for read-only Agents', async () => {
   const f = fixture();
   await runBoot({

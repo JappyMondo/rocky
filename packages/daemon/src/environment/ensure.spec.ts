@@ -32,6 +32,7 @@ import { newRepositoryProfile } from '../config/profiles.js';
 import { runBoot } from '../run/replay.js';
 import { createWorkflowContext } from '../run/context.js';
 import { readJournal } from '../run/journal.js';
+import { AgentBlockedError } from '../run/agent-tools.js';
 
 const roots: string[] = [];
 const children: OwnedCommand[] = [];
@@ -961,6 +962,12 @@ it.each([
   {
     recapEnvironment: true,
     fixturePreflight: true,
+    fixtureRecovery: true,
+    fixtureAgentBlock: true,
+  },
+  {
+    recapEnvironment: true,
+    fixturePreflight: true,
     fixtureRecoveryLegacy: true,
   },
   { recapEnvironment: true, fixturePreflight: false, stalePlan: true },
@@ -973,6 +980,7 @@ it.each([
     stalePlan = false,
     fixtureRecovery = false,
     fixtureRecoveryLegacy = false,
+    fixtureAgentBlock = false,
   }) => {
     const { createDeliveryOperations } = await import('../flow/delivery.js');
     const f = await fixture();
@@ -1039,12 +1047,19 @@ it.each([
             join(f.root, 'screenshots', 'fixture.png'),
             'fixture evidence',
           );
-          if ((fixtureRecovery || fixtureRecoveryLegacy) && !exists)
+          if ((fixtureRecovery || fixtureRecoveryLegacy) && !exists) {
+            if (fixtureAgentBlock)
+              throw new AgentBlockedError('Local fixture unavailable', {
+                reason: 'environment',
+                requiredTool: 'A supported local fixture',
+                fix: 'Run the configured seed command.',
+              });
             return {
               status: 'blocked',
               reason: 'environment',
               summary: 'The local feature needs a seed command.',
             };
+          }
           return exists
             ? {
                 status: 'ready',
@@ -1233,7 +1248,26 @@ it.each([
           const journaled = {
             recap: () => ({}),
             call: (role: string, options: Parameters<typeof agents.call>[1]) =>
-              ctx.step(`agent ${role}`, () => agents.call(role, options)),
+              ctx.step(`agent ${role}`, async () => {
+                try {
+                  return await agents.call(role, options);
+                } catch (error) {
+                  if (
+                    !(error instanceof AgentBlockedError) ||
+                    !error.blocker ||
+                    !options?.blockedAsResult ||
+                    !options.schema
+                  )
+                    throw error;
+                  const parsed = await options.schema.safeParseAsync({
+                    status: 'blocked',
+                    reason: error.blocker.reason,
+                    summary: `${error.blocker.requiredTool}. ${error.blocker.fix}`,
+                  });
+                  if (!parsed.success) throw error;
+                  return parsed.data;
+                }
+              }),
           } as typeof agents;
           const run = createDeliveryOperations(
             ctx,

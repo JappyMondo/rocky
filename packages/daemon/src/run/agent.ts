@@ -924,32 +924,50 @@ export function createAgent(
                 delete progress.continuation;
               }
               if (await continueWithSteers(result.sessionId)) continue;
+              let responseText = result.text;
               try {
-                checkAgentBlocker(result.text);
+                checkAgentBlocker(responseText);
               } catch (error) {
                 if (
-                  !(error instanceof AgentBlockedError) ||
-                  !error.blocker ||
-                  !opts.tools?.includes('bash') ||
-                  !opts.tools.includes('edit') ||
-                  progress.blockerRecovery ||
-                  progress.nudges.length >= 2
-                )
-                  throw error;
-                attemptSignal.throwIfAborted();
-                progress = {
-                  ...progress,
-                  phase: 'resume',
-                  continuation: 'blocker',
-                  blockerRecovery: true,
-                  repairError: error.message,
-                  nudges: [...progress.nudges, { error: error.message }],
-                };
-                await handle.update(progress);
-                continue;
+                  opts.blockedAsResult &&
+                  error instanceof AgentBlockedError &&
+                  error.blocker &&
+                  schema
+                ) {
+                  const blocked = await schema.safeParseAsync({
+                    status: 'blocked',
+                    reason: error.blocker.reason,
+                    summary: `${error.blocker.requiredTool}. ${error.blocker.fix}`,
+                  });
+                  if (blocked.success)
+                    responseText = `<result>${JSON.stringify(blocked.data)}</result>`;
+                }
+                // A schema-accepted blocker becomes a normal journal result.
+                if (responseText === result.text) {
+                  if (
+                    !(error instanceof AgentBlockedError) ||
+                    !error.blocker ||
+                    !opts.tools?.includes('bash') ||
+                    !opts.tools.includes('edit') ||
+                    progress.blockerRecovery ||
+                    progress.nudges.length >= 2
+                  )
+                    throw error;
+                  attemptSignal.throwIfAborted();
+                  progress = {
+                    ...progress,
+                    phase: 'resume',
+                    continuation: 'blocker',
+                    blockerRecovery: true,
+                    repairError: error.message,
+                    nudges: [...progress.nudges, { error: error.message }],
+                  };
+                  await handle.update(progress);
+                  continue;
+                }
               }
               try {
-                const match = /<result>([\s\S]*?)<\/result>/.exec(result.text);
+                const match = /<result>([\s\S]*?)<\/result>/.exec(responseText);
                 const encoded = match?.[1];
                 if (!encoded) {
                   throw new Error('Expected JSON inside <result>...</result>');
