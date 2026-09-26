@@ -693,3 +693,114 @@ it.each([false, true])(
       );
   },
 );
+
+it.each([false, true])(
+  'keeps agent-deferred host checks mandatory despite an empty selector (new snapshot=%s)',
+  async (enabled) => {
+    const f = await fixture();
+    f.repo.commands = [
+      {
+        ...commandRecipe('target-build', 'echo target-build'),
+        purpose: 'build',
+        policy: 'agent',
+        dependsOn: ['web-id/build-setup'],
+      },
+      {
+        ...commandRecipe('build-setup', 'echo build-setup'),
+        purpose: 'install',
+        policy: 'agent',
+      },
+      {
+        ...commandRecipe('manual', 'echo manual'),
+        purpose: 'build',
+        policy: 'manual',
+      },
+    ];
+    const exec = vi.fn(async (_command: string) => ({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    }));
+    const ctx = {
+      exec,
+      issue: { identifier: 'TEST-1' },
+      post: vi.fn(),
+      comment: vi.fn(),
+      scm: { openPr: async () => ({ headSha: 'head' }) },
+      stage: vi.fn(),
+      changedFiles: async () => ['web/device.cpp'],
+      step: async (_label: string, work: () => Promise<unknown>) => work(),
+    } as unknown as WorkflowContext;
+    const agents = {
+      selectCommands: async () => ({
+        selected: [],
+        reason: 'No tools in selector.',
+      }),
+      call: vi.fn(async (role: string) =>
+        role === 'refiner'
+          ? {
+              status: 'clear',
+              delivery: { kind: 'pull-request', stateChanges: false },
+              scope: 'Build the changed device',
+              decisions: [],
+              acceptanceCriteria: [],
+              outOfScope: [],
+            }
+          : {
+              summary: 'Device build pending host validation.',
+              steps: [],
+              requiredValidationCommands: ['web-id/target-build'],
+            },
+      ),
+    } as unknown as DeliveryAgents;
+    const delivery = createDeliveryOperations(
+      ctx,
+      f.input,
+      {
+        ...defaultFlowSettings(),
+        validationRequestVersion: enabled ? 1 : undefined,
+        pullRequests: 'lead',
+        execution: [f.repo],
+      },
+      join(f.root, 'snapshot'),
+    );
+    await delivery('clarify', agents);
+    await delivery('plan', agents);
+    await delivery('implement', agents);
+    const implementation = vi
+      .mocked(agents.call)
+      .mock.calls.find(([role]) => role === 'implementer');
+    if (enabled) {
+      const schema = implementation?.[1]?.schema;
+      expect(
+        schema?.safeParse({
+          requiredValidationCommands: ['web-id/target-build'],
+        }).success,
+      ).toBe(true);
+      expect(
+        schema?.safeParse({ requiredValidationCommands: ['web-id/manual'] })
+          .success,
+      ).toBe(false);
+      expect(
+        schema?.safeParse({ requiredValidationCommands: ['web-id/invented'] })
+          .success,
+      ).toBe(false);
+    }
+    exec.mockClear();
+    expect(await delivery('validate', agents)).toBe('next');
+    expect(await delivery('validate', agents)).toBe('next');
+    expect(
+      exec.mock.calls.filter(([command]) =>
+        command.includes('echo target-build'),
+      ),
+    ).toHaveLength(enabled ? 2 : 0);
+    expect(
+      exec.mock.calls.filter(([command]) =>
+        command.includes('echo build-setup'),
+      ),
+    ).toHaveLength(enabled ? 2 : 0);
+    expect(
+      exec.mock.calls.some(([command]) => command.includes('echo manual')),
+    ).toBe(false);
+  },
+);

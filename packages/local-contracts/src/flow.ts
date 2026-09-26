@@ -53,6 +53,8 @@ export interface FlowSettings {
   validationEnvironmentVersion?: 1;
   /** Rerun failed configured checks even if later agent selection omits them. */
   validationRecheckVersion?: 1;
+  /** Keep explicitly agent-deferred configured checks mandatory on new snapshots. */
+  validationRequestVersion?: 1;
   /** Prepare concrete browser fixtures before inspection in new snapshots. */
   uiFixtureVersion?: 1;
   /** Route unresolved fixture prerequisites through bounded environment repair. */
@@ -435,6 +437,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   recapEnvironmentVersion: 1,
   validationEnvironmentVersion: 1,
   validationRecheckVersion: 1,
+  validationRequestVersion: 1,
   uiFixtureVersion: 1,
   uiFixtureRecoveryVersion: 1,
   uiPlanEndpointVersion: 1,
@@ -548,6 +551,11 @@ export function parseFlow(source: string): WorkflowFlow {
     s.validationRecheckVersion !== 1
   )
     throw new Error('Unsupported validation recheck version.');
+  if (
+    s.validationRequestVersion !== undefined &&
+    s.validationRequestVersion !== 1
+  )
+    throw new Error('Unsupported validation request version.');
   if (
     s.recapEnvironmentVersion !== undefined &&
     s.recapEnvironmentVersion !== 1

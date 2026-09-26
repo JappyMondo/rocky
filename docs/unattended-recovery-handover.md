@@ -8,6 +8,12 @@ The user explicitly reauthorized Rocky API restart/reassignment of existing tick
 
 ATT-1098-3 failed because its frozen workflow predates validation service provisioning. The authorized restart API accepted fresh successor ATT-1098-4, with the current snapshot flags. It was queued at admission; its result remains unverified.
 
+## Latest installed code, 2026-09-26 18:32 UTC
+
+Signed `f30592c` clarifies the boundary between missing UI prerequisites and a reachable product defect, and distinguishes the host-CDP browser from a sandboxed standalone Chrome launch. The 15 browser/fixture tests passed (one expected skip), both fixed-sweep workflow cases passed, and isolated distribution/SDK consumer smoke passed. Archive SHA-256: `bd81c32ccfadba79593e360407a9209c15da0486f486e3b7f89d5a826056ae8b`. Both prefixes match: flow-runtime SHA-256 `678a75239324cc5a56dc6ef9202f64205e3afc14bd91d672632c6c98c11876a8`, boot-child `6077e822ffc688739f3c2c3bd7d6a0696acaab40404d12114d4fb22e25d32290`. Launchd/listener PID 52111 matched; health OK. All four checks passed on preceding `e6d82e8`; `f30592c` checks are pending.
+
+ATT-764-5 ended exhausted after its third fixture attempt: actual login succeeded and four group-page language/viewport states had captures, but a blank resource page and three unsupported component-preview states remained. It was not an independent UI pass. The supported restart API accepted ATT-764-6 under the latest snapshot; it is queued. ATT-920-3 is now running its implementation step, having completed baseline setup. Other fresh successors and ATT-893-3 remain queued. No complete unattended acceptance receipt yet.
+
 ## Latest installed code, 2026-09-26 18:19 UTC
 
 Signed `e6d82e8` adds repair history and validation evidence to environment diagnosis and fixture preparation. The 14 focused real-environment/replay tests passed, as did the CI-fixer reachability and old-journal checks, daemon typecheck/lint and formatting. Archive SHA-256: `5c10b6a41a9205054617ff48ca29f9b190b029334c48d1b240fb3cf5cebed4eb`; isolated distribution smoke and SDK-only consumer passed. Both installed prefixes match the archive: flow-runtime SHA-256 `9089b7ee53ef2a5909e2ae2351cc8d1c15682efb66978d5dcaeb5ed6c2cb852d`, boot-child `fd1c64971694ab731910a8e5a005f67df6f94eb2b11e78ab6958deac38d286e6`. Launchd/listener PID 25884 matched, health OK.

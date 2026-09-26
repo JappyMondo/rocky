@@ -182,6 +182,7 @@ export function createDeliveryOperations(
   let deliveryRepairs = 0;
   const recoverySetup = new Set<string>();
   const failedValidationChecks = new Set<string>();
+  const requestedValidationChecks = new Set<string>();
   let continuation = 0;
   let repairedUi = false;
   let repairedInstall = false;
@@ -372,6 +373,10 @@ export function createDeliveryOperations(
             changedFiles:
               purpose === 'validate' ? await ctx.changedFiles() : [],
             purpose,
+            scope,
+            changes,
+            previousValidation: validationSummary,
+            requiredValidationCommands: [...requestedValidationChecks],
             catalog: optional.map(({ id, repository, command }) => ({
               id,
               repository: repository.name,
@@ -381,16 +386,19 @@ export function createDeliveryOperations(
           optional.map((entry) => entry.id),
         )
       : { selected: [], reason: 'Only required commands are configured.' };
-    const forced =
+    const failedBefore =
       purpose === 'validate' && settings.validationRecheckVersion
         ? [...failedValidationChecks]
         : [];
+    const requested =
+      purpose === 'validate' ? [...requestedValidationChecks] : [];
     const ids = [
       ...available
         .filter(({ command }) => command.policy === 'required')
         .map((entry) => entry.id),
       ...selection.selected,
-      ...forced,
+      ...failedBefore,
+      ...requested,
     ];
     const ordered = dependencyOrder(
       catalog,
@@ -402,9 +410,17 @@ export function createDeliveryOperations(
       skipped: available
         .filter((entry) => !ordered.includes(entry))
         .map((entry) => entry.id),
-      reason: forced.length
-        ? `${selection.reason} Retesting previously failed commands: ${forced.join(', ')}.`
-        : selection.reason,
+      reason: [
+        selection.reason,
+        ...(failedBefore.length
+          ? [
+              `Retesting previously failed commands: ${failedBefore.join(', ')}.`,
+            ]
+          : []),
+        ...(requested.length
+          ? [`Running agent-deferred host checks: ${requested.join(', ')}.`]
+          : []),
+      ].join(' '),
     }));
     return ordered;
   }
@@ -2463,8 +2479,38 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           options.input &&
           typeof options.input === 'object' &&
           !Array.isArray(options.input)
-            ? (options.input as Record<string, unknown>)
+            ? { ...(options.input as Record<string, unknown>) }
             : {};
+        const sourceAgent = [
+          'implementer',
+          'fixer',
+          'ci-fixer',
+          'merger',
+        ].includes(role);
+        const validationIds = catalogEntries(settings.execution ?? [])
+          .filter(
+            ({ command }) =>
+              command.policy !== 'manual' && command.purpose !== 'install',
+          )
+          .map(({ id }) => id);
+        const requests =
+          settings.validationRequestVersion &&
+          sourceAgent &&
+          validationIds.length &&
+          (!options.schema || options.schema instanceof z.ZodObject)
+            ? z.array(z.enum(validationIds)).default([])
+            : undefined;
+        const schema = requests
+          ? (options.schema instanceof z.ZodObject
+              ? options.schema
+              : z.object({})
+            ).safeExtend({ requiredValidationCommands: requests })
+          : options.schema;
+        if (requests) {
+          input.validationResponsibility = validationResponsibility;
+          input.validationRequestInstruction =
+            'List every configured check you defer to host validation in requiredValidationCommands, using only supplied non-manual catalog IDs. Use an empty array only when none are pending. The Workflow keeps these commands mandatory in every later validation round, even if the optional selector omits them. Naming a pending check only in summary is not a validation request. Report pending evidence honestly; unconfigured acceptance checks remain your responsibility.';
+        }
         if (role === 'fixer' && Array.isArray(input.complaints))
           history.forFixer(
             input.complaints as Complaint[],
@@ -2472,6 +2518,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           );
         const result = await connectedAgents.call(role, {
           ...options,
+          ...(requests ? { schema, input } : {}),
           ...(repositories
             ? {
                 input: {
@@ -2501,6 +2548,14 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               }
             : {}),
         });
+        if (requests) {
+          const ids = requests.parse(
+            'requiredValidationCommands' in result
+              ? result.requiredValidationCommands
+              : [],
+          );
+          for (const id of ids) requestedValidationChecks.add(id);
+        }
         if (
           role === 'fixer' &&
           'resolutions' in result &&

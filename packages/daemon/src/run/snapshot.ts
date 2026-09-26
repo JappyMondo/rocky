@@ -108,6 +108,7 @@ export async function prepareProfileSnapshot(
       flow.settings.recapEnvironmentVersion = 1;
       flow.settings.validationEnvironmentVersion = 1;
       flow.settings.validationRecheckVersion = 1;
+      flow.settings.validationRequestVersion = 1;
       flow.settings.uiFixtureVersion = 1;
       flow.settings.uiFixtureRecoveryVersion = 1;
       flow.settings.uiPlanEndpointVersion = 1;
