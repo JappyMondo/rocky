@@ -13,10 +13,13 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, and journal-safe fixture blocker handling. See [the implementation notes](unattended-recovery.md). The signed head `bfacc65` also defaults to one concurrent Run, keeps diagnostic logs outside Git worktrees, rejects contradictory ready recaps, and restores an interrupted configured install before environment verification on replay. The local `rocky-0.2.0.tgz` has SHA-256 `e88ae10e5ba8a1205ee8795fb3bdad13ee22e3c3e6b1f9f52a3a4b607861c7a1`. It passed the isolated distribution smoke test and was installed into both global prefixes at 15:45 UTC. Both installed `dist/main.js` files have SHA-256 `2546e530cbca35eac12f781e1a951ec7adb60b91a97d54e9b0d277828f86937b`, both `dist/flow-runtime.js` files have SHA-256 `8ee8491280ef008a19a81113aa2771aecffbfc27040771cc29fc965a4a283e2b`, and both `dist/boot-child.js` files have SHA-256 `d8df19fe0ecc243660a33056590987c82fafd98b2f7030a6a5d67b619bf7b711`; these match the archive. Daemon and ingress LaunchAgents restarted and health returned OK. All four checks passed on the preceding signed PR head; checks on `bfacc65` are pending. This is not live end-to-end acceptance.
+The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, journal-safe fixture blocker handling, private UI fixture credential handoff, and Docker context socket bridging. See [the implementation notes](unattended-recovery.md). Signed head `2b2497b` was packed into archive SHA-256 `7942a62970d66e372b87e0578726936726af80dd258e82f39d2d7aba8b6d0fbb`, passed the isolated distribution smoke test, and was installed into both global prefixes at 16:34 UTC. The daemon and ingress LaunchAgents restarted; health is OK and listener PID matched launchd. Both installed `dist/main.js` files hash `715ff9218ca3a05813b5ef21e9c73181cc91ec4ab60d4171e97ae10a126599b8`, both `dist/flow-runtime.js` files hash `f353b615ba10b4b471d912865193a967c298501ab2dc37b7be07d56b44c70a3c`, and both `dist/boot-child.js` files hash `1ba501cc3c63ccac9e25155866a6ea60e403186632895f45dff7c6567e10a3e9`; all match the archive. Do not infer installed code from the unchanged Rocky version number. This is not live end-to-end acceptance.
 
 Important recent commits:
 
+- `2b2497b`: bridge a live Unix socket from the active Docker CLI context into configured commands when no default socket or explicit `DOCKER_HOST` exists. Project-neutral socket tests and 56 environment/command tests pass.
+- `25ca6b6`: pass locally generated UI fixture credentials by a private Run file reference to the independent inspector, verify path and mode, and prohibit credential values in results. Forty-five focused UI recovery tests pass.
+- `58ab0dd`: prioritize actual failed-test and timeout markers in bounded CI job excerpts. The real ATT-920 job excerpt now contains its timed-out test.
 - `bfacc65`: detect a later interrupted configured install and rerun its matching setup probe in the same old journal Step before dependency verification; 111 environment and replay tests pass.
 - `7d77c08`: refuse to save a ready recap when its own requirement list has a gap or unverified item.
 - `6d3d11f`: refresh the handover after the host reboot.
@@ -39,6 +42,20 @@ Important recent commits:
 - Earlier commits cover refinement comments/prior answers, fresh-snapshot restart, CI retry SHA synchronization, worktree adoption, service provisioning for validation/recaps, settled runs and ticket grouping.
 
 The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover. Recheck the main checkout and remote before further edits.
+
+## Live recovery update, 2026-09-26 16:35 UTC
+
+- The packaged `2b2497b` build is **installed in both global prefixes**. Both LaunchAgents and the port 7625 listener match the new process; health is OK. The planned restart resumed ATT-764-5's retained fixture-preparer Step 140 in Boot 4.
+- ATT-1098-3's configured plugin command returned exit 1 because Testcontainers could not find `/var/run/docker.sock` even though Docker CLI used OrbStack's context. Its fixer confirmed that the focused CC100 enrollment suite and the full plugin command pass with `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`; the run is now **parked** at current-head CI. Its old frozen snapshot omitted the failed plugin command on the next validation round, so the agent's manual full-command pass is the evidence, not a new Rocky validation Step. The Attraccess profile was patched through the revision-checked local API to supply that socket for future snapshots; the installed generic command runner discovers the active Unix context socket for other repositories too.
+- ATT-893-3's current-head PR #1882 has **all GitHub checks green** and its CI wait Step is done, but Rocky has only queued its next stage. ATT-777-5's inspector retry and ATT-920-2's CI fixer remain **queued**. ATT-764-5 is **running** fixture preparation after the restart. No new live Run is fully complete.
+- All four Rocky PR #51 checks passed on `25ca6b6`; checks on `2b2497b` are still running. Its archive passed isolated distribution smoke. Keep the PR draft until a complete live run supports delivery.
+
+## Live recovery update, 2026-09-26 16:14 UTC
+
+- ATT-777-5's preparer reached six browser states and captured screenshots, but the independent inspector could not access its generated fixture passwords. The run failed at inspector Step 62. A retry of that exact retained Step was accepted with the path to its existing private Run credential file; it is **queued**, not verified. The generic credential-file handoff in `25ca6b6` addresses the recurring workflow cause for future preparations. Do not print the file contents in reports.
+- ATT-1098-3 is **running** the exact configured `attraccess/plugins` command at Step 321; it began at 16:04 UTC and has a 30-minute configured timeout. The WAGO shell suite is active. No exit-zero receipt exists yet. Delay the next Rocky install until this command finishes so its result is retained.
+- ATT-893-3 is **parked** at current-head CI. The repository test, plugin, lint, and crap-score jobs passed; `containerize` is still running. ATT-920-2 is **queued** behind the active run with its failed CI evidence steered to the fixer. ATT-764-5 is **queued** at its retained setup retry.
+- `25ca6b6` passed the 45 focused UI recovery tests, daemon typecheck, lint without new errors, formatting, signed push, and isolated distribution smoke. GitHub PR #51 checks are still pending on this head. **No new live Run has yet completed all required work successfully.**
 
 ## Live recovery update, 2026-09-26 15:46 UTC
 
