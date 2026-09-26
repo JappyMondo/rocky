@@ -1,5 +1,29 @@
 import { z } from '@rocky/sdk';
+import { realpath, stat } from 'node:fs/promises';
+import { isAbsolute, relative, sep } from 'node:path';
 import type { Check } from './schemas.js';
+
+/** Keep generated local login data in the Run, outside repository source. */
+export async function verifyUiFixtureCredentialFile(
+  evidenceDirectory: string,
+  credentialFile: string,
+): Promise<void> {
+  const root = await realpath(evidenceDirectory);
+  const file = await realpath(credentialFile);
+  const inside = relative(root, file);
+  const details = await stat(file);
+  if (
+    !inside ||
+    inside === '..' ||
+    inside.startsWith(`..${sep}`) ||
+    isAbsolute(inside) ||
+    !details.isFile() ||
+    (details.mode & 0o077) !== 0
+  )
+    throw new Error(
+      "Fixture credential reference must be a private file inside this Run's fixture evidence directory.",
+    );
+}
 
 export function uiFixturesSchema(checks: readonly Check[], commands: string[]) {
   const ids = checks.map((check) => check.id);
@@ -17,6 +41,7 @@ export function uiFixturesSchema(checks: readonly Check[], commands: string[]) {
                 'Use a path relative to the verified UI service',
               ),
             instructions: z.string().min(1),
+            credentialFile: z.string().min(1).optional(),
             repository: z.string().min(1),
             source: z.string().min(1),
             executed: z.literal(true),

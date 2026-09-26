@@ -1,4 +1,8 @@
-import { prepareUiFixtures, uiFixturesSchema } from './ui-fixtures.js';
+import {
+  prepareUiFixtures,
+  uiFixturesSchema,
+  verifyUiFixtureCredentialFile,
+} from './ui-fixtures.js';
 import { bindChecksToEndpoint, isRelativeUiPath } from './ui-checks.js';
 import {
   ensureEnvironment,
@@ -28,7 +32,7 @@ import {
   type CheckpointAnswer,
   z,
 } from '@rocky/sdk';
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import {
   Plan,
   Refinement,
@@ -1022,6 +1026,15 @@ export function createDeliveryOperations(
       } else {
         let fixtures;
         if (settings.uiFixtureVersion && execution && configuredUi.external) {
+          const fixtureEvidenceDirectory = join(
+            runDir,
+            'workspace',
+            '.rocky-evidence',
+          );
+          await mkdir(fixtureEvidenceDirectory, {
+            recursive: true,
+            mode: 0o700,
+          });
           const available = catalogEntries(settings.execution ?? []).filter(
             ({ command }) => command.policy !== 'manual',
           );
@@ -1059,12 +1072,13 @@ export function createDeliveryOperations(
                   checks,
                   baseUrl: url!,
                   screenshotDirectory: join(runDir, 'screenshots'),
+                  fixtureEvidenceDirectory,
                   environment: environmentContext,
                   availableCommands: available,
                   validationResponsibility,
                   previous,
                   instruction:
-                    'Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Navigate each intended state with the browser and return executed:true only after reaching it. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and an existing repository source path documenting the route or fixture, and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.',
+                    'Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Navigate each intended state with the browser and return executed:true only after reaching it. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and an existing repository source path documenting the route or fixture, and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. If a check needs locally generated login credentials, save them in a private mode 0600 file inside fixtureEvidenceDirectory, return its absolute path as credentialFile for that check, and name the matching account role in instructions. The independent inspector has read access to that file. Do not return credential values. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.',
                 },
                 schema,
               }),
@@ -1093,6 +1107,11 @@ export function createDeliveryOperations(
                 async () => {
                   try {
                     for (const fixture of items) {
+                      if (fixture.credentialFile)
+                        await verifyUiFixtureCredentialFile(
+                          fixtureEvidenceDirectory,
+                          fixture.credentialFile,
+                        );
                       await execution!.checkSources(fixture.repository, [
                         fixture.source,
                       ]);
@@ -1182,7 +1201,7 @@ export function createDeliveryOperations(
               ? {
                   fixtures,
                   fixtureInstruction:
-                    'Use the supplied prepared fixtures and their repeatable instructions for every check. Verify the actual state in the browser; readiness evidence is not a visual pass. Preserve all checks and report any regressed prerequisite as blocked.',
+                    'Use the supplied prepared fixtures and their repeatable instructions for every check. If a fixture supplies credentialFile, read that private local file with your read_file tool, select the account role named in instructions, and use it only for local browser login. Never copy credential values into results, screenshots, notes, or comments. Verify the actual state in the browser; readiness evidence is not a visual pass. Preserve all checks and report any regressed prerequisite as blocked.',
                 }
               : {}),
             ...(settings.environmentVersion

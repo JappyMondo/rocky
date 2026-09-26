@@ -1073,7 +1073,11 @@ it.each([
         options?: {
           schema?: { safeParse(value: unknown): { success: boolean } };
           label?: string;
-          input?: { fixtures?: unknown };
+          input?: {
+            fixtures?: unknown;
+            fixtureEvidenceDirectory?: string;
+            fixtureInstruction?: string;
+          };
         },
       ) => {
         calls.push(role);
@@ -1136,6 +1140,20 @@ it.each([
               summary: 'The local feature needs a seed command.',
             };
           }
+          const credentialFile = join(
+            f.root,
+            'workspace',
+            '.rocky-evidence',
+            'accounts.json',
+          );
+          if (fixturePreflight)
+            expect(options?.input?.fixtureEvidenceDirectory).toBe(
+              join(f.root, 'workspace', '.rocky-evidence'),
+            );
+          if (exists && fixturePreflight)
+            await writeFile(credentialFile, '{"role":"viewer"}', {
+              mode: 0o600,
+            });
           return exists
             ? {
                 status: 'ready',
@@ -1145,6 +1163,11 @@ it.each([
                     id: 'feature',
                     url: '/',
                     instructions: 'Open the prepared local feature',
+                    ...(fixturePreflight
+                      ? {
+                          credentialFile,
+                        }
+                      : {}),
                     repository: 'web',
                     source: 'README.md',
                     executed: true,
@@ -1199,8 +1222,16 @@ it.each([
                 id: 'feature',
                 url: '/',
                 executed: true,
+                credentialFile: join(
+                  f.root,
+                  'workspace',
+                  '.rocky-evidence',
+                  'accounts.json',
+                ),
               }),
             ]);
+          if (fixturePreflight)
+            expect(options?.input?.fixtureInstruction).toContain('read_file');
           const ready = await readFile(
             join(f.repoDir, '.fixture-ready'),
             'utf8',

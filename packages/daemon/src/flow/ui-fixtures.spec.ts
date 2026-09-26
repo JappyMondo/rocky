@@ -1,7 +1,11 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import {
   prepareUiFixtures,
   uiFixturesSchema,
+  verifyUiFixtureCredentialFile,
   type UiFixtures,
 } from './ui-fixtures.js';
 const checks = [
@@ -98,4 +102,39 @@ it('cannot omit checks, reuse absolute endpoints, or request unconfigured setup'
       summary: 'bad',
     }).success,
   ).toBe(false);
+});
+it('passes only private Run fixture credentials to the independent inspector', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-ui-fixture-'));
+  try {
+    const evidence = join(root, '.rocky-evidence');
+    const outside = join(root, 'outside.json');
+    const inside = join(evidence, 'accounts.json');
+    const escape = join(evidence, 'escape.json');
+    await mkdir(evidence, { mode: 0o700 });
+    await writeFile(inside, '{}', { mode: 0o600 });
+    await writeFile(outside, '{}', { mode: 0o600 });
+    await symlink(outside, escape);
+    await expect(
+      verifyUiFixtureCredentialFile(evidence, inside),
+    ).resolves.toBeUndefined();
+    await expect(
+      verifyUiFixtureCredentialFile(evidence, escape),
+    ).rejects.toThrow(/private file inside/);
+    await expect(
+      verifyUiFixtureCredentialFile(evidence, outside),
+    ).rejects.toThrow(/private file inside/);
+    const publicFile = join(evidence, 'public.json');
+    await writeFile(publicFile, '{}', { mode: 0o644 });
+    await expect(
+      verifyUiFixtureCredentialFile(evidence, publicFile),
+    ).rejects.toThrow(/private file inside/);
+    expect(
+      uiFixturesSchema(checks, []).safeParse({
+        ...ready,
+        fixtures: [{ ...ready.fixtures[0], credentialFile: inside }],
+      }).success,
+    ).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
