@@ -2498,7 +2498,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           sourceAgent &&
           validationIds.length &&
           (!options.schema || options.schema instanceof z.ZodObject)
-            ? z.array(z.enum(validationIds)).default([])
+            ? z.array(z.enum(validationIds))
             : undefined;
         const schema = requests
           ? (options.schema instanceof z.ZodObject

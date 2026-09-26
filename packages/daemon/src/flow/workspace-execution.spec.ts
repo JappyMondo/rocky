@@ -772,6 +772,7 @@ it.each([false, true])(
       .mock.calls.find(([role]) => role === 'implementer');
     if (enabled) {
       const schema = implementation?.[1]?.schema;
+      expect(schema?.safeParse({}).success).toBe(false);
       expect(
         schema?.safeParse({
           requiredValidationCommands: ['web-id/target-build'],
