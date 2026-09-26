@@ -13,10 +13,11 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-Commits `23f80bd` and `0cd1e37` on `fix/unattended-recovery` contain the completion gate, retained-run replay repairs, current UI endpoint binding and blocked-fixture recovery. See [the implementation notes](unattended-recovery.md). The local `rocky-0.2.0.tgz` has SHA-256 `eb77d33ecc7bae6200b656cb6f6684d933424e0d5de511ab0af9ccd41dbe8324`. It passed the isolated distribution smoke test and was installed into both global prefixes. Both installed `dist/main.js` files have SHA-256 `b8b72b24948f3ba8ea05dba2c8fa6027fa132258fc477a354b85b8743a5d08b2`, matching the archive. Daemon health returned OK. Draft PR [#51](https://github.com/JappyMondo/rocky/pull/51) had all four checks green on `0cd1e37` at 10:28 UTC. This is not live end-to-end acceptance.
+Commits through `d7d6268` on `fix/unattended-recovery` contain the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, and mandatory rechecks for previously failed configured commands. See [the implementation notes](unattended-recovery.md). The local `rocky-0.2.0.tgz` has SHA-256 `f05bc226f33af1e214d0e31eb6e5e6a8387ab362401adac502792197da6c18cb`. It passed the isolated distribution smoke test and was installed into both global prefixes at 11:22 UTC. Both installed `dist/main.js` files have SHA-256 `b6ea8f439e15dc5ca5a884ab9e9fba7622082ce842abd88b39ce9b765050c453`, and both `dist/flow-runtime.js` files have SHA-256 `26777472c07363eadf5f18bdfb8583263669550154f9e3641aecfa90117e7a2f`; these match the archive. Daemon and ingress LaunchAgents restarted and health returned OK. All four checks passed on draft PR [#51](https://github.com/JappyMondo/rocky/pull/51) at 11:26 UTC. This is not live end-to-end acceptance.
 
 Important recent commits:
 
+- `f0133e5`, `d7d6268`: preserve actual CI assertions in bounded log excerpts and force previously failed configured validation commands into subsequent new-snapshot validation rounds; then format the changes.
 - `0cd1e37`: route blocked UI fixture preparation through bounded environment repair on new snapshots; preserve old journal order.
 - `23f80bd`: gate comment and PR handoffs on recap readiness, reuse successful setup receipts on retained runs, bind UI plans to the current endpoint, and preserve old journal replay.
 - `4f2b173`: create and grant only the Run screenshot directory to an opted-in fixture preparer.
@@ -31,22 +32,23 @@ Important recent commits:
 - `d53e482`, `b040c86`: same-session maintenance continuation and planned shutdowns excluded from crash-loop accounting.
 - Earlier commits cover refinement comments/prior answers, fresh-snapshot restart, CI retry SHA synchronization, worktree adoption, service provisioning for validation/recaps, settled runs and ticket grouping.
 
-The main checkout was clean after the two pushed commits. The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover.
+The main checkout was clean after `d7d6268` was pushed. The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover.
 
-## Live recovery audit, 2026-09-26 10:30 UTC
+## Live recovery audit, 2026-09-26 11:26 UTC
 
 - ATT-776-1 was historically marked `completed` even though its recap said the comment and closure were unverified. Its explanatory comment existed in Linear, but the issue was In Review. The issue was moved to Done and read back with `completedAt` set. The historical recap remains a record of the earlier incomplete handoff. New snapshots gate completion on a ready recap and confirmed Linear state; the project-neutral non-ready and old-journal replay tests pass.
-- ATT-920-2 passed the previously failing setup replay and local test, lint, typecheck, build, seed and E2E commands. It reached CI; a CodeQL alert failed, and the CI fixer is running at Step 161. This is **running**, not recovered.
-- ATT-893-2 was retried at Step 118 after installing the endpoint binding repair. Its UI inspector is actively using the current browser endpoint and remains **running**. No passing independent sweep has been observed yet.
-- ATT-1098-3 passed the previously failing setup replay and is **running** `Validate attraccess/plugins` at Step 220.
-- ATT-777-4 has an accepted retained retry at its failed setup Step 10 and is **queued**. ATT-764-5 is a fresh-snapshot successor to exhausted ATT-764-4 with `uiFixtureRecoveryVersion: 1`; it too is **queued**. Neither queued run is a recovery result.
+- ATT-920-2 passed the previously failing setup replay and local test, lint, typecheck, build, seed and E2E commands. A CodeQL CI failure was repaired on PR #1888 and its rerun passed. The later `plugins` CI job failed in `audit-hooks.integration.spec.ts`: the stalled rotation dispatch test expected two audit records and got one. The old bounded CI excerpt lost this assertion after many warning matches. The new extractor was verified against the real job log and preserves it. The run is **queued** for its CI fixer; a steer with the exact failure evidence is held for the next agent turn. No successful CI repair has been observed.
+- ATT-893-2 finished **exhausted** after nine independent UI checks passed and five remained blocked by missing fixtures/permissions and a plugin page. Fresh-snapshot successor ATT-893-3 is **queued** with UI fixture recovery enabled.
+- ATT-1098-3 has repeatedly failed the configured local `attraccess/plugins` command on WAGO shell Jest timeouts. Its fixer reran narrower suites serially, and the next optional command selection omitted the failed configured check. New snapshots now force such checks back into the next validation round. This older run is **parked** at CI Step 300; PR #1886 checks passed except `containerize` still pending. A steer explicitly requires the exact failed local command to pass before completion. Green CI alone does not resolve the local failure.
+- ATT-777-4 resumed its retained setup retry and is **running** an independent UI inspector at Step 140. ATT-764-5 is a fresh-snapshot successor to exhausted ATT-764-4 with `uiFixtureRecoveryVersion: 1` and is **running**. Neither has a successful final verdict yet.
 - ATT-764-4 ended **finished/exhausted** at Step 84: the resource People route stayed loading and several role/header variants had no supported preview. The fresh-snapshot recovery path is installed, but has not yet been live-verified in ATT-764-5.
-- Local `concurrency.maxRuns` was reduced from 3 to 1 at 10:29 UTC because three parallel heavy repository runs coincided with a load average above 140 on an eight-core host. Existing active runs continue; the lower limit only controls later admission. No run failure has been attributed to host load yet.
-- Typecheck, daemon lint, project-neutral delivery/environment and replay tests, SDK contract tests, isolated distribution smoke and all four GitHub PR checks passed for the current source. **No new live run has yet completed all required work successfully.**
+- Local `concurrency.maxRuns` was reduced from 3 to 1 at 10:29 UTC because three parallel heavy repository runs coincided with a load average above 140 on an eight-core host. It was raised to 2 at 11:26 UTC after load fell below 3 to let two UI-heavy recovery runs progress. Monitor load as validation resumes. No run failure has been attributed to host load yet.
+- Typecheck, daemon lint, project-neutral delivery/environment and replay tests, SDK contract tests, isolated distribution smoke, and all four GitHub PR checks passed for the current source. **No new live run has yet completed all required work successfully.**
 
 ## Prior verification and remaining uncertainty
 
 - Environment integration: 38 tests passed, including blocked-fixture repair and both sides of its snapshot boundary. Workflow: 115 passed and 59 skipped; snapshot: 12 passed. Daemon typecheck and lint passed. Distribution smoke passed on isolated port 47625.
+- New CI excerpt and validation recheck tests passed with four affected test files totaling 157 passed and 59 skipped. The real 181 KB ATT-920 job log was temporarily tested against the extractor: the bounded result retained the failed test name and `Expected length: 2` / `Received length: 1`. The temporary fixture was removed. The pre-change journal replay test still passes. Packaging and the isolated distribution smoke passed for the installed archive.
 - ATT-764-3 and ATT-764-4 were **finished/exhausted**, not successful. ATT-764-5 is the first live attempt with the new blocked-fixture path.
 - ATT-1089-4 exhausted after an external Kody Code Review failure reported no available upstream accounts. GitHub returned HTTP 404 to its check-run retry. The installed fix prevents repeating the refused request in **new** snapshots; ATT-1089-4 remains exhausted and its PR #1887 remains draft with failed CI.
 - ATT-842-2 exhausted with real registration errors and missing controlled accounts, inboxes and issued links. This is not a Rocky success.
@@ -63,7 +65,7 @@ Control requests require JSON and `Origin: http://127.0.0.1:7625`:
 - `POST /api/runs/ID/restart`: `{expectedBoot, requestId}`. Latest failed/exhausted run only; returns successor with current workflow snapshot and hydrated ticket context. Old journal remains intact.
 - `requestId` is a UUID. Save payload before sending and reuse it after uncertain transport results; do not create duplicate successors.
 
-Latest restart payload: `/tmp/rocky-fixtures-restart-ATT-764-3.json`. Temporary files are conveniences and may disappear.
+Latest restart payloads: `/tmp/rocky-durable-restart-ATT-764-4.json` and `/tmp/rocky-durable-restart-ATT-893-2.json`. Temporary files are conveniences and may disappear.
 
 ## Diagnostic sequence for another failure
 
