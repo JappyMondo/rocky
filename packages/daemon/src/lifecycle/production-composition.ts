@@ -11,7 +11,7 @@ import { RecipeDiscovery, agentRecipeGenerator } from '../recipe-discovery.js';
  * knows about both the daemon's HTTP seams and the durable Run machinery.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 
@@ -34,6 +34,7 @@ import type { AgentSessionEventHandler } from '../linear/events.js';
 import { openExecution, type ExecutionIntegration } from '../run/execution.js';
 import type { RunHeader } from '../run/header.js';
 import { readJournal } from '../run/journal.js';
+import { legacyRecapRecoveryMessage } from '../run/legacy-recap-recovery.js';
 import type { RockyPaths } from '../config/paths.js';
 import {
   agentDiagramGenerator,
@@ -147,6 +148,50 @@ export async function createProductionComposition(options: {
     checkpoint: async (runId, stepKey, request) => {
       const control = await controlFor(runId);
       if (!control) throw new Error(`Run ${runId} has no run control`);
+      const waiting = await control.currentCheckpoint();
+      if (
+        waiting?.stepKey === stepKey &&
+        !waiting.answer &&
+        !request.kind &&
+        request.title === 'Approve this change?'
+      ) {
+        const source = await readFile(
+          join(options.paths.run(runId).snapshotDir, 'workflow.json'),
+          'utf8',
+        ).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return undefined;
+          throw error;
+        });
+        if (source) {
+          const workflow = JSON.parse(source);
+          if (
+            !workflow.settings?.recapDecisionVersion &&
+            workflow.nodes?.some(
+              (node: { type?: string }) => node.type === 'delivery.approval',
+            )
+          ) {
+            const entries = (
+              await readJournal(options.paths.run(runId).journal)
+            ).entries;
+            const message = legacyRecapRecoveryMessage({
+              workflow,
+              title: request.title,
+              entries,
+              reports: await new LocalArtifacts(options.paths).listReports(
+                runId,
+              ),
+            });
+            if (message) {
+              await control.answer({
+                stepKey,
+                generation: waiting.generation,
+                requestId: `legacy-recap:${waiting.generation}`,
+                answer: { decision: 'steer', message },
+              });
+            }
+          }
+        }
+      }
       return control.checkpoint(stepKey, request);
     },
     agentSteer: {
