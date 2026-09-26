@@ -8,6 +8,12 @@ The user explicitly reauthorized Rocky API restart/reassignment of existing tick
 
 ATT-1098-3 failed because its frozen workflow predates validation service provisioning. The authorized restart API accepted fresh successor ATT-1098-4, with the current snapshot flags. It was queued at admission; its result remains unverified.
 
+## Verified deployment, 2026-09-26 18:08 UTC
+
+Signed commit `8884c73` contains the CI completion reconciliation and multiple-file fixture provenance repair. The full workflow/replay suites passed 158 tests with 61 expected skips; SCM, fixture, validation-environment and environment suites passed 107 tests. Typecheck, lint, formatting and isolated distribution smoke passed. Archive SHA-256: `52b28242a157af6d94f804afe458bee4971591c793887ad3f5caa479f3aee1e2`. Installed flow-runtime SHA-256: `b8c08cf1405aeae7f0331ce160d7e8a5dd5a62d0419e0201473f8390b7eb41cf`; boot-child: `fd1c64971694ab731910a8e5a005f67df6f94eb2b11e78ab6958deac38d286e6`. Both prefixes match the archive. Launchd/listener PID 81540 matched and health was OK.
+
+ATT-893-3 then recorded CI passed at Step 119 for exact head `ab8e6dc8824de18b452927bd1882023de875fb48` and queued its next stage. API restarts accepted ATT-777-6 and ATT-842-3; both were queued. These are recovery observations, not end-to-end success. ATT-1079-4's earlier approval recap was inspected: it explicitly says needs-attention for an artifact-content gap and cannot count as success.
+
 ## Current checkpoint, 2026-09-26 17:40 UTC
 
 - Rocky's generic SCM reader now flags a failed-target log with no recognized individual test failure or timeout and tells the CI fixer to inspect test reports or rerun the repository check if needed. The captured 815 KB `test` job log had no Jest failure summary; its GitHub failure annotation only reported exit 1, and the workflow run had no test-report artifact. The separate failed `plugins` job did contain an assertion and retains it without the note. No Attraccess source or Run was manually changed for this fix.
