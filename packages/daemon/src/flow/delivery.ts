@@ -1906,7 +1906,8 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             return await environmentFailure(
               error.blocker,
               operations.ui,
-              !(error instanceof UiFixtureBlocked),
+              !(error instanceof UiFixtureBlocked) ||
+                !!settings.uiFixtureRecoveryVersion,
             );
           await execution.stop(label);
           if (

@@ -155,6 +155,7 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
       recapEnvironmentVersion: undefined,
       validationEnvironmentVersion: undefined,
       uiFixtureVersion: undefined,
+      uiFixtureRecoveryVersion: undefined,
       uiPlanEndpointVersion: undefined,
     },
     nodes: [
@@ -241,6 +242,12 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
     ).settings.uiFixtureVersion,
   ).toBe(1);
   expect(JSON.parse(source).settings.uiFixtureVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.uiFixtureRecoveryVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.uiFixtureRecoveryVersion).toBeUndefined();
   expect(
     JSON.parse(
       await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),

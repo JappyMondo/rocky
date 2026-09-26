@@ -51,6 +51,8 @@ export interface FlowSettings {
   validationEnvironmentVersion?: 1;
   /** Prepare concrete browser fixtures before inspection in new snapshots. */
   uiFixtureVersion?: 1;
+  /** Route unresolved fixture prerequisites through bounded environment repair. */
+  uiFixtureRecoveryVersion?: 1;
   /** Planned UI routes are relative to the live service, not a prior Boot's port. */
   uiPlanEndpointVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
@@ -428,6 +430,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   recapEnvironmentVersion: 1,
   validationEnvironmentVersion: 1,
   uiFixtureVersion: 1,
+  uiFixtureRecoveryVersion: 1,
   uiPlanEndpointVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
@@ -522,6 +525,11 @@ export function parseFlow(source: string): WorkflowFlow {
   const s = value.settings;
   if (s.uiFixtureVersion !== undefined && s.uiFixtureVersion !== 1)
     throw new Error('Unsupported UI fixture version.');
+  if (
+    s.uiFixtureRecoveryVersion !== undefined &&
+    s.uiFixtureRecoveryVersion !== 1
+  )
+    throw new Error('Unsupported UI fixture recovery version.');
   if (s.uiPlanEndpointVersion !== undefined && s.uiPlanEndpointVersion !== 1)
     throw new Error('Unsupported UI plan endpoint version.');
   if (

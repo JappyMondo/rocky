@@ -31,12 +31,12 @@ Important recent commits:
 
 The main checkout was clean at the previous handover; the changes above are now in progress here. The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at that time.
 
-## Live recovery audit, 2026-09-26 10:02 UTC
+## Live recovery audit, 2026-09-26 10:21 UTC
 
 - ATT-776-1 was historically marked `completed` even though its recap said the comment and closure were unverified. Its explanatory comment existed in Linear, but the issue was In Review. The issue was moved to Done and read back with `completedAt` set. The historical recap remains a record of the earlier incomplete handoff. New snapshots gate completion on a ready recap and confirmed Linear state; the project-neutral non-ready and old-journal replay tests pass.
 - ATT-920-2 exposed a second replay edge during live retry: calling an empty background command still restarted that Step and failed. The revised runtime reuses the old successful background receipt at the same sequence. Retry selection now points to Step 10 before its waiting fixer Step 144. A live retry of Step 10 on Boot 119 recorded a successful setup receipt, reran `attraccess/verify-runtime`, and reached the compliance-reviewer fixer at Step 144. It is **running**, not recovered yet.
 - ATT-893-2 was retried at Step 118 after installing the endpoint binding repair. The UI inspector is running on Boot 130. No passing independent sweep has been observed yet.
-- ATT-764-4 was retried at Step 70 after adding the missing validation responsibility handoff. Fixture preparation is running on Boot 4. No complete fixture set or inspector result has been observed yet.
+- ATT-764-4 was retried at Step 70 after adding the missing validation responsibility handoff. It reached the seeded group screens and captured several variants, then ended **finished/exhausted** at Step 84: the resource People route stayed loading and several role/header variants had no supported preview. A further source change adds `uiFixtureRecoveryVersion: 1` for fresh snapshots, routing this concrete blocker through bounded environment repair and revalidation. Project-neutral tests pass on both sides of the version boundary; this candidate has not yet been installed or verified in a new Attraccess run.
 - Typecheck, daemon lint (0 errors), 153 targeted delivery/environment tests, 84 Linear/snapshot tests, 78 replay/retry tests, SDK contract tests, and isolated distribution smoke test passed for this change set. Live acceptance remains pending for the three retries above.
 
 ## Prior verification and remaining uncertainty

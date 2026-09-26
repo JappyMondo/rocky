@@ -957,6 +957,12 @@ it.each([
   { recapEnvironment: false, fixturePreflight: false },
   { recapEnvironment: true, fixturePreflight: true },
   { recapEnvironment: true, fixturePreflight: true, sourceChanged: true },
+  { recapEnvironment: true, fixturePreflight: true, fixtureRecovery: true },
+  {
+    recapEnvironment: true,
+    fixturePreflight: true,
+    fixtureRecoveryLegacy: true,
+  },
   { recapEnvironment: true, fixturePreflight: false, stalePlan: true },
 ])(
   'repairs UI fixtures and provisions recap previews across journal replay (new snapshot=%s)',
@@ -965,6 +971,8 @@ it.each([
     fixturePreflight,
     sourceChanged = false,
     stalePlan = false,
+    fixtureRecovery = false,
+    fixtureRecoveryLegacy = false,
   }) => {
     const { createDeliveryOperations } = await import('../flow/delivery.js');
     const f = await fixture();
@@ -1031,6 +1039,12 @@ it.each([
             join(f.root, 'screenshots', 'fixture.png'),
             'fixture evidence',
           );
+          if ((fixtureRecovery || fixtureRecoveryLegacy) && !exists)
+            return {
+              status: 'blocked',
+              reason: 'environment',
+              summary: 'The local feature needs a seed command.',
+            };
           return exists
             ? {
                 status: 'ready',
@@ -1227,6 +1241,7 @@ it.each([
             {
               ...defaultFlowSettings(),
               uiFixtureVersion: fixturePreflight ? 1 : undefined,
+              uiFixtureRecoveryVersion: fixtureRecovery ? 1 : undefined,
               uiPlanEndpointVersion: stalePlan ? undefined : 1,
               recoveryVersion: 1,
               ...(recapEnvironment
@@ -1242,19 +1257,39 @@ it.each([
           await run('clarify', journaled);
           await run('plan', journaled);
           await run('implement', journaled);
-          expect(await run('ui', journaled)).toBe(
-            fixturePreflight && !sourceChanged ? 'next' : 'retry',
+          const firstUi = await run('ui', journaled);
+          if (fixtureRecoveryLegacy) {
+            expect(firstUi).toBe('exhausted');
+            return 'exhausted';
+          }
+          expect(firstUi).toBe(
+            fixturePreflight && !sourceChanged && !fixtureRecovery
+              ? 'next'
+              : 'retry',
           );
-          expect(await run('ui', journaled)).toBe('next');
+          const secondUi = await run('ui', journaled);
+          expect(
+            secondUi,
+            JSON.stringify({ calls, commands: f.commands.slice(-12) }),
+          ).toBe('next');
           expect(await run('recap', journaled)).toBe('next');
           await ctx.checkpoint({ title: 'review', body: '' });
           return 'completed';
         },
       });
     const first = await boot();
+    if (fixtureRecoveryLegacy) {
+      expect(first, JSON.stringify(first)).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calls.filter((role) => role === 'fixer')).toHaveLength(3);
+      expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(0);
+      return;
+    }
     expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
     expect(calls.filter((role) => role === 'fixer')).toHaveLength(
-      fixturePreflight ? 3 : 1,
+      fixtureRecovery ? 5 : fixturePreflight ? 3 : 1,
     );
     expect(await readFile(join(f.repoDir, '.fixture-ready'), 'utf8')).toBe('');
     approved = true;
@@ -1264,10 +1299,10 @@ it.each([
       outcome: 'completed',
     });
     expect(calls.filter((role) => role === 'fixer')).toHaveLength(
-      fixturePreflight ? 3 : 1,
+      fixtureRecovery ? 5 : fixturePreflight ? 3 : 1,
     );
     expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(
-      sourceChanged ? 1 : 2,
+      sourceChanged || fixtureRecovery ? 1 : 2,
     );
     expect(captures).toBe(1);
   },

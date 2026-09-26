@@ -47,6 +47,7 @@
     "recapDecisionVersion": 1,
     "recapEnvironmentVersion": 1,
     "validationEnvironmentVersion": 1,
+    "uiFixtureRecoveryVersion": 1,
     "uiPlanEndpointVersion": 1
   },
   "nodes": [
