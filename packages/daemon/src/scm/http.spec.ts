@@ -257,3 +257,27 @@ it('preserves early failure evidence when cleanup output buries it beyond the ta
   expect(excerpt).toContain('cleanup 399');
   expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
 });
+
+it('keeps the actual test assertion after setup warnings fill the evidence budget', async () => {
+  const log = [
+    ...Array.from({ length: 150 }, (_, i) =>
+      `WARN Failed to replace env in setup ${i}`,
+    ),
+    'FAIL audit-hooks.integration.spec.ts',
+    'bounds a stalled rotation dispatch',
+    'Expected length: \x1b[32m2\x1b[39m',
+    'Received length: \x1b[31m1\x1b[39m',
+    ...Array.from({ length: 150 }, (_, i) => `cleanup ${i}`),
+  ].join('\n');
+  const client = http(async () => new Response(log));
+  const excerpt = await client.logTail('/logs', 40, true);
+  const plain = excerpt.replace(
+    new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'),
+    '',
+  );
+  expect(plain).toContain('FAIL audit-hooks.integration.spec.ts');
+  expect(plain).toContain('Expected length: 2');
+  expect(plain).toContain('Received length: 1');
+  expect(excerpt).toContain('cleanup 149');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});

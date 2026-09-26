@@ -335,31 +335,46 @@ export class ScmHttp {
         );
     }
     let tail = '';
-    // Keep early diagnostic windows as well as the suffix: cleanup often buries
-    // the actual failure. Both collections stay bounded while streaming.
+    // Keep diagnostic windows as well as the suffix: cleanup often buries the
+    // actual failure. Retain the latest windows so setup warnings cannot fill
+    // the budget before a test assertion appears.
     const evidenceBudget =
       includeFailures && lines >= 10 ? Math.min(500, Math.floor(lines / 2)) : 0;
-    const evidence = new Map<number, string>();
+    const strongEvidence = new Map<number, string>();
+    const weakEvidence = new Map<number, string>();
     const preceding: { index: number; text: string }[] = [];
     let pending = '';
     let index = 0;
-    let following = 0;
+    let followingStrong = 0;
+    let followingWeak = 0;
+    const remember = (
+      evidence: Map<number, string>,
+      line: { index: number; text: string },
+    ) => {
+      if (evidenceBudget === 0 || evidence.has(line.index)) return;
+      if (evidence.size === evidenceBudget) {
+        const oldest = evidence.keys().next().value;
+        if (oldest !== undefined) evidence.delete(oldest);
+      }
+      evidence.set(line.index, line.text);
+    };
     const observe = (text: string) => {
       const line = { index: index++, text: text.slice(0, 2000) };
-      if (
-        /\b(?:error|fail(?:ed|ure)?|fatal|assertionerror|traceback)\b/i.test(
+      const strong =
+        /\b(?:FAIL|FATAL|AssertionError|Traceback)\b|[●✕]|\b(?:Expected|Received)(?: length)?:|\bError:/.test(
           text,
-        )
-      ) {
-        for (const prior of preceding) {
-          if (evidence.size < evidenceBudget)
-            evidence.set(prior.index, prior.text);
-        }
-        following = 8;
+        );
+      if (strong) {
+        for (const prior of preceding) remember(strongEvidence, prior);
+        followingStrong = 8;
+      } else if (/\b(?:error|fail(?:ed|ure)?|fatal)\b/i.test(text)) {
+        for (const prior of preceding) remember(weakEvidence, prior);
+        followingWeak = 8;
       }
-      if (following > 0 && evidence.size < evidenceBudget)
-        evidence.set(line.index, line.text);
-      following = Math.max(0, following - 1);
+      if (followingStrong > 0) remember(strongEvidence, line);
+      if (followingWeak > 0) remember(weakEvidence, line);
+      followingStrong = Math.max(0, followingStrong - 1);
+      followingWeak = Math.max(0, followingWeak - 1);
       preceding.push(line);
       if (preceding.length > 3) preceding.shift();
     };
@@ -390,8 +405,10 @@ export class ScmHttp {
       await reader.cancel();
     }
     const suffix = tail.replace(/\n$/, '').split('\n').slice(-lines);
+    const evidence = strongEvidence.size ? strongEvidence : weakEvidence;
     const early = [...evidence]
       .filter(([position]) => position < index - suffix.length)
+      .sort(([a], [b]) => a - b)
       .map(([, text]) => text);
     if (!early.length) return suffix.join('\n');
     return [

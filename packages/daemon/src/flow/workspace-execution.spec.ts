@@ -559,3 +559,90 @@ it('runs required validation even when the planner selects nothing, and records 
     }),
   );
 });
+
+it.each([false, true])(
+  'rechecks a failed optional command after later selection omits it (new snapshot=%s)',
+  async (enabled) => {
+    const f = await fixture();
+    f.repo.commands = [
+      {
+        ...commandRecipe('optional', 'echo optional-check'),
+        purpose: 'test',
+        policy: 'agent',
+      },
+    ];
+    let commandRuns = 0;
+    const exec = vi.fn(async (command: string) =>
+      command.includes('echo optional-check')
+        ? {
+            exitCode: ++commandRuns === 1 ? 1 : 0,
+            stdout: '',
+            stderr: 'The configured check failed.',
+          }
+        : { exitCode: 0, stdout: '', stderr: '' },
+    );
+    const selections: { selected: string[]; reason: string }[] = [];
+    const ctx = {
+      exec,
+      issue: { identifier: 'TEST-1' },
+      post: vi.fn(),
+      comment: vi.fn(),
+      scm: { openPr: async () => ({ headSha: 'head' }) },
+      stage: vi.fn(),
+      changedFiles: async () => ['web/a.ts'],
+      step: async (_label: string, work: () => Promise<unknown>) => {
+        const value = await work();
+        if (
+          value &&
+          typeof value === 'object' &&
+          'selected' in value &&
+          'reason' in value
+        )
+          selections.push(value as { selected: string[]; reason: string });
+        return value;
+      },
+    } as unknown as WorkflowContext;
+    let selectionRound = 0;
+    const agents = {
+      selectCommands: async () => ({
+        selected: selectionRound++ === 0 ? ['web-id/optional'] : [],
+        reason: 'Select the optional check only in the first round.',
+      }),
+      call: vi.fn(async (role: string) =>
+        role === 'refiner'
+          ? {
+              status: 'clear',
+              delivery: { kind: 'pull-request', stateChanges: false },
+              scope: 'test',
+              decisions: [],
+              acceptanceCriteria: [],
+              outOfScope: [],
+            }
+          : { summary: '', steps: [] },
+      ),
+    } as unknown as DeliveryAgents;
+    const delivery = createDeliveryOperations(
+      ctx,
+      f.input,
+      {
+        ...defaultFlowSettings(),
+        validationRecheckVersion: enabled ? 1 : undefined,
+        pullRequests: 'lead',
+        execution: [f.repo],
+      },
+      join(f.root, 'snapshot'),
+    );
+    await delivery('clarify', agents);
+    await delivery('plan', agents);
+    await delivery('implement', agents);
+    expect(await delivery('validate', agents)).toBe('retry');
+    expect(await delivery('validate', agents)).toBe('next');
+    expect(selections.slice(-2).map(({ selected }) => selected)).toEqual([
+      ['web-id/optional'],
+      enabled ? ['web-id/optional'] : [],
+    ]);
+    expect(commandRuns).toBe(enabled ? 2 : 1);
+    if (enabled)
+      expect(selections.at(-1)?.reason).toContain('Retesting previously failed');
+  },
+);

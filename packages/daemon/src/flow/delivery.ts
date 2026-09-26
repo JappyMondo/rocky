@@ -171,6 +171,7 @@ export function createDeliveryOperations(
   let environmentAgentRepairs = 0;
   let deliveryRepairs = 0;
   const recoverySetup = new Set<string>();
+  const failedValidationChecks = new Set<string>();
   let continuation = 0;
   let repairedUi = false;
   let repairedInstall = false;
@@ -364,11 +365,16 @@ export function createDeliveryOperations(
           optional.map((entry) => entry.id),
         )
       : { selected: [], reason: 'Only required commands are configured.' };
+    const forced =
+      purpose === 'validate' && settings.validationRecheckVersion
+        ? [...failedValidationChecks]
+        : [];
     const ids = [
       ...available
         .filter(({ command }) => command.policy === 'required')
         .map((entry) => entry.id),
       ...selection.selected,
+      ...forced,
     ];
     const ordered = dependencyOrder(
       catalog,
@@ -380,7 +386,9 @@ export function createDeliveryOperations(
       skipped: available
         .filter((entry) => !ordered.includes(entry))
         .map((entry) => entry.id),
-      reason: selection.reason,
+      reason: forced.length
+        ? `${selection.reason} Retesting previously failed commands: ${forced.join(', ')}.`
+        : selection.reason,
     }));
     return ordered;
   }
@@ -1668,6 +1676,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           for (const entry of selected) {
             if (entry.command.dependsOn.some((id) => failed.has(id))) {
               failed.add(entry.id);
+              failedValidationChecks.add(entry.id);
               validations.push(
                 `${entry.id}: skipped because a prerequisite failed`,
               );
@@ -1682,12 +1691,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             );
             if (result.exitCode !== 0) {
               failed.add(entry.id);
+              failedValidationChecks.add(entry.id);
               validationProblems.push({
                 id: `validation/${revision}/${entry.id}`,
                 file: entry.repository.name,
                 text: `${entry.command.name} failed (exit ${result.exitCode}): ${entry.command.command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
               });
-            }
+            } else failedValidationChecks.delete(entry.id);
           }
         } finally {
           if (services.length) await execution.stop(label);
