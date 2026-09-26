@@ -943,10 +943,16 @@ export function createAgent(
                 if (schema) {
                   // Preserve object-level Zod refinements instead of trusting JSON Schema.
                   const fields = z.record(z.string(), z.unknown()).parse(value);
-                  if (
-                    !(schema instanceof z.ZodObject) ||
-                    !('summary' in schema.shape)
-                  ) {
+                  const schemaOwnsSummary =
+                    (schema instanceof z.ZodObject &&
+                      'summary' in schema.shape) ||
+                    (schema instanceof z.ZodUnion &&
+                      schema.options.every(
+                        (option) =>
+                          option instanceof z.ZodObject &&
+                          'summary' in option.shape,
+                      ));
+                  if (!schemaOwnsSummary) {
                     delete fields.summary;
                   }
                   output = {

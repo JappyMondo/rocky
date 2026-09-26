@@ -708,6 +708,47 @@ it('requires summary without discarding strict object refinements', async () => 
   expect(f.resume).toHaveBeenCalledOnce();
 });
 
+it('preserves summary required by a discriminated agent result', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<result>{"status":"setup","commands":["fixture/seed"],"summary":"Seed the local UI."}</result>',
+    sessionId: 'fixture-session',
+    events: [],
+  });
+  const outcome = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      expect(
+        await createAgent(steps, f.options)(
+          { prompt: 'Prepare browser fixtures.' },
+          {
+            label: 'Prepare UI fixtures',
+            schema: z.discriminatedUnion('status', [
+              z.object({
+                status: z.literal('setup'),
+                commands: z.array(z.string()),
+                summary: z.string(),
+              }),
+              z.object({
+                status: z.literal('blocked'),
+                reason: z.string(),
+                summary: z.string(),
+              }),
+            ]),
+          },
+        ),
+      ).toEqual({
+        status: 'setup',
+        commands: ['fixture/seed'],
+        summary: 'Seed the local UI.',
+      });
+      return 'merged';
+    },
+  });
+  expect(outcome).toMatchObject({ status: 'finished' });
+  expect(f.resume).not.toHaveBeenCalled();
+});
+
 it('a missing snapshot prompt is Run-fatal even when Workflow code catches it', async () => {
   const f = fixture();
   let touched = false;
