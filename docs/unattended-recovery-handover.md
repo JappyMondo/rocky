@@ -13,7 +13,7 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-Runtime commit installed and byte-verified in both global locations: `4f2b173` (fixture screenshot write grant). All recovery commits are on `fix/unattended-recovery`; inspect its history and [the implementation notes](unattended-recovery.md). Draft PR [#51](https://github.com/JappyMondo/rocky/pull/51) passed its four checks at this runtime commit; it remains draft pending live recovery evidence and review.
+The previous installed commit was `4f2b173` (fixture screenshot write grant). New completion, replay and UI endpoint repairs are currently working changes on `fix/unattended-recovery`; inspect [the implementation notes](unattended-recovery.md). The new local `rocky-0.2.0.tgz` has SHA-256 `6953289b9ab9723ab746fabdd01635d2b0e715aeb61024ed8d0f635c80557ac7`. It passed the isolated distribution smoke test and was installed into both global prefixes. The installed `boot-child.js` hash matches the tarball in both prefixes (`3276693d5c0a9f84e924a4007abec4f1a7a717365984456a3bb3880ca9c715c5`); daemon health returned OK. Draft PR [#51](https://github.com/JappyMondo/rocky/pull/51) still pointed at the previous commit when this paragraph was written; refresh its head and CI before claiming review readiness.
 
 Important recent commits:
 
@@ -29,9 +29,17 @@ Important recent commits:
 - `d53e482`, `b040c86`: same-session maintenance continuation and planned shutdowns excluded from crash-loop accounting.
 - Earlier commits cover refinement comments/prior answers, fresh-snapshot restart, CI retry SHA synchronization, worktree adoption, service provisioning for validation/recaps, settled runs and ticket grouping.
 
-Both main checkout and the original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout were clean at handover. The original worktree branch has no commits missing from the main recovery branch.
+The main checkout was clean at the previous handover; the changes above are now in progress here. The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at that time.
 
-## Latest verification and remaining uncertainty
+## Live recovery audit, 2026-09-26 10:02 UTC
+
+- ATT-776-1 was historically marked `completed` even though its recap said the comment and closure were unverified. Its explanatory comment existed in Linear, but the issue was In Review. The issue was moved to Done and read back with `completedAt` set. The historical recap remains a record of the earlier incomplete handoff. New snapshots gate completion on a ready recap and confirmed Linear state; the project-neutral non-ready and old-journal replay tests pass.
+- ATT-920-2 exposed a second replay edge during live retry: calling an empty background command still restarted that Step and failed. The revised runtime reuses the old successful background receipt at the same sequence. Retry selection now points to Step 10 before its waiting fixer Step 144. A live retry of Step 10 on Boot 119 recorded a successful setup receipt, reran `attraccess/verify-runtime`, and reached the compliance-reviewer fixer at Step 144. It is **running**, not recovered yet.
+- ATT-893-2 was retried at Step 118 after installing the endpoint binding repair. The UI inspector is running on Boot 130. No passing independent sweep has been observed yet.
+- ATT-764-4 was retried at Step 70 after adding the missing validation responsibility handoff. Fixture preparation is running on Boot 4. No complete fixture set or inspector result has been observed yet.
+- Typecheck, daemon lint (0 errors), 153 targeted delivery/environment tests, 84 Linear/snapshot tests, 78 replay/retry tests, SDK contract tests, and isolated distribution smoke test passed for this change set. Live acceptance remains pending for the three retries above.
+
+## Prior verification and remaining uncertainty
 
 - Fixture helper, environment integration, snapshot and workflow regressions passed. Final expanded environment integration: 35 tests passed, including source-change revalidation and old/new journal replay.
 - Daemon typecheck/lint passed (lint: 0 errors, 78 existing warnings). Latest focused agent/fixture regressions: 45 passed; the union-result and screenshot-grant tests were red before their fixes. Web coverage passed at 93.84% functions against 93.77% required. Local packaged distribution smoke test passed on isolated port 47625.

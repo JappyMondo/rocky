@@ -443,7 +443,7 @@ it('keeps a recorded zero setup allowance on the same replay path', async () => 
   expect(probe).not.toHaveBeenCalled();
 });
 it.each([false, true])(
-  'replays environment receipts on polls and checks live setup on working Boots (broken setup: %s)',
+  'replays environment receipts without reinstalling on working Boots (changed installer: %s)',
   async (breakSetup) => {
     const f = await fixture();
     // First verifier invocation fails; the environment recovery reruns it, succeeds,
@@ -523,18 +523,13 @@ it.each([false, true])(
     kill.mockRestore();
     if (breakSetup) f.repo.commands[0].command = 'exit 23';
     const replay = await boot();
-    if (breakSetup) {
-      expect(replay).toMatchObject({
-        status: 'failed',
-        error: {
-          name: 'EnvironmentBlocked',
-          message: expect.stringContaining('Previously verified setup failed'),
-        },
-      });
-    } else {
-      expect(replay.status).toBe('finished');
-      expect(f.commands.length).toBeGreaterThan(commandsBeforePoll);
-    }
+    expect(replay.status, JSON.stringify(replay)).toBe('finished');
+    expect(f.commands.length).toBeGreaterThan(commandsBeforePoll);
+    expect(
+      f.commands
+        .slice(commandsBeforePoll)
+        .some((command) => command.includes('exit 23')),
+    ).toBe(false);
     expect(implementations).toBe(1);
     const journal = await readJournal(journalPath);
     expect(JSON.stringify(journal)).not.toContain(
@@ -962,9 +957,15 @@ it.each([
   { recapEnvironment: false, fixturePreflight: false },
   { recapEnvironment: true, fixturePreflight: true },
   { recapEnvironment: true, fixturePreflight: true, sourceChanged: true },
+  { recapEnvironment: true, fixturePreflight: false, stalePlan: true },
 ])(
   'repairs UI fixtures and provisions recap previews across journal replay (new snapshot=%s)',
-  async ({ recapEnvironment, fixturePreflight, sourceChanged = false }) => {
+  async ({
+    recapEnvironment,
+    fixturePreflight,
+    sourceChanged = false,
+    stalePlan = false,
+  }) => {
     const { createDeliveryOperations } = await import('../flow/delivery.js');
     const f = await fixture();
     f.repo.environment.capabilities[0].kind = 'browser';
@@ -999,11 +1000,25 @@ it.each([
         if (role === 'ui-planner')
           return {
             checks: [
-              { id: 'feature', url: '/', action: 'Open', expected: 'Visible' },
+              {
+                id: 'feature',
+                url: stalePlan ? 'http://localhost:4201/feature' : '/',
+                action: stalePlan
+                  ? 'Open http://localhost:4201/feature'
+                  : 'Open',
+                expected: 'Visible',
+              },
             ],
             summary: 'check',
           };
         if (options?.label?.startsWith('Prepare UI fixtures')) {
+          expect(options.input).toMatchObject({
+            validationResponsibility: {
+              repositoryCatalog: expect.arrayContaining([
+                expect.objectContaining({ id: 'web' }),
+              ]),
+            },
+          });
           const exists = await readFile(
             join(f.repoDir, '.fixture-ready'),
             'utf8',
@@ -1061,6 +1076,18 @@ it.each([
           };
         }
         if (role === 'ui-inspector') {
+          if (stalePlan) {
+            const input = options?.input as {
+              baseUrl: string;
+              checks: { url: string; action: string }[];
+            };
+            expect(input.checks[0].url).toBe(
+              new URL('/feature', input.baseUrl).href,
+            );
+            expect(input.checks[0].action).toContain(
+              new URL(input.baseUrl).origin,
+            );
+          }
           if (fixturePreflight)
             expect(options?.input?.fixtures).toEqual([
               expect.objectContaining({
@@ -1172,7 +1199,15 @@ it.each([
                           true,
                         );
                       } else expect(endpoints).toBeUndefined();
-                      return { id: 'recap', url: 'https://example.org/recap' };
+                      return {
+                        id: 'recap',
+                        url: 'https://example.org/recap',
+                        decision: {
+                          status: 'ready',
+                          summary: 'Verified.',
+                          actions: [],
+                        },
+                      };
                     }),
                   checkpoint: async () =>
                     approved
@@ -1192,6 +1227,7 @@ it.each([
             {
               ...defaultFlowSettings(),
               uiFixtureVersion: fixturePreflight ? 1 : undefined,
+              uiPlanEndpointVersion: stalePlan ? undefined : 1,
               recoveryVersion: 1,
               ...(recapEnvironment
                 ? { recapEnvironmentVersion: 1 as const }

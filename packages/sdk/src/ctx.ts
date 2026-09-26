@@ -86,7 +86,8 @@ export interface LinearOps {
    * against the issue's team. An unknown name fails the Step with an error
    * listing the team's actual state names — no fuzzy matching, no silent skip.
    */
-  setState(name: string): Promise<void>;
+  /** Give repeated transitions to the same state distinct stable IDs. */
+  setState(name: string, transitionId?: string): Promise<void>;
 }
 
 // ── ctx ────────────────────────────────────────────────────────────────────
@@ -137,6 +138,12 @@ export interface VisualRecapOptions {
 export interface VisualRecapResult {
   id: string;
   url: string;
+  /** Report verdict used by versioned workflows before claiming completion. */
+  decision?: {
+    status: 'ready' | 'needs-attention' | 'blocked';
+    summary: string;
+    actions: string[];
+  };
 }
 
 /**
@@ -215,6 +222,9 @@ export interface WorkflowContext {
     cmd: string,
     opts?: { label?: string; timeoutMs?: number },
   ): Promise<ExecResult>;
+
+  /** Reuse a completed background receipt at the same replay position. No process starts. */
+  reuseRecordedBackground(label: string): Promise<void>;
 
   /**
    * Journal arbitrary code: the callback runs once, its JSON-serialisable

@@ -120,6 +120,8 @@ export function createWorkflowContext(
     );
   }
   return Object.freeze({
+    reuseRecordedBackground: (label: string) =>
+      current().reuseRecordedBackground(label),
     models,
     issue,
     branch: header.branch,

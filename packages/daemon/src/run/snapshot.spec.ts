@@ -150,9 +150,12 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
       ciRetryVersion: undefined,
       ciRetryRefusalVersion: undefined,
       scopeCommentVersion: undefined,
+      commentDeliveryVersion: undefined,
+      recapDecisionVersion: undefined,
       recapEnvironmentVersion: undefined,
       validationEnvironmentVersion: undefined,
       uiFixtureVersion: undefined,
+      uiPlanEndpointVersion: undefined,
     },
     nodes: [
       {
@@ -212,6 +215,16 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
   expect(
     JSON.parse(
       await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.commentDeliveryVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.recapDecisionVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
     ).settings.recapEnvironmentVersion,
   ).toBe(1);
   expect(
@@ -228,8 +241,16 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
     ).settings.uiFixtureVersion,
   ).toBe(1);
   expect(JSON.parse(source).settings.uiFixtureVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.uiPlanEndpointVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.uiPlanEndpointVersion).toBeUndefined();
   expect(JSON.parse(source).settings.recapEnvironmentVersion).toBeUndefined();
   expect(JSON.parse(source).settings.scopeCommentVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.commentDeliveryVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.recapDecisionVersion).toBeUndefined();
   expect(JSON.parse(source).settings.ciRetryVersion).toBeUndefined();
   expect(JSON.parse(source).settings.ciRetryRefusalVersion).toBeUndefined();
   expect(JSON.parse(source).settings.recoveryVersion).toBeUndefined();

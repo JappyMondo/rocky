@@ -561,7 +561,11 @@ describe('LinearRunMirror', () => {
       'in review',
     );
     await new LinearRunMirror(f.options).setState('valid-state-step', 'Todo');
-    expect(selected).toEqual(['in review']);
+    await new LinearRunMirror(f.options).setState(
+      'second-valid-state-step',
+      'In Review',
+    );
+    expect(selected).toEqual(['in review', 'In Review']);
   });
 
   it.each([

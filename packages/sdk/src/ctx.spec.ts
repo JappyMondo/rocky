@@ -9,6 +9,7 @@ import {
   type Workflow,
   type WorkflowContext,
   type WorkflowInput,
+  type VisualRecapResult,
 } from './index.js';
 
 describe('WorkflowContext', () => {
@@ -113,7 +114,7 @@ describe('WorkflowContext', () => {
           deliverable: 'Analysis',
           agent: { model: 'reviewer' },
         }),
-      ).toEqualTypeOf<{ id: string; url: string }>();
+      ).toEqualTypeOf<VisualRecapResult>();
       const value = await ctx.step('derive title', () => ({ ports }));
       const results = await ctx.parallel([1, 2], async (item, index) =>
         ctx.exec(`printf ${item}-${index}`),

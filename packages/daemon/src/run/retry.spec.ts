@@ -257,6 +257,34 @@ it('offers explicit retries for failed Steps and finalization, without invalidat
   };
   const end = { ...base, seq: 2, step: '$end', result: { status: 'failed' } };
   expect(retryStepKey([base, end])).toBe('0');
+  expect(
+    retryStepKey([
+      {
+        ...base,
+        seq: 0,
+        step: 'exec:background',
+        label: 'Environment probe web/install',
+        status: 'done',
+        result: { pid: 123 },
+      },
+      {
+        ...base,
+        seq: 0,
+        step: 'exec:background',
+        label: 'Environment probe web/install',
+        status: 'failed',
+      },
+      { ...base, seq: 1, step: 'agent', status: 'waiting' },
+      {
+        ...end,
+        error: {
+          name: 'EnvironmentBlocked',
+          message:
+            'web/install: Previously verified setup failed on this Boot.',
+        },
+      },
+    ]),
+  ).toBe('0');
   for (const change of [
     { step: 'scm:merge' },
     { status: 'running' as const },

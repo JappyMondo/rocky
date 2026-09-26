@@ -45,7 +45,7 @@ const blocked = (
  * receipts; their background processes are not restarted.
  */
 export async function ensureEnvironment(
-  ctx: Pick<WorkflowContext, 'step' | 'stage' | 'replaying'>,
+  ctx: Pick<WorkflowContext, 'step' | 'stage' | 'replaying' | 'replayLabel'>,
   execution: WorkspaceExecution,
   request: {
     label: string;
@@ -266,11 +266,17 @@ export async function ensureEnvironment(
       }
       let current: { exitCode: number };
       try {
-        current = await execution.probe(
-          entry.id,
-          Math.max(1, Math.min(allowance, budget - (Date.now() - started))),
-          [],
-        );
+        current =
+          ctx.replaying && ctx.replayLabel === `Environment probe ${entry.id}`
+            ? await execution.replaySetupProbe(entry.id)
+            : await execution.probe(
+                entry.id,
+                Math.max(
+                  1,
+                  Math.min(allowance, budget - (Date.now() - started)),
+                ),
+                [],
+              );
       } catch {
         current = { exitCode: 124 };
       }

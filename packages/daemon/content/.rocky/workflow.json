@@ -43,8 +43,11 @@
     "ciRetryVersion": 1,
     "ciRetryRefusalVersion": 1,
     "scopeCommentVersion": 1,
+    "commentDeliveryVersion": 1,
+    "recapDecisionVersion": 1,
     "recapEnvironmentVersion": 1,
-    "validationEnvironmentVersion": 1
+    "validationEnvironmentVersion": 1,
+    "uiPlanEndpointVersion": 1
   },
   "nodes": [
     {

@@ -700,7 +700,10 @@ export function createProductionRuntime(
               ));
           const report = cached || (await artifacts.readReport(run.runId, id));
           if (publicOrigin) await publicReviews.publish(report, publicOrigin);
-          return linkFor(report.id, true);
+          return {
+            ...(await linkFor(report.id, true)),
+            decision: report.decision,
+          };
         }
         const result = await linkFor(
           id,
@@ -835,7 +838,7 @@ export function createProductionRuntime(
             };
           },
         );
-        return result;
+        return { ...result, decision: report.decision };
       };
       const onReady = async (pr: ScmPr) => {
         await visualRecap({ pr }, false);
@@ -887,8 +890,11 @@ export function createProductionRuntime(
                   );
               },
               linear: {
-                setState: async (name: string) =>
-                  mirrorFor(run).setState(`state:${name}`, name),
+                setState: async (name: string, transitionId?: string) =>
+                  mirrorFor(run).setState(
+                    `state:${transitionId ?? name}`,
+                    name,
+                  ),
               },
               scm: scmContext(steps, async () => {
                 const members = await scmFor(run, signal);

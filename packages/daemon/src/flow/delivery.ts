@@ -1,4 +1,5 @@
 import { prepareUiFixtures, uiFixturesSchema } from './ui-fixtures.js';
+import { bindChecksToEndpoint, isRelativeUiPath } from './ui-checks.js';
 import {
   ensureEnvironment,
   EnvironmentBlocked,
@@ -50,7 +51,7 @@ import {
 import { dirname, join, relative, isAbsolute, sep } from 'node:path';
 import type { FlowSettings, UiEndpoint } from '@rocky/local-contracts';
 import { resolveUiEndpoint } from './ui-endpoint.js';
-import { isRecapAuditError } from '../review-report/recap.js';
+import { isRecapAuditError, RecapAuditError } from '../review-report/recap.js';
 async function shell(ctx: WorkflowContext, command: string) {
   const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`);
   if (result.exitCode !== 0)
@@ -908,8 +909,20 @@ export function createDeliveryOperations(
                     'Use verified endpoints and authentication references, resolving document references relative to the named repository in the workspace. An ok result requires executed: true. Never mark an unexecuted or unreachable check ok. Report blocked coverage using the blocked verdict, without inventing a product defect or weakening acceptance criteria. A documented-local authentication reference may be read only for local login instructions; never reproduce credentials in output.',
                 }
               : {}),
+            ...(settings.uiPlanEndpointVersion
+              ? {
+                  endpointInstruction:
+                    'Every check URL must be a path beginning with one slash, relative to the supplied live UI base URL. Do not embed localhost, a port, or an absolute service URL in a check URL or action. The service may move to a different port on another Boot.',
+                }
+              : {}),
           },
-          schema: Checks,
+          schema: settings.uiPlanEndpointVersion
+            ? Checks.refine(
+                ({ checks }) =>
+                  checks.every(({ url }) => isRelativeUiPath(url)),
+                'Each UI check URL must be a path relative to the verified service',
+              )
+            : Checks,
         })
       ).checks;
       serviceChecks.set(serviceKey, checks);
@@ -979,6 +992,7 @@ export function createDeliveryOperations(
           action:
             'The UI endpoint is unreachable on this Boot. Repair its service configuration and resume.',
         });
+      if (url) checks = bindChecksToEndpoint(checks, url);
       let observations: Observation[];
       if (!boot.ready) {
         observations = [
@@ -1034,6 +1048,7 @@ export function createDeliveryOperations(
                   screenshotDirectory: join(runDir, 'screenshots'),
                   environment: environmentContext,
                   availableCommands: available,
+                  validationResponsibility,
                   previous,
                   instruction:
                     'Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Navigate each intended state with the browser and return executed:true only after reaching it. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and an existing repository source path documenting the route or fixture, and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.',
@@ -1147,6 +1162,8 @@ export function createDeliveryOperations(
             baseUrl: url!,
             checks,
             rules,
+            endpointInstruction:
+              "The supplied baseUrl is this Boot's verified frontend. Resolve relative check URLs against it; use the supplied rebound URL for older plans. Never follow a port mentioned in earlier prose when it differs from baseUrl.",
             previousExplanations,
             ...(fixtures
               ? {
@@ -1494,17 +1511,22 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             ctx.visualRecap({
               deliverable: draft.body,
               title: issue.title,
-              scope,
+              scope: settings.recapDecisionVersion
+                ? {
+                    ...scope,
+                    handoffPhase: {
+                      stage: 'before-close',
+                      instruction:
+                        'The reviewed comment is published. Assess whether its content fulfills the agreed scope. Rocky closes the issue only after this recap succeeds. The pending workflow-owned closure alone is not a gap. Required content or evidence gaps still need attention.',
+                    },
+                  }
+                : scope,
               agents: actors.recap(),
             });
-          // Older runs recorded the recap before delivery. Preserve that order
-          // while replaying their immutable journal.
-          if (
-            ctx.replaying &&
-            (ctx.replayStep?.startsWith('reviewReport.') ||
-              (ctx.replayStep === 'linear.comment' &&
-                ctx.replayedStep?.('reviewReport.save')))
-          ) {
+          // Old snapshots recorded the recap before publication. Choose the
+          // sequence from the frozen snapshot, never from the next replay Step:
+          // a new Run can also resume inside reviewReport after publication.
+          if (!settings.commentDeliveryVersion) {
             ctx.stage('Visual recap');
             try {
               await recap();
@@ -1521,16 +1543,25 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           ctx.stage('Deliver');
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
           await ctx.comment(draft.body);
+          ctx.stage('Visual recap');
+          // This recap sees the published comment. Closure follows its verdict.
+          // A recap audit failure must not redraft and post a second comment.
+          const report = await recap();
+          if (
+            settings.recapDecisionVersion &&
+            report.decision?.status !== 'ready'
+          ) {
+            await ctx.post(
+              `The delivered comment's recap still requires attention: ${report.decision?.summary ?? 'No decision was returned.'}\n${report.decision?.actions.join('\n') ?? ''}`,
+            );
+            return 'exhausted';
+          }
           if (delivery.stateChanges) {
             await ctx.linear.setState(states.done);
             await ctx.step('Confirm delivered issue state', () => ({
               state: states.done,
             }));
           }
-          ctx.stage('Visual recap');
-          // This recap now sees the verified publication and state receipts.
-          // A recap audit failure must not redraft and post a second comment.
-          await recap();
           return 'completed';
         }
         previous = { body: draft.body, problems };
@@ -2079,6 +2110,15 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
                 issue,
                 validationSummary,
                 uiSummary,
+                ...(settings.recapDecisionVersion
+                  ? {
+                      handoffPhase: {
+                        stage: 'before-ready',
+                        instruction:
+                          'Assess whether the validated change is ready for review now. Rocky marks the PR ready, updates the issue to its review state, and posts the handoff only after this recap succeeds. Those pending workflow-owned effects alone are not a gap. Product, check, and evidence gaps still require attention.',
+                      },
+                    }
+                  : {}),
                 ...(recapEnvironment ? { environment: recapEnvironment } : {}),
                 ...(repositories
                   ? { ...scope, pullRequests: repositories.current }
@@ -2086,6 +2126,14 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               },
               agents: actors.recap(),
             });
+            if (
+              settings.recapDecisionVersion &&
+              result.decision?.status !== 'ready'
+            )
+              throw new RecapAuditError([
+                result.decision?.summary ?? 'The recap returned no decision.',
+                ...(result.decision?.actions ?? []),
+              ]);
             recaps.set(candidate.repo, result);
             if (candidate.repo === pr.repo) recap = result;
           } catch (error) {

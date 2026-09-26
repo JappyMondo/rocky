@@ -41,12 +41,18 @@ export interface FlowSettings {
   ciRetryRefusalVersion?: 1;
   /** Publish scope decisions as durable ticket comments in new snapshots. */
   scopeCommentVersion?: 1;
+  /** Deliver a reviewed comment and close its issue before writing the final recap. */
+  commentDeliveryVersion?: 1;
+  /** Stop completed handoffs when the published recap still has required actions. */
+  recapDecisionVersion?: 1;
   /** Provision selected UI services for recap capture; old journals retain their order. */
   recapEnvironmentVersion?: 1;
   /** Provision command endpoint dependencies before validation in new journals. */
   validationEnvironmentVersion?: 1;
   /** Prepare concrete browser fixtures before inspection in new snapshots. */
   uiFixtureVersion?: 1;
+  /** Planned UI routes are relative to the live service, not a prior Boot's port. */
+  uiPlanEndpointVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
   execution?: import('./workspace.js').WorkspaceRepository[];
   /** Explicit opt-in preserves positional replay for older frozen flows. */
@@ -417,9 +423,12 @@ export const defaultFlowSettings = (): FlowSettings => ({
   ciRetryVersion: 1,
   ciRetryRefusalVersion: 1,
   scopeCommentVersion: 1,
+  commentDeliveryVersion: 1,
+  recapDecisionVersion: 1,
   recapEnvironmentVersion: 1,
   validationEnvironmentVersion: 1,
   uiFixtureVersion: 1,
+  uiPlanEndpointVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -513,6 +522,8 @@ export function parseFlow(source: string): WorkflowFlow {
   const s = value.settings;
   if (s.uiFixtureVersion !== undefined && s.uiFixtureVersion !== 1)
     throw new Error('Unsupported UI fixture version.');
+  if (s.uiPlanEndpointVersion !== undefined && s.uiPlanEndpointVersion !== 1)
+    throw new Error('Unsupported UI plan endpoint version.');
   if (
     s.validationEnvironmentVersion !== undefined &&
     s.validationEnvironmentVersion !== 1
@@ -525,6 +536,10 @@ export function parseFlow(source: string): WorkflowFlow {
     throw new Error('Unsupported recap environment version.');
   if (s.scopeCommentVersion !== undefined && s.scopeCommentVersion !== 1)
     throw new Error('Unsupported scope comment version.');
+  if (s.commentDeliveryVersion !== undefined && s.commentDeliveryVersion !== 1)
+    throw new Error('Unsupported comment delivery version.');
+  if (s.recapDecisionVersion !== undefined && s.recapDecisionVersion !== 1)
+    throw new Error('Unsupported recap decision version.');
   if (s.ciRetryVersion !== undefined && s.ciRetryVersion !== 1)
     throw new Error('Unsupported CI retry version.');
   if (s.ciRetryRefusalVersion !== undefined && s.ciRetryRefusalVersion !== 1)

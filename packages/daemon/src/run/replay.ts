@@ -104,6 +104,8 @@ export interface BootContext {
   readonly replayStep?: string;
   readonly replayLabel?: string;
   readonly replayedStep?: (key: string) => boolean;
+  /** Consume a previously completed background Step without restarting its process. */
+  reuseRecordedBackground(label: string): Promise<void>;
   /**
    * Display-only stage marker: takes no seq, is never journaled as a Step of
    * its own, and stamps `stage` on every entry created after it. The runner
@@ -320,6 +322,22 @@ class BootRunner implements BootContext {
       (entry) =>
         entry.seq < this.seq && entry.step === key && entry.status === 'done',
     );
+  }
+
+  async reuseRecordedBackground(label: string): Promise<void> {
+    const previous = this.journal.entries.findLast(
+      (entry) =>
+        entry.seq === this.seq &&
+        entry.step === 'exec:background' &&
+        entry.label === label &&
+        entry.status === 'done',
+    );
+    if (!previous)
+      throw new Error(`No completed background Step to reuse: ${label}`);
+    await this.step('exec:background', { label }, async () => ({
+      status: 'done',
+      result: previous.result,
+    }));
   }
 
   stage(label: string): void {

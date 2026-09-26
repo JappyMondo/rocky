@@ -24,6 +24,10 @@ import type {
   ScmOps,
   Triggers,
   WorkflowContext,
+  WorkflowInput,
+  Issue,
+  IssueComment,
+  VisualRecapResult,
 } from '@rocky/sdk';
 import { z } from '@rocky/sdk';
 import { newRepositoryProfile } from '../config/profiles.js';
@@ -991,9 +995,9 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
 
   function fixture(
     options: {
-      comments?: import('@rocky/sdk').IssueComment[];
-      clarifications?: import('@rocky/sdk').Issue['clarifications'];
-      members?: import('@rocky/sdk').WorkflowInput['members'];
+      comments?: IssueComment[];
+      clarifications?: Issue['clarifications'];
+      members?: WorkflowInput['members'];
       agent?: (
         name: string,
         input: Record<string, unknown>,
@@ -1003,7 +1007,16 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         command: string,
       ) => { exitCode: number; stdout: string; stderr: string } | undefined;
       comment?: (body: string) => void;
-      recap?: () => { id: string; url: string };
+      recap?: () => {
+        id: string;
+        url: string;
+        decision?: {
+          status: 'ready' | 'needs-attention' | 'blocked';
+          summary: string;
+          actions: string[];
+        };
+      };
+      recapStep?: string;
       scm?: (operation: string, count: number, args: unknown[]) => unknown;
       triggers?: Triggers;
       continuation?: boolean;
@@ -1179,16 +1192,28 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                     : { status: 'waiting', detail: checkpoint };
                 },
                 visualRecap: () =>
-                  steps.step('visualRecap', {}, async () => {
-                    trace.push('visualRecap');
-                    return {
-                      status: 'done',
-                      result: options.recap?.() ?? {
+                  steps.step(
+                    options.recapStep ?? 'visualRecap',
+                    {},
+                    async () => {
+                      trace.push('visualRecap');
+                      const report: VisualRecapResult = options.recap?.() ?? {
                         id: 'r_fixture',
                         url: 'https://rocky.test/recap',
-                      },
-                    };
-                  }),
+                      };
+                      return {
+                        status: 'done',
+                        result: {
+                          ...report,
+                          decision: report.decision ?? {
+                            status: 'ready',
+                            summary: 'Ready.',
+                            actions: [],
+                          },
+                        },
+                      };
+                    },
+                  ),
                 comment: (body) =>
                   steps.step('linear.comment', {}, async () => {
                     options.comment?.(body);
@@ -3112,6 +3137,127 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(f.scmCalls).toEqual([]);
   });
 
+  it.skipIf(mode === 'legacy').each([false, true])(
+    'replays a comment journal at its explicit delivery boundary (new=%s)',
+    async (modern) => {
+      const flow = parseFlow(flowSource);
+      if (modern) {
+        flow.settings.commentDeliveryVersion = 1;
+        flow.settings.recapDecisionVersion = 1;
+      } else {
+        delete flow.settings.commentDeliveryVersion;
+        delete flow.settings.recapDecisionVersion;
+      }
+      let reportAttempts = 0;
+      let commentAttempts = 0;
+      const body = 'Project neutral answer.';
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recapStep: 'reviewReport.save',
+        recap: () => {
+          if (modern && ++reportAttempts === 1)
+            throw new Error('Recap transport interrupted');
+          return {
+            id: 'report',
+            url: 'https://rocky.test/report',
+            decision: { status: 'ready', summary: 'Done.', actions: [] },
+          };
+        },
+        comment: (value) => {
+          if (value === body && !modern && ++commentAttempts === 1)
+            throw new Error('Comment transport interrupted');
+        },
+        agent: (name) => {
+          if (name === 'refiner') return commentScope;
+          if (name === 'deliverable-writer') return { body };
+          if (name === 'deliverable-reviewer')
+            return {
+              assessments: [
+                {
+                  criterion: commentScope.acceptanceCriteria[0],
+                  evidence: 'The body answers the question.',
+                  problems: [],
+                },
+              ],
+              problems: [],
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'failed' });
+      const journalPath = join(dir, 'journal.jsonl');
+      await (
+        await JournalWriter.open(journalPath)
+      ).retry(
+        `resume-${modern ? 'new' : 'old'}-comment`,
+        retryStepKey((await readJournal(journalPath)).entries)!,
+        [],
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'completed',
+      });
+      expect(f.trace.filter((line) => line === `comment:${body}`)).toHaveLength(
+        1,
+      );
+      expect(f.trace).toContain(modern ? 'Done' : 'In Review');
+      const deliveryIndex = f.trace.indexOf(`comment:${body}`);
+      const recapIndex = f.trace.indexOf('visualRecap');
+      expect(recapIndex).toBeGreaterThanOrEqual(0);
+      expect(
+        modern ? deliveryIndex < recapIndex : recapIndex < deliveryIndex,
+      ).toBe(true);
+      expect(
+        (await readJournal(journalPath)).entries.some(
+          (entry) => entry.step === 'reviewReport.save',
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'does not complete or close a published comment whose recap needs attention',
+    async () => {
+      const f = fixture({
+        recap: () => ({
+          id: 'unfinished-report',
+          url: 'https://rocky.test/unfinished-report',
+          decision: {
+            status: 'needs-attention',
+            summary: 'The answer omits a required detail.',
+            actions: ['Add the missing detail.'],
+          },
+        }),
+        agent: (name) => {
+          if (name === 'refiner') return commentScope;
+          if (name === 'deliverable-writer') return { body: 'Partial answer.' };
+          if (name === 'deliverable-reviewer')
+            return {
+              assessments: [
+                {
+                  criterion: commentScope.acceptanceCriteria[0],
+                  evidence: 'The body addresses the main question.',
+                  problems: [],
+                },
+              ],
+              problems: [],
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(f.trace).toContain('comment:Partial answer.');
+      expect(f.trace).not.toContain('Done');
+      expect(f.trace).toContain('visualRecap');
+    },
+  );
+
   it.skipIf(mode !== 'flow')(
     'continues an exhausted deliverable with its previous draft and review feedback',
     async () => {
@@ -3377,6 +3523,51 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     );
     expect(JSON.stringify(ready)).toContain('https://rocky.test/recap');
   });
+
+  it.skipIf(mode === 'legacy')(
+    'does not mark a PR ready when its recap still requires work',
+    async () => {
+      const flow = parseFlow(flowSource);
+      flow.settings.recapDecisionVersion = 1;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => ({
+          id: 'attention',
+          url: 'https://rocky.test/attention',
+          decision: {
+            status: 'needs-attention',
+            summary: 'One acceptance criterion is unverified.',
+            actions: ['Verify the missing criterion.'],
+          },
+        }),
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({
+                    id,
+                    status: 'disagreed',
+                    note: 'Evidence is still missing.',
+                  }),
+                ),
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.scmCalls.some(
+          ({ operation, args }) =>
+            operation === 'markDraft' && args[1] === false,
+        ),
+      ).toBe(false);
+    },
+  );
 
   it('feeds previous-session answers to refinement and downstream planning', async () => {
     const comments = [
