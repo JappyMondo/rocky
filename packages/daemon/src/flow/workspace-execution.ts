@@ -85,7 +85,12 @@ export class WorkspaceExecution {
   private endpoints: Record<string, Record<string, string>> = {};
   constructor(
     private ctx: Pick<WorkflowContext, 'exec' | 'step' | 'ports' | 'polling'> &
-      Partial<Pick<WorkflowContext, 'reuseRecordedBackground'>>,
+      Partial<
+        Pick<
+          WorkflowContext,
+          'reuseRecordedBackground' | 'replayInterruptedValidation'
+        >
+      >,
     private workspace: WorkflowInput,
     readonly repos: WorkspaceRepository[],
     private runDir = process.env.ROCKY_RUN_DIR ?? '',
@@ -278,9 +283,14 @@ run();
   /** Consume a recorded setup probe without rerunning its installer on Boot.
    * Fresh capability probes still verify the restored workspace afterwards.
    */
-  async replaySetupProbe(id: string) {
+  async replaySetupProbe(id: string, timeoutMs: number) {
     if (!this.ctx.reuseRecordedBackground)
       throw new Error('This context cannot reuse recorded background Steps.');
+    // An interrupted install can remove dependency links before it resumes.
+    // Restore them in the same recorded probe Step before live verification;
+    // adding a new Step here would diverge from the earlier journal.
+    if (this.ctx.replayInterruptedValidation?.(id))
+      return this.probe(id, timeoutMs, []);
     await this.ctx.reuseRecordedBackground(`Environment probe ${id}`);
     return { exitCode: 0, stdout: '' };
   }

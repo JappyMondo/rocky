@@ -268,7 +268,7 @@ export async function ensureEnvironment(
       try {
         current =
           ctx.replaying && ctx.replayLabel === `Environment probe ${entry.id}`
-            ? await execution.replaySetupProbe(entry.id)
+            ? await execution.replaySetupProbe(entry.id, allowance)
             : await execution.probe(
                 entry.id,
                 Math.max(

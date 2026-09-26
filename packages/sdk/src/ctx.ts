@@ -192,6 +192,8 @@ export interface WorkflowContext {
   readonly replayLabel?: string;
   /** Whether an earlier completed Step with this key is being replayed. */
   readonly replayedStep?: (key: string) => boolean;
+  /** Whether a later configured validation command was interrupted on the prior Boot. */
+  readonly replayInterruptedValidation?: (commandId: string) => boolean;
 
   /** Display-only: takes no seq, stamps later entries, and re-executes on replay. */
   stage(label: string): void;

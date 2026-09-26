@@ -538,6 +538,82 @@ it.each([false, true])(
     );
   },
 );
+
+it('restores setup before replaying an interrupted install validation command', async () => {
+  const f = await fixture();
+  const journalPath = join(f.root, 'journal.jsonl');
+  let controller: AbortController | undefined;
+  let interrupt = true;
+  const boot = () =>
+    runBoot({
+      journalPath,
+      ...(controller ? { signal: controller.signal } : {}),
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(
+          runner,
+          {
+            issue: {
+              identifier: 'TEST-1',
+              title: '',
+              description: '',
+              labels: [],
+              url: '',
+            },
+            branch: 'test',
+            ports: [],
+          },
+          {
+            exec: async (command, background, timeoutMs) => {
+              if (command === 'test -f .prepared' && interrupt) {
+                await rm(join(f.repoDir, '.prepared'));
+                controller?.abort();
+                throw new Error('interrupted install');
+              }
+              return f.exec(command, background, timeoutMs);
+            },
+            changedFiles: async () => [],
+          },
+        );
+        const execution = new WorkspaceExecution(
+          ctx,
+          f.input,
+          [f.repo],
+          f.root,
+          true,
+        );
+        try {
+          expect(
+            (
+              await ensureEnvironment(ctx, execution, {
+                label: 'baseline',
+                allowSetup: true,
+              })
+            ).status,
+          ).toBe('ready');
+        } finally {
+          await execution.stop('done');
+        }
+        await ctx.exec('test -f .prepared', {
+          label: 'Validate web/install 2/5',
+        });
+        return 'completed';
+      },
+    });
+  controller = new AbortController();
+  expect((await boot()).status).toBe('cancelled');
+  await expect(readFile(join(f.repoDir, '.prepared'))).rejects.toThrow();
+  interrupt = false;
+  controller = undefined;
+  const resumed = await boot();
+  expect(resumed, JSON.stringify(resumed)).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(await readFile(join(f.repoDir, '.prepared'), 'utf8')).toBe('');
+  expect(
+    f.commands.filter((command) => command.includes('touch .prepared')),
+  ).toHaveLength(2);
+});
 it('verifies onboarding in isolated clones and preserves the source checkout', async () => {
   const f = await fixture();
   const paths = rockyPaths(join(f.root, 'rocky'));

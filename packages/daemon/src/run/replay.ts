@@ -104,6 +104,7 @@ export interface BootContext {
   readonly replayStep?: string;
   readonly replayLabel?: string;
   readonly replayedStep?: (key: string) => boolean;
+  readonly replayInterruptedValidation?: (commandId: string) => boolean;
   /** Consume a previously completed background Step without restarting its process. */
   reuseRecordedBackground(label: string): Promise<void>;
   /**
@@ -321,6 +322,16 @@ class BootRunner implements BootContext {
     return this.journal.entries.some(
       (entry) =>
         entry.seq < this.seq && entry.step === key && entry.status === 'done',
+    );
+  }
+  replayInterruptedValidation(commandId: string): boolean {
+    const label = `Validate ${commandId} `;
+    return this.journal.entries.some(
+      (entry) =>
+        entry.seq > this.seq &&
+        entry.step === 'exec' &&
+        entry.label?.startsWith(label) &&
+        this.journal.latest(entry.seq)?.status === 'running',
     );
   }
 
