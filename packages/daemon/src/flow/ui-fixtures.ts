@@ -43,7 +43,12 @@ export function uiFixturesSchema(checks: readonly Check[], commands: string[]) {
             instructions: z.string().min(1),
             credentialFile: z.string().min(1).optional(),
             repository: z.string().min(1),
-            source: z.string().min(1),
+            // Keep recorded single-path results readable while allowing every
+            // supporting file to have its own unambiguous provenance path.
+            source: z.union([
+              z.string().min(1),
+              z.array(z.string().min(1)).min(1),
+            ]),
             executed: z.literal(true),
             screenshot: z.string().min(1),
           }),

@@ -1034,6 +1034,7 @@ it.each([
   { recapEnvironment: false, fixturePreflight: false },
   { recapEnvironment: true, fixturePreflight: true },
   { recapEnvironment: true, fixturePreflight: true, sourceChanged: true },
+  { recapEnvironment: true, fixturePreflight: true, multipleSources: true },
   { recapEnvironment: true, fixturePreflight: true, fixtureRecovery: true },
   {
     recapEnvironment: true,
@@ -1053,6 +1054,7 @@ it.each([
     recapEnvironment,
     fixturePreflight,
     sourceChanged = false,
+    multipleSources = false,
     stalePlan = false,
     fixtureRecovery = false,
     fixtureRecoveryLegacy = false,
@@ -1169,7 +1171,9 @@ it.each([
                         }
                       : {}),
                     repository: 'web',
-                    source: 'README.md',
+                    source: multipleSources
+                      ? ['README.md', 'server.cjs']
+                      : 'README.md',
                     executed: true,
                     screenshot: join(f.root, 'screenshots', 'fixture.png'),
                   },

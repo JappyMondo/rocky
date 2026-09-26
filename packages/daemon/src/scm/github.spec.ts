@@ -273,6 +273,100 @@ it('keeps polling while any current-head CI report is incomplete', async () => {
   transport.done();
 });
 
+it.each([
+  {
+    completed: true,
+    concluded: true,
+    actions: true,
+    sameUrl: true,
+    expected: 'done',
+  },
+  {
+    completed: false,
+    concluded: true,
+    actions: true,
+    sameUrl: true,
+    expected: 'waiting',
+  },
+  {
+    completed: true,
+    concluded: false,
+    actions: true,
+    sameUrl: true,
+    expected: 'waiting',
+  },
+  {
+    completed: true,
+    concluded: true,
+    actions: false,
+    sameUrl: true,
+    expected: 'waiting',
+  },
+  {
+    completed: true,
+    concluded: true,
+    actions: true,
+    sameUrl: false,
+    expected: 'waiting',
+  },
+])(
+  'reconciles stale Actions check status only with a completed owning workflow (%s)',
+  async ({ completed, concluded, actions, sameUrl, expected }) => {
+    const transport = scriptedFetch([
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+        value: {
+          check_runs: [
+            {
+              id: 21,
+              name: 'verify',
+              head_sha: 'abc',
+              status: 'in_progress',
+              conclusion: concluded ? 'success' : null,
+              completed_at: concluded ? '2026-09-26T17:12:10Z' : null,
+              app: { slug: actions ? 'github-actions' : 'external-review' },
+              details_url: `https://github.test/team/repo/actions/runs/${sameUrl ? 20 : 99}/job/21`,
+            },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+        value: [],
+      },
+      {
+        path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+        value: {
+          workflow_runs: [
+            {
+              id: 20,
+              name: 'CI',
+              head_sha: 'abc',
+              status: completed ? 'completed' : 'in_progress',
+              conclusion: completed ? 'success' : null,
+            },
+          ],
+        },
+      },
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+    ]);
+    const result = await createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).waitForCi(githubPr(), { logTailLines: 0 });
+    expect(result).toEqual(
+      expected === 'done'
+        ? {
+            status: 'done',
+            result: { status: 'passed', headSha: 'abc', failedJobs: [] },
+          }
+        : { status: 'waiting' },
+    );
+    transport.done();
+  },
+);
+
 it('rejects unsafe CI log limits and PR handles before reading platform state', async () => {
   const adapter = createGitHubScm({
     ...githubOptions,

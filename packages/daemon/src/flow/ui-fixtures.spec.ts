@@ -138,3 +138,25 @@ it('passes only private Run fixture credentials to the independent inspector', a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('accepts multiple explicit provenance paths without breaking recorded single-path fixtures', () => {
+  const schema = uiFixturesSchema(checks, []);
+  expect(schema.safeParse(ready).success).toBe(true);
+  expect(
+    schema.safeParse({
+      ...ready,
+      fixtures: [
+        {
+          ...ready.fixtures[0],
+          source: ['tests/fixtures.ts', 'src/routes.ts'],
+        },
+      ],
+    }).success,
+  ).toBe(true);
+  expect(
+    schema.safeParse({
+      ...ready,
+      fixtures: [{ ...ready.fixtures[0], source: [] }],
+    }).success,
+  ).toBe(false);
+});

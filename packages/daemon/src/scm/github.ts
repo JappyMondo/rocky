@@ -42,6 +42,8 @@ const checkSchema = z.object({
   status: z.string(),
   conclusion: z.string().nullable(),
   details_url: z.string().nullable(),
+  completed_at: z.string().nullable().optional(),
+  app: z.object({ slug: z.string() }).nullable().optional(),
   output: z
     .object({
       summary: z.string().nullable(),
@@ -708,9 +710,24 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           status: 'done',
           result: { status: 'failed', headSha: pr.headSha, failedJobs },
         };
+      // GitHub can retain an in_progress check status after the Actions job
+      // and its workflow concluded. Require independent completion evidence
+      // from the owning current-head workflow; external checks still wait.
+      const completedCheck = (check: z.infer<typeof checkSchema>) =>
+        check.status === 'completed' ||
+        (check.app?.slug === 'github-actions' &&
+          !!check.completed_at &&
+          successful(check.conclusion) &&
+          runs.some(
+            (run) =>
+              run.status === 'completed' &&
+              successful(run.conclusion) &&
+              check.details_url ===
+                `${new URL(pr.url).origin}/${options.repo.project}/actions/runs/${run.id}/job/${check.id}`,
+          ));
       if (
         checks.length + latest.length + runs.length === 0 ||
-        checks.some((check) => check.status !== 'completed') ||
+        checks.some((check) => !completedCheck(check)) ||
         latest.some((status) => status.state !== 'success') ||
         runs.some((run) => run.status !== 'completed')
       )

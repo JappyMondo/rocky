@@ -2,6 +2,12 @@
 
 Updated 2026-09-26. Continue durable fixes if further failures occur. Do not treat this handover as current run status; refresh the daemon first.
 
+## Current mandate, 2026-09-26 18:00 UTC
+
+The user explicitly reauthorized Rocky API restart/reassignment of existing tickets as unattended acceptance tests. All implementation changes must stay in Rocky and apply generically through the default workflow. Do not edit or operate target worktrees or workers manually. Continue until a live ticket has a complete, truthful recap and deliverable; reaching review or a queued restart alone is not success. This supersedes the earlier prohibition on retry/restart controls, not the prohibition on manual target-repository fixes.
+
+ATT-1098-3 failed because its frozen workflow predates validation service provisioning. The authorized restart API accepted fresh successor ATT-1098-4, with the current snapshot flags. It was queued at admission; its result remains unverified.
+
 ## Current checkpoint, 2026-09-26 17:40 UTC
 
 - Rocky's generic SCM reader now flags a failed-target log with no recognized individual test failure or timeout and tells the CI fixer to inspect test reports or rerun the repository check if needed. The captured 815 KB `test` job log had no Jest failure summary; its GitHub failure annotation only reported exit 1, and the workflow run had no test-report artifact. The separate failed `plugins` job did contain an assertion and retains it without the note. No Attraccess source or Run was manually changed for this fix.
