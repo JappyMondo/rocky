@@ -546,7 +546,12 @@ it('runs required validation even when the planner selects nothing, and records 
   const delivery = createDeliveryOperations(
     ctx,
     f.input,
-    { ...defaultFlowSettings(), pullRequests: 'lead', execution: [f.repo] },
+    {
+      ...defaultFlowSettings(),
+      validationRequestVersion: undefined,
+      pullRequests: 'lead',
+      execution: [f.repo],
+    },
     join(f.root, 'snapshot'),
   );
   await delivery('clarify', agents);
@@ -600,6 +605,13 @@ it('runs required validation even when the planner selects nothing, and records 
             text: expect.stringContaining('Required check failed'),
           }),
         ],
+        validationResponsibility: expect.objectContaining({
+          repositoryCatalog: [f.repo],
+          instruction: expect.stringContaining('Workflow owns execution'),
+        }),
+        instruction: expect.stringContaining(
+          'already ran these configured checks on the host',
+        ),
       }),
     }),
   );

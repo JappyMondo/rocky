@@ -1798,7 +1798,15 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         if (revision === reviewCap) return exhaust(validationProblems);
         const fixed = await actors.call('fixer', {
           label: `Validation fixer ${revision}/${reviewCap}`,
-          input: { issue, delivery, complaints: validationProblems, commands },
+          input: {
+            issue,
+            delivery,
+            complaints: validationProblems,
+            commands,
+            validationResponsibility,
+            instruction:
+              'Rocky already ran these configured checks on the host. Diagnose the recorded output and repair the cause within your grants. Do not rerun a host-owned check in your Agent sandbox solely to reproduce its host failure. Keep unresolved check results explicit; never claim that a timeout or sandbox denial passed.',
+          },
           schema: FixReportFor(validationProblems),
         });
         changes.push(fixed.summary);

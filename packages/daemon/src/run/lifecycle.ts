@@ -161,7 +161,14 @@ export class WorkflowRuntime {
                 error.message.startsWith('Command timed out after ')
               ) {
                 await child.stop();
-                return { exitCode: 124, stdout: '', stderr: error.message };
+                const output = child.output();
+                return {
+                  exitCode: 124,
+                  stdout: output.stdout,
+                  stderr: [output.stderr, error.message]
+                    .filter(Boolean)
+                    .join('\n'),
+                };
               }
               throw error;
             }

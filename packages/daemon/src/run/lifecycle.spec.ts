@@ -185,6 +185,27 @@ it('fails a command at the single configured timeout', async () => {
   });
 });
 
+it('retains partial command output when an explicitly timed check expires', async () => {
+  let timedOut:
+    Awaited<ReturnType<Parameters<Workflow>[0]['exec']>> | undefined;
+  open(async (ctx) => {
+    timedOut = await ctx.exec(
+      'printf stdout-marker; printf stderr-marker >&2; sleep 600',
+      { timeoutMs: 500 },
+    );
+    return 'merged';
+  });
+  expect(
+    await runtime.boot(header, 'run', new AbortController().signal),
+  ).toMatchObject({ status: 'finished', outcome: 'merged' });
+  expect(timedOut).toMatchObject({
+    exitCode: 124,
+    stdout: 'stdout-marker',
+    stderr: expect.stringContaining('stderr-marker'),
+  });
+  expect(timedOut?.stderr).toContain('Command timed out after 500 ms');
+});
+
 it('journals real changed files against the configured base, including untracked work', async () => {
   const cwd = join(dir, 'repo');
   await git(['init', '-b', 'base', cwd]);
