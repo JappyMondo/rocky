@@ -107,17 +107,95 @@ function mergeNode(overrides: Record<string, unknown> = {}) {
   };
 }
 
-it('reports failed job and step names and only downloads the requested log tail', async () => {
+it.each(['completed', 'in_progress'])(
+  'reports failed job evidence while its owning workflow is %s',
+  async (status) => {
+    const transport = scriptedFetch([
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+        value: {
+          check_runs: [
+            {
+              id: 21,
+              name: 'test',
+              head_sha: 'abc',
+              status: 'completed',
+              conclusion: 'failure',
+              app: { slug: 'github-actions' },
+              details_url:
+                'https://github.test/team/repo/actions/runs/20/job/21',
+            },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+        value: [],
+      },
+      {
+        path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+        value: {
+          workflow_runs: [
+            {
+              id: 20,
+              name: 'CI',
+              head_sha: 'abc',
+              status,
+              conclusion: status === 'completed' ? 'failure' : null,
+            },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/actions/runs/20/jobs?filter=latest&per_page=100&page=1',
+        value: {
+          jobs: [
+            {
+              id: 21,
+              name: 'test',
+              conclusion: 'failure',
+              steps: [
+                { name: 'Install', conclusion: 'success' },
+                { name: 'Test', conclusion: 'failure' },
+              ],
+            },
+            { id: 22, name: 'build', conclusion: null, steps: [] },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/actions/jobs/21/logs',
+        text: 'setup\nold\nassertion\nfailed\n',
+      },
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+    ]);
+    const result = await createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).waitForCi(githubPr(), { logTailLines: 2 });
+    expect(result).toEqual({
+      status: 'done',
+      result: {
+        status: 'failed',
+        headSha: 'abc',
+        failedJobs: [
+          {
+            id: '21',
+            name: 'test',
+            failedSteps: ['Test'],
+            logTail: 'assertion\nfailed',
+          },
+        ],
+      },
+    });
+    transport.done();
+  },
+);
+
+it('parks a failed-job retry until Actions finishes without attempting a check rerequest', async () => {
   const transport = scriptedFetch([
     { path: '/repos/team/repo/pulls/7', value: githubPull },
-    {
-      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
-      value: { check_runs: [] },
-    },
-    {
-      path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
-      value: [],
-    },
     {
       path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
       value: {
@@ -126,54 +204,20 @@ it('reports failed job and step names and only downloads the requested log tail'
             id: 20,
             name: 'CI',
             head_sha: 'abc',
-            status: 'completed',
-            conclusion: 'failure',
+            status: 'in_progress',
+            conclusion: null,
           },
         ],
       },
     },
-    {
-      path: '/repos/team/repo/actions/runs/20/jobs?filter=latest&per_page=100&page=1',
-      value: {
-        jobs: [
-          {
-            id: 21,
-            name: 'test',
-            conclusion: 'failure',
-            steps: [
-              { name: 'Install', conclusion: 'success' },
-              { name: 'Test', conclusion: 'failure' },
-            ],
-          },
-          { id: 22, name: 'lint', conclusion: 'success', steps: [] },
-        ],
-      },
-    },
-    {
-      path: '/repos/team/repo/actions/jobs/21/logs',
-      text: 'setup\nold\nassertion\nfailed\n',
-    },
-    { path: '/repos/team/repo/pulls/7', value: githubPull },
   ]);
-  const result = await createGitHubScm({
-    ...githubOptions,
-    fetch: transport.fetch,
-  }).waitForCi(githubPr(), { logTailLines: 2 });
-  expect(result).toEqual({
-    status: 'done',
-    result: {
-      status: 'failed',
-      headSha: 'abc',
-      failedJobs: [
-        {
-          id: '21',
-          name: 'test',
-          failedSteps: ['Test'],
-          logTail: 'assertion\nfailed',
-        },
-      ],
-    },
-  });
+  await expect(
+    createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr()),
+  ).resolves.toEqual({ status: 'waiting' });
+  expect(transport.calls.every((call) => call.method === 'GET')).toBe(true);
   transport.done();
 });
 

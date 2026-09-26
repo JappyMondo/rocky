@@ -55,6 +55,51 @@ function stubAdapter(signal: AbortSignal, id = 'lead'): ScmAdapter {
   };
 }
 
+it('replays a pending failed-job retry in the same journal Step and preserves completed retries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-scm-'));
+  dirs.push(dir);
+  const journalPath = join(dir, 'journal.jsonl');
+  const signal = new AbortController().signal;
+  const adapter = stubAdapter(signal);
+  const pr = await adapter.openPr({ title: 'Change', body: 'Plan' });
+  let ready = false;
+  let calls = 0;
+  let continued = 0;
+  adapter.retryFailedJobs = async () => {
+    calls++;
+    if (!ready) return { status: 'waiting' };
+    return undefined;
+  };
+  const boot = () =>
+    runBoot({
+      journalPath,
+      signal,
+      workflow: async (steps) => {
+        const scm = createScm(steps, {
+          runId: 'TEST-1',
+          lead: 'lead',
+          members: [adapter],
+          signal,
+          approvals: () => false,
+          onRefusal: async () => undefined,
+        });
+        expect(await scm.retryFailedJobs(pr)).toBeUndefined();
+        await steps.step('after retry', {}, async () => {
+          continued++;
+          return { status: 'done', result: true };
+        });
+        return 'merged';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'parked' });
+  expect(continued).toBe(0);
+  ready = true;
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(calls).toBe(2);
+  expect(continued).toBe(1);
+});
+
 it('parks a permission-refused arm with an idempotent named blocker and settles only when a human merges', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'rocky-scm-'));
   dirs.push(dir);

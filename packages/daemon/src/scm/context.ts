@@ -26,7 +26,7 @@ export interface ScmAdapter {
     pr: Pr,
     input: { logTailLines: number },
   ): Promise<StepOutcome<CiResult>>;
-  retryFailedJobs(pr: Pr): Promise<void>;
+  retryFailedJobs(pr: Pr): Promise<void | { status: 'waiting' }>;
   updateBranch(pr: Pr): Promise<StepOutcome<UpdateBranchResult>>;
   checkMergeReady(pr: Pr): Promise<StepOutcome<MergeReadiness>>;
   armAutoMerge(pr: Pr): Promise<StepOutcome<MergeResult>>;
@@ -166,10 +166,16 @@ export function createScm(
         adapter.waitForCi(pr, input),
       ),
     retryFailedJobs: (pr) =>
-      call('retryFailedJobs', pr.repo, pr, async (adapter) => ({
-        status: 'done',
-        result: await adapter.retryFailedJobs(pr),
-      })),
+      call(
+        'retryFailedJobs',
+        pr.repo,
+        pr,
+        async (adapter) =>
+          (await adapter.retryFailedJobs(pr)) ?? {
+            status: 'done',
+            result: undefined,
+          },
+      ),
     updateBranch: (pr) =>
       call('updateBranch', pr.repo, pr, (adapter) => adapter.updateBranch(pr)),
     checkMergeReady: (pr) =>
