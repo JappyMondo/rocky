@@ -540,7 +540,10 @@ export function parseFlow(source: string): WorkflowFlow {
     s.validationEnvironmentVersion !== 1
   )
     throw new Error('Unsupported validation environment version.');
-  if (s.validationRecheckVersion !== undefined && s.validationRecheckVersion !== 1)
+  if (
+    s.validationRecheckVersion !== undefined &&
+    s.validationRecheckVersion !== 1
+  )
     throw new Error('Unsupported validation recheck version.');
   if (
     s.recapEnvironmentVersion !== undefined &&

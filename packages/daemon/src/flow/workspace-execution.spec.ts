@@ -643,6 +643,8 @@ it.each([false, true])(
     ]);
     expect(commandRuns).toBe(enabled ? 2 : 1);
     if (enabled)
-      expect(selections.at(-1)?.reason).toContain('Retesting previously failed');
+      expect(selections.at(-1)?.reason).toContain(
+        'Retesting previously failed',
+      );
   },
 );

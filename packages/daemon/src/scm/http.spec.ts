@@ -260,8 +260,9 @@ it('preserves early failure evidence when cleanup output buries it beyond the ta
 
 it('keeps the actual test assertion after setup warnings fill the evidence budget', async () => {
   const log = [
-    ...Array.from({ length: 150 }, (_, i) =>
-      `WARN Failed to replace env in setup ${i}`,
+    ...Array.from(
+      { length: 150 },
+      (_, i) => `WARN Failed to replace env in setup ${i}`,
     ),
     'FAIL audit-hooks.integration.spec.ts',
     'bounds a stalled rotation dispatch',
