@@ -159,6 +159,7 @@ export function createDeliveryOperations(
   // Run-specific environment is supplied to child commands, not this process.
   const runDir = dirname(snapshotDir);
   const workspaceDir = join(runDir, 'workspace');
+  const evidenceDirectory = join(workspaceDir, '.rocky-evidence');
   const leadDir = join(
     workspaceDir,
     (workspace.members.find((member) => member.lead) ?? workspace.members[0])
@@ -592,11 +593,13 @@ export function createDeliveryOperations(
         `Workspace setup failed (exit ${result.exitCode}): ${commands.install}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
       );
   }
+  const evidenceInstruction = `Retain generated diagnostic logs in ${evidenceDirectory}, outside every Git worktree. Create that directory when needed, use distinct names for each repository/check, and report the paths. Do not commit diagnostic logs or leave them as untracked files inside a Git worktree.`;
   const validationResponsibility = {
     commands,
     repositoryCatalog: settings.execution,
     instruction:
-      'The supplied verified environment records setup already completed by the Workflow. Reuse it; do not rerun installers inside the Agent unless concrete evidence shows dependencies are missing or stale. The Workflow owns execution of the supplied repositoryCatalog commands on the host, including configured checks beyond test, lint and build. Required commands run automatically; agent-policy commands are selected from the issue and changed files, with their dependency closure. Manual commands are not authorized. If a matching non-manual catalog command covers a required check that your sandbox cannot execute, identify that exact command ID in your result, report its evidence as pending host validation, and complete the assigned source repair without repeating the denied operation or claiming it passed. This is a handoff to an existing authorized Workflow step, not permission to bypass the sandbox. Implementation and repair agents own acceptance tests and benchmarks not covered by that catalog or other explicitly configured validation, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
+      'The supplied verified environment records setup already completed by the Workflow. Reuse it; do not rerun installers inside the Agent unless concrete evidence shows dependencies are missing or stale. The Workflow owns execution of the supplied repositoryCatalog commands on the host, including configured checks beyond test, lint and build. Required commands run automatically; agent-policy commands are selected from the issue and changed files, with their dependency closure. Manual commands are not authorized. If a matching non-manual catalog command covers a required check that your sandbox cannot execute, identify that exact command ID in your result, report its evidence as pending host validation, and complete the assigned source repair without repeating the denied operation or claiming it passed. This is a handoff to an existing authorized Workflow step, not permission to bypass the sandbox. Implementation and repair agents own acceptance tests and benchmarks not covered by that catalog or other explicitly configured validation, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.' +
+      ` ${evidenceInstruction}`,
   };
   async function push(role = 'fixer') {
     if (repositories) {
@@ -630,7 +633,8 @@ export function createDeliveryOperations(
                 repository: error.repository,
               },
               instruction:
-                'The preceding agent left uncommitted work. Inspect the current branch and repository instructions, complete the requested implementation, repair local prerequisites and commit completed changes. Preserve all prior work. Do not merely commit an incomplete fragment or discard changes to make status clean. Run repository checks, report evidence and any remaining blocker. Keep commits local; the Workflow owns PR delivery.',
+                'The preceding agent left uncommitted work. Inspect the current branch and repository instructions, complete the requested implementation, repair local prerequisites and commit completed changes. Preserve all prior work. Do not merely commit an incomplete fragment or discard changes to make status clean. Run repository checks, report evidence and any remaining blocker. Keep commits local; the Workflow owns PR delivery.' +
+                ` ${evidenceInstruction}`,
             },
             schema: z.object({ summary: z.string() }),
           });
