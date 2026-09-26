@@ -45,6 +45,12 @@ Important recent commits:
 
 The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover. Recheck the main checkout and remote before further edits.
 
+## Handover correction, 2026-09-26 17:13 UTC
+
+The user explicitly requires a **Rocky-only durable repair**. Stop manual repair, push, or retry of individual repository Runs. Use those Runs only as evidence and as unattended acceptance tests of Rocky's generic runtime, profile, and shipped workflow. I manually pushed ATT-920-2's retained signed Attraccess commit `36b2fac7` to draft PR #1888 while successor ATT-920-3 was queued. That was a single-run intervention and **does not verify** `ciUnresolvedCommitVersion: 1` live. The new current-head `test` job then failed in `api:test`; the available GitHub job log names the target but does not expose a clear Jest failure summary. `crap-score` was still pending at this checkpoint. A fresh agent should first improve Rocky's generic CI evidence/fixer path if needed, then let an unattended fresh-snapshot Run demonstrate recovery. Do not add Attraccess-specific checks or timeout policy to Rocky.
+
+Rocky PR #51 at signed head `517e0e8` is still draft; all four current-head checks passed. Installed code remains `b9589ef` with archive and runtime hashes above; `517e0e8` changed only this handover. Local concurrency was lowered back to `maxRuns: 1` after two active repository Runs drove host load above 50. ATT-777-5 and ATT-893-3 were running; ATT-764-5, ATT-1098-3 and ATT-920-3 were queued. No new live Run had completed successfully. This checkpoint is deliberately not a claim that Rocky is autonomous yet.
+
 ## Live recovery update, 2026-09-26 17:04 UTC
 
 - Signed `b9589ef` is pushed and installed. Daemon and ingress are healthy; the listener PID matches launchd and installed files match the tested archive. The full workflow suite, 12 snapshot tests, daemon and contracts typecheck/lint, formatting, and isolated distribution smoke passed. Rocky PR #51 remains draft; the current-head `check` job is pending while its other reported jobs passed.
