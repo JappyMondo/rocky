@@ -119,6 +119,45 @@ it('settles and restores an earlier attempt while keeping latest work visible; r
   ).toBeTruthy();
 });
 
+it('reveals a hidden settled attempt and opens that exact historical run', () => {
+  const openRun = vi.fn();
+  function Fixture() {
+    const [view, setView] = useState<RunsViewState>({
+      filter: 'Unsettled',
+      query: '',
+      page: 0,
+    });
+    return (
+      <RunsOverview
+        runs={[{ ...base, settledAt: '2026-09-25T12:00:00Z' }, latest]}
+        loading={false}
+        disabled={false}
+        start={vi.fn()}
+        openRun={openRun}
+        repository=""
+        onRepository={vi.fn()}
+        view={view}
+        setView={setView}
+        settle={vi.fn()}
+      />
+    );
+  }
+  render(<Fixture />);
+  expect(
+    screen.getByRole('button', { name: `Open run ${latest.runId}` }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole('button', { name: `Open run ${base.runId}` }),
+  ).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show all attempts' }));
+  fireEvent.click(screen.getByText('1 earlier attempt'));
+  fireEvent.click(
+    screen.getByRole('button', { name: `Open run ${base.runId}` }),
+  );
+  expect(openRun).toHaveBeenCalledWith(base.runId);
+});
+
 it('keeps a renamed ticket together using its integration identity', () => {
   expect(
     groupRuns([
