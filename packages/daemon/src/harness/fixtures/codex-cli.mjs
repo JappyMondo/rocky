@@ -36,6 +36,11 @@ if (mode === 'hang') {
   });
   await new Promise(() => setInterval(() => undefined, 1000));
 }
+if (mode === 'unfinished')
+  emit({
+    type: 'item.started',
+    item: { id: 'pending', type: 'command_execution' },
+  });
 if (mode === 'missing-result') process.exit(0);
 if (mode === 'auth-error') {
   emit({ type: 'turn.failed', error: { message: '401 Unauthorized' } });

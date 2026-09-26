@@ -847,6 +847,7 @@ export function createGitLabScm(options: ScmAdapterOptions) {
             (await http.logTail(
               `${jobRoot}/jobs/${job.id}/trace`,
               input.logTailLines,
+              true,
             )),
         });
       if (

@@ -38,7 +38,19 @@
     },
     "ciLogLines": 200,
     "maxTransitions": 500,
-    "pullRequests": "all-changed"
+    "pullRequests": "all-changed",
+    "recoveryVersion": 1,
+    "ciRetryVersion": 1,
+    "ciRetryRefusalVersion": 1,
+    "ciUnresolvedCommitVersion": 1,
+    "scopeCommentVersion": 1,
+    "commentDeliveryVersion": 1,
+    "recapDecisionVersion": 1,
+    "recapEnvironmentVersion": 1,
+    "validationEnvironmentVersion": 1,
+    "uiFixtureRecoveryVersion": 1,
+    "uiPlanEndpointVersion": 1,
+    "validationRequestVersion": 1
   },
   "nodes": [
     {

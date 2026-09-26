@@ -224,6 +224,7 @@ export interface LinearSdkLike {
     id: string,
     input: { stateId: string },
   ): Promise<{ success: boolean }>;
+  issueState(id: string): Promise<{ id: string; name: string } | null>;
 
   fileUpload(
     contentType: string,
@@ -380,6 +381,11 @@ function defaultSdk(request: LinearRequest): LinearSdkLike {
       return { success: payload.success, id: payload.attachmentId };
     },
     updateIssue: (id, input) => client.updateIssue(id, input),
+    issueState: async (id) => {
+      const issue = await client.issue(id);
+      const state = await issue.state;
+      return state ? { id: state.id, name: state.name } : null;
+    },
     workflowStates: async (variables) => {
       const connection = await client.workflowStates(variables);
       return {
@@ -583,6 +589,16 @@ export class RockyLinearClient {
         }
       }
       this.nextRequestAt = Math.max(this.nextRequestAt, retryAt);
+      if (
+        readOnly &&
+        response.status >= 500 &&
+        response.status <= 599 &&
+        attempt < 2
+      ) {
+        await response.body?.cancel();
+        await this.wait(250 * 2 ** attempt);
+        continue;
+      }
       const parsed = z
         .object({
           data: z.unknown().optional(),
@@ -952,14 +968,22 @@ export class RockyLinearClient {
     name: string,
   ): Promise<WriteResult> {
     const state = await this.findWorkflowState(teamId, name);
-    const result = await (
-      await this.sdk()
-    ).updateIssue(issueId, { stateId: state.id });
+    const sdk = await this.sdk();
+    const result = await sdk.updateIssue(issueId, { stateId: state.id });
     if (!result.success)
       throw new Error(
         `Linear could not set issue ${issueId} to ${state.name}.`,
       );
-    return { id: issueId, success: true };
+    let observed: Awaited<ReturnType<LinearSdkLike['issueState']>> = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      observed = await sdk.issueState(issueId);
+      if (observed?.id === state.id) return { id: issueId, success: true };
+      if (attempt < 3)
+        await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+    }
+    throw new Error(
+      `Linear did not confirm issue ${issueId} in ${state.name}; observed ${observed?.name ?? 'no state'}.`,
+    );
   }
 
   async maintainAttachment(

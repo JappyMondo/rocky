@@ -17,6 +17,7 @@
  */
 import type { RunOutcome } from '@rocky/sdk';
 
+import { GRACEFUL_SHUTDOWN_CONTROL, interruptedBootCount } from './journal.js';
 import {
   END_STEP,
   JOURNAL_FORMAT_VERSION,
@@ -71,6 +72,8 @@ export interface EffectHandle {
   fail(error: Error): never;
   /** Stable sequence path, including each enclosing parallel sequence/index. */
   readonly identity: string;
+  /** The previous invocation was intentionally stopped by the daemon. */
+  readonly plannedInterruption?: boolean;
   /** Detached current progress; undefined until first updated. */
   readonly progress: unknown;
   update(progress: unknown): Promise<void>;
@@ -101,6 +104,9 @@ export interface BootContext {
   readonly replayStep?: string;
   readonly replayLabel?: string;
   readonly replayedStep?: (key: string) => boolean;
+  readonly replayInterruptedValidation?: (commandId: string) => boolean;
+  /** Consume a previously completed background Step without restarting its process. */
+  reuseRecordedBackground(label: string): Promise<void>;
   /**
    * Display-only stage marker: takes no seq, is never journaled as a Step of
    * its own, and stamps `stage` on every entry created after it. The runner
@@ -219,7 +225,10 @@ function replayableParallelError(recorded: RecordedError): Error {
 }
 
 /** Presents one persisted branch array through the normal replay lookup API. */
-function journalFor(entries: readonly JournalEntry[]): Journal {
+function journalFor(
+  entries: readonly JournalEntry[],
+  getControl: Journal['getControl'],
+): Journal {
   const latest = new Map<number, JournalEntry>();
   const bySeq = new Map<number, JournalEntry[]>();
   for (const entry of entries) {
@@ -233,22 +242,17 @@ function journalFor(entries: readonly JournalEntry[]): Journal {
   }
   return {
     entries,
-    getControl: () => undefined,
+    getControl,
     truncated: false,
     nextBoot: 1,
     end: undefined,
     latest: (seq) => latest.get(seq),
     isInterrupted: (seq) => latest.get(seq)?.status === 'running',
     interruptedBoots(seq) {
-      const boots = new Set<number>();
-      for (const entry of bySeq.get(seq) ?? []) {
-        if (entry.status === 'running') {
-          boots.add(entry.boot);
-        } else {
-          boots.clear();
-        }
-      }
-      return boots.size;
+      return interruptedBootCount(
+        bySeq.get(seq) ?? [],
+        getControl(GRACEFUL_SHUTDOWN_CONTROL),
+      );
     },
   };
 }
@@ -319,6 +323,32 @@ class BootRunner implements BootContext {
       (entry) =>
         entry.seq < this.seq && entry.step === key && entry.status === 'done',
     );
+  }
+  replayInterruptedValidation(commandId: string): boolean {
+    const label = `Validate ${commandId} `;
+    return this.journal.entries.some(
+      (entry) =>
+        entry.seq > this.seq &&
+        entry.step === 'exec' &&
+        entry.label?.startsWith(label) &&
+        this.journal.latest(entry.seq)?.status === 'running',
+    );
+  }
+
+  async reuseRecordedBackground(label: string): Promise<void> {
+    const previous = this.journal.entries.findLast(
+      (entry) =>
+        entry.seq === this.seq &&
+        entry.step === 'exec:background' &&
+        entry.label === label &&
+        entry.status === 'done',
+    );
+    if (!previous)
+      throw new Error(`No completed background Step to reuse: ${label}`);
+    await this.step('exec:background', { label }, async () => ({
+      status: 'done',
+      result: previous.result,
+    }));
   }
 
   stage(label: string): void {
@@ -560,7 +590,7 @@ class BootRunner implements BootContext {
       (branch, index) =>
         new BootRunner(
           this.boot,
-          journalFor(branch),
+          journalFor(branch, this.journal.getControl),
           async (entry) => {
             // Later parent snapshots must not retain values owned by Workflow code.
             branch.push(structuredClone(entry));
@@ -759,6 +789,12 @@ class BootRunner implements BootContext {
           return this.fail(error);
         },
         identity: `${this.identityPrefix}${seq}`,
+        plannedInterruption:
+          recorded?.status === 'running' &&
+          typeof this.journal.getControl(GRACEFUL_SHUTDOWN_CONTROL) ===
+            'number' &&
+          recorded.boot <=
+            Number(this.journal.getControl(GRACEFUL_SHUTDOWN_CONTROL)),
         get progress() {
           return structuredClone(progress);
         },

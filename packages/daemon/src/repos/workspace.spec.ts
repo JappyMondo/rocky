@@ -324,6 +324,141 @@ describe("adopting the issue's branch (NG-580)", () => {
   });
 });
 
+describe('adopting retained terminal worktrees', () => {
+  it.each(['C', 'de_DE.UTF-8'])(
+    'moves prior work intact without parsing localized errors (%s)',
+    async (locale) => {
+      ctx.env = { LANG: locale, LC_ALL: locale };
+      const first = await createWorkspace(ctx, {
+        runId: 'NG-601-1',
+        branch: BRANCH,
+        members: [niotix],
+        lead: 'niotix',
+      });
+      await commitInside(first.lead.dir, 'Unpushed prior work');
+      const head = (await git(['rev-parse', 'HEAD'], { cwd: first.lead.dir }))
+        .stdout;
+      await writeFile(join(first.lead.dir, '.gitignore'), 'local-cache/\n');
+      await git(['add', '.gitignore'], { cwd: first.lead.dir });
+      await writeFile(join(first.lead.dir, 'unfinished.txt'), 'keep this edit');
+      mkdirSync(join(first.lead.dir, 'local-cache'));
+      await writeFile(
+        join(first.lead.dir, 'local-cache', 'fixture'),
+        'keep ignored state',
+      );
+      const status = (
+        await git(['status', '--porcelain'], { cwd: first.lead.dir })
+      ).stdout;
+      for (const [runId, state] of [
+        ['NG-601-1', 'failed'],
+        ['NG-601-2', 'running'],
+      ]) {
+        mkdirSync(paths.run(runId).dir, { recursive: true });
+        await writeFile(
+          paths.run(runId).runJson,
+          JSON.stringify({
+            runId,
+            branch: BRANCH,
+            status: state,
+            issue: { identifier: 'NG-601' },
+          }),
+        );
+      }
+      const next = await createWorkspace(ctx, {
+        runId: 'NG-601-2',
+        branch: BRANCH,
+        members: [niotix],
+        lead: 'niotix',
+      });
+      expect(next.lead.head).toBe(head);
+      expect(next.lead.adopted).toBe('existing-local');
+      expect(
+        (await git(['status', '--porcelain'], { cwd: next.lead.dir })).stdout,
+      ).toBe(status);
+      expect(
+        await readFile(join(next.lead.dir, 'unfinished.txt'), 'utf8'),
+      ).toBe('keep this edit');
+      expect(
+        await readFile(join(next.lead.dir, 'local-cache', 'fixture'), 'utf8'),
+      ).toBe('keep ignored state');
+      expect(existsSync(first.lead.dir)).toBe(false);
+      expect(
+        (
+          await createWorkspace(ctx, {
+            runId: 'NG-601-2',
+            branch: BRANCH,
+            members: [niotix],
+            lead: 'niotix',
+          })
+        ).lead.adopted,
+      ).toBe('already-there');
+    },
+  );
+
+  it.each(['running', 'other-issue'])(
+    'refuses transfer from an unsafe owner (%s)',
+    async (owner) => {
+      const first = await createWorkspace(ctx, {
+        runId: 'NG-601-1',
+        branch: BRANCH,
+        members: [niotix],
+        lead: 'niotix',
+      });
+      for (const runId of ['NG-601-1', 'NG-601-2']) {
+        mkdirSync(paths.run(runId).dir, { recursive: true });
+        await writeFile(
+          paths.run(runId).runJson,
+          JSON.stringify({
+            runId,
+            branch: BRANCH,
+            status:
+              runId.endsWith('-1') && owner === 'running'
+                ? 'running'
+                : 'failed',
+            issue: {
+              identifier:
+                runId.endsWith('-1') && owner === 'other-issue'
+                  ? 'NG-999'
+                  : 'NG-601',
+            },
+          }),
+        );
+      }
+      await expect(
+        createWorkspace(ctx, {
+          runId: 'NG-601-2',
+          branch: BRANCH,
+          members: [niotix],
+          lead: 'niotix',
+        }),
+      ).rejects.toThrow('NG-601-1');
+      expect(existsSync(first.lead.dir)).toBe(true);
+    },
+  );
+});
+
+it('refuses to adopt a partial workspace switched to another branch', async () => {
+  const first = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix],
+    lead: 'niotix',
+  });
+  await git(['checkout', '-b', 'unrelated-work'], { cwd: first.lead.dir });
+  await writeFile(join(first.lead.dir, 'preserve.txt'), 'human edit');
+  await expect(
+    createWorkspace(ctx, {
+      runId: 'NG-601-1',
+      branch: BRANCH,
+      members: [niotix],
+      lead: 'niotix',
+    }),
+  ).rejects.toThrow('different branch');
+  expect(await readFile(join(first.lead.dir, 'preserve.txt'), 'utf8')).toBe(
+    'human edit',
+  );
+});
+
 describe('the Rocky identity in a worktree (AC3)', () => {
   it('authors a commit as Rocky even though the global config says otherwise', async () => {
     const workspace = await createWorkspace(ctx, {
@@ -844,4 +979,43 @@ it('does not treat an unrelated replacement branch as an exhaustion continuation
       members: [{ name: 'niotix', head: workspace.lead.head }],
     }),
   ).rejects.toThrow(/branch has changed/);
+});
+
+it('releases only published clean worktrees and preserves root evidence while reclaiming cache', async () => {
+  const workspace = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix],
+    lead: 'niotix',
+  });
+  await commitInside(workspace.lead.dir, 'unpublished');
+  const store = join(workspace.dir, '.pnpm-store', 'v10');
+  mkdirSync(store, { recursive: true });
+  await writeFile(join(store, 'cached-package'), 'derived');
+  await writeFile(join(workspace.dir, 'evidence.png'), 'keep');
+  await expect(
+    releaseCleanWorkspace(ctx, workspace.runId, { requirePublished: true }),
+  ).resolves.toEqual([]);
+  expect(existsSync(workspace.lead.dir)).toBe(true);
+  expect(existsSync(store)).toBe(true);
+  await git(['push', 'origin', BRANCH], { cwd: workspace.lead.dir });
+  await expect(
+    releaseCleanWorkspace(ctx, workspace.runId, { requirePublished: true }),
+  ).resolves.toEqual(['niotix']);
+  expect(existsSync(workspace.lead.dir)).toBe(false);
+  expect(existsSync(store)).toBe(false);
+  expect(await readFile(join(workspace.dir, 'evidence.png'), 'utf8')).toBe(
+    'keep',
+  );
+});
+
+it('reclaims orphaned package caches without deleting unknown directories', async () => {
+  const dir = paths.run('NG-601-1').workspaceDir;
+  mkdirSync(join(dir, '.pnpm-store', 'v10'), { recursive: true });
+  mkdirSync(join(dir, 'unknown'), { recursive: true });
+  await releaseCleanWorkspace(ctx, 'NG-601-1', { cachesOnly: true });
+  expect(existsSync(join(dir, '.pnpm-store'))).toBe(true);
+  rmSync(join(dir, 'unknown'), { recursive: true });
+  await releaseCleanWorkspace(ctx, 'NG-601-1', { cachesOnly: true });
+  expect(existsSync(dir)).toBe(false);
 });

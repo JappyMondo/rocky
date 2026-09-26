@@ -292,7 +292,11 @@ export class ScmHttp {
     );
   }
 
-  async logTail(path: string, lines: number): Promise<string> {
+  async logTail(
+    path: string,
+    lines: number,
+    includeFailures = false,
+  ): Promise<string> {
     if (!Number.isSafeInteger(lines) || lines < 0 || lines > 10000)
       throw new Error('logTailLines must be between 0 and 10000');
     if (lines === 0) return '';
@@ -331,6 +335,75 @@ export class ScmHttp {
         );
     }
     let tail = '';
+    // Keep diagnostic windows as well as the suffix: cleanup often buries the
+    // actual failure. Retain the latest windows so setup warnings cannot fill
+    // the budget before a test assertion appears.
+    const evidenceBudget =
+      includeFailures && lines >= 10 ? Math.min(500, Math.floor(lines / 2)) : 0;
+    const ansi = new RegExp(
+      String.fromCharCode(27) + '\\[[0-9;]*[A-Za-z]',
+      'g',
+    );
+    const failureEvidence = new Map<number, string>();
+    const strongEvidence = new Map<number, string>();
+    const weakEvidence = new Map<number, string>();
+    const preceding: { index: number; text: string }[] = [];
+    let pending = '';
+    let index = 0;
+    let followingFailure = 0;
+    let followingStrong = 0;
+    let followingWeak = 0;
+    let sawFailedTasks = false;
+    let sawIndividualTestSignal = false;
+    const remember = (
+      evidence: Map<number, string>,
+      line: { index: number; text: string },
+    ) => {
+      if (evidenceBudget === 0 || evidence.has(line.index)) return;
+      if (evidence.size === evidenceBudget) {
+        const oldest = evidence.keys().next().value;
+        if (oldest !== undefined) evidence.delete(oldest);
+      }
+      evidence.set(line.index, line.text);
+    };
+    const observe = (text: string) => {
+      const line = { index: index++, text: text.slice(0, 2000) };
+      const plain = text.replace(ansi, '');
+      if (/\bFailed tasks:/.test(plain)) sawFailedTasks = true;
+      if (
+        /\bFAIL\s+\S+|Summary of all failing tests|Test Suites:\s*\d+ failed|Exceeded timeout of \d+ ms|\b(?:AssertionError|Traceback)\b|●(?!\s*Console\b)|✕|\b(?:Expected|Received)(?: length)?:/.test(
+          plain,
+        )
+      )
+        sawIndividualTestSignal = true;
+      const failure =
+        /\bFAIL\s+\S+|Summary of all failing tests|Test Suites:\s*\d+ failed|Exceeded timeout of \d+ ms|Failed tasks:/.test(
+          plain,
+        );
+      const strong =
+        /\b(?:FAIL|FATAL|AssertionError|Traceback)\b|[●✕]|\b(?:Expected|Received)(?: length)?:|\bError:/.test(
+          plain,
+        );
+      if (failure) {
+        for (const prior of preceding) remember(failureEvidence, prior);
+        followingFailure = 10;
+      }
+      if (strong) {
+        for (const prior of preceding) remember(strongEvidence, prior);
+        followingStrong = 8;
+      } else if (/\b(?:error|fail(?:ed|ure)?|fatal)\b/i.test(plain)) {
+        for (const prior of preceding) remember(weakEvidence, prior);
+        followingWeak = 8;
+      }
+      if (followingFailure > 0) remember(failureEvidence, line);
+      if (followingStrong > 0) remember(strongEvidence, line);
+      if (followingWeak > 0) remember(weakEvidence, line);
+      followingFailure = Math.max(0, followingFailure - 1);
+      followingStrong = Math.max(0, followingStrong - 1);
+      followingWeak = Math.max(0, followingWeak - 1);
+      preceding.push(line);
+      if (preceding.length > 3) preceding.shift();
+    };
     if (!response.body) return tail;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -338,7 +411,14 @@ export class ScmHttp {
       while (true) {
         this.options.signal?.throwIfAborted();
         const chunk = await reader.read();
-        tail += decoder.decode(chunk.value, { stream: !chunk.done });
+        const decoded = decoder.decode(chunk.value, { stream: !chunk.done });
+        tail += decoded;
+        if (evidenceBudget > 0) {
+          const complete = (pending + decoded).split('\n');
+          pending = (complete.pop() ?? '').slice(-2_000_000);
+          for (const line of complete) observe(line);
+          if (chunk.done && pending) observe(pending);
+        }
         // Keep a bounded suffix while downloading, including a possible final newline.
         tail = tail
           .split('\n')
@@ -350,7 +430,29 @@ export class ScmHttp {
     } finally {
       await reader.cancel();
     }
-    return tail.replace(/\n$/, '').split('\n').slice(-lines).join('\n');
+    const suffix = tail.replace(/\n$/, '').split('\n').slice(-lines);
+    const evidence = failureEvidence.size
+      ? failureEvidence
+      : strongEvidence.size
+        ? strongEvidence
+        : weakEvidence;
+    const early = [...evidence]
+      .filter(([position]) => position < index - suffix.length)
+      .sort(([a], [b]) => a - b)
+      .map(([, text]) => text);
+    const diagnosticNote =
+      sawFailedTasks && !sawIndividualTestSignal
+        ? '[No recognized individual test failure or timeout found in this job log; inspect repository test reports and rerun the failed target if needed.]'
+        : undefined;
+    const note = diagnosticNote ? [diagnosticNote] : [];
+    if (!early.length)
+      return [...note, ...suffix.slice(-(lines - note.length))].join('\n');
+    return [
+      ...note,
+      ...early,
+      '[... intervening log omitted; final log lines follow ...]',
+      ...suffix.slice(-(lines - note.length - early.length - 1)),
+    ].join('\n');
   }
 
   async graphql<T>(

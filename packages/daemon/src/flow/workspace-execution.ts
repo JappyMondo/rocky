@@ -23,6 +23,19 @@ const versionManagerShell = `if ! command -v nvm >/dev/null 2>&1; then
   }
 fi
 `;
+// Docker CLI honors the selected context, while libraries such as
+// Testcontainers also need its socket in DOCKER_HOST when no default socket
+// exists. Resolve only a live local Unix endpoint and preserve explicit env.
+export function dockerContextShell(defaultSocket = '/var/run/docker.sock') {
+  return `if [ -z "\${DOCKER_HOST:-}" ] && [ ! -S ${quote(defaultSocket)} ] && command -v docker >/dev/null 2>&1; then
+  rocky_docker_host=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+  case "$rocky_docker_host" in
+    unix://*) if [ -S "\${rocky_docker_host#unix://}" ]; then export DOCKER_HOST="$rocky_docker_host"; fi ;;
+  esac
+  unset rocky_docker_host
+fi
+`;
+}
 const envValue = (s: string) =>
   /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(s)
     ? `"${s.slice(0, -1)}:?Required environment variable is missing}"`
@@ -84,7 +97,13 @@ export class WorkspaceExecution {
   }> = [];
   private endpoints: Record<string, Record<string, string>> = {};
   constructor(
-    private ctx: Pick<WorkflowContext, 'exec' | 'step' | 'ports' | 'polling'>,
+    private ctx: Pick<WorkflowContext, 'exec' | 'step' | 'ports' | 'polling'> &
+      Partial<
+        Pick<
+          WorkflowContext,
+          'reuseRecordedBackground' | 'replayInterruptedValidation'
+        >
+      >,
     private workspace: WorkflowInput,
     readonly repos: WorkspaceRepository[],
     private runDir = process.env.ROCKY_RUN_DIR ?? '',
@@ -159,6 +178,7 @@ export class WorkspaceExecution {
     timeoutMs: number,
     checks: string[],
     secretEnv: string[] = [],
+    readiness = { attempts: 1, intervalMs: 0 },
   ) {
     if (this.polling) {
       // Consume the original process Step, but never inspect or kill its old PID.
@@ -189,7 +209,18 @@ export class WorkspaceExecution {
       this.runDir,
       `environment-probe-${randomUUID()}.json`,
     );
-    const timeout = Math.max(1, Math.min(timeoutMs, entry.command.timeoutMs));
+    // A verifier's per-invocation deadline must not cut short the service's
+    // configured startup window. The enclosing environment budget still wins.
+    const timeout = Math.max(
+      1,
+      Math.min(
+        timeoutMs,
+        Math.max(
+          entry.command.timeoutMs,
+          readiness.attempts * readiness.intervalMs,
+        ),
+      ),
+    );
     const script = `
 const { spawn } = require('node:child_process');
 const { writeFileSync } = require('node:fs');
@@ -198,7 +229,10 @@ setInterval(() => {}, 1000);
 if (${JSON.stringify(secretEnv)}.some(name => !process.env[name])) {
   writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify({exitCode:0, stdout:JSON.stringify({status:'blocked',reason:'credentials'})}), {mode:0o600});
 } else {
-const child = spawn(${JSON.stringify(command)}, { shell: true, stdio: ['ignore', 'pipe', 'ignore'] });
+let attempt = 0;
+function run() {
+attempt++;
+const child = spawn(${JSON.stringify(command)}, { shell: true, stdio: ['ignore', 'pipe', 'ignore'], timeout: ${entry.command.timeoutMs} });
 let text = '', overflow = false;
 child.stdout.setEncoding('utf8');
 child.stdout.on('data', chunk => { if (text.length + chunk.length > 1048576) { overflow = true; text = ''; } else if (!overflow) text += chunk; });
@@ -216,8 +250,18 @@ child.on('close', code => {
       }),
     }),
   };
+  // A listening frontend does not mean its backend or fixtures are ready.
+  // Retry only executable environment assertions, never access or product blockers.
+  if (Number.isInteger(code) && !overflow && value?.status === 'failed' && !value.reason &&
+      Array.isArray(value.checks) && value.checks.length &&
+      attempt < ${Math.max(1, readiness.attempts)}) {
+    setTimeout(run, ${Math.max(0, readiness.intervalMs)});
+    return;
+  }
   writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(result), { mode: 0o600 });
 });
+}
+run();
 }`;
     const child = await this.ctx.exec(
       `${quote(process.execPath)} -e ${quote(script)}`,
@@ -249,6 +293,20 @@ child.on('close', code => {
       await rm(resultFile, { force: true });
     }
   }
+  /** Consume a recorded setup probe without rerunning its installer on Boot.
+   * Fresh capability probes still verify the restored workspace afterwards.
+   */
+  async replaySetupProbe(id: string, timeoutMs: number) {
+    if (!this.ctx.reuseRecordedBackground)
+      throw new Error('This context cannot reuse recorded background Steps.');
+    // An interrupted install can remove dependency links before it resumes.
+    // Restore them in the same recorded probe Step before live verification;
+    // adding a new Step here would diverge from the earlier journal.
+    if (this.ctx.replayInterruptedValidation?.(id))
+      return this.probe(id, timeoutMs, []);
+    await this.ctx.reuseRecordedBackground(`Environment probe ${id}`);
+    return { exitCode: 0, stdout: '' };
+  }
   private async shell(
     repo: WorkspaceRepository,
     task: { cwd: string; env: Record<string, string> },
@@ -259,7 +317,7 @@ child.on('close', code => {
     const rel = relative(root, cwd);
     if (rel === '..' || rel.startsWith('../') || isAbsolute(rel))
       throw Error(`Working directory escapes ${repo.name}.`);
-    return `cd -- ${quote(cwd)} && { ${this.environment(repo, task.env)}${versionManagerShell}${command}\n}`;
+    return `cd -- ${quote(cwd)} && { ${this.environment(repo, task.env)}${versionManagerShell}${dockerContextShell()}${command}\n}`;
   }
   async command(id: string, label: string, timeoutMs?: number) {
     const entry = catalogEntries(this.repos).find((entry) => entry.id === id);
@@ -320,22 +378,58 @@ child.on('close', code => {
         if (endpoints[id]) {
           if (!this.verified) continue;
           let live = false;
-          try {
+          // A recheck has the same readiness policy as initial startup. One
+          // slow response (for example during a dev-server rebuild) is not
+          // evidence that the service crashed. Keep polling inside the existing
+          // receipt so pre-change journals retain exactly the same Step order.
+          for (
+            let attempt = 0;
+            attempt < service.readiness.attempts;
+            attempt++
+          ) {
+            this.signal?.throwIfAborted();
+            if (Date.now() >= deadline) break;
             const owner = this.running.find((entry) => entry.id === id);
-            if (!owner) throw Error('Service has no current owner.');
-            process.kill(owner.pid, 0);
-            const response = await fetch(
-              endpoints[id][service.readiness.endpoint],
-              {
-                signal: AbortSignal.timeout(
-                  Math.max(1, Math.min(1000, deadline - Date.now())),
+            if (!owner) break;
+            try {
+              process.kill(owner.pid, 0);
+            } catch {
+              break;
+            }
+            try {
+              const response = await fetch(
+                endpoints[id][service.readiness.endpoint],
+                {
+                  signal: AbortSignal.timeout(
+                    Math.max(
+                      1,
+                      Math.min(
+                        service.readiness.intervalMs,
+                        deadline - Date.now(),
+                      ),
+                    ),
+                  ),
+                },
+              );
+              live = response.ok;
+              await response.body?.cancel();
+            } catch {
+              live = false;
+            }
+            if (live) break;
+            if (attempt + 1 < service.readiness.attempts)
+              await new Promise((done) =>
+                setTimeout(
+                  done,
+                  Math.max(
+                    1,
+                    Math.min(
+                      service.readiness.intervalMs,
+                      deadline - Date.now(),
+                    ),
+                  ),
                 ),
-              },
-            );
-            live = response.ok;
-            await response.body?.cancel();
-          } catch {
-            live = false;
+              );
           }
           const receipt = await this.ctx.step(
             `${label}: recheck ${id}`,

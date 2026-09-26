@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createGitHubScm, createGitLabScm, runPreflight } from './index.js';
 import { refuse } from './http.js';
 import { runBoot } from '../run/replay.js';
@@ -9,6 +9,7 @@ import { openJournal } from '../run/journal.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const dir of dirs.splice(0))
     await rm(dir, { recursive: true, force: true });
 });
@@ -229,7 +230,12 @@ it('fails unknown draft capability and does not wait past its budget for a non-c
         members: [
           {
             repo: { id: 'one' },
-            probe: async () => new Promise<never>(() => undefined),
+            probe: async () => {
+              // Make the remaining-budget timer expire before the overall
+              // signal, reproducing elapsed setup time deterministically.
+              vi.spyOn(Date, 'now').mockReturnValueOnce(Date.now() + 10);
+              return new Promise<never>(() => undefined);
+            },
           },
         ],
         refreshMcp: async () => [],

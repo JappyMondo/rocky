@@ -143,7 +143,7 @@ export function App() {
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [repository, setRepository] = useState('');
   const [runsView, setRunsView] = useState<RunsViewState>({
-    filter: 'All runs',
+    filter: 'Unsettled',
     query: '',
     page: 0,
   });
@@ -402,7 +402,7 @@ export function App() {
         newRun
       )
         return;
-      const list = runs?.runs ?? [];
+      const list = runs?.runs.filter((run) => !run.settledAt) ?? [];
       const index = list.findIndex((run) => run.runId === selectedId);
       if (event.key === 'j' || event.key === 'k') {
         const next = list[index + (event.key === 'j' ? 1 : -1)];
@@ -612,7 +612,9 @@ export function App() {
           >
             <Icon name="runs" />
             Runs
-            <span className={styles.navCount}>{runs?.runs.length ?? '—'}</span>
+            <span className={styles.navCount}>
+              {runs?.runs.filter((run) => !run.settledAt).length ?? '—'}
+            </span>
           </button>
           <button
             aria-current={currentRoute.page === 'profiles' ? 'page' : undefined}
@@ -632,24 +634,27 @@ export function App() {
         {!!runs?.runs.length && (
           <div className={styles.recentRuns}>
             <p className={styles.navLabel}>Recent runs</p>
-            {runs.runs.slice(0, 4).map((run) => (
-              <button
-                key={run.runId}
-                aria-current={run.runId === selectedId ? 'page' : undefined}
-                onClick={() => go(`/runs/${encodeURIComponent(run.runId)}`)}
-              >
-                <span
-                  className={`${styles.dot} ${styles[runState(run).value]}`}
-                />
-                <span>
-                  <strong>
-                    {run.issue.identifier}
-                    <small>{run.runId}</small>
-                  </strong>
-                  <em>{run.issue.title}</em>
-                </span>
-              </button>
-            ))}
+            {runs.runs
+              .filter((run) => !run.settledAt)
+              .slice(0, 4)
+              .map((run) => (
+                <button
+                  key={run.runId}
+                  aria-current={run.runId === selectedId ? 'page' : undefined}
+                  onClick={() => go(`/runs/${encodeURIComponent(run.runId)}`)}
+                >
+                  <span
+                    className={`${styles.dot} ${styles[runState(run).value]}`}
+                  />
+                  <span>
+                    <strong>
+                      {run.issue.identifier}
+                      <small>{run.runId}</small>
+                    </strong>
+                    <em>{run.issue.title}</em>
+                  </span>
+                </button>
+              ))}
           </div>
         )}
         <footer className={styles.sidebarFooter}>
@@ -809,6 +814,19 @@ export function App() {
               onRepository={setRepository}
               view={runsView}
               setView={setRunsView}
+              disabled={!mutationsAllowed}
+              settle={async (id, settled) => {
+                await api(
+                  `/api/runs/${encodeURIComponent(id)}/settle`,
+                  setMismatch,
+                  {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ settled }),
+                  },
+                );
+                setRuns(await api<RunList>('/api/runs', setMismatch));
+              }}
             />
           ) : (
             <RunView

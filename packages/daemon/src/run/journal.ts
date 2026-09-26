@@ -508,17 +508,32 @@ async function readJournalFile(
     latest: (seq) => byLast.get(seq),
     isInterrupted: (seq) => byLast.get(seq)?.status === 'running',
     interruptedBoots(seq) {
-      const boots = new Set<number>();
-      for (const entry of bySeq.get(seq) ?? []) {
-        if (isSettled(entry.status)) {
-          boots.clear();
-        } else {
-          boots.add(entry.boot);
-        }
-      }
-      return boots.size;
+      return interruptedBootCount(
+        bySeq.get(seq) ?? [],
+        controls.get(GRACEFUL_SHUTDOWN_CONTROL),
+      );
     },
   };
+}
+
+/** Non-positional recovery boundary: a deliberate shutdown is not a crash. */
+export const GRACEFUL_SHUTDOWN_CONTROL = 'runtime:graceful-shutdown';
+export function interruptedBootCount(
+  entries: readonly JournalEntry[],
+  boundary: unknown,
+): number {
+  const through =
+    typeof boundary === 'number' &&
+    Number.isSafeInteger(boundary) &&
+    boundary >= 0
+      ? boundary
+      : 0;
+  const boots = new Set<number>();
+  for (const entry of entries) {
+    if (entry.boot <= through || isSettled(entry.status)) boots.clear();
+    else boots.add(entry.boot);
+  }
+  return boots.size;
 }
 
 export interface AppendOptions {

@@ -169,6 +169,25 @@ export function retryStepKey(
   const steps = latest(entries.filter((entry) => entry.step !== '$end')).sort(
     (a, b) => a.seq - b.seq,
   );
+  // A previous Boot can fail while restarting an already successful setup
+  // probe, before reaching a later waiting fixer Step. Reopen the failed
+  // probe first or every retry of that fixer fails at the same earlier seq.
+  if (end.error?.message.includes('Previously verified setup failed')) {
+    const failedSetup = steps.find(
+      (entry) =>
+        entry.step === 'exec:background' &&
+        entry.status === 'failed' &&
+        entry.label?.startsWith('Environment probe ') &&
+        entries.some(
+          (prior) =>
+            prior.seq === entry.seq &&
+            prior.step === entry.step &&
+            prior.label === entry.label &&
+            prior.status === 'done',
+        ),
+    );
+    if (failedSetup) return String(failedSetup.seq);
+  }
   const step = steps.at(-1);
   if (
     step &&

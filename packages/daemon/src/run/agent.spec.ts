@@ -1,4 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { JournalWriter } from './writer.js';
+import { GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
+import { HarnessContinuationError } from '../harness/types.js';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -77,6 +80,36 @@ it('grants only the Run evidence directory to read-enabled Steps without edit ac
     [screenshotDir],
     undefined,
     undefined,
+  ]);
+});
+
+it('creates and grants the Run screenshot directory only for an opted-in fixture writer', async () => {
+  const f = fixture();
+  const screenshotDir = join(dir, 'screenshots');
+  f.options.prepareEnvironment = vi.fn(async () => ({
+    env: {},
+    writableDirectories: ['/tmp/fixture-cache'],
+    dispose: async () => undefined,
+  }));
+  const outcome = await runBoot({
+    journalPath: join(dir, 'fixture-writer.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, { ...f.options, screenshotDir })(
+        { prompt: 'Capture a local browser fixture.' },
+        {
+          label: 'Prepare UI fixtures',
+          tools: ['read', 'edit', 'bash'],
+          screenshotWrite: true,
+        },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({ status: 'finished' });
+  expect((await stat(screenshotDir)).isDirectory()).toBe(true);
+  expect(f.run.mock.calls[0][0].writableDirectories).toEqual([
+    '/tmp/fixture-cache',
+    screenshotDir,
   ]);
 });
 
@@ -209,6 +242,35 @@ it('persists streamed Agent text before the Step settles', async () => {
     events: [],
   });
   await expect(boot).resolves.toMatchObject({ status: 'finished' });
+});
+
+it('resumes an unfinished native turn in its owned session and replays without another invocation', async () => {
+  const f = fixture();
+  f.run.mockRejectedValueOnce(
+    new HarnessContinuationError(
+      'Unfinished tools: reconcile interrupted commands before returning the result.',
+      'session-1',
+    ),
+  );
+  const boot = () =>
+    runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, f.options)(
+          { prompt: 'Count.' },
+          { label: 'counter', schema: z.object({ count: z.number() }) },
+        );
+        return 'merged';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'finished', outcome: 'merged' });
+  expect(f.resume).toHaveBeenCalledOnce();
+  expect(f.resume.mock.calls[0]?.[0]).toMatchObject({
+    sessionId: 'session-1',
+    prompt: expect.stringContaining('Unfinished tools'),
+  });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(f.run).toHaveBeenCalledTimes(2);
 });
 
 it('nudges refinements twice in the same session, then burns three attempts with durable metadata', async () => {
@@ -674,6 +736,47 @@ it('requires summary without discarding strict object refinements', async () => 
   });
   expect(outcome).toMatchObject({ status: 'finished' });
   expect(f.resume).toHaveBeenCalledOnce();
+});
+
+it('preserves summary required by a discriminated agent result', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<result>{"status":"setup","commands":["fixture/seed"],"summary":"Seed the local UI."}</result>',
+    sessionId: 'fixture-session',
+    events: [],
+  });
+  const outcome = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      expect(
+        await createAgent(steps, f.options)(
+          { prompt: 'Prepare browser fixtures.' },
+          {
+            label: 'Prepare UI fixtures',
+            schema: z.discriminatedUnion('status', [
+              z.object({
+                status: z.literal('setup'),
+                commands: z.array(z.string()),
+                summary: z.string(),
+              }),
+              z.object({
+                status: z.literal('blocked'),
+                reason: z.string(),
+                summary: z.string(),
+              }),
+            ]),
+          },
+        ),
+      ).toEqual({
+        status: 'setup',
+        commands: ['fixture/seed'],
+        summary: 'Seed the local UI.',
+      });
+      return 'merged';
+    },
+  });
+  expect(outcome).toMatchObject({ status: 'finished' });
+  expect(f.resume).not.toHaveBeenCalled();
 });
 
 it('a missing snapshot prompt is Run-fatal even when Workflow code catches it', async () => {
@@ -1249,6 +1352,83 @@ it('stops a missing-tool blocker without schema repair or automatic retry', asyn
   expect(f.resume).not.toHaveBeenCalled();
 });
 
+it('journals a schema-accepted blocker as a replayable result only when opted in', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<blocked>{"reason":"environment","requiredTool":"A local preview","fix":"Create a supported fixture"}</blocked>',
+    sessionId: 'blocked-session',
+    events: [],
+  });
+  const journalPath = join(dir, 'recoverable-blocker.jsonl');
+  const schema = z.object({
+    status: z.literal('blocked'),
+    reason: z.literal('environment'),
+    summary: z.string(),
+  });
+  const boot = () =>
+    runBoot({
+      journalPath,
+      workflow: async (steps) => {
+        const result = await createAgent(steps, f.options)(
+          { prompt: 'Prepare a local fixture.' },
+          {
+            label: 'fixture',
+            tools: ['read'],
+            schema,
+            blockedAsResult: true,
+          },
+        );
+        expect(result).toEqual({
+          status: 'blocked',
+          reason: 'environment',
+          summary: 'A local preview. Create a supported fixture',
+        });
+        return 'completed';
+      },
+    });
+  expect(await boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(await boot()).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(f.run).toHaveBeenCalledOnce();
+  expect((await openJournal(journalPath)).latest(0)).toMatchObject({
+    status: 'done',
+  });
+});
+
+it('does not turn an unsupported blocker into a passing agent result', async () => {
+  const f = fixture();
+  f.run.mockResolvedValue({
+    text: '<blocked>{"reason":"permission","requiredTool":"An account","fix":"Grant access"}</blocked>',
+    sessionId: 'blocked-session',
+    events: [],
+  });
+  const result = await runBoot({
+    journalPath: join(dir, 'unsupported-blocker.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Prepare a local fixture.' },
+        {
+          label: 'fixture',
+          tools: ['read'],
+          schema: z.object({ status: z.literal('ready'), summary: z.string() }),
+          blockedAsResult: true,
+        },
+      );
+      return 'completed';
+    },
+  });
+  expect(result).toMatchObject({
+    status: 'failed',
+    error: { name: 'AgentBlockedError' },
+  });
+  expect(f.run).toHaveBeenCalledOnce();
+});
+
 it('describes the actual grants and avoids impossible branch checks for read-only Agents', async () => {
   const f = fixture();
   await runBoot({
@@ -1266,4 +1446,104 @@ it('describes the actual grants and avoids impossible branch checks for read-onl
   expect(prompt).toContain('Enabled MCP servers: none');
   expect(prompt).toContain('Do not inspect .git/HEAD');
   expect(prompt).toContain('<blocked>');
+});
+
+it('bounds unfinished-turn reconciliation instead of accepting incomplete work', async () => {
+  const f = fixture();
+  f.run.mockRejectedValue(
+    new HarnessContinuationError('Unfinished tools', 'session-1'),
+  );
+  const result = await runBoot({
+    journalPath: join(dir, 'journal.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, f.options)(
+        { prompt: 'Finish.' },
+        { label: 'work' },
+      );
+      return 'merged';
+    },
+  });
+  expect(result).toMatchObject({ status: 'failed' });
+  expect(f.run).toHaveBeenCalledTimes(9);
+  expect(f.resume).toHaveBeenCalledTimes(6);
+});
+
+it.each([false, true])(
+  'gives an edit-capable blocker one bounded diagnostic continuation (still blocked=%s)',
+  async (stillBlocked) => {
+    const f = fixture();
+    const blocked = {
+      text: '<blocked>{"reason":"Validation command hangs","requiredTool":"A completing repository check","fix":"Diagnose the stalled subprocess"}</blocked>',
+      sessionId: 'diagnostic-session',
+      events: [],
+    };
+    f.run.mockResolvedValueOnce(blocked);
+    if (stillBlocked) f.resume.mockResolvedValue(blocked);
+    const result = await runBoot({
+      journalPath: join(dir, 'diagnostic.jsonl'),
+      workflow: async (steps) => {
+        await createAgent(steps, f.options)(
+          { prompt: 'Implement and verify.' },
+          { label: 'implementer', tools: ['read', 'edit', 'bash'] },
+        );
+        return 'completed';
+      },
+    });
+    expect(result.status).toBe(stillBlocked ? 'failed' : 'finished');
+    expect(f.resume).toHaveBeenCalledOnce();
+    expect(f.resume.mock.calls[0][0]).toMatchObject({
+      sessionId: 'diagnostic-session',
+      prompt: expect.stringContaining('single diagnostic recovery opportunity'),
+    });
+    expect(f.resume.mock.calls[0][0].prompt).toContain('do not bypass');
+  },
+);
+
+it('preserves the same agent attempt and owned session across planned daemon stops', async () => {
+  const f = fixture();
+  const path = join(dir, 'shutdown.jsonl');
+  let controller: AbortController | undefined;
+  f.run.mockImplementation(async (input) => {
+    if (controller) {
+      input.onEvent?.({ kind: 'text', text: 'Working' }, 'owned-session');
+      controller.abort();
+      throw new Error('maintenance');
+    }
+    return {
+      text: '<result>{"summary":"verified"}</result>',
+      sessionId: 'owned-session',
+      events: [],
+    };
+  });
+  const boot = () =>
+    runBoot({
+      journalPath: path,
+      signal: controller?.signal,
+      workflow: async (steps) => {
+        await createAgent(steps, { ...f.options, signal: controller?.signal })(
+          { prompt: 'Work.' },
+          { label: 'worker' },
+        );
+        return 'completed';
+      },
+    });
+  for (let count = 0; count < 4; count++) {
+    controller = new AbortController();
+    expect((await boot()).status).toBe('cancelled');
+    const journal = await openJournal(path);
+    expect(journal.latest(0)?.progress).toMatchObject({
+      attempt: 1,
+      sessionId: 'owned-session',
+    });
+    await (
+      await JournalWriter.open(path)
+    ).put(GRACEFUL_SHUTDOWN_CONTROL, journal.nextBoot - 1);
+  }
+  controller = undefined;
+  expect((await boot()).status).toBe('finished');
+  expect(f.resume).toHaveBeenCalledTimes(4);
+  expect(f.resume.mock.calls[0][0]).toMatchObject({
+    sessionId: 'owned-session',
+    prompt: expect.stringContaining('intentionally stopped'),
+  });
 });

@@ -31,8 +31,17 @@ import {
  *   worktree is taken exactly as found — uncommitted edits included, because a
  *   half-finished edit is the normal state an agent works from.
  */
-import { mkdir, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  lstat,
+  rmdir,
+} from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
+import { z } from 'zod';
 
 import { ensureClone } from './clone.js';
 import type { RepoContext, RepoRef } from './context.js';
@@ -157,6 +166,14 @@ async function materialise(
 
   const adopted = await ctx.mutex.run(repo.name, async () => {
     if (await isWorktree(dir)) {
+      if (
+        (await git(['branch', '--show-current'], { cwd: dir, env: ctx.env }))
+          .stdout !== branch
+      )
+        throw new WorkspaceError(
+          runId,
+          `${repo.name} is on a different branch; preserve its work and restore the issue branch before retrying allocation.`,
+        );
       return 'already-there' as const;
     }
     return addWorktree(ctx, { runId, branch, repo, clone, dir });
@@ -174,6 +191,52 @@ async function materialise(
     head: (await git(['rev-parse', 'HEAD'], { cwd: dir })).stdout,
     adopted,
   };
+}
+
+const ownershipHeader = z.object({
+  runId: z.string(),
+  branch: z.string(),
+  status: z.string(),
+  issue: z.object({ identifier: z.string().min(1) }),
+});
+
+async function canTransferWorktree(
+  ctx: RepoContext,
+  occupied: string,
+  runId: string,
+  branch: string,
+  repo: RepoRef,
+): Promise<boolean> {
+  try {
+    const parts = relative(
+      await realpath(ctx.paths.runsDir),
+      await realpath(occupied),
+    ).split(sep);
+    if (
+      parts.length !== 3 ||
+      parts[1] !== 'workspace' ||
+      parts[2] !== repo.name ||
+      parts[0] === runId
+    )
+      return false;
+    const previous = ownershipHeader.parse(
+      JSON.parse(await readFile(ctx.paths.run(parts[0]).runJson, 'utf8')),
+    );
+    const current = ownershipHeader.parse(
+      JSON.parse(await readFile(ctx.paths.run(runId).runJson, 'utf8')),
+    );
+    return (
+      previous.runId === parts[0] &&
+      current.runId === runId &&
+      previous.branch === branch &&
+      current.branch === branch &&
+      previous.issue.identifier === current.issue.identifier &&
+      ['finished', 'failed', 'cancelled'].includes(previous.status)
+    );
+  } catch {
+    // Unknown ownership must never authorize moving somebody else's work.
+    return false;
+  }
 }
 
 async function addWorktree(
@@ -200,6 +263,35 @@ async function addWorktree(
     ),
     gitOk(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], inClone), // prettier-ignore
   ]);
+
+  if (hasLocal) {
+    const listed = await git(
+      ['worktree', 'list', '--porcelain', '-z'],
+      inClone,
+    );
+    const owner = listed.stdout
+      .split('\0\0')
+      .map((record) => record.split('\0'))
+      .find((fields) => fields.includes(`branch refs/heads/${branch}`));
+    const occupied = owner
+      ?.find((field) => field.startsWith('worktree '))
+      ?.slice('worktree '.length);
+    if (occupied) {
+      if (!(await canTransferWorktree(ctx, occupied, runId, branch, repo)))
+        throw new WorkspaceError(
+          runId,
+          `Branch "${branch}" of "${repo.name}" is already checked out at ${occupied}. Its ownership is not a terminal Run of this issue; Rocky will not move or overwrite it.`,
+        );
+      try {
+        // Git moves the complete tree and index. Preserve unpushed commits,
+        // staged edits, untracked files and ignored local fixtures in place.
+        await git(['worktree', 'move', occupied, dir], inClone);
+      } catch (error) {
+        throw addFailed(ctx, { runId, branch, repo, error });
+      }
+      return 'existing-local';
+    }
+  }
 
   // The order is the adoption rule. A local branch is the newest prior art —
   // it may hold commits a previous Run made and never pushed — so it wins over
@@ -237,26 +329,15 @@ async function addWorktree(
 
 /**
  * Turn git's refusals into something a human can act on. The one worth
- * naming is a branch another worktree already has: "at most one non-terminal
- * Run per issue" (NG-574 §1) makes it unreachable in normal operation, so when
- * it happens the other directory is the whole of the diagnosis.
+ * naming is a failure outside the structured ownership check above. Never
+ * infer ownership or authorize a transfer from localized stderr text.
  */
 function addFailed(
   ctx: RepoContext,
   options: { runId: string; branch: string; repo: RepoRef; error: unknown },
 ): WorkspaceError {
-  const { runId, branch, repo, error } = options;
+  const { runId, repo, error } = options;
   const said = error instanceof GitError ? error.stderr : String(error);
-  const alreadyUsed = /already used by worktree at '([^']+)'/.exec(said);
-
-  if (alreadyUsed) {
-    return new WorkspaceError(
-      runId,
-      `Branch "${branch}" of "${repo.name}" is already checked out at ${alreadyUsed[1]}, so Run ${runId} cannot take it too. Two Runs on one branch is the failure mode that eats work — end the other Run, or delete that directory if it is left over from one that died.`,
-      { cause: error },
-    );
-  }
-
   return new WorkspaceError(
     runId,
     `Could not create the worktree for "${repo.name}" at ${ctx.paths.run(runId).workspaceRepo(repo.name)}${said ? ` — git said: ${said}` : '.'}`,
@@ -350,6 +431,7 @@ export async function removeWorkspace(
 export async function releaseCleanWorkspace(
   ctx: RepoContext,
   runId: string,
+  options: { requirePublished?: boolean; cachesOnly?: boolean } = {},
 ): Promise<string[]> {
   const workspaceDir = ctx.paths.run(runId).workspaceDir;
   let children: string[];
@@ -360,21 +442,63 @@ export async function releaseCleanWorkspace(
     throw error;
   }
 
-  for (const repoName of children) {
-    const dir = join(workspaceDir, repoName);
-    if (!(await isWorktree(dir))) return [];
-    if ((await git(['status', '--porcelain'], { cwd: dir })).stdout) return [];
+  const repositories: string[] = [];
+  for (const child of children) {
+    const dir = join(workspaceDir, child);
+    if (await isWorktree(dir)) repositories.push(child);
+    else if (child !== '.pnpm-store' && (await lstat(dir)).isDirectory())
+      return []; // Unknown directory ownership is not permission to delete it.
   }
-
-  for (const repoName of children) {
+  if (options.cachesOnly && repositories.length) return [];
+  for (const repoName of repositories) {
+    const dir = join(workspaceDir, repoName);
+    if ((await git(['status', '--porcelain'], { cwd: dir })).stdout) return [];
+    if (options.requirePublished) {
+      const head = (
+        await git(['rev-parse', 'HEAD'], { cwd: dir })
+      ).stdout.trim();
+      const remote = await git(['ls-remote', '--heads', 'origin'], {
+        cwd: dir,
+        env: ctx.env,
+      });
+      const tips = remote.stdout
+        .split('\n')
+        .map((line) => line.split('\t')[0])
+        .filter(Boolean);
+      let published = false;
+      for (const tip of tips) {
+        if (
+          tip === head ||
+          (await gitOk(['merge-base', '--is-ancestor', head, tip], {
+            cwd: dir,
+          }))
+        ) {
+          published = true;
+          break;
+        }
+      }
+      if (!published) return [];
+    }
+  }
+  for (const repoName of repositories) {
     await ctx.mutex.run(repoName, async () => {
       const dir = join(workspaceDir, repoName);
       const clone = ctx.paths.repo(repoName);
       await git(['worktree', 'remove', dir], { cwd: clone });
     });
   }
-  await rm(workspaceDir, { recursive: true, force: true });
-  return children;
+  // Worktree transfers leave a sibling pnpm content-addressed cache behind.
+  // Remove only this recognized cache layout once no repository depends on it;
+  // preserve screenshots, notes and unknown directories at the workspace root.
+  const store = join(workspaceDir, '.pnpm-store');
+  const info = await lstat(store).catch(() => undefined);
+  if (info?.isDirectory() && !info.isSymbolicLink()) {
+    const versions = await readdir(store);
+    if (versions.length && versions.every((name) => /^v\d+$/.test(name)))
+      await rm(store, { recursive: true, force: true });
+  }
+  if (!(await readdir(workspaceDir)).length) await rmdir(workspaceDir);
+  return repositories;
 }
 
 /** Restore retained local work without fetching or resetting any branch. */

@@ -1,7 +1,12 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { HarnessContinuationError } from '../harness/types.js';
+import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { agentToolInstructions, checkAgentBlocker } from './agent-tools.js';
+import {
+  AgentBlockedError,
+  agentToolInstructions,
+  checkAgentBlocker,
+} from './agent-tools.js';
 import { isAbsolute, join, relative } from 'node:path';
 
 import type { AgentCallOpts, WorkflowContext } from '@rocky/sdk';
@@ -47,7 +52,8 @@ const progressSchema = z.object({
       summary: z.string(),
     })
     .optional(),
-  continuation: z.enum(['schema', 'steer']).optional(),
+  continuation: z.enum(['schema', 'steer', 'shutdown', 'blocker']).optional(),
+  blockerRecovery: z.boolean().optional(),
   error: z
     .object({
       name: z.string(),
@@ -246,6 +252,13 @@ async function adapterFor(
     );
   }
   return adapter as AgentHarnessAdapter;
+}
+
+function blockerRecoveryPrompt(blocker: string | undefined): string {
+  return `Diagnose the blocker once using only the existing grants and remaining deadline. Previous blocker: ${blocker ?? 'Unknown blocker'}
+First check the supplied validationResponsibility and repositoryCatalog: a matching non-manual command is owned by host Workflow validation. If only that configured check is denied by your sandbox, finish the assigned source work, name the command ID in the normal result and report validation as pending; do not claim success for an unexecuted check or bypass permissions. No such handoff exists for unconfigured or manual commands.
+If actual missing authorization, credentials, hardware, a human decision or an unavailable tool prevents your remaining assigned work, return the blocked envelope immediately; do not bypass it or change external systems.
+If an available repository command fails or hangs, inspect its logs, scripts, subprocesses and narrower checks to identify and repair the underlying local cause. Stop only processes owned by this task. Do not repeat equivalent stalled commands, weaken checks, fabricate evidence, or treat partial validation as complete. Preserve committed work. Rerun the repository's actual affected validation after a concrete repair. Return the normal result only on verified completion; otherwise return the precise remaining blocked envelope. This is the single diagnostic recovery opportunity, not permission for an unbounded retry.`;
 }
 
 function repairPrompt(error: string | undefined): string {
@@ -447,7 +460,7 @@ export function createAgent(
           event.kind === 'text'
             ? `${previous}${event.text}`.slice(-LIVE_OUTPUT_LIMIT)
             : previous;
-        progress = { ...progress, live: { output, summary } };
+        progress = { ...progress, sessionId, live: { output, summary } };
         eventWrites = eventWrites.then(() => handle.update(progress));
         void eventWrites.catch(() => undefined);
         try {
@@ -596,6 +609,16 @@ export function createAgent(
               delivered: progress.delivered,
             };
           }
+          if (progress.phase === 'invoking' && handle.plannedInterruption) {
+            progress = {
+              ...progress,
+              phase: progress.sessionId ? 'resume' : 'cold',
+              ...(progress.sessionId
+                ? { continuation: 'shutdown' as const }
+                : {}),
+            };
+            await handle.update(progress);
+          }
           if (progress.phase === 'invoking') {
             const failure = new Error(
               `Agent attempt ${progress.attempt} did not settle before this Boot; retrying on the retained worktree`,
@@ -660,7 +683,11 @@ export function createAgent(
                       prompt:
                         progress.continuation === 'steer'
                           ? progress.turns.map((turn) => turn.note).join('\n\n')
-                          : repairPrompt(progress.repairError),
+                          : progress.continuation === 'shutdown'
+                            ? 'The daemon intentionally stopped for maintenance. Continue this same task in the retained workspace and session. Inspect any interrupted commands and current repository state before repeating work; do not assume unfinished validation passed. The original deadline and tool grants still apply.'
+                            : progress.continuation === 'blocker'
+                              ? blockerRecoveryPrompt(progress.repairError)
+                              : repairPrompt(progress.repairError),
                     }
                   : undefined;
               if (
@@ -691,6 +718,14 @@ export function createAgent(
                 );
               }
               attemptSignal.throwIfAborted();
+              if (opts.screenshotWrite) {
+                if (!runtime.screenshotDir)
+                  throw new Error('Run screenshot directory is unavailable.');
+                await mkdir(runtime.screenshotDir, {
+                  recursive: true,
+                  mode: 0o700,
+                });
+              }
               progress = { ...progress, phase: 'invoking' };
               await handle.update(progress);
               attemptSignal.throwIfAborted();
@@ -711,7 +746,16 @@ export function createAgent(
                 effort: opts.effort,
                 capabilities: opts.tools ?? [],
                 gitMetadataDirectories: runtime.gitMetadataDirectories,
-                writableDirectories: preparedEnvironment?.writableDirectories,
+                writableDirectories: opts.screenshotWrite
+                  ? [
+                      ...new Set([
+                        ...(preparedEnvironment?.writableDirectories ?? []),
+                        ...(runtime.screenshotDir
+                          ? [runtime.screenshotDir]
+                          : []),
+                      ]),
+                    ]
+                  : preparedEnvironment?.writableDirectories,
                 ...(runtime.screenshotDir &&
                 opts.tools?.includes('read') &&
                 !opts.tools.includes('edit')
@@ -823,6 +867,22 @@ export function createAgent(
                   if (!progress.sessionId) throw error;
                   if (await continueWithSteers(progress.sessionId)) break;
                 }
+                if (
+                  error instanceof HarnessContinuationError &&
+                  progress.nudges.length < 2
+                ) {
+                  attemptSignal.throwIfAborted();
+                  progress = {
+                    ...progress,
+                    sessionId: error.sessionId,
+                    phase: 'resume',
+                    continuation: 'schema',
+                    repairError: error.message,
+                    nudges: [...progress.nudges, { error: error.message }],
+                  };
+                  await handle.update(progress);
+                  continue;
+                }
                 throw error;
               } finally {
                 clearInterval(heartbeat);
@@ -864,9 +924,50 @@ export function createAgent(
                 delete progress.continuation;
               }
               if (await continueWithSteers(result.sessionId)) continue;
-              checkAgentBlocker(result.text);
+              let responseText = result.text;
               try {
-                const match = /<result>([\s\S]*?)<\/result>/.exec(result.text);
+                checkAgentBlocker(responseText);
+              } catch (error) {
+                if (
+                  opts.blockedAsResult &&
+                  error instanceof AgentBlockedError &&
+                  error.blocker &&
+                  schema
+                ) {
+                  const blocked = await schema.safeParseAsync({
+                    status: 'blocked',
+                    reason: error.blocker.reason,
+                    summary: `${error.blocker.requiredTool}. ${error.blocker.fix}`,
+                  });
+                  if (blocked.success)
+                    responseText = `<result>${JSON.stringify(blocked.data)}</result>`;
+                }
+                // A schema-accepted blocker becomes a normal journal result.
+                if (responseText === result.text) {
+                  if (
+                    !(error instanceof AgentBlockedError) ||
+                    !error.blocker ||
+                    !opts.tools?.includes('bash') ||
+                    !opts.tools.includes('edit') ||
+                    progress.blockerRecovery ||
+                    progress.nudges.length >= 2
+                  )
+                    throw error;
+                  attemptSignal.throwIfAborted();
+                  progress = {
+                    ...progress,
+                    phase: 'resume',
+                    continuation: 'blocker',
+                    blockerRecovery: true,
+                    repairError: error.message,
+                    nudges: [...progress.nudges, { error: error.message }],
+                  };
+                  await handle.update(progress);
+                  continue;
+                }
+              }
+              try {
+                const match = /<result>([\s\S]*?)<\/result>/.exec(responseText);
                 const encoded = match?.[1];
                 if (!encoded) {
                   throw new Error('Expected JSON inside <result>...</result>');
@@ -877,10 +978,16 @@ export function createAgent(
                 if (schema) {
                   // Preserve object-level Zod refinements instead of trusting JSON Schema.
                   const fields = z.record(z.string(), z.unknown()).parse(value);
-                  if (
-                    !(schema instanceof z.ZodObject) ||
-                    !('summary' in schema.shape)
-                  ) {
+                  const schemaOwnsSummary =
+                    (schema instanceof z.ZodObject &&
+                      'summary' in schema.shape) ||
+                    (schema instanceof z.ZodUnion &&
+                      schema.options.every(
+                        (option) =>
+                          option instanceof z.ZodObject &&
+                          'summary' in option.shape,
+                      ));
+                  if (!schemaOwnsSummary) {
                     delete fields.summary;
                   }
                   output = {

@@ -24,6 +24,10 @@ import type {
   ScmOps,
   Triggers,
   WorkflowContext,
+  WorkflowInput,
+  Issue,
+  IssueComment,
+  VisualRecapResult,
 } from '@rocky/sdk';
 import { z } from '@rocky/sdk';
 import { newRepositoryProfile } from '../config/profiles.js';
@@ -79,6 +83,83 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     vi.unstubAllGlobals();
     await rm(dir, { recursive: true, force: true });
   });
+
+  it.skipIf(mode === 'legacy')(
+    'supplies prior human answers and their scope-only reuse policy to the refiner',
+    async () => {
+      const clarifications = [
+        {
+          runId: 'TEST-1-1',
+          stepKey: '2',
+          title: 'Scope',
+          question: 'What about empty input?',
+          answer: 'Return an empty list.',
+          answeredAt: '2026-09-04T09:00:30.000Z',
+        },
+      ];
+      const f = fixture({ clarifications });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      expect(
+        f.calls.find((call) => call.name === 'refiner')?.input,
+      ).toMatchObject({
+        issue: { clarifications },
+        clarificationPolicy: expect.stringContaining('never approve a merge'),
+      });
+      expect(
+        f.trace.find(
+          (line) =>
+            line.startsWith('comment:') &&
+            line.includes('Scope decision record'),
+        ),
+      ).toContain('Source: TEST-1-1, question 2');
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'publishes refinement as a ticket comment once and preserves old journal replay (enabled=%s)',
+    async (enabled) => {
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.scopeCommentVersion = 1;
+      else delete flow.settings.scopeCommentVersion;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const scopePosts = () =>
+        f.trace.filter((line) => line.includes('Scope decision record'));
+      expect(scopePosts()).toHaveLength(1);
+      expect(scopePosts()[0]).toMatch(enabled ? /^comment:/ : /^post:/);
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(scopePosts()).toHaveLength(1);
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'does not start implementation when persisting the scope comment fails',
+    async () => {
+      const f = fixture({
+        comment: () => {
+          throw new Error('Ticket comment unavailable');
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'failed' });
+      expect(
+        f.calls.some((call) => ['planner', 'implementer'].includes(call.name)),
+      ).toBe(false);
+    },
+  );
 
   function repositoryFixture(options: Parameters<typeof fixture>[0] = {}) {
     const flow = JSON.parse(flowSource);
@@ -308,6 +389,19 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         status: 'finished',
         outcome: 'exhausted',
       });
+      const posted = f.trace.find((entry) =>
+        entry.startsWith('post:Unresolved Complaints:'),
+      );
+      expect(posted).toContain('```json\n');
+      expect(
+        JSON.parse(posted!.split('```json\n')[1].split('\n```')[0]),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining('CI did not pass'),
+          }),
+        ]),
+      );
       expect(calledRepos(f, 'waitForCi')).toEqual(['fixture', 'settings']);
       expect(f.calls.find((c) => c.name === 'ci-fixer')?.input.repository).toBe(
         'settings',
@@ -414,6 +508,261 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         'fixture',
         'settings',
       ]);
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'checks actual branch revisions before a CI retry and replays the migration boundary (enabled=%s)',
+    async (enabled) => {
+      let head = 'abc';
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.ciRetryVersion = 1;
+      else delete flow.settings.ciRetryVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('git rev-parse HEAD')
+            ? { exitCode: 0, stdout: head, stderr: '' }
+            : undefined,
+        scm: (operation, count, args) =>
+          operation === 'waitForCi'
+            ? {
+                status: count === 1 ? 'failed' : 'passed',
+                headSha: (args[0] as { headSha: string }).headSha,
+                failedJobs:
+                  count === 1
+                    ? [
+                        {
+                          id: 'gate',
+                          name: 'repository check',
+                          failedSteps: [],
+                          logTail: 'Transient failure',
+                        },
+                      ]
+                    : [],
+              }
+            : undefined,
+        agent: (name) => {
+          if (name !== 'ci-fixer') return undefined;
+          head = 'def';
+          return {
+            action: 'retry',
+            summary: 'Created a local commit for fresh CI.',
+          };
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const checks = f.scmCalls.filter(
+        (call) => call.operation === 'waitForCi',
+      );
+      expect(checks[1].args[0]).toMatchObject({
+        headSha: enabled ? 'def' : 'abc',
+      });
+      expect(calledRepos(f, 'retryFailedJobs')).toHaveLength(enabled ? 0 : 1);
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        1,
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'preserves a committed CI repair despite an unresolved agent verdict and replays old journals (enabled=%s)',
+    async (enabled) => {
+      let localHead = 'abc';
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.ciUnresolvedCommitVersion = 1;
+      else delete flow.settings.ciUnresolvedCommitVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('git rev-parse HEAD')
+            ? { exitCode: 0, stdout: localHead, stderr: '' }
+            : undefined,
+        scm: (operation, count, args) =>
+          operation === 'waitForCi'
+            ? {
+                status: count === 1 ? 'failed' : 'passed',
+                headSha: (args[0] as { headSha: string }).headSha,
+                failedJobs:
+                  count === 1
+                    ? [
+                        {
+                          id: 'gate',
+                          name: 'repository check',
+                          failedSteps: [],
+                          logTail: 'Failed assertion',
+                        },
+                      ]
+                    : [],
+              }
+            : undefined,
+        agent: (name) => {
+          if (name !== 'ci-fixer') return undefined;
+          localHead = 'def';
+          return {
+            action: 'unresolved',
+            summary: 'Committed and locally checked; remote CI is pending.',
+          };
+        },
+      });
+      const first = await f.boot();
+      expect(first).toMatchObject(
+        enabled
+          ? { status: 'parked' }
+          : { status: 'finished', outcome: 'exhausted' },
+      );
+      const checks = f.scmCalls.filter(
+        (call) => call.operation === 'waitForCi',
+      );
+      const heads = checks.map(
+        (call) => (call.args[0] as { headSha: string }).headSha,
+      );
+      expect(heads[0]).toBe('abc');
+      expect(heads.slice(1)).toEqual(enabled ? ['def', 'def'] : []);
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      if (enabled) {
+        f.approve();
+        f.merge();
+        expect(await f.boot()).toMatchObject({
+          status: 'finished',
+          outcome: 'merged',
+        });
+      } else {
+        expect(await f.boot()).toMatchObject({
+          status: 'finished',
+          outcome: 'exhausted',
+        });
+      }
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        1,
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'returns a refused CI retry to the fixer as evidence instead of claiming it ran',
+    async () => {
+      const refusal = {
+        refused: true,
+        repo: 'fixture',
+        reason: 'permission_denied',
+        message: 'External check cannot be rerequested.',
+        fix: 'Inspect provider access.',
+      };
+      const f = repositoryFixture({
+        scm: (operation, _count, args) =>
+          operation === 'retryFailedJobs'
+            ? refusal
+            : operation === 'waitForCi'
+              ? {
+                  status: 'failed',
+                  headSha: (args[0] as { headSha: string }).headSha,
+                  failedJobs: [
+                    {
+                      id: 'check',
+                      name: 'External review',
+                      failedSteps: [],
+                      logTail: 'Rate limited',
+                    },
+                  ],
+                }
+              : undefined,
+        agent: (name, input, count) => {
+          if (name !== 'ci-fixer') return undefined;
+          if (count === 2) expect(input.retryRefusal).toEqual(refusal);
+          return {
+            action: count === 1 ? 'retry' : 'unresolved',
+            summary: 'Provider access is required.',
+          };
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calledRepos(f, 'retryFailedJobs')).toHaveLength(1);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        2,
+      );
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([true, false])(
+    'replays the CI retry refusal boundary with an unchanged head (enabled=%s)',
+    async (enabled) => {
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.ciRetryRefusalVersion = 1;
+      else delete flow.settings.ciRetryRefusalVersion;
+      const refusal = {
+        refused: true,
+        repo: 'fixture',
+        reason: 'unsupported',
+        message: 'External check cannot be rerequested.',
+        fix: 'Use the check provider recovery path.',
+      };
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        scm: (operation, _count, args) =>
+          operation === 'retryFailedJobs'
+            ? refusal
+            : operation === 'waitForCi'
+              ? {
+                  status: 'failed',
+                  headSha: (args[0] as { headSha: string }).headSha,
+                  failedJobs: [
+                    {
+                      id: 'check',
+                      name: 'External review',
+                      failedSteps: [],
+                      logTail: 'Provider unavailable',
+                    },
+                  ],
+                }
+              : undefined,
+        agent: (name, input, count) => {
+          if (name !== 'ci-fixer') return undefined;
+          if (count === 2) expect(input.retryRefusal).toEqual(refusal);
+          return { action: 'retry', summary: 'No repository change.' };
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calledRepos(f, 'retryFailedJobs')).toHaveLength(enabled ? 1 : 3);
+      expect(f.calls.filter((call) => call.name === 'ci-fixer')).toHaveLength(
+        enabled ? 2 : 3,
+      );
+      const journal = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      const callCount = f.calls.length;
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(f.calls).toHaveLength(callCount);
+      expect(await readFile(join(dir, 'journal.jsonl'), 'utf8')).toBe(journal);
     },
   );
 
@@ -584,10 +933,153 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     );
   });
 
+  it.skipIf(mode === 'legacy')(
+    'returns uncommitted implementation to its agent before PR delivery',
+    async () => {
+      let dirty = true;
+      const flow = JSON.parse(flowSource);
+      flow.settings.recoveryVersion = 1;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('status --porcelain')
+            ? { exitCode: 0, stdout: dirty ? ' M src/a.ts' : '', stderr: '' }
+            : undefined,
+        agent: (name, _input, count) => {
+          if (name === 'implementer' && count === 2) {
+            dirty = false;
+            return { summary: 'Completed and committed.' };
+          }
+          return undefined;
+        },
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'parked',
+      });
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(2);
+      expect(
+        f.calls.filter((call) => call.name === 'implementer')[1].input,
+      ).toMatchObject({
+        recovery: { kind: 'uncommitted-work', repository: 'fixture' },
+      });
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(2);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'replays a pre-recovery snapshot journal without inserting recovery steps',
+    async () => {
+      const flow = JSON.parse(flowSource);
+      delete flow.settings.recoveryVersion;
+      delete flow.settings.validationEnvironmentVersion;
+      delete flow.settings.validationRecheckVersion;
+      delete flow.settings.validationRequestVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      const before = await readFile(join(dir, 'journal.jsonl'), 'utf8');
+      f.approve();
+      f.merge();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'merged',
+      });
+      expect(
+        (await readFile(join(dir, 'journal.jsonl'), 'utf8')).startsWith(before),
+      ).toBe(true);
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(1);
+      expect(
+        f.calls.some((call) => call.options?.label?.includes('repair 1/2')),
+      ).toBe(false);
+    },
+  );
+
+  it.skipIf(mode === 'legacy').each([false, true])(
+    'bounds unfinished-work recovery and preserves the old snapshot boundary (%s)',
+    async (enabled) => {
+      const flow = JSON.parse(flowSource);
+      if (enabled) flow.settings.recoveryVersion = 1;
+      else delete flow.settings.recoveryVersion;
+      const f = repositoryFixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        exec: (command) =>
+          command.includes('status --porcelain')
+            ? { exitCode: 0, stdout: ' M src/a.ts', stderr: '' }
+            : undefined,
+        agent: (name) =>
+          name === 'implementer' ? { summary: 'Still blocked.' } : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'failed',
+        error: { message: expect.stringContaining('uncommitted work') },
+      });
+      expect(
+        f.calls.filter((call) => call.name === 'implementer'),
+      ).toHaveLength(enabled ? 3 : 1);
+      expect(calledRepos(f, 'openPr')).toEqual([]);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'revalidates and reviews work repaired after a passing review',
+    async () => {
+      let dirty = false;
+      const f = repositoryFixture({
+        exec: (command) =>
+          command.includes('status --porcelain')
+            ? { exitCode: 0, stdout: dirty ? ' M src/a.ts' : '', stderr: '' }
+            : undefined,
+        agent: (name, _input, count) => {
+          if (name === 'reviewer' && count === 1) dirty = true;
+          if (name === 'fixer') {
+            dirty = false;
+            return { summary: 'Committed recovered work.' };
+          }
+          return undefined;
+        },
+      });
+      const result = await f.boot();
+      expect(result, JSON.stringify(result)).toMatchObject({
+        status: 'parked',
+      });
+      expect(f.calls.filter((call) => call.name === 'reviewer')).toHaveLength(
+        2,
+      );
+      expect(
+        f.calls.filter((call) => call.name === 'compliance-reviewer'),
+      ).toHaveLength(2);
+      expect(f.calls.filter((call) => call.name === 'fixer')).toHaveLength(1);
+    },
+  );
+
   function fixture(
     options: {
-      comments?: import('@rocky/sdk').IssueComment[];
-      members?: import('@rocky/sdk').WorkflowInput['members'];
+      comments?: IssueComment[];
+      clarifications?: Issue['clarifications'];
+      members?: WorkflowInput['members'];
       agent?: (
         name: string,
         input: Record<string, unknown>,
@@ -597,7 +1089,16 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         command: string,
       ) => { exitCode: number; stdout: string; stderr: string } | undefined;
       comment?: (body: string) => void;
-      recap?: () => { id: string; url: string };
+      recap?: () => {
+        id: string;
+        url: string;
+        decision?: {
+          status: 'ready' | 'needs-attention' | 'blocked';
+          summary: string;
+          actions: string[];
+        };
+      };
+      recapStep?: string;
       scm?: (operation: string, count: number, args: unknown[]) => unknown;
       triggers?: Triggers;
       continuation?: boolean;
@@ -639,6 +1140,9 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                 url: 'https://example.test/issue/1',
                 labels: [],
                 ...(options.comments ? { comments: options.comments } : {}),
+                ...(options.clarifications
+                  ? { clarifications: options.clarifications }
+                  : {}),
               },
               profile: {
                 ...newRepositoryProfile({
@@ -770,16 +1274,28 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
                     : { status: 'waiting', detail: checkpoint };
                 },
                 visualRecap: () =>
-                  steps.step('visualRecap', {}, async () => {
-                    trace.push('visualRecap');
-                    return {
-                      status: 'done',
-                      result: options.recap?.() ?? {
+                  steps.step(
+                    options.recapStep ?? 'visualRecap',
+                    {},
+                    async () => {
+                      trace.push('visualRecap');
+                      const report: VisualRecapResult = options.recap?.() ?? {
                         id: 'r_fixture',
                         url: 'https://rocky.test/recap',
-                      },
-                    };
-                  }),
+                      };
+                      return {
+                        status: 'done',
+                        result: {
+                          ...report,
+                          decision: report.decision ?? {
+                            status: 'ready',
+                            summary: 'Ready.',
+                            actions: [],
+                          },
+                        },
+                      };
+                    },
+                  ),
                 comment: (body) =>
                   steps.step('linear.comment', {}, async () => {
                     options.comment?.(body);
@@ -2572,7 +3088,8 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(
       f.trace.find(
         (line) =>
-          line.startsWith('post:') && line.includes('Scope decision record'),
+          line.startsWith(mode === 'flow' ? 'comment:' : 'post:') &&
+          line.includes('Scope decision record'),
       ),
     ).toContain('Scope decision record');
     expect(
@@ -2626,9 +3143,13 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     }
     expect(f.trace.some((line) => line.includes('git push'))).toBe(false);
     expect(f.trace).toContain(`comment:${body}`);
-    expect(f.trace.filter((line) => line.startsWith('comment:'))).toHaveLength(
-      1,
-    );
+    expect(
+      f.trace.filter(
+        (line) =>
+          line.startsWith('comment:') &&
+          !line.includes('Scope decision record'),
+      ),
+    ).toHaveLength(1);
     expect(f.trace).not.toContain('Done');
     const calls = f.calls.length;
     expect(await f.boot()).toMatchObject({
@@ -2687,12 +3208,137 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
       body: 'Incomplete',
       problems: expect.arrayContaining(['Missing the storage connection.']),
     });
-    expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([
-      'comment:Complete architecture',
-    ]);
+    expect(
+      f.trace.filter(
+        (line) =>
+          line.startsWith('comment:') &&
+          !line.includes('Scope decision record'),
+      ),
+    ).toEqual(['comment:Complete architecture']);
     expect(f.trace).toContain(mode === 'legacy' ? 'In Review' : 'Done');
     expect(f.scmCalls).toEqual([]);
   });
+
+  it.skipIf(mode === 'legacy').each([false, true])(
+    'replays a comment journal at its explicit delivery boundary (new=%s)',
+    async (modern) => {
+      const flow = parseFlow(flowSource);
+      if (modern) {
+        flow.settings.commentDeliveryVersion = 1;
+        flow.settings.recapDecisionVersion = 1;
+      } else {
+        delete flow.settings.commentDeliveryVersion;
+        delete flow.settings.recapDecisionVersion;
+      }
+      let reportAttempts = 0;
+      let commentAttempts = 0;
+      const body = 'Project neutral answer.';
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recapStep: 'reviewReport.save',
+        recap: () => {
+          if (modern && ++reportAttempts === 1)
+            throw new Error('Recap transport interrupted');
+          return {
+            id: 'report',
+            url: 'https://rocky.test/report',
+            decision: { status: 'ready', summary: 'Done.', actions: [] },
+          };
+        },
+        comment: (value) => {
+          if (value === body && !modern && ++commentAttempts === 1)
+            throw new Error('Comment transport interrupted');
+        },
+        agent: (name) => {
+          if (name === 'refiner') return commentScope;
+          if (name === 'deliverable-writer') return { body };
+          if (name === 'deliverable-reviewer')
+            return {
+              assessments: [
+                {
+                  criterion: commentScope.acceptanceCriteria[0],
+                  evidence: 'The body answers the question.',
+                  problems: [],
+                },
+              ],
+              problems: [],
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({ status: 'failed' });
+      const journalPath = join(dir, 'journal.jsonl');
+      await (
+        await JournalWriter.open(journalPath)
+      ).retry(
+        `resume-${modern ? 'new' : 'old'}-comment`,
+        retryStepKey((await readJournal(journalPath)).entries)!,
+        [],
+      );
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'completed',
+      });
+      expect(f.trace.filter((line) => line === `comment:${body}`)).toHaveLength(
+        1,
+      );
+      expect(f.trace).toContain(modern ? 'Done' : 'In Review');
+      const deliveryIndex = f.trace.indexOf(`comment:${body}`);
+      const recapIndex = f.trace.indexOf('visualRecap');
+      expect(recapIndex).toBeGreaterThanOrEqual(0);
+      expect(
+        modern ? deliveryIndex < recapIndex : recapIndex < deliveryIndex,
+      ).toBe(true);
+      expect(
+        (await readJournal(journalPath)).entries.some(
+          (entry) => entry.step === 'reviewReport.save',
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'does not complete or close a published comment whose recap needs attention',
+    async () => {
+      const f = fixture({
+        recap: () => ({
+          id: 'unfinished-report',
+          url: 'https://rocky.test/unfinished-report',
+          decision: {
+            status: 'needs-attention',
+            summary: 'The answer omits a required detail.',
+            actions: ['Add the missing detail.'],
+          },
+        }),
+        agent: (name) => {
+          if (name === 'refiner') return commentScope;
+          if (name === 'deliverable-writer') return { body: 'Partial answer.' };
+          if (name === 'deliverable-reviewer')
+            return {
+              assessments: [
+                {
+                  criterion: commentScope.acceptanceCriteria[0],
+                  evidence: 'The body addresses the main question.',
+                  problems: [],
+                },
+              ],
+              problems: [],
+            };
+          return undefined;
+        },
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(f.trace).toContain('comment:Partial answer.');
+      expect(f.trace).not.toContain('Done');
+      expect(f.trace).toContain('visualRecap');
+    },
+  );
 
   it.skipIf(mode !== 'flow')(
     'continues an exhausted deliverable with its previous draft and review feedback',
@@ -2742,7 +3388,13 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
         body: 'Incomplete',
         problems: expect.arrayContaining(['Missing architecture.']),
       });
-      expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([]);
+      expect(
+        f.trace.filter(
+          (line) =>
+            line.startsWith('comment:') &&
+            !line.includes('Scope decision record'),
+        ),
+      ).toEqual([]);
     },
   );
 
@@ -2772,15 +3424,22 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(
       f.calls.filter(({ name }) => name === 'deliverable-writer'),
     ).toHaveLength(5);
-    expect(f.trace.filter((line) => line.startsWith('comment:'))).toEqual([]);
+    expect(
+      f.trace.filter(
+        (line) =>
+          line.startsWith('comment:') &&
+          !line.includes('Scope decision record'),
+      ),
+    ).toEqual([]);
     expect(f.trace).not.toContain('In Review');
     expect(f.scmCalls).toEqual([]);
   });
 
   it('does not complete or advance state when comment delivery fails', async () => {
     const f = fixture({
-      comment: () => {
-        throw new Error('Linear unavailable');
+      comment: (body) => {
+        if (!body.includes('Scope decision record'))
+          throw new Error('Linear unavailable');
       },
       agent: (name) => {
         if (name === 'refiner') return commentScope;
@@ -2947,6 +3606,164 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(JSON.stringify(ready)).toContain('https://rocky.test/recap');
   });
 
+  it.skipIf(mode === 'legacy')(
+    'does not mark a PR ready when its recap still requires work',
+    async () => {
+      const flow = parseFlow(flowSource);
+      flow.settings.recapDecisionVersion = 1;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(flow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => ({
+          id: 'attention',
+          url: 'https://rocky.test/attention',
+          decision: {
+            status: 'needs-attention',
+            summary: 'One acceptance criterion is unverified.',
+            actions: ['Verify the missing criterion.'],
+          },
+        }),
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions: (input.complaints as { id: string }[]).map(
+                  ({ id }) => ({
+                    id,
+                    status: 'disagreed',
+                    note: 'Evidence is still missing.',
+                  }),
+                ),
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.scmCalls.some(
+          ({ operation, args }) =>
+            operation === 'markDraft' && args[1] === false,
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'replays a pre-guard approval and repairs its non-ready recap without merging',
+    async () => {
+      const oldFlow = parseFlow(flowSource);
+      delete oldFlow.settings.recapDecisionVersion;
+      let recaps = 0;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(oldFlow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => ({
+          id: `report-${++recaps}`,
+          url: `https://rocky.test/report-${recaps}`,
+          decision: {
+            status: 'needs-attention',
+            summary: 'A required check is missing.',
+            actions: ['Run the check.'],
+          },
+        }),
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions:
+                  (input.complaints as { id: string }[] | undefined)?.map(
+                    ({ id }) => ({
+                      id,
+                      status: id.startsWith('recap/') ? 'disagreed' : 'fixed',
+                      note: 'Evidence is still missing.',
+                    }),
+                  ) ?? [],
+              }
+            : undefined,
+      });
+      const first = await f.boot();
+      expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
+      expect(recaps).toBeGreaterThan(0);
+      f.answer({
+        decision: 'steer',
+        message: 'Rocky recap recovery: A required check is missing.',
+      });
+      const second = await f.boot();
+      expect(second, JSON.stringify(second)).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.scmCalls.some(({ operation }) => operation === 'armAutoMerge'),
+      ).toBe(false);
+      expect(
+        f.calls.find(
+          ({ name, input }) =>
+            name === 'fixer' &&
+            typeof input.steer === 'string' &&
+            input.steer.startsWith('Rocky recap recovery:'),
+        )?.input.issue,
+      ).toMatchObject({
+        description: expect.stringContaining('Automated recap recovery'),
+      });
+    },
+  );
+
+  it.skipIf(mode === 'legacy')(
+    'blocks an approval that races with legacy recap recovery',
+    async () => {
+      const oldFlow = parseFlow(flowSource);
+      delete oldFlow.settings.recapDecisionVersion;
+      const f = fixture({
+        triggers: flowTriggers(
+          JSON.stringify(oldFlow),
+          new URL('../../content/.rocky/', import.meta.url).pathname,
+        ),
+        recap: () => ({
+          id: 'report',
+          url: 'https://rocky.test/report',
+          decision: {
+            status: 'needs-attention',
+            summary: 'A required check is missing.',
+            actions: ['Run the check.'],
+          },
+        }),
+        agent: (name, input) =>
+          name === 'fixer'
+            ? {
+                resolutions:
+                  (input.complaints as { id: string }[] | undefined)?.map(
+                    ({ id }) => ({
+                      id,
+                      status: 'disagreed',
+                      note: 'The check is still missing.',
+                    }),
+                  ) ?? [],
+              }
+            : undefined,
+      });
+      expect(await f.boot()).toMatchObject({ status: 'parked' });
+      f.approve();
+      expect(await f.boot()).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(
+        f.scmCalls.some(({ operation }) => operation === 'armAutoMerge'),
+      ).toBe(false);
+      expect(
+        f.scmCalls.some(
+          ({ operation, args }) =>
+            operation === 'markDraft' && args[1] === true,
+        ),
+      ).toBe(true);
+    },
+  );
+
   it('feeds previous-session answers to refinement and downstream planning', async () => {
     const comments = [
       {
@@ -3085,8 +3902,10 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
     expect(
       f.calls.filter((c) => c.name === 'deliverable-reviewer'),
     ).toHaveLength(2);
-    expect(f.trace.filter((t) => t.startsWith('comment:'))).toEqual([
-      'comment:Valid diagram',
-    ]);
+    expect(
+      f.trace.filter(
+        (t) => t.startsWith('comment:') && !t.includes('Scope decision record'),
+      ),
+    ).toEqual(['comment:Valid diagram']);
   });
 });

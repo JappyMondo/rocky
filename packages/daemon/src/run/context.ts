@@ -120,6 +120,8 @@ export function createWorkflowContext(
     );
   }
   return Object.freeze({
+    reuseRecordedBackground: (label: string) =>
+      current().reuseRecordedBackground(label),
     models,
     issue,
     branch: header.branch,
@@ -137,6 +139,8 @@ export function createWorkflowContext(
       return current().replayLabel;
     },
     replayedStep: (key: string) => current().replayedStep?.(key) ?? false,
+    replayInterruptedValidation: (commandId: string) =>
+      current().replayInterruptedValidation?.(commandId) ?? false,
     stage: (label: string) => current().stage(label),
     step: <T>(label: string, fn: () => T | Promise<T>) =>
       current().step('step', { label }, async () => ({

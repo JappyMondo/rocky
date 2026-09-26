@@ -20,7 +20,10 @@ import {
 } from '../flow/workspace-execution.js';
 
 export class EnvironmentBlocked extends Error {
-  constructor(readonly blocker: EnvironmentBlocker) {
+  constructor(
+    readonly blocker: EnvironmentBlocker,
+    readonly recorded = false,
+  ) {
     super(`${blocker.capability}: ${blocker.action}`);
     this.name = 'EnvironmentBlocked';
   }
@@ -42,7 +45,7 @@ const blocked = (
  * receipts; their background processes are not restarted.
  */
 export async function ensureEnvironment(
-  ctx: Pick<WorkflowContext, 'step' | 'stage' | 'replaying'>,
+  ctx: Pick<WorkflowContext, 'step' | 'stage' | 'replaying' | 'replayLabel'>,
   execution: WorkspaceExecution,
   request: {
     label: string;
@@ -182,6 +185,13 @@ export async function ensureEnvironment(
   // deadline overrides their explicit timeouts before implementation begins.
   const configuredBudget =
     setup.reduce((total, { command }) => total + command.timeoutMs, 0) +
+    serviceEntries(execution.repos)
+      .filter((entry) => services.includes(entry.id))
+      .reduce(
+        (total, { service }) =>
+          total + service.readiness.attempts * service.readiness.intervalMs,
+        0,
+      ) +
     selected.reduce(
       (total, { recipe }) =>
         total +
@@ -256,11 +266,17 @@ export async function ensureEnvironment(
       }
       let current: { exitCode: number };
       try {
-        current = await execution.probe(
-          entry.id,
-          Math.max(1, Math.min(allowance, budget - (Date.now() - started))),
-          [],
-        );
+        current =
+          ctx.replaying && ctx.replayLabel === `Environment probe ${entry.id}`
+            ? await execution.replaySetupProbe(entry.id, allowance)
+            : await execution.probe(
+                entry.id,
+                Math.max(
+                  1,
+                  Math.min(allowance, budget - (Date.now() - started)),
+                ),
+                [],
+              );
       } catch {
         current = { exitCode: 124 };
       }
@@ -323,6 +339,23 @@ export async function ensureEnvironment(
             recipe.authentication?.kind === 'secret-env'
               ? [recipe.authentication.reference]
               : [],
+            // Wait within the same process Step: old journals retain their order.
+            // The service recipe owns startup timing, including dependent APIs.
+            serviceEntries(execution.repos)
+              .filter((entry) => services.includes(entry.id))
+              .reduce(
+                (policy, { service }) => ({
+                  attempts: Math.max(
+                    policy.attempts,
+                    service.readiness.attempts,
+                  ),
+                  intervalMs: Math.max(
+                    policy.intervalMs,
+                    service.readiness.intervalMs,
+                  ),
+                }),
+                { attempts: 1, intervalMs: 0 },
+              ),
           );
           await execution.checkSources(
             repository,

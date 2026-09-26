@@ -1,4 +1,13 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -11,6 +20,7 @@ import {
 import {
   catalogEntries,
   dependencyOrder,
+  dockerContextShell,
   serviceEntries,
   WorkspaceExecution,
 } from './workspace-execution.js';
@@ -26,6 +36,41 @@ afterEach(async () => {
   await Promise.all(
     dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
   );
+});
+it('passes the active local Docker context socket to container libraries without overriding explicit access', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-docker-context-'));
+  dirs.push(root);
+  const bin = join(root, 'bin');
+  const socket = join(root, 'docker.sock');
+  await mkdir(bin);
+  await writeFile(
+    join(bin, 'docker'),
+    `#!/bin/sh\n[ "$1" = context ] && [ "$2" = inspect ] || exit 1\nprintf '%s\\n' 'unix://${socket}'\n`,
+  );
+  await chmod(join(bin, 'docker'), 0o755);
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socket, resolve);
+  });
+  try {
+    const command = `${dockerContextShell(join(root, 'missing.sock'))}printf '%s' "\${DOCKER_HOST:-}"`;
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
+    const derived = spawnSync('/bin/sh', ['-c', command], {
+      env: { ...env, DOCKER_HOST: '' },
+      encoding: 'utf8',
+    });
+    expect(derived.status, derived.stderr).toBe(0);
+    expect(derived.stdout).toBe(`unix://${socket}`);
+    const explicit = spawnSync('/bin/sh', ['-c', command], {
+      env: { ...env, DOCKER_HOST: 'unix:///explicit.sock' },
+      encoding: 'utf8',
+    });
+    expect(explicit.status, explicit.stderr).toBe(0);
+    expect(explicit.stdout).toBe('unix:///explicit.sock');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 it('orders cross-repository prerequisites once and rejects missing/cyclic dependencies', () => {
   const entries = [
@@ -470,6 +515,7 @@ it('runs required validation even when the planner selects nothing, and records 
     exec,
     issue: { identifier: 'TEST-1' },
     post: vi.fn(),
+    comment: vi.fn(),
     scm: { openPr: async () => ({ headSha: 'head' }) },
     stage: vi.fn(),
     changedFiles: async () => ['web/a.ts'],
@@ -558,3 +604,204 @@ it('runs required validation even when the planner selects nothing, and records 
     }),
   );
 });
+
+it.each([false, true])(
+  'rechecks a failed optional command after later selection omits it (new snapshot=%s)',
+  async (enabled) => {
+    const f = await fixture();
+    f.repo.commands = [
+      {
+        ...commandRecipe('optional', 'echo optional-check'),
+        purpose: 'test',
+        policy: 'agent',
+      },
+    ];
+    let commandRuns = 0;
+    const exec = vi.fn(async (command: string) =>
+      command.includes('echo optional-check')
+        ? {
+            exitCode: ++commandRuns === 1 ? 1 : 0,
+            stdout: '',
+            stderr: 'The configured check failed.',
+          }
+        : { exitCode: 0, stdout: '', stderr: '' },
+    );
+    const selections: { selected: string[]; reason: string }[] = [];
+    const ctx = {
+      exec,
+      issue: { identifier: 'TEST-1' },
+      post: vi.fn(),
+      comment: vi.fn(),
+      scm: { openPr: async () => ({ headSha: 'head' }) },
+      stage: vi.fn(),
+      changedFiles: async () => ['web/a.ts'],
+      step: async (_label: string, work: () => Promise<unknown>) => {
+        const value = await work();
+        if (
+          value &&
+          typeof value === 'object' &&
+          'selected' in value &&
+          'reason' in value
+        )
+          selections.push(value as { selected: string[]; reason: string });
+        return value;
+      },
+    } as unknown as WorkflowContext;
+    let selectionRound = 0;
+    const agents = {
+      selectCommands: async () => ({
+        selected: selectionRound++ === 0 ? ['web-id/optional'] : [],
+        reason: 'Select the optional check only in the first round.',
+      }),
+      call: vi.fn(async (role: string) =>
+        role === 'refiner'
+          ? {
+              status: 'clear',
+              delivery: { kind: 'pull-request', stateChanges: false },
+              scope: 'test',
+              decisions: [],
+              acceptanceCriteria: [],
+              outOfScope: [],
+            }
+          : { summary: '', steps: [] },
+      ),
+    } as unknown as DeliveryAgents;
+    const delivery = createDeliveryOperations(
+      ctx,
+      f.input,
+      {
+        ...defaultFlowSettings(),
+        validationRecheckVersion: enabled ? 1 : undefined,
+        pullRequests: 'lead',
+        execution: [f.repo],
+      },
+      join(f.root, 'snapshot'),
+    );
+    await delivery('clarify', agents);
+    await delivery('plan', agents);
+    await delivery('implement', agents);
+    expect(await delivery('validate', agents)).toBe('retry');
+    expect(await delivery('validate', agents)).toBe('next');
+    expect(selections.slice(-2).map(({ selected }) => selected)).toEqual([
+      ['web-id/optional'],
+      enabled ? ['web-id/optional'] : [],
+    ]);
+    expect(commandRuns).toBe(enabled ? 2 : 1);
+    if (enabled)
+      expect(selections.at(-1)?.reason).toContain(
+        'Retesting previously failed',
+      );
+  },
+);
+
+it.each([false, true])(
+  'keeps agent-deferred host checks mandatory despite an empty selector (new snapshot=%s)',
+  async (enabled) => {
+    const f = await fixture();
+    f.repo.commands = [
+      {
+        ...commandRecipe('target-build', 'echo target-build'),
+        purpose: 'build',
+        policy: 'agent',
+        dependsOn: ['web-id/build-setup'],
+      },
+      {
+        ...commandRecipe('build-setup', 'echo build-setup'),
+        purpose: 'install',
+        policy: 'agent',
+      },
+      {
+        ...commandRecipe('manual', 'echo manual'),
+        purpose: 'build',
+        policy: 'manual',
+      },
+    ];
+    const exec = vi.fn(async (_command: string) => ({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    }));
+    const ctx = {
+      exec,
+      issue: { identifier: 'TEST-1' },
+      post: vi.fn(),
+      comment: vi.fn(),
+      scm: { openPr: async () => ({ headSha: 'head' }) },
+      stage: vi.fn(),
+      changedFiles: async () => ['web/device.cpp'],
+      step: async (_label: string, work: () => Promise<unknown>) => work(),
+    } as unknown as WorkflowContext;
+    const agents = {
+      selectCommands: async () => ({
+        selected: [],
+        reason: 'No tools in selector.',
+      }),
+      call: vi.fn(async (role: string) =>
+        role === 'refiner'
+          ? {
+              status: 'clear',
+              delivery: { kind: 'pull-request', stateChanges: false },
+              scope: 'Build the changed device',
+              decisions: [],
+              acceptanceCriteria: [],
+              outOfScope: [],
+            }
+          : {
+              summary: 'Device build pending host validation.',
+              steps: [],
+              requiredValidationCommands: ['web-id/target-build'],
+            },
+      ),
+    } as unknown as DeliveryAgents;
+    const delivery = createDeliveryOperations(
+      ctx,
+      f.input,
+      {
+        ...defaultFlowSettings(),
+        validationRequestVersion: enabled ? 1 : undefined,
+        pullRequests: 'lead',
+        execution: [f.repo],
+      },
+      join(f.root, 'snapshot'),
+    );
+    await delivery('clarify', agents);
+    await delivery('plan', agents);
+    await delivery('implement', agents);
+    const implementation = vi
+      .mocked(agents.call)
+      .mock.calls.find(([role]) => role === 'implementer');
+    if (enabled) {
+      const schema = implementation?.[1]?.schema;
+      expect(schema?.safeParse({}).success).toBe(false);
+      expect(
+        schema?.safeParse({
+          requiredValidationCommands: ['web-id/target-build'],
+        }).success,
+      ).toBe(true);
+      expect(
+        schema?.safeParse({ requiredValidationCommands: ['web-id/manual'] })
+          .success,
+      ).toBe(false);
+      expect(
+        schema?.safeParse({ requiredValidationCommands: ['web-id/invented'] })
+          .success,
+      ).toBe(false);
+    }
+    exec.mockClear();
+    expect(await delivery('validate', agents)).toBe('next');
+    expect(await delivery('validate', agents)).toBe('next');
+    expect(
+      exec.mock.calls.filter(([command]) =>
+        command.includes('echo target-build'),
+      ),
+    ).toHaveLength(enabled ? 2 : 0);
+    expect(
+      exec.mock.calls.filter(([command]) =>
+        command.includes('echo build-setup'),
+      ),
+    ).toHaveLength(enabled ? 2 : 0);
+    expect(
+      exec.mock.calls.some(([command]) => command.includes('echo manual')),
+    ).toBe(false);
+  },
+);

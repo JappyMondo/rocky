@@ -1,4 +1,6 @@
-import { readJournal } from './journal.js';
+import { readJournal, GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
+import { JournalWriter } from './writer.js';
+import { priorClarifications } from './prior-clarifications.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   retryStepKey,
@@ -62,6 +64,7 @@ export interface RunAdmission {
   issueIdentifier: string;
   requestId?: string;
   manual?: boolean;
+  restartOf?: { runId: string; expectedBoot: number };
   /** Called only when no live Run exists, outside the scheduler's mutation lock. */
   prepare(runId: string, signal: AbortSignal): Promise<DelegateInput>;
 }
@@ -73,6 +76,8 @@ export type RunDelegation =
 export interface RunSchedulerOptions {
   paths: RockyPaths;
   maxRuns?: number;
+  /** Rechecked on every drain; blocked work stays queued without consuming a Boot. */
+  admissionBlocker?(): Promise<string | undefined>;
   retryStep?(run: RunHeader, input: RetryRequest): Promise<void>;
   boot: SchedulerBoot;
   cancellation?: Cancellation;
@@ -81,6 +86,7 @@ export interface RunSchedulerOptions {
   onError?: (error: unknown) => void;
   /** Production shares this writer with Boot children and control intake. */
   append?: typeof appendEntry;
+  putControl?: (path: string, key: string, value: unknown) => Promise<void>;
   /** Releases only a terminal Run's safely reclaimable workspace. */
   releaseTerminalWorkspace?(run: RunHeader): Promise<void>;
 }
@@ -408,6 +414,30 @@ export class RunScheduler {
               kind: 'existing' as const,
               run: structuredClone(admitted),
             };
+          if (request.restartOf) {
+            const previous = runs.find(
+              (run) => run.runId === request.restartOf!.runId,
+            );
+            if (
+              !previous ||
+              previous.boots !== request.restartOf.expectedBoot ||
+              !(
+                previous.status === 'failed' ||
+                (previous.status === 'finished' &&
+                  previous.outcome === 'exhausted')
+              ) ||
+              runs.some(
+                (run) =>
+                  run.runId !== previous.runId &&
+                  (!isTerminal(run) ||
+                    runNumber(request.issueIdentifier, run.runId) >
+                      runNumber(request.issueIdentifier, previous.runId)),
+              )
+            )
+              throw new Error(
+                'Restart source changed or a newer run exists. Refresh the issue.',
+              );
+          }
           const live = runs.find((run) => !isTerminal(run));
 
           if (live) {
@@ -435,6 +465,11 @@ export class RunScheduler {
           throw new Error('Admission preparation returned a different issue');
         if (request.manual && !input.trigger)
           throw new Error('Manual admission must name its Trigger');
+        const clarifications = await priorClarifications(
+          this.options.paths,
+          [...this.runs.values()],
+          input,
+        );
         return this.mutate(async () => {
           if (this.closed) throw new Error('The Run scheduler is closed');
           const run = newRunHeader({
@@ -447,6 +482,9 @@ export class RunScheduler {
             now: this.options.now().toISOString(),
           });
           run.issue = structuredClone(input.issue);
+          // Only runner-owned prior question answers can populate this evidence.
+          delete run.issue.clarifications;
+          if (clarifications.length) run.issue.clarifications = clarifications;
           if (request.requestId) run.admissionId = request.requestId;
           if (input.linear) run.linear = structuredClone(input.linear);
           if (input.execution) run.execution = structuredClone(input.execution);
@@ -514,7 +552,20 @@ export class RunScheduler {
           return undefined;
         }
 
-        const running = { ...next, status: 'running' as const };
+        const blocker = await this.options.admissionBlocker?.();
+        if (blocker) {
+          if (next.reason !== blocker) {
+            const waiting = { ...next, reason: blocker };
+            await this.options.writeHeader(this.options.paths, waiting);
+            this.runs.set(waiting.runId, waiting);
+          }
+          return undefined;
+        }
+        const running = {
+          ...next,
+          status: 'running' as const,
+          reason: undefined,
+        };
         await this.options.writeHeader(this.options.paths, running);
         this.runs.set(running.runId, running);
         this.active.add(running.runId);
@@ -668,11 +719,20 @@ export class RunScheduler {
 
   private async releaseTerminalWorkspace(run: RunHeader): Promise<void> {
     if (!isTerminal(run) || !this.options.releaseTerminalWorkspace) return;
-    try {
-      await this.options.releaseTerminalWorkspace(structuredClone(run));
-    } catch (error) {
-      this.report(error);
-    }
+    await this.admissions.run(run.issue.identifier, async () => {
+      const current = await this.mutate(async () => {
+        const latest = this.runs.get(run.runId);
+        return !this.closed && latest && isTerminal(latest)
+          ? structuredClone(latest)
+          : undefined;
+      });
+      if (!current) return;
+      try {
+        await this.options.releaseTerminalWorkspace!(current);
+      } catch (error) {
+        this.report(error);
+      }
+    });
   }
 
   /** One active Boot per Run, even when webhook and timer race. */
@@ -702,6 +762,8 @@ export class RunScheduler {
   }
 
   /** Daemon timer and webhook wiring call this seam; no second replay path. */
+  private nextWorkspaceSweepAt = 0;
+
   async tick(): Promise<void> {
     if (this.closed) return;
     for (const run of this.runs.values()) {
@@ -714,6 +776,18 @@ export class RunScheduler {
         .filter(([, poll]) => poll.at <= this.options.now().getTime())
         .map(([id]) => this.poll(id)),
     );
+    if (
+      this.options.releaseTerminalWorkspace &&
+      this.options.now().getTime() >= this.nextWorkspaceSweepAt
+    ) {
+      this.nextWorkspaceSweepAt = this.options.now().getTime() + 300_000;
+      // Removal can take minutes for a large dependency tree. Serialize it
+      // against this issue's retry/admission, never against unrelated Runs.
+      for (const run of this.runs.values()) {
+        if (isTerminal(run) && !this.executions.has(run.runId))
+          await this.releaseTerminalWorkspace(run);
+      }
+    }
     await this.drain();
   }
 
@@ -731,6 +805,22 @@ export class RunScheduler {
         const run = this.runs.get(id);
         if (run) await this.options.cancellation?.kill(run);
         await execution.done;
+        // All owned writers have stopped. Persist intent outside positional
+        // Steps so old workflow snapshots retain their replay sequence.
+        const path = this.options.paths.run(id).journal;
+        const journal = await readJournal(path);
+        if (!journal.end && journal.nextBoot > 1) {
+          if (this.options.putControl)
+            await this.options.putControl(
+              path,
+              GRACEFUL_SHUTDOWN_CONTROL,
+              journal.nextBoot - 1,
+            );
+          else
+            await (
+              await JournalWriter.open(path)
+            ).put(GRACEFUL_SHUTDOWN_CONTROL, journal.nextBoot - 1);
+        }
       }),
     );
     await Promise.allSettled([...this.preparing]);

@@ -227,3 +227,106 @@ it('keeps malformed GraphQL payloads and unavailable log downloads fail closed',
     'logTailLines must be between 0 and 10000',
   );
 });
+
+it('preserves early failure evidence when cleanup output buries it beyond the tail', async () => {
+  const log = [
+    'setup',
+    'FAIL widget.spec: expected ready, received offline',
+    'at widget.spec:42',
+    ...Array.from({ length: 400 }, (_, i) => `cleanup ${i}`),
+  ].join('\n');
+  const client = http(
+    async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (let i = 0; i < log.length; i += 17)
+              controller.enqueue(
+                new TextEncoder().encode(log.slice(i, i + 17)),
+              );
+            controller.close();
+          },
+        }),
+      ),
+  );
+  const excerpt = await client.logTail('/logs', 40, true);
+  expect(excerpt).toContain(
+    'FAIL widget.spec: expected ready, received offline',
+  );
+  expect(excerpt).toContain('at widget.spec:42');
+  expect(excerpt).toContain('cleanup 399');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});
+
+it('keeps the actual test assertion after setup warnings fill the evidence budget', async () => {
+  const log = [
+    ...Array.from(
+      { length: 150 },
+      (_, i) => `WARN Failed to replace env in setup ${i}`,
+    ),
+    'FAIL audit-hooks.integration.spec.ts',
+    'bounds a stalled rotation dispatch',
+    'Expected length: \x1b[32m2\x1b[39m',
+    'Received length: \x1b[31m1\x1b[39m',
+    ...Array.from({ length: 150 }, (_, i) => `cleanup ${i}`),
+    'Failed tasks:',
+    '- plugin:test',
+  ].join('\n');
+  const client = http(async () => new Response(log));
+  const excerpt = await client.logTail('/logs', 40, true);
+  const plain = excerpt.replace(
+    new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'),
+    '',
+  );
+  expect(plain).toContain('FAIL audit-hooks.integration.spec.ts');
+  expect(plain).toContain('Expected length: 2');
+  expect(plain).toContain('Received length: 1');
+  expect(plain).not.toContain('No recognized individual test failure');
+  expect(excerpt).toContain('cleanup 149');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});
+
+it('keeps a failed test after later projects emit many expected error logs', async () => {
+  const log = [
+    'FAIL api mcp-http.integration.spec.ts',
+    'MCP HTTP transport > production manifest',
+    'Exceeded timeout of 30000 ms for a test.',
+    'at mcp-http.integration.spec.ts:302',
+    ...Array.from({ length: 400 }, (_, i) => `Error: expected fixture ${i}`),
+    'Final CI summary',
+  ].join('\n');
+  const excerpt = await http(async () => new Response(log)).logTail(
+    '/logs',
+    40,
+    true,
+  );
+  expect(excerpt).toContain('FAIL api mcp-http.integration.spec.ts');
+  expect(excerpt).toContain('Exceeded timeout of 30000 ms');
+  expect(excerpt).toContain('Final CI summary');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});
+
+it('flags a failed target when the job publishes no individual failure diagnostic', async () => {
+  const log = [
+    '##[group]❌ > nx run server:test',
+    'PASS server helpers.spec.ts',
+    '  ● Console',
+    'Error: expected fixture rejection',
+    ...Array.from({ length: 100 }, (_, i) => `expected error ${i}`),
+    'Failed tasks:',
+    '- server:test',
+    ...Array.from({ length: 100 }, (_, i) => `cleanup ${i}`),
+    '##[error]Process completed with exit code 1.',
+  ].join('\n');
+  const excerpt = await http(async () => new Response(log)).logTail(
+    '/logs',
+    40,
+    true,
+  );
+  expect(excerpt).toContain('- server:test');
+  expect(excerpt).toContain(
+    'No recognized individual test failure or timeout found in this job log',
+  );
+  expect(excerpt).toContain('rerun the failed target');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});

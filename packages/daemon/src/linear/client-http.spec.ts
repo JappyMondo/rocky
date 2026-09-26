@@ -56,6 +56,59 @@ describe('public SDK over injected HTTP', () => {
     ).rejects.toThrow('fetch failed');
     expect(writeFetch).toHaveBeenCalledOnce();
   });
+  it('retries transient HTTP read failures but bounds attempts and never repeats writes', async () => {
+    vi.useFakeTimers();
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({ data: { viewer: { id: 'app-user', name: 'Rocky' } } }),
+      );
+    const pending = expect(httpClient(fetch).viewer()).resolves.toEqual({
+      id: 'app-user',
+      name: 'Rocky',
+    });
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const unavailable = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => new Response(null, { status: 503 }));
+    const exhausted = expect(httpClient(unavailable).viewer()).rejects.toThrow(
+      '503',
+    );
+    await vi.runAllTimersAsync();
+    await exhausted;
+    expect(unavailable).toHaveBeenCalledTimes(3);
+    unavailable.mockClear();
+    await expect(
+      httpClient(unavailable).postComment({
+        id: 'comment',
+        issueId: 'issue',
+        body: 'hello',
+      }),
+    ).rejects.toThrow('503');
+    expect(unavailable).toHaveBeenCalledOnce();
+  });
+  it('honors a transient server response cooldown before retrying the read', async () => {
+    vi.useFakeTimers();
+    const started = Date.now();
+    const times: number[] = [];
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => {
+        times.push(Date.now());
+        return times.length === 1
+          ? new Response(null, { status: 503, headers: { 'retry-after': '1' } })
+          : Response.json({
+              data: { viewer: { id: 'app-user', name: 'Rocky' } },
+            });
+      });
+    const pending = httpClient(fetch).viewer();
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(times).toEqual([started, started + 1000]);
+  });
   it('rechecks a shared cooldown extended by another in-flight response', async () => {
     vi.useFakeTimers();
     let complete!: (response: Response) => void;

@@ -3,7 +3,10 @@ import type { AgentCallOpts } from '@rocky/sdk';
 
 export class AgentBlockedError extends Error {
   readonly retryable = false;
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly blocker?: { reason: string; requiredTool: string; fix: string },
+  ) {
     super(message);
     this.name = 'AgentBlockedError';
   }
@@ -33,6 +36,7 @@ export function checkAgentBlocker(text: string): void {
   }
   throw new AgentBlockedError(
     `${value.reason}\nRequired tool or access: ${value.requiredTool}\nFix: ${value.fix}`,
+    value,
   );
 }
 export function agentToolInstructions(
@@ -46,6 +50,7 @@ export function agentToolInstructions(
     ...(opts.tools?.includes('bash')
       ? [
           'For implementation and repair, inspect whether Rocky already completed the configured setup for this Boot before installing again. If dependencies are missing, use the configured install command or inspect repository setup documentation and lockfiles for the supported install. Never run two installs in the same worktree concurrently. Missing node_modules or a host service executable alone is not an external blocker. Check available container runtimes for disposable test services, use isolated data and ports, and clean up services you start. Retain actual command results. Required acceptance tests and benchmarks belong to the assigned implementation/repair unless an explicit configured step owns them; do not defer them to an assumed later validation agent. Escalate only after the supported local setup fails or requires unavailable credentials, external infrastructure, or authority.',
+          'Before returning a final result, wait for every command you started to finish or explicitly stop commands that are no longer needed. Reconcile interrupted writes and retain completed check results. A background session ID or a started command is not a completed check.',
           'A bundled Mermaid syntax checker is available: pipe Markdown to "$ROCKY_NODE" "$ROCKY_MERMAID_CHECK" (or add --source for one raw diagram). It reads stdin and emits JSON with a content hash, per-diagram parser results and rendered:false. Exit 0 means valid, 1 means invalid diagrams, 2 means the validator is unavailable. It never renders screenshots or writes repository files. No package installation is needed.',
         ]
       : []),
@@ -54,7 +59,9 @@ export function agentToolInstructions(
           'For browser automation, first check command -v agent-browser. An installed agent-browser CLI works through bash even without a browser MCP server or workspace Playwright dependency. Read agent-browser skills get core before using it; use --session "$ROCKY_BROWSER_SESSION" for all browser commands, then close that session. Do not infer that browsers are unavailable solely from missing playwright/chromium commands. If neither browser MCP nor this CLI is available for a required capture, return the blocked envelope with that missing dependency.',
         ]
       : []),
+    'When validationResponsibility supplies a repositoryCatalog, its matching non-manual checks are owned by host Workflow validation. A sandbox denial for such a check is not an Agent blocker: name the configured command ID and report pending host validation in the normal result. Never invent a host command, assume an unconfigured later check, claim pending evidence passed, or bypass permissions. Checks outside that explicit handoff remain your responsibility.',
     'Only operations assigned to this Step determine whether it is blocked. Do not demand tools or completed effects owned by later or separate Workflow steps. A review of missing/incorrect evidence should return actionable review problems for the responsible Step; it should not attempt to produce that evidence itself.',
+    'A repository command failing, running silently or hanging does not by itself establish a missing tool or access blocker. Within your existing grants, inspect logs, command definitions and owned subprocesses, narrow the failing check, and repair the underlying cause before escalating. Stop only processes owned by your task; preserve validation requirements and report actual evidence.',
     'If a required operation or validation cannot be performed with these tools, stop and return only <blocked>{"reason":"what is blocked","requiredTool":"specific missing capability, command, MCP server or access","fix":"concrete Workflow/configuration change needed"}</blocked>. Do not turn an infrastructure blocker into a content defect, repeat equivalent failed calls, fabricate verification, or attempt to bypass the grants. This alternative envelope replaces the normal result schema.',
   ].join('\n');
 }

@@ -45,6 +45,7 @@ function fakeSdk(overrides: Partial<LinearSdkLike> = {}): LinearSdkLike {
       pageInfo: { hasNextPage: false },
     })),
     updateIssue: vi.fn(async () => ({ success: true })),
+    issueState: vi.fn(async () => ({ id: 'review', name: 'In Review' })),
     fileUpload: vi.fn(async () => ({ success: true, uploadFile: null })),
     viewer: Promise.resolve({ id: 'app-user', name: 'Rocky (Jan Jaap)' }),
     ...overrides,
@@ -599,10 +600,40 @@ describe('issue state reads', () => {
     expect(sdk.updateIssue).toHaveBeenCalledWith('issue-1', {
       stateId: 'review',
     });
+    expect(sdk.issueState).toHaveBeenCalledWith('issue-1');
     await expect(
       client.setIssueState('issue-1', 'team-1', 'In Reviw'),
     ).rejects.toThrow(/Todo, In Review/);
     expect(sdk.updateIssue).toHaveBeenCalledTimes(1);
+  });
+  it('does not confirm a state change until a fresh issue read matches it', async () => {
+    const sdk = fakeSdk({
+      workflowStates: vi.fn(async () => ({
+        nodes: [{ id: 'done', name: 'Done', type: 'completed', position: 1 }],
+        pageInfo: { hasNextPage: false },
+      })),
+      issueState: vi.fn(async () => ({ id: 'review', name: 'In Review' })),
+    });
+    await expect(
+      clientWith(sdk).setIssueState('issue-1', 'team-1', 'Done'),
+    ).rejects.toThrow('observed In Review');
+  });
+  it('waits briefly for an eventually visible state change', async () => {
+    const issueState = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'review', name: 'In Review' })
+      .mockResolvedValue({ id: 'done', name: 'Done' });
+    const sdk = fakeSdk({
+      workflowStates: vi.fn(async () => ({
+        nodes: [{ id: 'done', name: 'Done', type: 'completed', position: 1 }],
+        pageInfo: { hasNextPage: false },
+      })),
+      issueState,
+    });
+    await expect(
+      clientWith(sdk).setIssueState('issue-1', 'team-1', 'Done'),
+    ).resolves.toEqual({ id: 'issue-1', success: true });
+    expect(issueState).toHaveBeenCalledTimes(2);
   });
   it('lists a team`s states', async () => {
     const nodes = [

@@ -2559,3 +2559,120 @@
   color: #6d7365;
   font-size: 12px;
 }
+
+.ticketGroup {
+  border-top: 1px solid var(--border);
+  padding: 14px 22px;
+}
+.ticketHeader {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ticketIdentity {
+  flex: 1;
+  min-width: 180px;
+}
+.ticketHeader time {
+  color: #6c7464;
+  font-size: 11px;
+}
+.ticketHeader > button {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+.ticketHeader h2 button {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.ticketHeader h2 {
+  margin: 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.ticketRepo {
+  color: #6c7464;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.attemptRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 12px 14px;
+  background: #fafbf8;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+.attemptLink {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  flex: 1;
+  min-width: 160px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.attemptLink small,
+.attemptRow time {
+  color: #6c7464;
+  font-size: 11px;
+}
+.attemptRow > button:last-child:not(.attemptLink) {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+.attemptHistory {
+  margin-top: 12px;
+}
+.attemptHistory summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #59634f;
+  padding: 4px 0;
+}
+.hiddenAttempts {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #6c7464;
+}
+.hiddenAttempts button {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  font-size: inherit;
+}
+.settledBadge {
+  font-size: 11px;
+  color: #6c7464;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+@media (max-width: 600px) {
+  .ticketGroup {
+    padding: 16px 12px;
+  }
+  .ticketHeader {
+    gap: 10px;
+  }
+  .ticketIdentity {
+    flex-basis: 100%;
+  }
+  .attemptRow {
+    gap: 10px;
+  }
+  .attemptRow time {
+    display: none;
+  }
+}

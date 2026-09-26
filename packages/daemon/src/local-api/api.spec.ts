@@ -2215,3 +2215,44 @@ it('guards saved-profile environment verification without mutating the profile',
     before,
   );
 });
+
+it('persists reversible settling without changing execution and exposes resumed runs again', async () => {
+  const f = await setup();
+  const url = `/api/runs/${f.run.runId}/settle`;
+  const settle = (settled: boolean) =>
+    f.app.inject({ method: 'POST', url, payload: { settled } });
+  expect((await settle(true)).statusCode).toBe(409);
+  expect(
+    (await f.app.inject({ method: 'POST', url, payload: { settled: 'yes' } }))
+      .statusCode,
+  ).toBe(400);
+  const failed = {
+    ...f.run,
+    status: 'failed' as const,
+    boots: 2,
+    endedAt: '2026-09-25T12:00:00.000Z',
+  };
+  await writeRunHeader(f.paths, failed);
+  const saved = (await settle(true)).json();
+  expect(saved.settledAt).toEqual(expect.any(String));
+  expect((await readRunHeader(f.paths, failed.runId)).status).toBe('failed');
+  expect((await settle(true)).json().settledAt).toBe(saved.settledAt);
+  const reopened = new LocalArtifacts(f.paths);
+  expect(await reopened.settlements.read(failed)).toBe(saved.settledAt);
+  expect((await f.app.inject('/api/runs')).json().runs[0].settledAt).toBe(
+    saved.settledAt,
+  );
+  expect(
+    (await f.app.inject(`/api/runs/${failed.runId}`)).json().run.settledAt,
+  ).toBe(saved.settledAt);
+  await writeRunHeader(f.paths, { ...failed, status: 'running' });
+  expect(
+    (await f.app.inject('/api/runs')).json().runs[0].settledAt,
+  ).toBeUndefined();
+  await writeRunHeader(f.paths, { ...failed, boots: 3 });
+  expect(
+    (await f.app.inject('/api/runs')).json().runs[0].settledAt,
+  ).toBeUndefined();
+  await settle(true);
+  expect((await settle(false)).json().settledAt).toBeUndefined();
+});

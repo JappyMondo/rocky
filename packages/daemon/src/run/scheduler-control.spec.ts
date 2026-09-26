@@ -12,7 +12,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import { parseInstanceConfig } from '../config/schema.js';
 import { newRunHeader, readRunHeader, writeRunHeader } from './header.js';
-import { openJournal } from './journal.js';
+import { GRACEFUL_SHUTDOWN_CONTROL, openJournal } from './journal.js';
 import { WorkflowRuntime } from './lifecycle.js';
 import { runBoot } from './replay.js';
 import { RunScheduler, nextPoll } from './scheduler.js';
@@ -44,8 +44,8 @@ function stored(id: string) {
   });
 }
 
-it('uses default cap 3 and refuses invalid caps', async () => {
-  expect(parseInstanceConfig({}).concurrency).toEqual({ maxRuns: 3 });
+it('uses default cap 1 and refuses invalid caps', async () => {
+  expect(parseInstanceConfig({}).concurrency).toEqual({ maxRuns: 1 });
   for (const maxRuns of [0, -1, 1.5, NaN])
     await expect(
       RunScheduler.open({
@@ -381,7 +381,11 @@ it('shutdown stops owned work but leaves it resumable, not cancelled', async () 
   await scheduler.drain();
   await entering;
   await scheduler.close();
-  expect((await openJournal(paths.run('NG-1-1').journal)).end).toBeUndefined();
+  const stopped = await openJournal(paths.run('NG-1-1').journal);
+  expect(stopped.end).toBeUndefined();
+  expect(stopped.getControl(GRACEFUL_SHUTDOWN_CONTROL)).toBe(
+    stopped.nextBoot - 1,
+  );
   const reopened = await RunScheduler.open({ paths, boot: runtime.boot });
   expect((await reopened.get('NG-1-1'))?.status).toBe('queued');
 });

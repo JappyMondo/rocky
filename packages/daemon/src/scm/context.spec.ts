@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -53,6 +54,51 @@ function stubAdapter(signal: AbortSignal, id = 'lead'): ScmAdapter {
     replyToThread: async () => undefined,
   };
 }
+
+it('replays a pending failed-job retry in the same journal Step and preserves completed retries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-scm-'));
+  dirs.push(dir);
+  const journalPath = join(dir, 'journal.jsonl');
+  const signal = new AbortController().signal;
+  const adapter = stubAdapter(signal);
+  const pr = await adapter.openPr({ title: 'Change', body: 'Plan' });
+  let ready = false;
+  let calls = 0;
+  let continued = 0;
+  adapter.retryFailedJobs = async () => {
+    calls++;
+    if (!ready) return { status: 'waiting' };
+    return undefined;
+  };
+  const boot = () =>
+    runBoot({
+      journalPath,
+      signal,
+      workflow: async (steps) => {
+        const scm = createScm(steps, {
+          runId: 'TEST-1',
+          lead: 'lead',
+          members: [adapter],
+          signal,
+          approvals: () => false,
+          onRefusal: async () => undefined,
+        });
+        expect(await scm.retryFailedJobs(pr)).toBeUndefined();
+        await steps.step('after retry', {}, async () => {
+          continued++;
+          return { status: 'done', result: true };
+        });
+        return 'merged';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'parked' });
+  expect(continued).toBe(0);
+  ready = true;
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(calls).toBe(2);
+  expect(continued).toBe(1);
+});
 
 it('parks a permission-refused arm with an idempotent named blocker and settles only when a human merges', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'rocky-scm-'));
@@ -457,4 +503,102 @@ it('generates a journaled report before a ready flip and does not regenerate on 
   expect(await boot()).toMatchObject({ status: 'finished' });
   expect(reports).toBe(1);
   expect(ready).toBe(1);
+});
+
+it('honors explicit draft intent when adopting an existing ready PR before triggering visual reports', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-draft-adoption-'));
+  dirs.push(dir);
+  const signal = new AbortController().signal;
+  const adapter = stubAdapter(signal);
+  const events: string[] = [];
+  adapter.markDraft = async (pr, draft) => {
+    events.push(draft ? 'draft' : 'ready');
+    return { ...pr, draft };
+  };
+  const boot = () =>
+    runBoot({
+      journalPath: join(dir, 'journal.jsonl'),
+      workflow: async (steps) => {
+        const scm = createScm(steps, {
+          runId: 'TEST-1',
+          lead: 'lead',
+          members: [adapter],
+          signal,
+          approvals: () => false,
+          onRefusal: async () => undefined,
+          onReady: async () => {
+            await steps.step('report', {}, async () => {
+              events.push('report');
+              return { status: 'done', result: null };
+            });
+          },
+        });
+        const pr = await scm.openPr({
+          title: 'Existing',
+          body: 'Plan',
+          draft: true,
+        });
+        expect(pr).toMatchObject({ draft: true });
+        expect(events).not.toContain('report');
+        return 'completed';
+      },
+    });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(await boot()).toMatchObject({ status: 'finished' });
+  expect(events).toEqual(['draft']);
+});
+
+it('replays a pre-change ready-PR adoption journal with its original visual report step', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rocky-old-draft-adoption-'));
+  dirs.push(dir);
+  const signal = new AbortController().signal;
+  const adapter = stubAdapter(signal);
+  const input = { title: 'Existing', body: 'Plan', draft: true };
+  const pr = await adapter.openPr(input);
+  const key = `scm.openPr:lead:${createHash('sha256').update(JSON.stringify(input)).digest('hex')}`;
+  const journalPath = join(dir, 'journal.jsonl');
+  await runBoot({
+    journalPath,
+    workflow: async (steps) => {
+      await steps.step(key, { label: 'openPr: lead' }, async () => ({
+        status: 'done',
+        result: pr,
+      }));
+      await steps.step('report', {}, async () => ({
+        status: 'done',
+        result: null,
+      }));
+      return 'completed';
+    },
+  });
+  const before = await readFile(journalPath, 'utf8');
+  adapter.openPr = async () => {
+    throw new Error('Old operation must replay');
+  };
+  adapter.markDraft = async () => {
+    throw new Error('Old operation must not mutate');
+  };
+  expect(
+    await runBoot({
+      journalPath,
+      workflow: async (steps) => {
+        const scm = createScm(steps, {
+          runId: 'TEST-1',
+          lead: 'lead',
+          members: [adapter],
+          signal,
+          approvals: () => false,
+          onRefusal: async () => undefined,
+          onReady: async () => {
+            await steps.step('report', {}, async () => {
+              throw new Error('Old report must replay');
+            });
+          },
+        });
+        await scm.openPr(input);
+        return 'completed';
+      },
+    }),
+  ).toMatchObject({ status: 'finished' });
+  expect((await readFile(journalPath, 'utf8')).startsWith(before)).toBe(true);
 });

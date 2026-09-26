@@ -1,14 +1,22 @@
 import { expect, it, vi } from 'vitest';
 import { defaultFlowSettings } from '@rocky/local-contracts';
-import type { WorkflowContext } from '@rocky/sdk';
+import type { VisualRecapResult, WorkflowContext } from '@rocky/sdk';
 import { createDeliveryOperations } from './delivery.js';
 import type { DeliveryAgents } from './agents.js';
 
 it('confirms a Linear comment and closes the issue before the recap', async () => {
   const calls: string[] = [];
-  const visualRecap = vi.fn(async () => {
+  const visualRecap = vi.fn(async (): Promise<VisualRecapResult> => {
     calls.push('recap');
-    return { id: 'recap', url: 'http://rocky.test/recap' };
+    return {
+      id: 'recap',
+      url: 'http://rocky.test/recap',
+      decision: {
+        status: 'ready' as const,
+        summary: 'Delivered.',
+        actions: [],
+      },
+    };
   });
   const writer = vi.fn().mockResolvedValue({ body: 'Explanation.' });
   const ctx = {
@@ -60,7 +68,7 @@ it('confirms a Linear comment and closes the issue before the recap', async () =
   const delivery = createDeliveryOperations(
     ctx,
     { members: [] },
-    defaultFlowSettings(),
+    { ...defaultFlowSettings(), commentDeliveryVersion: 1 },
     '/tmp/rocky-delivery-test/snapshot',
   );
 
@@ -69,17 +77,42 @@ it('confirms a Linear comment and closes the issue before the recap', async () =
   expect(writer).toHaveBeenCalledTimes(1);
   expect(ctx.comment).toHaveBeenCalledWith('Explanation.');
   expect(ctx.linear.setState).toHaveBeenCalledWith('Done');
-  expect(calls).toEqual(['state', 'comment', 'state', 'recap']);
+  expect(ctx.comment).toHaveBeenNthCalledWith(
+    1,
+    expect.stringContaining('Scope decision record'),
+  );
+  expect(calls).toEqual(['comment', 'state', 'comment', 'recap', 'state']);
+
+  // A new journal may resume inside recap generation after the comment and
+  // state change were already recorded. Its next Step is still reviewReport.*.
+  Object.assign(ctx, {
+    replaying: true,
+    replayStep: 'reviewReport.save',
+    replayedStep: (key: string) => key === 'linear.comment',
+  });
+  calls.length = 0;
+  expect(await delivery('deliverable', agents)).toBe('completed');
+  expect(calls).toEqual(['comment', 'recap', 'state']);
 
   // A recorded run that already saved its recap must finish its old order.
   // Reordering its next comment Step would make its journal diverge.
+  const oldSettings = defaultFlowSettings();
+  delete oldSettings.commentDeliveryVersion;
+  const oldDelivery = createDeliveryOperations(
+    ctx,
+    { members: [] },
+    oldSettings,
+    '/tmp/rocky-delivery-test/snapshot',
+  );
   Object.assign(ctx, {
     replaying: true,
     replayStep: 'linear.comment',
     replayedStep: (key: string) => key === 'reviewReport.save',
   });
   calls.length = 0;
-  expect(await delivery('deliverable', agents)).toBe('completed');
+  expect(await oldDelivery('clarify', agents)).toBe('comment');
+  calls.length = 0;
+  expect(await oldDelivery('deliverable', agents)).toBe('completed');
   expect(calls).toEqual(['recap', 'comment', 'state']);
   expect(ctx.linear.setState).toHaveBeenCalledWith('In Review');
 
@@ -89,7 +122,29 @@ it('confirms a Linear comment and closes the issue before the recap', async () =
   await expect(delivery('deliverable', agents)).rejects.toThrow(
     'Recap audit failed',
   );
-  expect(calls).toEqual(['comment', 'state']);
-  expect(visualRecap).toHaveBeenCalledTimes(3);
-  expect(writer).toHaveBeenCalledTimes(3);
+  expect(calls).toEqual(['comment']);
+  expect(visualRecap).toHaveBeenCalledTimes(4);
+  expect(writer).toHaveBeenCalledTimes(4);
+
+  visualRecap.mockImplementationOnce(async () => {
+    calls.push('recap');
+    return {
+      id: 'attention',
+      url: 'http://rocky.test/attention',
+      decision: {
+        status: 'needs-attention',
+        summary: 'The issue remains open.',
+        actions: ['Verify closure.'],
+      },
+    };
+  });
+  calls.length = 0;
+  const stateCallsBeforeAttention = vi.mocked(ctx.linear.setState).mock.calls
+    .length;
+  expect(await delivery('deliverable', agents)).toBe('exhausted');
+  expect(calls).toEqual(['comment', 'recap']);
+  expect(ctx.linear.setState).toHaveBeenCalledTimes(stateCallsBeforeAttention);
+  expect(ctx.post).toHaveBeenCalledWith(
+    expect.stringContaining('Verify closure.'),
+  );
 });

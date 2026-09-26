@@ -10,6 +10,7 @@ import {
 } from './mcp-policy.js';
 import {
   HarnessError,
+  HarnessContinuationError,
   type HarnessEvent,
   type HarnessInvocation,
   type HarnessResult,
@@ -193,6 +194,7 @@ async function executeCodex(
       throw error;
     }
   } catch (error) {
+    if (error instanceof HarnessContinuationError) throw error;
     if (error instanceof HarnessError)
       throw new HarnessError(
         `codex (${input.model ?? 'default model'}): ${error.message}`,
@@ -290,8 +292,11 @@ function createCodexStream(
         finished = false;
         text = undefined;
       } else if (record.type === 'turn.completed') {
-        if (tools.size)
-          throw new HarnessError('Codex completed with unfinished tools');
+        if (tools.size) {
+          const message = `Codex completed with unfinished tools: ${[...tools].map(([id, name]) => `${id} (${name})`).join(', ')}. Reconcile the interrupted commands in this session: inspect their effects, finish required checks, and stop unneeded work before returning a verified result. Preserve existing commits. Do not claim unfinished checks passed.`;
+          if (sessionId) throw new HarnessContinuationError(message, sessionId);
+          throw new HarnessError(message);
+        }
         const native = record.usage;
         if (native !== undefined) {
           if (!native || typeof native !== 'object' || Array.isArray(native))

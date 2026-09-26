@@ -26,7 +26,7 @@ export interface ScmAdapter {
     pr: Pr,
     input: { logTailLines: number },
   ): Promise<StepOutcome<CiResult>>;
-  retryFailedJobs(pr: Pr): Promise<void>;
+  retryFailedJobs(pr: Pr): Promise<void | { status: 'waiting' }>;
   updateBranch(pr: Pr): Promise<StepOutcome<UpdateBranchResult>>;
   checkMergeReady(pr: Pr): Promise<StepOutcome<MergeReadiness>>;
   armAutoMerge(pr: Pr): Promise<StepOutcome<MergeResult>>;
@@ -136,7 +136,13 @@ export function createScm(
         input,
         async (adapter) => {
           await options.validateWork?.(adapter.repo.id);
-          return { status: 'done', result: await adapter.openPr(input) };
+          let pr = await adapter.openPr(input);
+          // Adopting an existing ready PR must honor a draft delivery request.
+          // Keep this within the existing operation: old recorded ready handles
+          // still replay their historical report steps without new mutations.
+          if (input.draft === true && !pr.draft && pr.state === 'open')
+            pr = await adapter.markDraft(pr, true);
+          return { status: 'done', result: pr };
         },
       );
       if (!('refused' in result) && !result.draft && result.state === 'open')
@@ -160,10 +166,16 @@ export function createScm(
         adapter.waitForCi(pr, input),
       ),
     retryFailedJobs: (pr) =>
-      call('retryFailedJobs', pr.repo, pr, async (adapter) => ({
-        status: 'done',
-        result: await adapter.retryFailedJobs(pr),
-      })),
+      call(
+        'retryFailedJobs',
+        pr.repo,
+        pr,
+        async (adapter) =>
+          (await adapter.retryFailedJobs(pr)) ?? {
+            status: 'done',
+            result: undefined,
+          },
+      ),
     updateBranch: (pr) =>
       call('updateBranch', pr.repo, pr, (adapter) => adapter.updateBranch(pr)),
     checkMergeReady: (pr) =>

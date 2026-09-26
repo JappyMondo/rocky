@@ -144,7 +144,22 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
     version: 2,
     name: 'test',
     models: {},
-    settings: defaultFlowSettings(),
+    settings: {
+      ...defaultFlowSettings(),
+      recoveryVersion: undefined,
+      ciRetryVersion: undefined,
+      ciRetryRefusalVersion: undefined,
+      scopeCommentVersion: undefined,
+      commentDeliveryVersion: undefined,
+      recapDecisionVersion: undefined,
+      recapEnvironmentVersion: undefined,
+      validationEnvironmentVersion: undefined,
+      validationRecheckVersion: undefined,
+      validationRequestVersion: undefined,
+      uiFixtureVersion: undefined,
+      uiFixtureRecoveryVersion: undefined,
+      uiPlanEndpointVersion: undefined,
+    },
     nodes: [
       {
         id: 'start',
@@ -180,6 +195,86 @@ it('versions UI behavior only in new flow snapshots without mutating the profile
   ).toBe(1);
   expect(profile.workflow.source).toBe(source);
   expect(JSON.parse(source).settings.uiConfigurationVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.recoveryVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.validationRecheckVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.validationRecheckVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.validationRequestVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.validationRequestVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.ciRetryVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.ciRetryRefusalVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.scopeCommentVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.commentDeliveryVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.recapDecisionVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.recapEnvironmentVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.validationEnvironmentVersion,
+  ).toBe(1);
+  expect(
+    JSON.parse(source).settings.validationEnvironmentVersion,
+  ).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.uiFixtureVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.uiFixtureVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.uiFixtureRecoveryVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.uiFixtureRecoveryVersion).toBeUndefined();
+  expect(
+    JSON.parse(
+      await readFile(join(snapshot.snapshotDir, 'workflow.json'), 'utf8'),
+    ).settings.uiPlanEndpointVersion,
+  ).toBe(1);
+  expect(JSON.parse(source).settings.uiPlanEndpointVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.recapEnvironmentVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.scopeCommentVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.commentDeliveryVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.recapDecisionVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.ciRetryVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.ciRetryRefusalVersion).toBeUndefined();
+  expect(JSON.parse(source).settings.recoveryVersion).toBeUndefined();
 });
 
 it('validates the runnable shipped profile without loading repository .rocky', async () => {

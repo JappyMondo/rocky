@@ -26,3 +26,15 @@ it('only offers shell/browser instructions to Agents granted bash', () => {
     agentToolInstructions({ tools: ['read', 'bash'], mcp: ['browser'] }),
   ).toContain('Enabled MCP servers: browser');
 });
+
+it('limits validation handoff to existing non-manual catalog checks without waiving evidence', () => {
+  const instructions = agentToolInstructions({
+    tools: ['read', 'edit', 'bash'],
+  });
+  expect(instructions).toContain(
+    'matching non-manual checks are owned by host Workflow validation',
+  );
+  expect(instructions).toContain('report pending host validation');
+  expect(instructions).toContain('Never invent a host command');
+  expect(instructions).toContain('claim pending evidence passed');
+});

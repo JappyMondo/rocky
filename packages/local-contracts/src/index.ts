@@ -30,8 +30,10 @@ export interface UsageTotal {
 }
 
 export interface RunSummary {
+  /** User-set presentation state; never changes the recorded execution outcome. */
+  settledAt?: string;
   runId: string;
-  issue: { identifier: string; title: string; url: string };
+  issue: { id?: string; identifier: string; title: string; url: string };
   repo: string;
   /** Frozen members of this Run, including the primary repository. */
   repos?: string[];

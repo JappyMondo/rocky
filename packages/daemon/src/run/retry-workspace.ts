@@ -33,6 +33,20 @@ export async function prepareRetryWorkspace(
   const workspace = entries.findLast(
     (entry) => entry.step === 'workspace' && entry.status === 'done',
   );
+  // Allocation itself can fail before there is a workspace revision to restore.
+  // Retry that idempotent first step; never use this exception after work began.
+  const allocation = entries.findLast((entry) => entry.step === 'workspace');
+  if (
+    !workspace &&
+    allocation?.seq === 0 &&
+    allocation.status === 'failed' &&
+    entries.every(
+      (entry) =>
+        (entry.seq === 0 && entry.step === 'workspace') ||
+        entry.step === '$end',
+    )
+  )
+    return;
   const recorded = workspaceResult.safeParse(workspace?.result);
   if (!recorded.success)
     throw new Error(

@@ -107,17 +107,95 @@ function mergeNode(overrides: Record<string, unknown> = {}) {
   };
 }
 
-it('reports failed job and step names and only downloads the requested log tail', async () => {
+it.each(['completed', 'in_progress'])(
+  'reports failed job evidence while its owning workflow is %s',
+  async (status) => {
+    const transport = scriptedFetch([
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+        value: {
+          check_runs: [
+            {
+              id: 21,
+              name: 'test',
+              head_sha: 'abc',
+              status: 'completed',
+              conclusion: 'failure',
+              app: { slug: 'github-actions' },
+              details_url:
+                'https://github.test/team/repo/actions/runs/20/job/21',
+            },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+        value: [],
+      },
+      {
+        path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+        value: {
+          workflow_runs: [
+            {
+              id: 20,
+              name: 'CI',
+              head_sha: 'abc',
+              status,
+              conclusion: status === 'completed' ? 'failure' : null,
+            },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/actions/runs/20/jobs?filter=latest&per_page=100&page=1',
+        value: {
+          jobs: [
+            {
+              id: 21,
+              name: 'test',
+              conclusion: 'failure',
+              steps: [
+                { name: 'Install', conclusion: 'success' },
+                { name: 'Test', conclusion: 'failure' },
+              ],
+            },
+            { id: 22, name: 'build', conclusion: null, steps: [] },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/actions/jobs/21/logs',
+        text: 'setup\nold\nassertion\nfailed\n',
+      },
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+    ]);
+    const result = await createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).waitForCi(githubPr(), { logTailLines: 2 });
+    expect(result).toEqual({
+      status: 'done',
+      result: {
+        status: 'failed',
+        headSha: 'abc',
+        failedJobs: [
+          {
+            id: '21',
+            name: 'test',
+            failedSteps: ['Test'],
+            logTail: 'assertion\nfailed',
+          },
+        ],
+      },
+    });
+    transport.done();
+  },
+);
+
+it('parks a failed-job retry until Actions finishes without attempting a check rerequest', async () => {
   const transport = scriptedFetch([
     { path: '/repos/team/repo/pulls/7', value: githubPull },
-    {
-      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
-      value: { check_runs: [] },
-    },
-    {
-      path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
-      value: [],
-    },
     {
       path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
       value: {
@@ -126,54 +204,20 @@ it('reports failed job and step names and only downloads the requested log tail'
             id: 20,
             name: 'CI',
             head_sha: 'abc',
-            status: 'completed',
-            conclusion: 'failure',
+            status: 'in_progress',
+            conclusion: null,
           },
         ],
       },
     },
-    {
-      path: '/repos/team/repo/actions/runs/20/jobs?filter=latest&per_page=100&page=1',
-      value: {
-        jobs: [
-          {
-            id: 21,
-            name: 'test',
-            conclusion: 'failure',
-            steps: [
-              { name: 'Install', conclusion: 'success' },
-              { name: 'Test', conclusion: 'failure' },
-            ],
-          },
-          { id: 22, name: 'lint', conclusion: 'success', steps: [] },
-        ],
-      },
-    },
-    {
-      path: '/repos/team/repo/actions/jobs/21/logs',
-      text: 'setup\nold\nassertion\nfailed\n',
-    },
-    { path: '/repos/team/repo/pulls/7', value: githubPull },
   ]);
-  const result = await createGitHubScm({
-    ...githubOptions,
-    fetch: transport.fetch,
-  }).waitForCi(githubPr(), { logTailLines: 2 });
-  expect(result).toEqual({
-    status: 'done',
-    result: {
-      status: 'failed',
-      headSha: 'abc',
-      failedJobs: [
-        {
-          id: '21',
-          name: 'test',
-          failedSteps: ['Test'],
-          logTail: 'assertion\nfailed',
-        },
-      ],
-    },
-  });
+  await expect(
+    createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr()),
+  ).resolves.toEqual({ status: 'waiting' });
+  expect(transport.calls.every((call) => call.method === 'GET')).toBe(true);
   transport.done();
 });
 
@@ -272,6 +316,100 @@ it('keeps polling while any current-head CI report is incomplete', async () => {
   ).resolves.toEqual({ status: 'waiting' });
   transport.done();
 });
+
+it.each([
+  {
+    completed: true,
+    concluded: true,
+    actions: true,
+    sameUrl: true,
+    expected: 'done',
+  },
+  {
+    completed: false,
+    concluded: true,
+    actions: true,
+    sameUrl: true,
+    expected: 'waiting',
+  },
+  {
+    completed: true,
+    concluded: false,
+    actions: true,
+    sameUrl: true,
+    expected: 'waiting',
+  },
+  {
+    completed: true,
+    concluded: true,
+    actions: false,
+    sameUrl: true,
+    expected: 'waiting',
+  },
+  {
+    completed: true,
+    concluded: true,
+    actions: true,
+    sameUrl: false,
+    expected: 'waiting',
+  },
+])(
+  'reconciles stale Actions check status only with a completed owning workflow (%s)',
+  async ({ completed, concluded, actions, sameUrl, expected }) => {
+    const transport = scriptedFetch([
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+        value: {
+          check_runs: [
+            {
+              id: 21,
+              name: 'verify',
+              head_sha: 'abc',
+              status: 'in_progress',
+              conclusion: concluded ? 'success' : null,
+              completed_at: concluded ? '2026-09-26T17:12:10Z' : null,
+              app: { slug: actions ? 'github-actions' : 'external-review' },
+              details_url: `https://github.test/team/repo/actions/runs/${sameUrl ? 20 : 99}/job/21`,
+            },
+          ],
+        },
+      },
+      {
+        path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+        value: [],
+      },
+      {
+        path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+        value: {
+          workflow_runs: [
+            {
+              id: 20,
+              name: 'CI',
+              head_sha: 'abc',
+              status: completed ? 'completed' : 'in_progress',
+              conclusion: completed ? 'success' : null,
+            },
+          ],
+        },
+      },
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+    ]);
+    const result = await createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).waitForCi(githubPr(), { logTailLines: 0 });
+    expect(result).toEqual(
+      expected === 'done'
+        ? {
+            status: 'done',
+            result: { status: 'passed', headSha: 'abc', failedJobs: [] },
+          }
+        : { status: 'waiting' },
+    );
+    transport.done();
+  },
+);
 
 it('rejects unsafe CI log limits and PR handles before reading platform state', async () => {
   const adapter = createGitHubScm({
@@ -681,6 +819,10 @@ it('retries only current-head failed Actions runs', async () => {
       method: 'POST',
       status: 201,
       value: {},
+    },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: { check_runs: [] },
     },
   ]);
   await createGitHubScm({
@@ -1471,3 +1613,74 @@ it.each([false, true])(
     }
   },
 );
+
+it.each([201, 403, 404])(
+  'requests external check retries and reports unavailable requests (HTTP %s)',
+  async (status) => {
+    const transport = scriptedFetch([
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+        value: { workflow_runs: [] },
+      },
+      {
+        path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+        value: {
+          check_runs: [
+            {
+              id: 81,
+              name: 'External review',
+              head_sha: 'abc',
+              status: 'completed',
+              conclusion: 'failure',
+              details_url: 'https://review.test',
+            },
+          ],
+        },
+      },
+      { path: '/repos/team/repo/pulls/7', value: githubPull },
+      {
+        path: '/repos/team/repo/check-runs/81/rerequest',
+        method: 'POST',
+        status,
+        value: {},
+      },
+    ]);
+    const retry = createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr());
+    if (status === 403)
+      await expect(retry).rejects.toMatchObject({
+        refusal: { reason: 'permission_denied' },
+      });
+    else if (status === 404)
+      await expect(retry).rejects.toMatchObject({
+        refusal: { reason: 'unsupported' },
+      });
+    else await retry;
+    transport.done();
+  },
+);
+
+it('refuses an empty CI retry instead of reporting that an external status was retried', async () => {
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+      value: { workflow_runs: [] },
+    },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: { check_runs: [] },
+    },
+  ]);
+  await expect(
+    createGitHubScm({
+      ...githubOptions,
+      fetch: transport.fetch,
+    }).retryFailedJobs(githubPr()),
+  ).rejects.toMatchObject({ refusal: { reason: 'unsupported' } });
+  expect(transport.calls.every((call) => call.method === 'GET')).toBe(true);
+  transport.done();
+});

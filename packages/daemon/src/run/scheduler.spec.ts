@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { JournalWriter } from './writer.js';
+import { newRepositoryProfile } from '../config/profiles.js';
 import { rockyPaths, type RockyPaths } from '../config/paths.js';
 import { readRunHeader, type RunHeader, writeRunHeader } from './header.js';
 import type { BootResult } from './replay.js';
@@ -94,6 +96,145 @@ const acceptsRegularOrPollBoots: SchedulerBoot = async (
 });
 
 describe('RunScheduler admission', () => {
+  it('checks restart ownership inside the admission reservation', async () => {
+    const prior = storedRun({ status: 'failed', boots: 3 });
+    await writeRunHeader(paths, prior);
+    const journal = await JournalWriter.open(paths.run(prior.runId).journal);
+    await journal.append(
+      {
+        v: 1,
+        seq: 0,
+        step: '$end',
+        status: 'failed',
+        boot: 3,
+        startedAt: prior.createdAt,
+        result: {
+          status: 'failed',
+          error: { name: 'Error', message: 'Failure' },
+        },
+      },
+      { runner: true },
+    );
+    const open = await scheduler(acceptsRegularOrPollBoots);
+    const prepare = vi.fn(async () => input());
+    try {
+      await expect(
+        open.admit({
+          issueIdentifier: issue.identifier,
+          restartOf: { runId: prior.runId, expectedBoot: 2 },
+          prepare,
+        }),
+      ).rejects.toThrow('Restart source changed');
+      expect(prepare).not.toHaveBeenCalled();
+      const next = await open.admit({
+        issueIdentifier: issue.identifier,
+        requestId: 'restart-request',
+        restartOf: { runId: prior.runId, expectedBoot: 3 },
+        prepare,
+      });
+      expect(next.kind).toBe('started');
+      await expect(
+        open.admit({
+          issueIdentifier: issue.identifier,
+          restartOf: { runId: prior.runId, expectedBoot: 3 },
+          prepare,
+        }),
+      ).rejects.toThrow('newer');
+    } finally {
+      await open.close();
+    }
+  });
+
+  it.each(['url', 'repo', 'profile', 'issue'] as const)(
+    'does not inherit question answers across a different %s',
+    async (boundary) => {
+      const prior = storedRun({});
+      if (boundary === 'url')
+        prior.issue = { ...issue, url: 'https://other.test/issue/NG-540' };
+      if (boundary === 'repo') prior.repo = 'other';
+      if (boundary === 'profile')
+        prior.profile = newRepositoryProfile({
+          id: 'other',
+          remote: 'https://github.com/example/other.git',
+        });
+      if (boundary === 'issue')
+        prior.issue = { ...issue, identifier: 'OTHER-1' };
+      await writeRunHeader(paths, prior);
+      const journal = await JournalWriter.open(paths.run(prior.runId).journal);
+      await journal.put('linear:control', {
+        checkpoints: [
+          {
+            kind: 'question',
+            stepKey: '4',
+            title: 'Scope',
+            body: 'Which behavior?',
+            answeredAt: '2026-09-04T09:00:30.000Z',
+            answer: { decision: 'steer', message: 'Use the system default.' },
+          },
+        ],
+      });
+      const open = await scheduler(acceptsRegularOrPollBoots);
+      try {
+        expect(
+          (await open.delegate(input())).run.issue.clarifications,
+        ).toBeUndefined();
+      } finally {
+        await open.close();
+      }
+    },
+  );
+
+  it('carries only prior human question answers into a new immutable issue snapshot', async () => {
+    const prior = storedRun({});
+    await writeRunHeader(paths, prior);
+    const journal = await JournalWriter.open(paths.run(prior.runId).journal);
+    await journal.put('linear:control', {
+      checkpoints: [
+        {
+          kind: 'question',
+          stepKey: '4',
+          title: 'Scope',
+          body: 'Which behavior?',
+          answeredAt: '2026-09-04T09:00:30.000Z',
+          answer: { decision: 'steer', message: 'Use the system default.' },
+        },
+        {
+          stepKey: '5',
+          title: 'Merge',
+          body: 'Merge?',
+          answeredAt: '2026-09-04T09:00:40.000Z',
+          answer: { decision: 'approve' },
+        },
+        {
+          kind: 'question',
+          stepKey: '6',
+          title: 'Unanswered',
+          body: 'Unknown?',
+        },
+      ],
+    });
+    const open = await scheduler(acceptsRegularOrPollBoots);
+    try {
+      const next = await open.delegate(input());
+      expect(next.run.issue.clarifications).toEqual([
+        {
+          runId: prior.runId,
+          stepKey: '4',
+          title: 'Scope',
+          question: 'Which behavior?',
+          answer: 'Use the system default.',
+          answeredAt: '2026-09-04T09:00:30.000Z',
+        },
+      ]);
+      expect(
+        (await readRunHeader(paths, next.run.runId))?.issue.clarifications,
+      ).toEqual(next.run.issue.clarifications);
+      expect(issue).not.toHaveProperty('clarifications');
+    } finally {
+      await open.close();
+    }
+  });
+
   it('holds the fourth queued Run until one of three active Boots releases its slot', async () => {
     const started: string[] = [];
     const boots = new Map<string, ReturnType<typeof deferred<BootResult>>>();
@@ -735,4 +876,91 @@ describe('RunScheduler admission', () => {
     ).rejects.toThrow(/multiple live Runs/i);
     expect(started).toEqual([]);
   });
+});
+
+it('keeps storage-blocked work queued and automatically resumes when capacity returns', async () => {
+  let blocked = true;
+  const pending = deferred<BootResult>();
+  const boot = vi.fn(() => pending.promise);
+  const instance = await scheduler(boot, 3, {
+    admissionBlocker: async () =>
+      blocked ? 'Waiting for disk space' : undefined,
+  });
+  const { run } = await instance.delegate(input());
+  await instance.drain();
+  expect(boot).not.toHaveBeenCalled();
+  expect(await instance.get(run.runId)).toMatchObject({
+    status: 'queued',
+    boots: 0,
+    reason: 'Waiting for disk space',
+  });
+  blocked = false;
+  await instance.tick();
+  expect(boot).toHaveBeenCalledOnce();
+  expect(await instance.get(run.runId)).toMatchObject({
+    status: 'running',
+    reason: undefined,
+  });
+  pending.resolve({
+    status: 'finished',
+    outcome: 'completed',
+    boot: 1,
+    replayed: 0,
+    executed: 0,
+  });
+  await vi.waitFor(async () =>
+    expect((await instance.get(run.runId))?.status).toBe('finished'),
+  );
+  await instance.close();
+});
+
+it('retries retained terminal workspace cleanup after restart without touching live runs', async () => {
+  await writeRunHeader(paths, storedRun({}));
+  const cleanup = vi.fn(async (_run: RunHeader) => undefined);
+  const boot = vi.fn(async (): Promise<BootResult> => ({
+    status: 'parked',
+    reason: 'checkpoint',
+    boot: 1,
+    replayed: 0,
+    executed: 0,
+  }));
+  const instance = await scheduler(boot, 3, {
+    releaseTerminalWorkspace: cleanup,
+  });
+  await instance.tick();
+  expect(cleanup).toHaveBeenCalledOnce();
+  expect(cleanup.mock.calls[0]?.[0]).toMatchObject({
+    runId: 'NG-540-1',
+    status: 'finished',
+  });
+  await instance.tick();
+  expect(cleanup).toHaveBeenCalledOnce();
+  await instance.close();
+});
+
+it('does not block unrelated admissions while a terminal workspace is being removed', async () => {
+  await writeRunHeader(paths, storedRun({}));
+  const removal = deferred<void>();
+  const cleanup = vi.fn(() => removal.promise);
+  const instance = await scheduler(
+    async () => ({
+      status: 'parked',
+      reason: 'checkpoint',
+      boot: 1,
+      replayed: 0,
+      executed: 0,
+    }),
+    3,
+    { releaseTerminalWorkspace: cleanup },
+  );
+  const tick = instance.tick();
+  await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+  try {
+    const next = await instance.delegate(input('NG-OTHER'));
+    expect(next.kind).toBe('started');
+  } finally {
+    removal.resolve();
+    await tick;
+    await instance.close();
+  }
 });

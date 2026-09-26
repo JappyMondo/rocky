@@ -1,3 +1,4 @@
+import { RunSettlement } from './run-settlement.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
@@ -353,7 +354,10 @@ function assertDiff(diff: DiffView): void {
 
 /** Local, durable artifacts. It never accepts a filesystem path from a reader. */
 export class LocalArtifacts {
-  constructor(private readonly paths: RockyPaths) {}
+  readonly settlements: RunSettlement;
+  constructor(private readonly paths: RockyPaths) {
+    this.settlements = new RunSettlement(paths);
+  }
 
   async saveReport(runId: string, report: ReviewReport): Promise<void> {
     const checked = StoredReport.parse(report);

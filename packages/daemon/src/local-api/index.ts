@@ -4,6 +4,7 @@ import {
   exhaustedStepKey,
   type RetryRequest,
 } from '../run/retry.js';
+import { canSettle } from './run-settlement.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
@@ -71,6 +72,10 @@ export interface LocalApiOptions {
   profiles?: LocalProfiles;
   connections?: LocalConnections;
   diagrams?: Pick<WorkflowDiagrams, 'read' | 'retry'>;
+  restart?: (
+    runId: string,
+    input: { expectedBoot: number; requestId: string },
+  ) => Promise<{ runId: string; previousRunId: string }>;
   retryStep?: (runId: string, input: RetryRequest) => Promise<void>;
   continuationRounds?: (run: RunHeader) => Promise<number | undefined>;
   recovery?: (runId: string) => Promise<RunDetail['recovery']>;
@@ -207,6 +212,7 @@ function summary(run: RunHeader): RunSummary {
     artifactsPruned,
     pr,
     issue: {
+      ...(run.linear?.issueId ? { id: run.linear.issueId } : {}),
       identifier: run.issue.identifier,
       title: run.issue.title,
       url: run.issue.url,
@@ -396,6 +402,29 @@ export async function registerLocalApi(
       return run;
     };
 
+    const presentedSummary = async (run: RunHeader): Promise<RunSummary> => ({
+      ...summary(run),
+      settledAt: await options.artifacts.settlements.read(run),
+    });
+    local.post<{ Params: { id: string } }>(
+      '/api/runs/:id/settle',
+      async (request) => {
+        const run = await getRun(request.params.id);
+        const { settled } = parse(
+          z.object({ settled: z.boolean() }).strict(),
+          request.body,
+        );
+        if (settled && !canSettle(run))
+          throw new LocalApiError(
+            409,
+            'run-active',
+            'Only finished, failed or cancelled runs can be settled.',
+          );
+        await options.artifacts.settlements.write(run, settled);
+        return presentedSummary(await getRun(run.runId));
+      },
+    );
+
     local.get('/api/runs', async (): Promise<RunList> => {
       const runs = (await options.runs.list()).sort(
         (a, b) =>
@@ -403,7 +432,7 @@ export async function registerLocalApi(
           b.runId.localeCompare(a.runId),
       );
       return {
-        runs: runs.map(summary),
+        runs: await Promise.all(runs.map(presentedSummary)),
         pollAfterMs: runs.some(
           (run) => run.status === 'running' || run.status === 'queued',
         )
@@ -608,7 +637,7 @@ export async function registerLocalApi(
           .digest('hex');
         return {
           run: {
-            ...summary(run),
+            ...(await presentedSummary(run)),
             ...(pullRequests.size ? { prs: [...pullRequests.values()] } : {}),
             ...(pullRequest
               ? {
@@ -910,6 +939,36 @@ export async function registerLocalApi(
     local.get(
       '/api/intake-failures',
       async () => options.intakeFailures?.() ?? [],
+    );
+    local.post<{ Params: { id: string } }>(
+      '/api/runs/:id/restart',
+      async (request, reply) => {
+        const run = await getRun(request.params.id);
+        const input = parse(
+          z
+            .object({
+              expectedBoot: z.number().int().min(1),
+              requestId: z.string().uuid(),
+            })
+            .strict(),
+          request.body,
+        );
+        if (!options.restart)
+          throw new LocalApiError(
+            503,
+            'restart-unavailable',
+            'Workflow restart is unavailable.',
+          );
+        try {
+          return reply.code(202).send(await options.restart(run.runId, input));
+        } catch (error) {
+          throw new LocalApiError(
+            409,
+            'restart-refused',
+            error instanceof Error ? error.message : 'Restart refused.',
+          );
+        }
+      },
     );
     local.post<{ Params: { id: string } }>(
       '/api/runs/:id/recover-session',

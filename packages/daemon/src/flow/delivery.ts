@@ -1,4 +1,10 @@
 import {
+  prepareUiFixtures,
+  uiFixturesSchema,
+  verifyUiFixtureCredentialFile,
+} from './ui-fixtures.js';
+import { bindChecksToEndpoint, isRelativeUiPath } from './ui-checks.js';
+import {
   ensureEnvironment,
   EnvironmentBlocked,
 } from '../environment/ensure.js';
@@ -7,7 +13,7 @@ import type {
   VerifiedEnvironment,
   EnvironmentBlocker,
 } from '@rocky/local-contracts';
-import { DeliveryRepositories } from './repositories.js';
+import { DeliveryRepositories, UncommittedWorkError } from './repositories.js';
 import {
   WorkspaceExecution,
   catalogEntries,
@@ -24,9 +30,10 @@ import {
   type ReviewThread,
   type WorkflowInput,
   type CheckpointAnswer,
+  type VisualRecapResult,
   z,
 } from '@rocky/sdk';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import {
   Plan,
   Refinement,
@@ -46,10 +53,10 @@ import {
   type Resolution,
 } from './schemas.js';
 
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, isAbsolute, sep } from 'node:path';
 import type { FlowSettings, UiEndpoint } from '@rocky/local-contracts';
 import { resolveUiEndpoint } from './ui-endpoint.js';
-import { isRecapAuditError } from '../review-report/recap.js';
+import { isRecapAuditError, RecapAuditError } from '../review-report/recap.js';
 async function shell(ctx: WorkflowContext, command: string) {
   const result = await ctx.exec(`cd -- "$ROCKY_LEAD_REPO" && ${command}`);
   if (result.exitCode !== 0)
@@ -62,6 +69,9 @@ function requireScm<T>(result: T | ScmRefusal): T {
     throw new Error(`${result.message}\n${result.fix}`);
   return result as T;
 }
+
+class UiFixtureBlocked extends EnvironmentBlocked {}
+class UiFixtureSourceChanged extends Error {}
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
@@ -82,15 +92,28 @@ async function loadRules(ctx: WorkflowContext, snapshotDir: string) {
   });
 }
 
+function unresolvedPost(complaints: readonly Complaint[], recovery = false) {
+  const json = JSON.stringify(complaints, null, 2);
+  if (!recovery) return `Unresolved Complaints:\n${json}`;
+  // Arbitrary log text must not become Markdown links or formatting. Choose a
+  // fence longer than any embedded backticks so the evidence stays literal.
+  const fence = '`'.repeat(
+    Math.max(
+      3,
+      ...[...json.matchAll(/`+/g)].map(([match]) => match.length + 1),
+    ),
+  );
+  return `Unresolved Complaints:\n\n${fence}json\n${json}\n${fence}`;
+}
+
 async function giveUp(
   ctx: WorkflowContext,
   pr: ScmPr,
   complaints: readonly Complaint[],
+  recovery = false,
 ) {
   requireScm(await ctx.scm.markDraft(pr, true));
-  await ctx.post(
-    `Unresolved Complaints:\n${JSON.stringify(complaints, null, 2)}`,
-  );
+  await ctx.post(unresolvedPost(complaints, recovery));
   return 'exhausted' as const;
 }
 
@@ -141,6 +164,7 @@ export function createDeliveryOperations(
   // Run-specific environment is supplied to child commands, not this process.
   const runDir = dirname(snapshotDir);
   const workspaceDir = join(runDir, 'workspace');
+  const evidenceDirectory = join(workspaceDir, '.rocky-evidence');
   const leadDir = join(
     workspaceDir,
     (workspace.members.find((member) => member.lead) ?? workspace.members[0])
@@ -148,7 +172,18 @@ export function createDeliveryOperations(
   );
   const serverLog = join(runDir, 'dev-server.log');
   let { commands, ui, readiness } = settings;
-  const { states, reviewCap, ciCap, ciLogLines } = settings;
+  const { states, ciCap, ciLogLines } = settings;
+  let { reviewCap } = settings;
+  let environmentAgentRepairs = 0;
+  const environmentRepairHistory: {
+    blocker: EnvironmentBlocker;
+    commands: string[];
+    summary: string;
+  }[] = [];
+  let deliveryRepairs = 0;
+  const recoverySetup = new Set<string>();
+  const failedValidationChecks = new Set<string>();
+  const requestedValidationChecks = new Set<string>();
   let continuation = 0;
   let repairedUi = false;
   let repairedInstall = false;
@@ -162,21 +197,27 @@ export function createDeliveryOperations(
       )
     : undefined;
   let environmentUiRepairs = 0;
+  let uiFixtureSourceRepairs = 0;
+  let recapServices: string[] = [];
+  let recapCapabilities: string[] = [];
   let environmentContext: VerifiedEnvironment | undefined;
   async function ensure(
     services: string[],
     label: string,
     capabilities: string[] = [],
     setup: string[] = [],
+    browser = true,
   ): Promise<EnvironmentResult> {
     if (!execution) throw Error('Environment catalog is unavailable.');
     const result = await ensureEnvironment(ctx, execution, {
       label,
       services,
       capabilities,
-      setup,
+      setup: [...new Set([...setup, ...recoverySetup])],
       allowSetup: settings.workspaceSetup === true,
-      ...(services.length ? { requiredKinds: ['browser' as const] } : {}),
+      ...(services.length && browser
+        ? { requiredKinds: ['browser' as const] }
+        : {}),
     });
     if (result.status === 'ready') environmentContext = result.context;
     return result;
@@ -217,8 +258,87 @@ export function createDeliveryOperations(
   async function environmentFailure(
     blocker: EnvironmentBlocker,
     resume: () => Promise<string>,
+    recover = true,
   ): Promise<string> {
     ctx.stage('Environment: blocked');
+    // This snapshot version is the migration boundary. Never insert new agent
+    // Steps into immutable journals created before autonomous recovery existed.
+    if (
+      recover &&
+      settings.recoveryVersion &&
+      execution &&
+      settings.execution?.length &&
+      environmentAgentRepairs < 2 &&
+      settings.workspaceSetup &&
+      (blocker.kind === 'environment' || blocker.code === 'credentials') &&
+      blocker.code !== 'authorization'
+    ) {
+      environmentAgentRepairs++;
+      await execution.stop('Before environment repair');
+      const available = catalogEntries(settings.execution ?? []).filter(
+        ({ command }) => command.policy !== 'manual',
+      );
+      const role = resume === operations.implement ? 'implementer' : 'fixer';
+      const repair = await actors.call(role, {
+        label: `Environment diagnosis and repair ${environmentAgentRepairs}/2`,
+        input: {
+          issue,
+          delivery,
+          plan,
+          workspace,
+          blocker,
+          previousRepairs: [...environmentRepairHistory],
+          commands,
+          environment: environmentContext,
+          validationResponsibility,
+          availableCommands: available,
+          instruction:
+            'This call is environment recovery. Diagnose the supplied blocker in the assigned isolated worktrees. Read repository instructions, setup scripts and actual check evidence. The current blocker survived previousRepairs; use that history to change the diagnosis instead of repeating an ineffective setup command. Repair missing local dependencies, fixtures, documented development authentication or preview reachability. A seed command exit or HTTP 200 does not prove that login or the blocked user transition works: probe the failed transition and inspect its response. Where supported, create distinct authorized local test identities instead of relying on an account whose password or enrollment may have changed. For required component states without an existing preview, implement a development/test-only fixture using repository conventions; preserve production behavior and exercise the real component. Do not substitute such a preview for a required real integration. Select existing non-manual catalog command IDs for the Workflow to execute on the host when sandbox execution is insufficient. Do not weaken checks, invent credentials, claim coverage you did not execute, or change external systems. Preserve prior work and commit any source fixes locally. Return repaired only when a concrete repair was made or selected; state exactly what still needs host verification. Otherwise explain the precise remaining blocker. The Workflow reruns validation and the complete UI sweep after repair.',
+        },
+        schema: z.object({
+          action: z.enum(['repaired', 'blocked']),
+          commands: z.array(z.enum(available.map((entry) => entry.id))),
+          summary: z.string(),
+        }),
+      });
+      // Agent selection does not grant authority to execute manual commands or
+      // manual prerequisites. Check the complete dependency closure first.
+      const catalog = catalogEntries(settings.execution ?? []);
+      const services = new Set(
+        serviceEntries(settings.execution ?? []).map((entry) => entry.id),
+      );
+      // Older repair receipts allowed arbitrary strings, including service IDs.
+      // Services are already started and verified by ensureEnvironment; they
+      // must never be looked up as commands or inserted into setup receipts.
+      // Keep command IDs authoritative when both catalogs use the same ID.
+      const requested = repair.commands.filter(
+        (id) => catalog.some((entry) => entry.id === id) || !services.has(id),
+      );
+      const selected = dependencyOrder(
+        catalog,
+        requested,
+        ({ command }) => command.dependsOn,
+      );
+      if (selected.some(({ command }) => command.policy === 'manual'))
+        throw new Error('Environment recovery cannot execute manual commands.');
+      if (repair.action === 'repaired') {
+        environmentRepairHistory.push({
+          blocker,
+          commands: selected.map((entry) => entry.id),
+          summary: repair.summary,
+        });
+        for (const entry of selected) recoverySetup.add(entry.id);
+        // The next ensureEnvironment executes the selected setup with endpoint
+        // dependencies and live verifiers; no agent assertion replaces evidence.
+        changes.push(repair.summary);
+        if (resume === operations.implement) return resume();
+        await push();
+        // Environment recovery has its own bounded allowance. Revalidate any
+        // source changes without stealing the last product-review iteration.
+        reviewCap++;
+        return 'retry';
+      }
+    }
     // Environment blockers do not enter review/fixer history or consume its cap.
     await ctx.post(
       `Environment blocked (${blocker.kind}/${blocker.code}): ${blocker.capability}. ${blocker.action}`,
@@ -254,6 +374,10 @@ export function createDeliveryOperations(
             changedFiles:
               purpose === 'validate' ? await ctx.changedFiles() : [],
             purpose,
+            scope,
+            changes,
+            previousValidation: validationSummary,
+            requiredValidationCommands: [...requestedValidationChecks],
             catalog: optional.map(({ id, repository, command }) => ({
               id,
               repository: repository.name,
@@ -263,11 +387,19 @@ export function createDeliveryOperations(
           optional.map((entry) => entry.id),
         )
       : { selected: [], reason: 'Only required commands are configured.' };
+    const failedBefore =
+      purpose === 'validate' && settings.validationRecheckVersion
+        ? [...failedValidationChecks]
+        : [];
+    const requested =
+      purpose === 'validate' ? [...requestedValidationChecks] : [];
     const ids = [
       ...available
         .filter(({ command }) => command.policy === 'required')
         .map((entry) => entry.id),
       ...selection.selected,
+      ...failedBefore,
+      ...requested,
     ];
     const ordered = dependencyOrder(
       catalog,
@@ -279,7 +411,17 @@ export function createDeliveryOperations(
       skipped: available
         .filter((entry) => !ordered.includes(entry))
         .map((entry) => entry.id),
-      reason: selection.reason,
+      reason: [
+        selection.reason,
+        ...(failedBefore.length
+          ? [
+              `Retesting previously failed commands: ${failedBefore.join(', ')}.`,
+            ]
+          : []),
+        ...(requested.length
+          ? [`Running agent-deferred host checks: ${requested.join(', ')}.`]
+          : []),
+      ].join(' '),
     }));
     return ordered;
   }
@@ -288,7 +430,7 @@ export function createDeliveryOperations(
       ? new DeliveryRepositories(ctx, workspace)
       : undefined;
   const reviewedRepositoryHeads = new Map<string, Record<string, string>>();
-  const recaps = new Map<string, { url: string }>();
+  const recaps = new Map<string, VisualRecapResult>();
   let actors: DeliveryAgents;
   const history = new ReviewHistory();
   const reviewedHeads = new Map<string, string>();
@@ -301,6 +443,7 @@ export function createDeliveryOperations(
   let description = '';
   const changes: string[] = [];
   let ciAttempts = 0;
+  let legacyRecapRepair = false;
   let mergeReadiness = settings.mergeReadinessVersion === 1;
   let pendingThreads: ReviewThread[] = [];
   let threadReplies: {
@@ -454,7 +597,7 @@ export function createDeliveryOperations(
     'No local validation commands configured; see CI and review evidence.';
   let server: { pid: number } | undefined;
   let revision = 0;
-  let recap!: { url: string };
+  let recap!: VisualRecapResult;
   let answer: CheckpointAnswer | undefined;
   const diff = () =>
     repositories
@@ -483,23 +626,60 @@ export function createDeliveryOperations(
         `Workspace setup failed (exit ${result.exitCode}): ${commands.install}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
       );
   }
+  const evidenceInstruction = `Retain generated diagnostic logs in ${evidenceDirectory}, outside every Git worktree. Create that directory when needed, use distinct names for each repository/check, and report the paths. Do not commit diagnostic logs or leave them as untracked files inside a Git worktree.`;
   const validationResponsibility = {
     commands,
     repositoryCatalog: settings.execution,
     instruction:
-      'The Workflow only runs the configured test, lint and build commands. Implementation and repair agents own additional acceptance tests and benchmarks, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.',
+      'The supplied verified environment records setup already completed by the Workflow. Reuse it; do not rerun installers inside the Agent unless concrete evidence shows dependencies are missing or stale. The Workflow owns execution of the supplied repositoryCatalog commands on the host, including configured checks beyond test, lint and build. Required commands run automatically; agent-policy commands are selected from the issue and changed files, with their dependency closure. Manual commands are not authorized. If a matching non-manual catalog command covers a required check that your sandbox cannot execute, identify that exact command ID in your result, report its evidence as pending host validation, and complete the assigned source repair without repeating the denied operation or claiming it passed. This is a handoff to an existing authorized Workflow step, not permission to bypass the sandbox. Implementation and repair agents own acceptance tests and benchmarks not covered by that catalog or other explicitly configured validation, including local dependencies and disposable test services needed to run them. Produce and retain the required evidence in this workspace; there is no separate later agent that will supply it. Use the cache paths Rocky provides; do not create repository-local Nx, npm, or Electron caches. Reuse passing full-check results when subsequent edits cannot affect them; repair an unrelated commit-hook or environment failure without repeating an already passing full repository check. Check documented setup and available container runtimes before declaring infrastructure unavailable. Report actual external access requirements precisely when local setup cannot resolve them.' +
+      ` ${evidenceInstruction}`,
   };
-  async function push() {
+  async function push(role = 'fixer') {
     if (repositories) {
-      await repositories.sync(
-        `${issue.identifier}: ${issue.title}`,
-        description,
-      );
+      let repaired = false;
+      for (;;) {
+        try {
+          await repositories.sync(
+            `${issue.identifier}: ${issue.title}`,
+            description,
+          );
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof UncommittedWorkError) ||
+            !settings.recoveryVersion ||
+            deliveryRepairs >= 2
+          )
+            throw error;
+          deliveryRepairs++;
+          repaired = true;
+          const fixed = await actors.call(role, {
+            label: `Complete uncommitted work ${deliveryRepairs}/2`,
+            input: {
+              issue,
+              delivery,
+              plan,
+              commands,
+              validationResponsibility,
+              recovery: {
+                kind: 'uncommitted-work',
+                repository: error.repository,
+              },
+              instruction:
+                'The preceding agent left uncommitted work. Inspect the current branch and repository instructions, complete the requested implementation, repair local prerequisites and commit completed changes. Preserve all prior work. Do not merely commit an incomplete fragment or discard changes to make status clean. Run repository checks, report evidence and any remaining blocker. Keep commits local; the Workflow owns PR delivery.' +
+                ` ${evidenceInstruction}`,
+            },
+            schema: z.object({ summary: z.string() }),
+          });
+          changes.push(fixed.summary);
+        }
+      }
       pr = repositories.current[0];
-      return;
+      return repaired;
     }
     await shell(ctx, 'git push origin HEAD');
     pr = { ...pr, headSha: await shell(ctx, 'git rev-parse HEAD') };
+    return false;
   }
 
   async function exhaust(complaints: readonly Complaint[]) {
@@ -509,11 +689,11 @@ export function createDeliveryOperations(
       ? await (async () => {
           await repositories.markDraft(true);
           await ctx.post(
-            `Unresolved Complaints:\n${JSON.stringify(complaints, null, 2)}`,
+            unresolvedPost(complaints, settings.recoveryVersion === 1),
           );
           return 'exhausted' as const;
         })()
-      : await giveUp(ctx, pr, complaints);
+      : await giveUp(ctx, pr, complaints, settings.recoveryVersion === 1);
     if (continuations === 0) return outcome;
     continuations--;
     continuation++;
@@ -674,6 +854,7 @@ export function createDeliveryOperations(
       throw new Error(
         'CI returned another head. Refresh the branch and run validation again.',
       );
+    let retryRefusal: ScmRefusal | undefined;
     while (ci.status === 'failed' && ciAttempts < ciCap) {
       ciAttempts++;
       const fix = await actors.call('ci-fixer', {
@@ -682,21 +863,56 @@ export function createDeliveryOperations(
           issue,
           delivery,
           failedJobs: ci.failedJobs,
+          ...(retryRefusal ? { retryRefusal } : {}),
           pullRequest: candidate,
           ciRepairPolicy:
-            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
+            'This runtime policy overrides older prompt text where it conflicts. Follow the repository’s own instructions and failed-check evidence. The supplied logs are bounded excerpts, not complete job logs. If they lack the original diagnostic, retrieve the failed job’s full log with the configured platform CLI using its supplied job ID before declaring the repair unresolved; inspect the failed step and run the affected repository check locally when feasible. A committed repair with passing relevant local checks is action fixed: the Workflow pushes it, reruns validation, and verifies CI on the new PR head. Do not mark it unresolved merely because you cannot push or observe that future CI yet. You may update metadata only on the supplied PR when a failed check requires it. If CI needs a branch event after that change, create a repository-compliant empty commit locally; the Workflow pushes it. Never merge or weaken a check.',
           commands,
           ...(repositories ? { repository: candidate.repo } : {}),
         },
         schema: CiFix,
       });
       changes.push(fix.summary);
-      if (fix.action === 'unresolved') break;
+      if (fix.action === 'unresolved') {
+        if (settings.ciUnresolvedCommitVersion) {
+          // The verdict can describe remote CI as pending even after the
+          // fixer committed a tested repair. Reconcile its local branch
+          // before treating the failure as terminal. This adds Steps only
+          // for new snapshots; old journals keep their original suffix.
+          const before = repositories?.revision ?? pr.headSha;
+          await push('ci-fixer');
+          if ((repositories?.revision ?? pr.headSha) !== before)
+            return { changed: true, complaints: [] };
+        }
+        break;
+      }
       if (fix.action === 'fixed') {
-        await push();
+        await push('ci-fixer');
         return { changed: true, complaints: [] };
       }
-      requireScm(await ctx.scm.retryFailedJobs(candidate));
+      if (settings.ciRetryVersion) {
+        // A retry label is advisory: agents may have created commits or left
+        // uncommitted repairs. Reconcile the complete delivery and revalidate
+        // changed heads before consuming a retry against the old remote SHA.
+        const before = repositories?.revision ?? pr.headSha;
+        await push('ci-fixer');
+        if ((repositories?.revision ?? pr.headSha) !== before)
+          return { changed: true, complaints: [] };
+      }
+      // The fixer has already received this refusal. Repeating the same
+      // request against an unchanged head supplies no new evidence.
+      if (settings.ciRetryRefusalVersion && retryRefusal) break;
+      const retry = await ctx.scm.retryFailedJobs(candidate);
+      if (settings.ciRetryVersion && retry && 'refused' in retry) {
+        retryRefusal = retry;
+        // Retry refusal is evidence for the fixer, not a successful retry.
+        // The existing CI allowance bounds integration recovery attempts.
+        if (retry.reason === 'head_changed' || retry.reason === 'not_open')
+          requireScm(retry);
+        continue;
+      }
+      requireScm(retry);
+      retryRefusal = undefined;
       ci = requireScm(
         await ctx.scm.waitForCi(candidate, { logTailLines: ciLogLines }),
       );
@@ -750,8 +966,20 @@ export function createDeliveryOperations(
                     'Use verified endpoints and authentication references, resolving document references relative to the named repository in the workspace. An ok result requires executed: true. Never mark an unexecuted or unreachable check ok. Report blocked coverage using the blocked verdict, without inventing a product defect or weakening acceptance criteria. A documented-local authentication reference may be read only for local login instructions; never reproduce credentials in output.',
                 }
               : {}),
+            ...(settings.uiPlanEndpointVersion
+              ? {
+                  endpointInstruction:
+                    'Every check URL must be a path beginning with one slash, relative to the supplied live UI base URL. Do not embed localhost, a port, or an absolute service URL in a check URL or action. The service may move to a different port on another Boot.',
+                }
+              : {}),
           },
-          schema: Checks,
+          schema: settings.uiPlanEndpointVersion
+            ? Checks.refine(
+                ({ checks }) =>
+                  checks.every(({ url }) => isRelativeUiPath(url)),
+                'Each UI check URL must be a path relative to the verified service',
+              )
+            : Checks,
         })
       ).checks;
       serviceChecks.set(serviceKey, checks);
@@ -821,6 +1049,7 @@ export function createDeliveryOperations(
           action:
             'The UI endpoint is unreachable on this Boot. Repair its service configuration and resume.',
         });
+      if (url) checks = bindChecksToEndpoint(checks, url);
       let observations: Observation[];
       if (!boot.ready) {
         observations = [
@@ -836,6 +1065,174 @@ export function createDeliveryOperations(
           });
         server = undefined;
       } else {
+        let fixtures;
+        if (settings.uiFixtureVersion && execution && configuredUi.external) {
+          const fixtureEvidenceDirectory = join(
+            runDir,
+            'workspace',
+            '.rocky-evidence',
+          );
+          await mkdir(fixtureEvidenceDirectory, {
+            recursive: true,
+            mode: 0o700,
+          });
+          const available = catalogEntries(settings.execution ?? []).filter(
+            ({ command }) => command.policy !== 'manual',
+          );
+          const schema = uiFixturesSchema(
+            checks,
+            available.map((entry) => entry.id),
+          );
+          const sourceRevision = async (phase: string) => {
+            const revisions = [];
+            for (const member of workspace.members) {
+              const result = await ctx.exec(
+                `cd -- ${quote(join(runDir, 'workspace', member.path))} && git rev-parse HEAD && git diff --no-ext-diff HEAD -- | git hash-object --stdin`,
+                {
+                  label: `UI fixture source ${phase} ${revision}/${serviceKey}/${member.name}`,
+                },
+              );
+              if (result.exitCode !== 0)
+                throw new Error(
+                  'Cannot verify source state around UI fixture preparation.',
+                );
+              revisions.push(result.stdout);
+            }
+            return revisions.join('\n');
+          };
+          const sourceBefore = await sourceRevision('before');
+          const prepared = await prepareUiFixtures({
+            prepare: (attempt, previous) =>
+              actors.call('fixer', {
+                label: `Prepare UI fixtures ${revision}/${serviceKey}/${attempt}`,
+                screenshotWrite: true,
+                blockedAsResult: !!settings.uiFixtureRecoveryVersion,
+                input: {
+                  issue,
+                  workspace,
+                  checks,
+                  baseUrl: url!,
+                  screenshotDirectory: join(runDir, 'screenshots'),
+                  fixtureEvidenceDirectory,
+                  environment: environmentContext,
+                  availableCommands: available,
+                  validationResponsibility,
+                  validationSummary,
+                  previousRepairs: [...environmentRepairHistory],
+                  previous,
+                  instruction:
+                    "Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Consult validationSummary and previousRepairs for setup already executed; inspect its local results before requesting the same seed or install again. A passed setup command is evidence to investigate, not proof of fixture readiness. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Establish each check's access, data and initial conditions, then exercise its entry route or action in the browser. This is not acceptance review: after those prerequisites are verified, an application error, endless loading state, or missing/broken control is product evidence for the inspector, not a reason to demand more setup. Hand off repeatable steps and an honest screenshot of the actual defective state; do not claim the expected behavior passed. Return executed:true only for entry/actions you actually exercised. A tool failure or unavailable prerequisite still blocks readiness. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and source as an array of existing repository-relative file paths documenting the route or fixture (one exact path per element, without line numbers, prose, or joined path lists), and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. If a check needs locally generated login credentials, save them in a private mode 0600 file inside fixtureEvidenceDirectory, return its absolute path as credentialFile for that check, and name the matching account role in instructions. The independent inspector can read the supplied credential file and operate the browser, but cannot run seed commands, edit files or the database, or repair source. Every returned fixture must be repeatable with those capabilities. After proving a state, restore its initial conditions or create a separate unused fixture for inspection. Do not hand off consumed one-time links, an already-enrolled setup account, or mutually incompatible global settings unless the instructions restore them through supported browser controls. Use distinct local identities when checks change account state. Do not return credential values. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Search only targeted repository paths, not the entire host. Bound browser and shell commands; if navigation or a tool stalls, stop or reconcile it before returning a blocked result. An unfinished tool call cannot be accepted as a fixture result. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.",
+                },
+                schema,
+              }),
+            setup: async (ids, attempt) => {
+              const selected = dependencyOrder(
+                catalogEntries(settings.execution ?? []),
+                ids,
+                ({ command }) => command.dependsOn,
+              );
+              if (selected.some(({ command }) => command.policy === 'manual'))
+                throw new Error(
+                  'UI fixture setup cannot execute manual commands.',
+                );
+              const provisioned = await ensure(
+                [serviceKey],
+                `UI fixture setup ${revision}/${serviceKey}/${attempt}`,
+                [],
+                selected.map((entry) => entry.id),
+              );
+              if (provisioned.status === 'blocked')
+                throw new UiFixtureBlocked(provisioned.blocker, true);
+            },
+            verify: async (items) => {
+              const receipt = await ctx.step(
+                `UI fixture readiness ${revision}/${serviceKey}/${items.map((item) => item.id).join(',')}`,
+                async () => {
+                  try {
+                    for (const fixture of items) {
+                      if (fixture.credentialFile)
+                        await verifyUiFixtureCredentialFile(
+                          fixtureEvidenceDirectory,
+                          fixture.credentialFile,
+                        );
+                      await execution!.checkSources(
+                        fixture.repository,
+                        Array.isArray(fixture.source)
+                          ? fixture.source
+                          : [fixture.source],
+                      );
+                      const target = new URL(fixture.url, url!);
+                      const origins = new Set(
+                        Object.values(
+                          environmentContext?.endpoints ?? {},
+                        ).flatMap((endpoints) =>
+                          Object.values(endpoints).map(
+                            (endpoint) => new URL(endpoint).origin,
+                          ),
+                        ),
+                      );
+                      origins.add(new URL(url!).origin);
+                      if (
+                        !origins.has(target.origin) ||
+                        target.username ||
+                        target.password
+                      )
+                        throw new Error(
+                          `Fixture ${fixture.id} must use a verified local service endpoint.`,
+                        );
+                      const evidence = await realpath(fixture.screenshot);
+                      const inside = relative(
+                        await realpath(join(runDir, 'screenshots')),
+                        evidence,
+                      );
+                      if (
+                        !inside ||
+                        inside === '..' ||
+                        inside.startsWith(`..${sep}`) ||
+                        isAbsolute(inside) ||
+                        !(await stat(evidence)).isFile()
+                      )
+                        throw new Error(
+                          `Fixture ${fixture.id} needs browser evidence inside this Run's screenshot directory.`,
+                        );
+                      // A cookie-free host request cannot verify an authenticated
+                      // state. The preparer's browser evidence is followed by an
+                      // independent inspector using the repeatable instructions.
+                    }
+                    return { ready: true, error: '' };
+                  } catch (error) {
+                    return {
+                      ready: false,
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : 'Fixture probe failed',
+                    };
+                  }
+                },
+              );
+              if (!receipt.ready) throw new Error(receipt.error);
+            },
+          });
+          if (prepared.status !== 'ready') {
+            const reason =
+              prepared.status === 'blocked' ? prepared.reason : 'environment';
+            throw new UiFixtureBlocked(
+              {
+                kind: reason === 'environment' ? 'environment' : 'human',
+                code: reason === 'environment' ? 'verification' : reason,
+                capability: serviceKey,
+                action: prepared.summary,
+              },
+              true,
+            );
+          }
+          if ((await sourceRevision('after')) !== sourceBefore)
+            throw new UiFixtureSourceChanged(
+              'Fixture preparation changed tracked source; validation must run again.',
+            );
+          fixtures = prepared.fixtures;
+        }
         const screenshotDir = join(runDir, 'screenshots');
         const result = await actors.call('ui-inspector', {
           label: `ui-inspector ${revision}/${reviewCap}`,
@@ -843,7 +1240,16 @@ export function createDeliveryOperations(
             baseUrl: url!,
             checks,
             rules,
+            endpointInstruction:
+              "The supplied baseUrl is this Boot's verified frontend. Resolve relative check URLs against it; use the supplied rebound URL for older plans. Never follow a port mentioned in earlier prose when it differs from baseUrl.",
             previousExplanations,
+            ...(fixtures
+              ? {
+                  fixtures,
+                  fixtureInstruction:
+                    'Use the supplied prepared fixtures and their repeatable instructions for every check. If a fixture supplies credentialFile, read that private local file with your read_file tool, select the account role named in instructions, and use it only for local browser login. Never copy credential values into results, screenshots, notes, or comments. Verify the actual state in the browser; readiness evidence is not a visual pass. Preserve all checks and report any regressed prerequisite as blocked.',
+                }
+              : {}),
             ...(settings.environmentVersion
               ? {
                   environment: environmentContext,
@@ -862,20 +1268,27 @@ export function createDeliveryOperations(
           (check) => check.verdict === 'blocked',
         );
         if (blocked?.verdict === 'blocked')
-          throw new EnvironmentBlocked({
-            kind: ['credentials', 'permission', 'external'].includes(
-              blocked.reason,
-            )
-              ? 'human'
-              : 'environment',
-            code:
-              blocked.reason === 'environment'
-                ? 'verification'
-                : blocked.reason,
-            capability: blocked.id,
-            action:
-              'UI inspection could not execute a required check. Repair the environment or supply the required access, then resume without waiving coverage.',
-          });
+          throw new EnvironmentBlocked(
+            {
+              kind: ['credentials', 'permission', 'external'].includes(
+                blocked.reason,
+              )
+                ? 'human'
+                : 'environment',
+              code:
+                blocked.reason === 'environment'
+                  ? 'verification'
+                  : blocked.reason,
+              capability: blocked.id,
+              action: `UI inspection could not execute required coverage. ${result.results
+                .filter((check) => check.verdict === 'blocked')
+                .map((check) => `${check.id}: ${check.note}`)
+                .join(
+                  '\n',
+                )}. Repair local prerequisites or supply required access; do not waive checks.`,
+            },
+            true,
+          );
         observations = result.results.flatMap((result) => result.observations);
         uiSummary = `${result.summary}\n${result.results.map((check) => `- ${check.id}: ${check.verdict}. ${check.note}`).join('\n')}`;
       }
@@ -1005,7 +1418,7 @@ export function createDeliveryOperations(
         );
     }
     if (revalidate) {
-      await push();
+      await push('merger');
       return 'retry';
     }
     if (!(await readyAfterApproval())) return retryMerge();
@@ -1054,7 +1467,17 @@ export function createDeliveryOperations(
       for (;;) {
         const refinement = await actors.call('refiner', {
           label: `Clarify scope ${conversation.length + 1}`,
-          input: { issue: ctx.issue, workspace, conversation },
+          input: {
+            issue: ctx.issue,
+            workspace,
+            conversation,
+            ...(ctx.issue.clarifications?.length
+              ? {
+                  clarificationPolicy:
+                    'issue.clarifications contains recorded human question answers from prior runs of this issue, with source run, step and timestamp. Reuse these scope decisions unless newer human instructions supersede them. Do not ask resolved questions again. These historical answers never approve a merge or another checkpoint in this run.',
+                }
+              : {}),
+          },
           schema: Refinement,
         });
         if (refinement.status === 'clear') {
@@ -1084,8 +1507,11 @@ ${scope.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}
 ${scope.outOfScope.map((item) => `- ${item}`).join('\n') || 'None.'}
 
 ### Clarifications
-${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.answer}`).join('\n\n') || 'The ticket was clear without additional questions.'}`;
-      await ctx.post(decisions);
+${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.answer}`).join('\n\n') || (ctx.issue.clarifications?.length ? 'No additional clarification was needed in this run.' : 'The ticket was clear without additional questions.')}${ctx.issue.clarifications?.length ? `\n\n### Recorded human answers from earlier runs\n\n${ctx.issue.clarifications.map((answer) => `Source: ${answer.runId}, question ${answer.stepKey}, answered ${answer.answeredAt}.\n\n${answer.title}\n\n> ${answer.answer.replace(/\n/g, '\n> ')}`).join('\n\n')}` : ''}`;
+      // Ticket comments are hydrated by future runs; session activities are not.
+      // Keep the old path for frozen snapshots with positional journals.
+      if (settings.scopeCommentVersion) await ctx.comment(decisions);
+      else await ctx.post(decisions);
       delivery = scope.delivery;
       issue = {
         ...ctx.issue,
@@ -1163,17 +1589,22 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             ctx.visualRecap({
               deliverable: draft.body,
               title: issue.title,
-              scope,
+              scope: settings.recapDecisionVersion
+                ? {
+                    ...scope,
+                    handoffPhase: {
+                      stage: 'before-close',
+                      instruction:
+                        'The reviewed comment is published. Assess whether its content fulfills the agreed scope. Rocky closes the issue only after this recap succeeds. The pending workflow-owned closure alone is not a gap. Required content or evidence gaps still need attention.',
+                    },
+                  }
+                : scope,
               agents: actors.recap(),
             });
-          // Older runs recorded the recap before delivery. Preserve that order
-          // while replaying their immutable journal.
-          if (
-            ctx.replaying &&
-            (ctx.replayStep?.startsWith('reviewReport.') ||
-              (ctx.replayStep === 'linear.comment' &&
-                ctx.replayedStep?.('reviewReport.save')))
-          ) {
+          // Old snapshots recorded the recap before publication. Choose the
+          // sequence from the frozen snapshot, never from the next replay Step:
+          // a new Run can also resume inside reviewReport after publication.
+          if (!settings.commentDeliveryVersion) {
             ctx.stage('Visual recap');
             try {
               await recap();
@@ -1190,16 +1621,25 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           ctx.stage('Deliver');
           // Publishing belongs to the Workflow, not an Agent's tools or summary.
           await ctx.comment(draft.body);
+          ctx.stage('Visual recap');
+          // This recap sees the published comment. Closure follows its verdict.
+          // A recap audit failure must not redraft and post a second comment.
+          const report = await recap();
+          if (
+            settings.recapDecisionVersion &&
+            report.decision?.status !== 'ready'
+          ) {
+            await ctx.post(
+              `The delivered comment's recap still requires attention: ${report.decision?.summary ?? 'No decision was returned.'}\n${report.decision?.actions.join('\n') ?? ''}`,
+            );
+            return 'exhausted';
+          }
           if (delivery.stateChanges) {
             await ctx.linear.setState(states.done);
             await ctx.step('Confirm delivered issue state', () => ({
               state: states.done,
             }));
           }
-          ctx.stage('Visual recap');
-          // This recap now sees the verified publication and state receipts.
-          // A recap audit failure must not redraft and post a second comment.
-          await recap();
           return 'completed';
         }
         previous = { body: draft.body, problems };
@@ -1244,12 +1684,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           delivery,
           plan,
           commands,
+          environment: environmentContext,
           validationResponsibility,
         },
       });
       if (!repositories) await shell(ctx, 'git push origin HEAD');
       description = `${issue.url}\n\n${plan.summary}`;
-      if (repositories) await push();
+      if (repositories) await push('implementer');
       else
         pr = requireScm(
           await ctx.scm.openPr({
@@ -1279,29 +1720,57 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       const validations: string[] = [];
       if (execution) {
         const failed = new Set<string>();
-        for (const entry of await selectedCommands('validate')) {
-          if (entry.command.dependsOn.some((id) => failed.has(id))) {
-            failed.add(entry.id);
-            validations.push(
-              `${entry.id}: skipped because a prerequisite failed`,
+        const selected = await selectedCommands('validate');
+        const services = settings.validationEnvironmentVersion
+          ? [
+              ...new Set(
+                selected.flatMap(({ command }) =>
+                  Object.values(command.endpointEnv ?? {}).map(
+                    ({ service }) => service,
+                  ),
+                ),
+              ),
+            ]
+          : [];
+        const label = `Validation services ${revision}`;
+        try {
+          if (services.length) {
+            const result = await ensure(services, label, [], [], false);
+            if (result.status === 'blocked')
+              return await environmentFailure(
+                result.blocker,
+                operations.validate,
+              );
+            ctx.stage('Validate');
+          }
+          for (const entry of selected) {
+            if (entry.command.dependsOn.some((id) => failed.has(id))) {
+              failed.add(entry.id);
+              failedValidationChecks.add(entry.id);
+              validations.push(
+                `${entry.id}: skipped because a prerequisite failed`,
+              );
+              continue;
+            }
+            const result = await execution.command(
+              entry.id,
+              `Validate ${entry.id} ${revision}/${reviewCap}`,
             );
-            continue;
+            validations.push(
+              `${entry.id}: ${result.exitCode === 0 ? 'passed' : 'failed'} (${entry.command.command})`,
+            );
+            if (result.exitCode !== 0) {
+              failed.add(entry.id);
+              failedValidationChecks.add(entry.id);
+              validationProblems.push({
+                id: `validation/${revision}/${entry.id}`,
+                file: entry.repository.name,
+                text: `${entry.command.name} failed (exit ${result.exitCode}): ${entry.command.command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
+              });
+            } else failedValidationChecks.delete(entry.id);
           }
-          const result = await execution.command(
-            entry.id,
-            `Validate ${entry.id} ${revision}/${reviewCap}`,
-          );
-          validations.push(
-            `${entry.id}: ${result.exitCode === 0 ? 'passed' : 'failed'} (${entry.command.command})`,
-          );
-          if (result.exitCode !== 0) {
-            failed.add(entry.id);
-            validationProblems.push({
-              id: `validation/${revision}/${entry.id}`,
-              file: entry.repository.name,
-              text: `${entry.command.name} failed (exit ${result.exitCode}): ${entry.command.command}\n${`${result.stdout}\n${result.stderr}`.slice(-12000)}`,
-            });
-          }
+        } finally {
+          if (services.length) await execution.stop(label);
         }
       }
       for (const [name, command] of Object.entries(commands)) {
@@ -1448,6 +1917,8 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               text: 'UI changes need a dev service. Use Repair configuration and resume, and configure a service in the profile for future Runs.',
             },
           ]);
+        recapServices = selected;
+        recapCapabilities = triage.capabilities ?? [];
         if (!selected.length) return 'next';
         const label = `UI services ${revision}`;
         let retry: Complaint[] | undefined;
@@ -1460,7 +1931,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               triage.capabilities ?? [],
             );
             if (result.status === 'blocked')
-              return environmentFailure(result.blocker, operations.ui);
+              return await environmentFailure(result.blocker, operations.ui);
             endpoints = result.context.endpoints;
           } else endpoints = await execution.start(selected, label);
           for (const id of selected) {
@@ -1488,8 +1959,36 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             }
           }
         } catch (error) {
-          if (!(error instanceof EnvironmentBlocked) || ctx.replaying)
+          if (error instanceof UiFixtureSourceChanged) {
+            if (uiFixtureSourceRepairs >= 2)
+              return environmentFailure(
+                {
+                  kind: 'environment',
+                  code: 'verification',
+                  capability: 'ui-fixtures',
+                  action:
+                    'Fixture preparation repeatedly changed tracked source. Repair the fixture recipe before continuing.',
+                },
+                operations.ui,
+                false,
+              );
+            uiFixtureSourceRepairs++;
+            await push();
+            reviewCap++;
+            return 'retry';
+          }
+          if (
+            !(error instanceof EnvironmentBlocked) ||
+            (ctx.replaying && !(settings.recoveryVersion && error.recorded))
+          )
             throw error;
+          if (settings.recoveryVersion)
+            return await environmentFailure(
+              error.blocker,
+              operations.ui,
+              !(error instanceof UiFixtureBlocked) ||
+                !!settings.uiFixtureRecoveryVersion,
+            );
           await execution.stop(label);
           if (
             error.blocker.kind === 'environment' &&
@@ -1626,7 +2125,12 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         return 'retry';
       }
       reviewerState = { complaints: [], resolutions: [] };
-      await push();
+      if (await push()) {
+        // A repair after a passing review changes its subject. Validate and
+        // review that new head before CI, publication or approval.
+        reviewCap++;
+        return 'retry';
+      }
 
       return 'next';
     },
@@ -1653,62 +2157,120 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       ctx.stage('Visual recap');
       // Resolve only after the repair passed validation, reviews, and CI.
       await finishMergeThreads();
-      for (const candidate of repositories?.open ?? [pr]) {
-        try {
-          const result = await ctx.visualRecap({
-            pr: candidate,
-            scope: {
-              issue,
-              validationSummary,
-              uiSummary,
-              ...(repositories
-                ? { ...scope, pullRequests: repositories.current }
-                : {}),
-            },
-            agents: actors.recap(),
-          });
-          recaps.set(candidate.repo, result);
-          if (candidate.repo === pr.repo) recap = result;
-        } catch (error) {
-          if (!isRecapAuditError(error)) throw error;
-          const complaints = error.problems.map((text, index) =>
-            Complaint.parse({
-              id: `recap/${revision}/${candidate.repo}/${index + 1}`,
-              file: candidate.repo,
-              text,
-              severity: 'must-fix',
-            }),
-          );
-          const fixed = await actors.call('fixer', {
-            label: `Repair visual recap evidence ${revision}/${reviewCap}`,
-            input: {
-              issue,
-              workspace,
-              delivery,
-              complaints,
-              commands,
-              validationResponsibility,
-              instruction:
-                'Address every recap evidence complaint in the deliverable. Commit and push only the scoped correction. The workflow will revalidate, review, and generate a fresh recap.',
-            },
-            schema: FixReportFor(complaints),
-          });
-          changes.push(fixed.summary);
-          if (!fixed.resolutions.some(({ status }) => status === 'fixed'))
-            return exhaust(complaints);
-          await push();
-          reviewerState = { complaints, resolutions: fixed.resolutions };
-          return 'retry';
+      const provision =
+        settings.recapEnvironmentVersion &&
+        execution &&
+        recapServices.length > 0;
+      const label = `Recap services ${revision}`;
+      let recapEnvironment: VerifiedEnvironment | undefined;
+      try {
+        if (provision && execution) {
+          if (settings.environmentVersion) {
+            const result = await ensure(
+              recapServices,
+              label,
+              recapCapabilities,
+            );
+            if (result.status === 'blocked')
+              return await environmentFailure(result.blocker, operations.recap);
+            recapEnvironment = result.context;
+          } else {
+            recapEnvironment = {
+              version: 1,
+              endpoints: await execution.start(recapServices, label),
+              capabilities: [],
+              limitations: [],
+            };
+          }
         }
-      }
-      if (!recap) {
-        const first = recaps.values().next().value;
-        if (!first)
-          throw new Error('No review report was generated for this delivery.');
-        recap = first;
-      }
+        for (const candidate of repositories?.open ?? [pr]) {
+          try {
+            const result = await ctx.visualRecap({
+              pr: candidate,
+              scope: {
+                issue,
+                validationSummary,
+                uiSummary,
+                ...(settings.recapDecisionVersion
+                  ? {
+                      handoffPhase: {
+                        stage: 'before-ready',
+                        instruction:
+                          'Assess whether the validated change is ready for review now. Rocky marks the PR ready, updates the issue to its review state, and posts the handoff only after this recap succeeds. Those pending workflow-owned effects alone are not a gap. Product, check, and evidence gaps still require attention.',
+                      },
+                    }
+                  : {}),
+                ...(recapEnvironment ? { environment: recapEnvironment } : {}),
+                ...(repositories
+                  ? { ...scope, pullRequests: repositories.current }
+                  : {}),
+              },
+              agents: actors.recap(),
+            });
+            // Old journals already contain the ready-flip after this report.
+            // The checkpoint migration enables this guard on its next cycle.
+            if (
+              (settings.recapDecisionVersion || legacyRecapRepair) &&
+              result.decision?.status !== 'ready'
+            )
+              throw new RecapAuditError([
+                result.decision?.summary ?? 'The recap returned no decision.',
+                ...(result.decision?.actions ?? []),
+              ]);
+            recaps.set(candidate.repo, result);
+            if (candidate.repo === pr.repo) recap = result;
+          } catch (error) {
+            if (!isRecapAuditError(error)) throw error;
+            const complaints = error.problems.map((text, index) =>
+              Complaint.parse({
+                id: `recap/${revision}/${candidate.repo}/${index + 1}`,
+                file: candidate.repo,
+                text,
+                severity: 'must-fix',
+              }),
+            );
+            const fixed = await actors.call('fixer', {
+              label: `Repair visual recap evidence ${revision}/${reviewCap}`,
+              input: {
+                issue,
+                workspace,
+                delivery,
+                complaints,
+                commands,
+                validationResponsibility,
+                instruction:
+                  'Address every recap evidence complaint in the deliverable. Commit and push only the scoped correction. The workflow will revalidate, review, and generate a fresh recap.',
+              },
+              schema: FixReportFor(complaints),
+            });
+            changes.push(fixed.summary);
+            if (!fixed.resolutions.some(({ status }) => status === 'fixed'))
+              return exhaust(complaints);
+            await push();
+            reviewerState = { complaints, resolutions: fixed.resolutions };
+            return 'retry';
+          }
+        }
+        if (!recap) {
+          const first = recaps.values().next().value;
+          if (!first)
+            throw new Error(
+              'No review report was generated for this delivery.',
+            );
+          recap = first;
+        }
 
-      return 'next';
+        return 'next';
+      } catch (error) {
+        if (
+          !(error instanceof EnvironmentBlocked) ||
+          (ctx.replaying && !(settings.recoveryVersion && error.recorded))
+        )
+          throw error;
+        return await environmentFailure(error.blocker, operations.recap);
+      } finally {
+        if (provision && execution) await execution.stop(label);
+      }
     },
     async publish() {
       if (repositories) {
@@ -1773,9 +2335,13 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
       if (answer.decision === 'steer') {
         if (repositories) await repositories.markDraft(true);
         else pr = requireScm(await ctx.scm.markDraft(pr, true));
+        const recapRecovery = answer.message.startsWith(
+          'Rocky recap recovery:',
+        );
+        if (recapRecovery) legacyRecapRepair = true;
         issue = {
           ...issue,
-          description: `${issue.description}\n\n### Human steering\n${answer.message}`,
+          description: `${issue.description}\n\n### ${recapRecovery ? 'Automated recap recovery' : 'Human steering'}\n${answer.message}`,
         };
         ticket = `${issue.title}\n${issue.description}`;
         serviceChecks.clear();
@@ -1791,6 +2357,17 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
     },
     async merge() {
       ctx.stage('Merge');
+      // A legacy snapshot may already have requested approval for an
+      // unresolved recap. Even an approval that raced with recovery cannot
+      // authorize merging that revision.
+      if (
+        [...recaps.values()].some(
+          (report) => report.decision?.status !== 'ready',
+        )
+      ) {
+        legacyRecapRepair = true;
+        return retryMerge();
+      }
       if (repositories) return mergeRepositories();
       const update = requireScm(await ctx.scm.updateBranch(pr));
       const adoptSource =
@@ -1816,7 +2393,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             `Could not adopt the platform branch update: ${merge.stderr}`,
           );
         }
-        await push();
+        await push('merger');
         return 'retry';
       }
       if (answer?.decision !== 'approve')
@@ -1921,8 +2498,38 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           options.input &&
           typeof options.input === 'object' &&
           !Array.isArray(options.input)
-            ? (options.input as Record<string, unknown>)
+            ? { ...(options.input as Record<string, unknown>) }
             : {};
+        const sourceAgent = [
+          'implementer',
+          'fixer',
+          'ci-fixer',
+          'merger',
+        ].includes(role);
+        const validationIds = catalogEntries(settings.execution ?? [])
+          .filter(
+            ({ command }) =>
+              command.policy !== 'manual' && command.purpose !== 'install',
+          )
+          .map(({ id }) => id);
+        const requests =
+          settings.validationRequestVersion &&
+          sourceAgent &&
+          validationIds.length &&
+          (!options.schema || options.schema instanceof z.ZodObject)
+            ? z.array(z.enum(validationIds))
+            : undefined;
+        const schema = requests
+          ? (options.schema instanceof z.ZodObject
+              ? options.schema
+              : z.object({})
+            ).safeExtend({ requiredValidationCommands: requests })
+          : options.schema;
+        if (requests) {
+          input.validationResponsibility = validationResponsibility;
+          input.validationRequestInstruction =
+            'List every configured check you defer to host validation in requiredValidationCommands, using only supplied non-manual catalog IDs. Use an empty array only when none are pending. The Workflow keeps these commands mandatory in every later validation round, even if the optional selector omits them. Naming a pending check only in summary is not a validation request. Report pending evidence honestly; unconfigured acceptance checks remain your responsibility.';
+        }
         if (role === 'fixer' && Array.isArray(input.complaints))
           history.forFixer(
             input.complaints as Complaint[],
@@ -1930,6 +2537,7 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
           );
         const result = await connectedAgents.call(role, {
           ...options,
+          ...(requests ? { schema, input } : {}),
           ...(repositories
             ? {
                 input: {
@@ -1959,6 +2567,14 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
               }
             : {}),
         });
+        if (requests) {
+          const ids = requests.parse(
+            'requiredValidationCommands' in result
+              ? result.requiredValidationCommands
+              : [],
+          );
+          for (const id of ids) requestedValidationChecks.add(id);
+        }
         if (
           role === 'fixer' &&
           'resolutions' in result &&

@@ -98,6 +98,20 @@ export async function prepareProfileSnapshot(
         : profile.workflow.source;
     if (isFlowSource(workflowSource)) {
       const flow = parseFlow(workflowSource);
+      flow.settings.recoveryVersion = 1;
+      flow.settings.ciRetryVersion = 1;
+      flow.settings.ciRetryRefusalVersion = 1;
+      flow.settings.ciUnresolvedCommitVersion = 1;
+      flow.settings.scopeCommentVersion = 1;
+      flow.settings.commentDeliveryVersion = 1;
+      flow.settings.recapDecisionVersion = 1;
+      flow.settings.recapEnvironmentVersion = 1;
+      flow.settings.validationEnvironmentVersion = 1;
+      flow.settings.validationRecheckVersion = 1;
+      flow.settings.validationRequestVersion = 1;
+      flow.settings.uiFixtureVersion = 1;
+      flow.settings.uiFixtureRecoveryVersion = 1;
+      flow.settings.uiPlanEndpointVersion = 1;
       flow.settings.uiConfigurationVersion = 1;
       flow.settings.mergeReadinessVersion = 1;
       workflowSource = JSON.stringify(flow);

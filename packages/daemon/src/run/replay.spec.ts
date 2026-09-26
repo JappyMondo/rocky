@@ -9,6 +9,8 @@
  * Covers AC1 (killed at every phase boundary), AC3 (divergence), AC4 (a caught
  * `failed` Step re-throws identically) and AC5 (the crash-loop guard).
  */
+import { JournalWriter } from './writer.js';
+import { GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1983,3 +1985,49 @@ describe('a Run killed at each phase boundary', () => {
     expect(journal.latest(2)).toBeUndefined();
   });
 });
+
+it.each([false, true])(
+  'resumes repeated planned shutdowns with old positional journals (parallel=%s)',
+  async (parallel) => {
+    let executed = 0;
+    const workflow =
+      (controller?: AbortController): Workflow =>
+      async (ctx) => {
+        const work = async (runner: BootContext) => {
+          await runner.step('agent', {}, async (handle) => {
+            executed++;
+            if (controller) {
+              await handle.update({ session: 'retained' });
+              controller.abort();
+              throw new Error('planned shutdown');
+            }
+            expect(handle.progress).toEqual({ session: 'retained' });
+            return { status: 'done', result: 'ok' };
+          });
+        };
+        if (parallel)
+          await ctx.parallel('outer', [0], {}, async (branch) => {
+            await branch.parallel('inner', [0], {}, async (nested) =>
+              work(nested),
+            );
+          });
+        else await work(ctx);
+        return 'merged';
+      };
+    for (let count = 0; count < 4; count++) {
+      const controller = new AbortController();
+      expect(
+        (await boot(workflow(controller), { signal: controller.signal }))
+          .status,
+      ).toBe('cancelled');
+      const journal = await openJournal(path);
+      expect(journal.end).toBeUndefined();
+      await (
+        await JournalWriter.open(path)
+      ).put(GRACEFUL_SHUTDOWN_CONTROL, journal.nextBoot - 1);
+      expect((await openJournal(path)).interruptedBoots(0)).toBe(0);
+    }
+    expect((await boot(workflow())).status).toBe('finished');
+    expect(executed).toBe(5);
+  },
+);

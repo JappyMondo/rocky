@@ -22,7 +22,7 @@ const runtime = new WorkflowRuntime({
 });
 const scheduler = await RunScheduler.open({
   paths,
-  maxRuns: config.concurrency.maxRuns, // default 3
+  maxRuns: config.concurrency.maxRuns, // default 1
   boot: runtime.boot,
   cancellation: { kill: runtime.kill, cleanup: preserveWork },
   onError: reportRuntimeError,
@@ -34,6 +34,10 @@ await scheduler.sweepRetention(config.retention);
 await scheduler.close(); // daemon shutdown, not Run cancellation
 await runtime.close();
 ```
+
+The default admission cap is one Run so repository build and test commands do
+not compete on a fresh installation. Operators can raise `concurrency.maxRuns`
+for hosts with capacity; the configured cap is preserved during upgrades.
 
 The caller owns timer and HTTP registration. `tick()` uses five minutes for
 `checkpoint`; other parking keys use 10, 20, 40, then 60 seconds. One Run has at

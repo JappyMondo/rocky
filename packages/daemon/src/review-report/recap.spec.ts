@@ -85,7 +85,12 @@ afterEach(async () => {
 });
 
 async function fixture(
-  options: { deliverable?: string; auditFails?: boolean; version?: 1 | 2 } = {},
+  options: {
+    deliverable?: string;
+    auditFails?: boolean;
+    version?: 1 | 2;
+    narrative?: typeof narrative;
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), 'rocky-recap-'));
   roots.push(root);
@@ -119,7 +124,7 @@ async function fixture(
       if (!options.deliverable && options.version !== 1)
         expect(request.prompt).toContain('Desktop admin screen');
       result = {
-        ...narrative,
+        ...(options.narrative ?? narrative),
         keyChanges: options.deliverable ? [] : narrative.keyChanges,
       };
     } else if (
@@ -232,6 +237,32 @@ it('does not save a recap that still fails its independent audit after two passe
     error: { message: expect.stringContaining('after two passes') },
   });
   expect(f.invoke).toHaveBeenCalledTimes(10);
+  expect(await f.artifacts.listReports('TEST-1-1')).toEqual([]);
+});
+
+it('rejects a ready handoff when its own requirement assessment records a gap', async () => {
+  const f = await fixture({
+    narrative: {
+      ...narrative,
+      decision: {
+        status: 'ready',
+        summary: 'The change is ready for review.',
+        actions: [],
+      },
+      requirements: narrative.requirements.map((requirement) => ({
+        ...requirement,
+        status: 'gap',
+      })),
+    },
+  });
+  expect(await f.boot()).toMatchObject({
+    status: 'failed',
+    error: {
+      message: expect.stringContaining(
+        'gap or unverified requirements cannot be marked ready',
+      ),
+    },
+  });
   expect(await f.artifacts.listReports('TEST-1-1')).toEqual([]);
 });
 

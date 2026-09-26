@@ -95,6 +95,35 @@ function must<T>(value: T | null | undefined): T {
   return value;
 }
 
+it('parks and resumes local checkpoints across restart without Linear effects', async () => {
+  const f = fixture();
+  f.client.session = async () => {
+    throw new Error('Local control must not poll Linear');
+  };
+  f.client.activities = async () => {
+    throw new Error('Local control must not fetch activities');
+  };
+  const local = () =>
+    f.open({ sessionId: undefined, issueId: undefined, appUserId: undefined });
+  expect(
+    await local().checkpoint('2', { ...question, kind: 'question' }),
+  ).toEqual({ status: 'waiting' });
+  const checkpoint = must(await local().currentCheckpoint());
+  expect(
+    await local().checkpoint('2', { ...question, kind: 'question' }),
+  ).toEqual({ status: 'waiting' });
+  await local().answer({
+    ...checkpoint,
+    requestId: 'local-answer',
+    answer: { decision: 'steer', message: 'Keep existing behavior.' },
+  });
+  expect(await local().checkpoint('2', question)).toEqual({
+    status: 'done',
+    result: { decision: 'steer', message: 'Keep existing behavior.' },
+  });
+  expect(f.activities).toEqual([]);
+});
+
 describe('Checkpoint Answer intake', () => {
   it('publishes exact Checkpoint snapshots and returns the durable winning Answer', async () => {
     const f = fixture();

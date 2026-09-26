@@ -32,6 +32,7 @@ import { newRepositoryProfile } from '../config/profiles.js';
 import { runBoot } from '../run/replay.js';
 import { createWorkflowContext } from '../run/context.js';
 import { readJournal } from '../run/journal.js';
+import { AgentBlockedError } from '../run/agent-tools.js';
 
 const roots: string[] = [];
 const children: OwnedCommand[] = [];
@@ -232,7 +233,9 @@ it('verifies documented local login and feature reachability with real dependent
     );
     expect(JSON.stringify(f.receipts)).not.toContain('local-development-only');
     await f.execution.stop('done');
-    expect(await readFile(join(f.repoDir, '.prepared'), 'utf8')).toBe('');
+    expect(
+      await readFile(join(f.root, 'workspace/web/.prepared'), 'utf8'),
+    ).toBe('');
     expect(
       (await readdir(f.root)).some((name) =>
         name.startsWith('environment-probe-'),
@@ -345,6 +348,56 @@ it('restarts crashed services with fresh endpoints and leaves unrelated data int
   expect(await readFile(join(f.root, 'persistent-data'), 'utf8')).toBe('keep');
   await f.execution.stop('done');
 });
+it.each([false, true])(
+  'polls transient service recheck failures without changing receipts (replay=%s)',
+  async (replay) => {
+    const f = await fixture();
+    await writeFile(join(f.root, 'workspace/web/.prepared'), 'ready');
+    await f.execution.start(['web/api'], 'service');
+    const receiptsBefore = f.receipts.length;
+    if (replay) {
+      // A pre-change journal has one successful recheck receipt, irrespective
+      // of how many live HTTP probes the current Boot needs.
+      f.ctx.step = async <T>(_label: string, _work: () => T | Promise<T>) =>
+        ({ ready: true }) as T;
+    }
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('temporary timeout'))
+      .mockResolvedValueOnce(new Response('', { status: 503 }));
+    try {
+      await expect(
+        f.execution.start(['web/api'], 'service'),
+      ).resolves.toHaveProperty('web/api');
+      expect(fetch).toHaveBeenCalledTimes(3);
+      if (!replay)
+        expect(f.receipts.slice(receiptsBefore)).toEqual([
+          { label: 'service: recheck web/api', result: { ready: true } },
+        ]);
+    } finally {
+      fetch.mockRestore();
+      await f.execution.stop('done');
+    }
+  },
+);
+it('bounds unhealthy service rechecks by the configured readiness attempts', async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, 'workspace/web/.prepared'), 'ready');
+  await f.execution.start(['web/api'], 'service');
+  f.repo.services[0].readiness.attempts = 2;
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockRejectedValue(new Error('unavailable'));
+  try {
+    await expect(f.execution.start(['web/api'], 'service')).rejects.toThrow(
+      'did not become ready',
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    fetch.mockRestore();
+    await f.execution.stop('done');
+  }
+});
 it('uses the current setup budget when a replayed allowance is stale', async () => {
   const f = await fixture();
   f.repo.commands[0].timeoutMs = 1_800_000;
@@ -358,7 +411,7 @@ it('uses the current setup budget when a replayed allowance is stale', async () 
     async (id, timeoutMs, checks, secretEnv) => {
       if (id === 'web/install') {
         timeouts.push(timeoutMs);
-        await writeFile(join(f.repoDir, '.prepared'), '');
+        await writeFile(join(f.root, 'workspace/web/.prepared'), '');
         return { exitCode: 0, stdout: '' };
       }
       return probe(id, timeoutMs, checks, secretEnv);
@@ -391,7 +444,7 @@ it('keeps a recorded zero setup allowance on the same replay path', async () => 
   expect(probe).not.toHaveBeenCalled();
 });
 it.each([false, true])(
-  'replays environment receipts on polls and checks live setup on working Boots (broken setup: %s)',
+  'replays environment receipts without reinstalling on working Boots (changed installer: %s)',
   async (breakSetup) => {
     const f = await fixture();
     // First verifier invocation fails; the environment recovery reruns it, succeeds,
@@ -471,18 +524,13 @@ it.each([false, true])(
     kill.mockRestore();
     if (breakSetup) f.repo.commands[0].command = 'exit 23';
     const replay = await boot();
-    if (breakSetup) {
-      expect(replay).toMatchObject({
-        status: 'failed',
-        error: {
-          name: 'EnvironmentBlocked',
-          message: expect.stringContaining('Previously verified setup failed'),
-        },
-      });
-    } else {
-      expect(replay.status).toBe('finished');
-      expect(f.commands.length).toBeGreaterThan(commandsBeforePoll);
-    }
+    expect(replay.status, JSON.stringify(replay)).toBe('finished');
+    expect(f.commands.length).toBeGreaterThan(commandsBeforePoll);
+    expect(
+      f.commands
+        .slice(commandsBeforePoll)
+        .some((command) => command.includes('exit 23')),
+    ).toBe(false);
     expect(implementations).toBe(1);
     const journal = await readJournal(journalPath);
     expect(JSON.stringify(journal)).not.toContain(
@@ -490,6 +538,82 @@ it.each([false, true])(
     );
   },
 );
+
+it('restores setup before replaying an interrupted install validation command', async () => {
+  const f = await fixture();
+  const journalPath = join(f.root, 'journal.jsonl');
+  let controller: AbortController | undefined;
+  let interrupt = true;
+  const boot = () =>
+    runBoot({
+      journalPath,
+      ...(controller ? { signal: controller.signal } : {}),
+      workflow: async (runner) => {
+        const ctx = createWorkflowContext(
+          runner,
+          {
+            issue: {
+              identifier: 'TEST-1',
+              title: '',
+              description: '',
+              labels: [],
+              url: '',
+            },
+            branch: 'test',
+            ports: [],
+          },
+          {
+            exec: async (command, background, timeoutMs) => {
+              if (command === 'test -f .prepared' && interrupt) {
+                await rm(join(f.repoDir, '.prepared'));
+                controller?.abort();
+                throw new Error('interrupted install');
+              }
+              return f.exec(command, background, timeoutMs);
+            },
+            changedFiles: async () => [],
+          },
+        );
+        const execution = new WorkspaceExecution(
+          ctx,
+          f.input,
+          [f.repo],
+          f.root,
+          true,
+        );
+        try {
+          expect(
+            (
+              await ensureEnvironment(ctx, execution, {
+                label: 'baseline',
+                allowSetup: true,
+              })
+            ).status,
+          ).toBe('ready');
+        } finally {
+          await execution.stop('done');
+        }
+        await ctx.exec('test -f .prepared', {
+          label: 'Validate web/install 2/5',
+        });
+        return 'completed';
+      },
+    });
+  controller = new AbortController();
+  expect((await boot()).status).toBe('cancelled');
+  await expect(readFile(join(f.repoDir, '.prepared'))).rejects.toThrow();
+  interrupt = false;
+  controller = undefined;
+  const resumed = await boot();
+  expect(resumed, JSON.stringify(resumed)).toMatchObject({
+    status: 'finished',
+    outcome: 'completed',
+  });
+  expect(await readFile(join(f.repoDir, '.prepared'), 'utf8')).toBe('');
+  expect(
+    f.commands.filter((command) => command.includes('touch .prepared')),
+  ).toHaveLength(2);
+});
 it('verifies onboarding in isolated clones and preserves the source checkout', async () => {
   const f = await fixture();
   const paths = rockyPaths(join(f.root, 'rocky'));
@@ -619,6 +743,8 @@ it('accepts a versioned catalog repair after exhaustion and preserves implementa
   });
   const settings = {
     ...defaultFlowSettings(),
+    uiFixtureVersion: undefined,
+    recoveryVersion: undefined, // Pre-recovery snapshot keeps its continuation boundary.
     pullRequests: 'lead' as const,
     environmentVersion: 1 as const,
     workspaceSetup: true,
@@ -705,6 +831,7 @@ it('accepts a versioned catalog repair after exhaustion and preserves implementa
             external: () =>
               ({
                 post: async () => undefined,
+                comment: async () => undefined,
                 scm: {
                   openPr: async () => ({
                     headSha: 'head',
@@ -877,3 +1004,549 @@ it('starts setup service dependencies before running an authorized fixture recip
   ).toBe(true);
   await f.execution.stop('done');
 });
+
+it.each([0, 1])(
+  'waits for all capability checks without restarting an already listening service (exit %s)',
+  async (failureExit) => {
+    const f = await fixture();
+    f.repo.commands[1].timeoutMs = 500;
+    for (const service of f.repo.services)
+      service.readiness = { endpoint: 'web', attempts: 4, intervalMs: 300 };
+    f.repo.commands[1].command = `count=$(cat .verify-count 2>/dev/null || echo 0); count=$((count + 1)); echo "$count" > .verify-count; if [ "$count" -lt 3 ]; then printf '%s' '{"status":"failed","checks":[{"id":"login","executed":true,"passed":false}]}'; exit ${failureExit}; else ${node} verify.cjs; fi`;
+    const result = await ensureEnvironment(f.ctx, f.execution, {
+      label: 'slow-backend',
+      allowSetup: true,
+      maxRepairs: 0,
+    });
+    expect(result.status).toBe('ready');
+    expect(
+      f.receipts.filter((r) => r.label.includes('setup web/install')),
+    ).toHaveLength(1);
+    expect(await readFile(join(f.repoDir, '.verify-count'), 'utf8')).toBe(
+      '3\n',
+    );
+    await f.execution.stop('done');
+  },
+);
+
+it.each([
+  { recapEnvironment: true, fixturePreflight: false },
+  { recapEnvironment: false, fixturePreflight: false },
+  { recapEnvironment: true, fixturePreflight: true },
+  { recapEnvironment: true, fixturePreflight: true, sourceChanged: true },
+  { recapEnvironment: true, fixturePreflight: true, multipleSources: true },
+  { recapEnvironment: true, fixturePreflight: true, fixtureRecovery: true },
+  {
+    recapEnvironment: true,
+    fixturePreflight: true,
+    fixtureRecovery: true,
+    fixtureAgentBlock: true,
+  },
+  {
+    recapEnvironment: true,
+    fixturePreflight: true,
+    fixtureRecoveryLegacy: true,
+  },
+  { recapEnvironment: true, fixturePreflight: false, stalePlan: true },
+])(
+  'repairs UI fixtures and provisions recap previews across journal replay (new snapshot=%s)',
+  async ({
+    recapEnvironment,
+    fixturePreflight,
+    sourceChanged = false,
+    multipleSources = false,
+    stalePlan = false,
+    fixtureRecovery = false,
+    fixtureRecoveryLegacy = false,
+    fixtureAgentBlock = false,
+  }) => {
+    const { createDeliveryOperations } = await import('../flow/delivery.js');
+    const f = await fixture();
+    f.repo.environment.capabilities[0].kind = 'browser';
+    f.repo.environment.capabilities[0].baseline = false;
+    f.repo.commands.push({
+      ...commandRecipe('seed', 'touch .fixture-ready'),
+      policy: 'agent',
+    });
+    const calls: string[] = [];
+    const agents = {
+      call: async (
+        role: string,
+        options?: {
+          schema?: { safeParse(value: unknown): { success: boolean } };
+          label?: string;
+          input?: {
+            fixtures?: unknown;
+            fixtureEvidenceDirectory?: string;
+            fixtureInstruction?: string;
+          };
+        },
+      ) => {
+        calls.push(role);
+        if (role === 'refiner')
+          return {
+            status: 'clear',
+            scope: 'UI',
+            decisions: [],
+            acceptanceCriteria: [],
+            outOfScope: [],
+            delivery: { kind: 'pull-request', stateChanges: false },
+          };
+        if (role === 'planner') return { steps: [], summary: 'plan' };
+        if (role === 'ui-triage')
+          return { isFrontend: true, selected: ['web/ui'], reason: 'UI' };
+        if (role === 'ui-planner')
+          return {
+            checks: [
+              {
+                id: 'feature',
+                url: stalePlan ? 'http://localhost:4201/feature' : '/',
+                action: stalePlan
+                  ? 'Open http://localhost:4201/feature'
+                  : 'Open',
+                expected: 'Visible',
+              },
+            ],
+            summary: 'check',
+          };
+        if (options?.label?.startsWith('Prepare UI fixtures')) {
+          expect(options.input).toMatchObject({
+            validationResponsibility: {
+              repositoryCatalog: expect.arrayContaining([
+                expect.objectContaining({ id: 'web' }),
+              ]),
+            },
+          });
+          const exists = await readFile(
+            join(f.repoDir, '.fixture-ready'),
+            'utf8',
+          ).then(
+            () => true,
+            () => false,
+          );
+          await mkdir(join(f.root, 'screenshots'), { recursive: true });
+          await writeFile(
+            join(f.root, 'screenshots', 'fixture.png'),
+            'fixture evidence',
+          );
+          if ((fixtureRecovery || fixtureRecoveryLegacy) && !exists) {
+            if (fixtureAgentBlock)
+              throw new AgentBlockedError('Local fixture unavailable', {
+                reason: 'environment',
+                requiredTool: 'A supported local fixture',
+                fix: 'Run the configured seed command.',
+              });
+            return {
+              status: 'blocked',
+              reason: 'environment',
+              summary: 'The local feature needs a seed command.',
+            };
+          }
+          const credentialFile = join(
+            f.root,
+            'workspace',
+            '.rocky-evidence',
+            'accounts.json',
+          );
+          if (fixturePreflight)
+            expect(options?.input?.fixtureEvidenceDirectory).toBe(
+              join(f.root, 'workspace', '.rocky-evidence'),
+            );
+          if (exists && fixturePreflight)
+            await writeFile(credentialFile, '{"role":"viewer"}', {
+              mode: 0o600,
+            });
+          return exists
+            ? {
+                status: 'ready',
+                summary: 'Local fixture verified',
+                fixtures: [
+                  {
+                    id: 'feature',
+                    url: '/',
+                    instructions: 'Open the prepared local feature',
+                    ...(fixturePreflight
+                      ? {
+                          credentialFile,
+                        }
+                      : {}),
+                    repository: 'web',
+                    source: multipleSources
+                      ? ['README.md', 'server.cjs']
+                      : 'README.md',
+                    executed: true,
+                    screenshot: join(f.root, 'screenshots', 'fixture.png'),
+                  },
+                ],
+              }
+            : {
+                status: 'setup',
+                commands: ['web/seed'],
+                summary: 'Seed the local fixture first',
+              };
+        }
+        if (role === 'fixer') {
+          expect(
+            options?.schema?.safeParse({
+              action: 'repaired',
+              commands: ['web/ui'],
+              summary: 'wrong catalog',
+              requiredValidationCommands: [],
+            }).success,
+          ).toBe(false);
+          expect(
+            options?.schema?.safeParse({
+              action: 'repaired',
+              commands: ['web/seed'],
+              summary: 'valid command',
+              requiredValidationCommands: [],
+            }).success,
+          ).toBe(true);
+          return {
+            action: 'repaired',
+            commands: ['web/seed', 'web/ui'],
+            requiredValidationCommands: [],
+            summary:
+              'Use the documented local seed; legacy receipt also names its service.',
+          };
+        }
+        if (role === 'ui-inspector') {
+          if (stalePlan) {
+            const input = options?.input as {
+              baseUrl: string;
+              checks: { url: string; action: string }[];
+            };
+            expect(input.checks[0].url).toBe(
+              new URL('/feature', input.baseUrl).href,
+            );
+            expect(input.checks[0].action).toContain(
+              new URL(input.baseUrl).origin,
+            );
+          }
+          if (fixturePreflight)
+            expect(options?.input?.fixtures).toEqual([
+              expect.objectContaining({
+                id: 'feature',
+                url: '/',
+                executed: true,
+                credentialFile: join(
+                  f.root,
+                  'workspace',
+                  '.rocky-evidence',
+                  'accounts.json',
+                ),
+              }),
+            ]);
+          if (fixturePreflight)
+            expect(options?.input?.fixtureInstruction).toContain('read_file');
+          const ready = await readFile(
+            join(f.repoDir, '.fixture-ready'),
+            'utf8',
+          ).then(
+            () => true,
+            () => false,
+          );
+          return {
+            results: [
+              {
+                id: 'feature',
+                verdict: ready ? 'ok' : 'blocked',
+                executed: ready,
+                reason: 'environment',
+                note: 'Missing local fixture',
+                observations: [],
+                screenshots: [],
+              },
+            ],
+            summary: 'inspect',
+          };
+        }
+        return { summary: 'done' };
+      },
+    } as unknown as import('../flow/agents.js').DeliveryAgents;
+    f.repo.environment.capabilities.push({
+      ...capability,
+      id: 'runtime',
+      kind: 'runtime',
+      services: [],
+      verify: 'web/runtime',
+      setup: [],
+      checks: ['runtime'],
+    });
+    f.repo.commands.push(
+      commandRecipe(
+        'runtime',
+        `printf '%s' '{"status":"passed","checks":[{"id":"runtime","executed":true,"passed":true}]}'`,
+      ),
+    );
+    let sourceReads = 0;
+    let approved = false;
+    let captures = 0;
+    const journalPath = join(f.root, 'recovery-journal.jsonl');
+    const boot = () =>
+      runBoot({
+        journalPath,
+        workflow: async (runner) => {
+          const ctx = createWorkflowContext(
+            runner,
+            {
+              issue: {
+                identifier: 'TEST-1',
+                title: 'UI',
+                description: '',
+                labels: [],
+                url: '',
+              },
+              branch: 'test',
+              ports: [],
+            },
+            {
+              exec: (cmd, background, timeout) =>
+                cmd.includes('git hash-object --stdin')
+                  ? Promise.resolve({
+                      exitCode: 0,
+                      stdout:
+                        sourceChanged && ++sourceReads > 1
+                          ? 'changed-source'
+                          : 'head',
+                      stderr: '',
+                    })
+                  : /git (push|diff|rev-parse)/.test(cmd)
+                    ? Promise.resolve({
+                        exitCode: 0,
+                        stdout: 'head',
+                        stderr: '',
+                      })
+                    : f.exec(cmd, background, timeout),
+              changedFiles: async () => ['web/view.ts'],
+              external: () =>
+                ({
+                  post: async () => undefined,
+                  comment: async () => undefined,
+                  scm: {
+                    openPr: async () => ({ headSha: 'head', repo: 'web' }),
+                  },
+                  visualRecap: async (input: {
+                    scope: {
+                      environment?: {
+                        endpoints: Record<string, Record<string, string>>;
+                      };
+                    };
+                  }) =>
+                    ctx.step('capture preview', async () => {
+                      captures++;
+                      const endpoints = input.scope.environment?.endpoints;
+                      if (recapEnvironment) {
+                        expect(endpoints?.['web/ui']?.web).toBeTruthy();
+                        expect((await fetch(endpoints!['web/ui'].web)).ok).toBe(
+                          true,
+                        );
+                      } else expect(endpoints).toBeUndefined();
+                      return {
+                        id: 'recap',
+                        url: 'https://example.org/recap',
+                        decision: {
+                          status: 'ready',
+                          summary: 'Verified.',
+                          actions: [],
+                        },
+                      };
+                    }),
+                  checkpoint: async () =>
+                    approved
+                      ? { status: 'done', result: { decision: 'approve' } }
+                      : { status: 'waiting' },
+                }) as never,
+            },
+          );
+          const journaled = {
+            recap: () => ({}),
+            call: (role: string, options: Parameters<typeof agents.call>[1]) =>
+              ctx.step(`agent ${role}`, async () => {
+                try {
+                  return await agents.call(role, options);
+                } catch (error) {
+                  if (
+                    !(error instanceof AgentBlockedError) ||
+                    !error.blocker ||
+                    !options?.blockedAsResult ||
+                    !options.schema
+                  )
+                    throw error;
+                  const parsed = await options.schema.safeParseAsync({
+                    status: 'blocked',
+                    reason: error.blocker.reason,
+                    summary: `${error.blocker.requiredTool}. ${error.blocker.fix}`,
+                  });
+                  if (!parsed.success) throw error;
+                  return parsed.data;
+                }
+              }),
+          } as typeof agents;
+          const run = createDeliveryOperations(
+            ctx,
+            f.input,
+            {
+              ...defaultFlowSettings(),
+              uiFixtureVersion: fixturePreflight ? 1 : undefined,
+              uiFixtureRecoveryVersion: fixtureRecovery ? 1 : undefined,
+              uiPlanEndpointVersion: stalePlan ? undefined : 1,
+              recoveryVersion: 1,
+              ...(recapEnvironment
+                ? { recapEnvironmentVersion: 1 as const }
+                : { recapEnvironmentVersion: undefined }),
+              environmentVersion: 1,
+              workspaceSetup: true,
+              pullRequests: 'lead',
+              execution: [f.repo],
+            },
+            join(f.root, 'snapshot'),
+          );
+          await run('clarify', journaled);
+          await run('plan', journaled);
+          await run('implement', journaled);
+          const firstUi = await run('ui', journaled);
+          if (fixtureRecoveryLegacy) {
+            expect(firstUi).toBe('exhausted');
+            return 'exhausted';
+          }
+          expect(firstUi).toBe(
+            fixturePreflight && !sourceChanged && !fixtureRecovery
+              ? 'next'
+              : 'retry',
+          );
+          const secondUi = await run('ui', journaled);
+          expect(
+            secondUi,
+            JSON.stringify({ calls, commands: f.commands.slice(-12) }),
+          ).toBe('next');
+          expect(await run('recap', journaled)).toBe('next');
+          await ctx.checkpoint({ title: 'review', body: '' });
+          return 'completed';
+        },
+      });
+    const first = await boot();
+    if (fixtureRecoveryLegacy) {
+      expect(first, JSON.stringify(first)).toMatchObject({
+        status: 'finished',
+        outcome: 'exhausted',
+      });
+      expect(calls.filter((role) => role === 'fixer')).toHaveLength(3);
+      expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(0);
+      return;
+    }
+    expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
+    expect(calls.filter((role) => role === 'fixer')).toHaveLength(
+      fixtureRecovery ? 5 : fixturePreflight ? 3 : 1,
+    );
+    expect(await readFile(join(f.repoDir, '.fixture-ready'), 'utf8')).toBe('');
+    approved = true;
+    const replay = await boot();
+    expect(replay, JSON.stringify(replay)).toMatchObject({
+      status: 'finished',
+      outcome: 'completed',
+    });
+    expect(calls.filter((role) => role === 'fixer')).toHaveLength(
+      fixtureRecovery ? 5 : fixturePreflight ? 3 : 1,
+    );
+    expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(
+      sourceChanged || fixtureRecovery ? 1 : 2,
+    );
+    expect(captures).toBe(1);
+  },
+  15_000,
+);
+
+it.each(['repaired', 'blocked', 'manual', 'ineffective', 'adaptive'] as const)(
+  'diagnoses baseline setup with a bounded agent repair (%s)',
+  async (mode) => {
+    const { createDeliveryOperations } = await import('../flow/delivery.js');
+    const f = await fixture();
+    f.repo.commands[0].command = '[ -f .prerequisite ] && touch .prepared';
+    f.repo.commands.push({
+      ...commandRecipe('manual', 'touch .forbidden'),
+      policy: 'manual',
+    });
+    let repairs = 0;
+    const actors = {
+      call: async (
+        role: string,
+        options?: { label?: string; input?: { previousRepairs?: unknown[] } },
+      ) => {
+        if (role === 'refiner')
+          return {
+            status: 'clear',
+            scope: 'test',
+            decisions: [],
+            acceptanceCriteria: [],
+            outOfScope: [],
+            delivery: { kind: 'pull-request', stateChanges: false },
+          };
+        if (role === 'planner') return { steps: [], summary: 'plan' };
+        if (options?.label?.startsWith('Environment diagnosis')) {
+          repairs++;
+          if (mode === 'adaptive' && repairs === 2) {
+            expect(options.input?.previousRepairs).toEqual([
+              expect.objectContaining({
+                blocker: expect.objectContaining({ kind: 'environment' }),
+                commands: [],
+                summary: 'Diagnostic result',
+              }),
+            ]);
+          }
+          if (mode === 'repaired' || (mode === 'adaptive' && repairs === 2))
+            await writeFile(join(f.repoDir, '.prerequisite'), '');
+          return {
+            action: mode === 'blocked' ? 'blocked' : 'repaired',
+            commands: mode === 'manual' ? ['web/manual'] : [],
+            summary: 'Diagnostic result',
+          };
+        }
+        return { summary: 'implementation' };
+      },
+    } as unknown as import('../flow/agents.js').DeliveryAgents;
+    const ctx = {
+      ...f.ctx,
+      issue: {
+        identifier: 'TEST-1',
+        title: 'test',
+        description: '',
+        url: '',
+        labels: [],
+      },
+      post: async () => undefined,
+      comment: async () => undefined,
+      exec: ((cmd: string, opts?: { background?: boolean }) =>
+        /git (push|diff|rev-parse)/.test(cmd)
+          ? Promise.resolve({ exitCode: 0, stdout: 'head', stderr: '' })
+          : f.exec(cmd, opts?.background)) as WorkflowContext['exec'],
+      scm: { openPr: async () => ({ repo: 'web', headSha: 'head' }) },
+    } as unknown as WorkflowContext;
+    const run = createDeliveryOperations(
+      ctx,
+      f.input,
+      {
+        ...defaultFlowSettings(),
+        uiFixtureVersion: undefined,
+        recoveryVersion: 1,
+        environmentVersion: 1,
+        workspaceSetup: true,
+        pullRequests: 'lead',
+        execution: [f.repo],
+      },
+      join(f.root, 'snapshot'),
+    );
+    await run('clarify', actors);
+    await run('plan', actors);
+    if (mode === 'manual')
+      await expect(run('implement', actors)).rejects.toThrow(
+        'cannot execute manual commands',
+      );
+    else
+      expect(await run('implement', actors)).toBe(
+        mode === 'repaired' || mode === 'adaptive' ? 'next' : 'exhausted',
+      );
+    expect(repairs).toBe(mode === 'ineffective' || mode === 'adaptive' ? 2 : 1);
+    expect(await readdir(f.repoDir)).not.toContain('.forbidden');
+  },
+);

@@ -1605,11 +1605,15 @@ describe('Workspace redesign', () => {
     const runs = Array.from({ length: 13 }, (_, index): RunSummary => ({
       ...r1,
       runId: `run-${index}`,
+      createdAt: new Date(
+        Date.UTC(2026, 8, 25, 12, 0, 30 - index),
+      ).toISOString(),
       repo: index % 2 ? 'service' : 'rocky',
       issue: {
         ...r1.issue,
         identifier: `NG-${index}`,
         title: `Work item ${index}`,
+        url: `https://linear.app/test/issue/NG-${index}`,
       },
       status:
         index === 0
@@ -1627,14 +1631,14 @@ describe('Workspace redesign', () => {
       detail: (id) => ({ body: detail(runs.find((run) => run.runId === id)) }),
     });
     render(<App />);
-    const table = await screen.findByRole('table', { name: 'Runs' });
-    expect(within(table).getAllByRole('row')).toHaveLength(11);
+    const table = await screen.findByRole('list', { name: 'Tickets' });
+    expect(within(table).getAllByRole('listitem')).toHaveLength(10);
     expect(
       mock.mock.calls.some(([path]) => String(path).startsWith('/api/runs/')),
     ).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(within(table).getAllByRole('row')).toHaveLength(4);
-    expect(screen.getByText('11–13 of 13 runs')).toBeTruthy();
+    expect(within(table).getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.getByText('11–13 of 13 tickets')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
     fireEvent.click(screen.getByRole('button', { name: 'In progress 1' }));
     expect(within(table).getByText('Work item 1')).toBeTruthy();
@@ -1644,14 +1648,14 @@ describe('Workspace redesign', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Completed 1' }));
     expect(within(table).getByText('Work item 2')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Failed 9' }));
-    expect(within(table).getAllByRole('row')).toHaveLength(10);
+    expect(within(table).getAllByRole('listitem')).toHaveLength(9);
     fireEvent.change(screen.getByLabelText('Filter by repository'), {
       target: { value: 'service' },
     });
     fireEvent.change(screen.getByLabelText('Search runs'), {
       target: { value: 'Work item 5' },
     });
-    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(within(table).getAllByRole('listitem')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     fireEvent.change(screen.getByLabelText('Search runs'), {
       target: { value: 'missing' },
@@ -1660,13 +1664,11 @@ describe('Workspace redesign', () => {
       screen.getByRole('heading', { name: 'No matching runs' }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(screen.getByText('1–10 of 13 runs')).toBeTruthy();
+    expect(screen.getByText('1–10 of 13 tickets')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open run run-1' }));
     await loaded('Work item 1');
     fireEvent.click(screen.getByRole('button', { name: 'All runs' }));
-    fireEvent.click(
-      screen.getByRole('button', { name: 'NG-0 / run-0 Work item 0' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open run run-0' }));
     await loaded('Work item 0');
     fireEvent.click(screen.getByRole('button', { name: 'All runs' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
@@ -1676,7 +1678,7 @@ describe('Workspace redesign', () => {
     await loaded('Work item 12');
     expect(content.scrollTop).toBe(0);
     fireEvent.click(screen.getByRole('button', { name: 'All runs' }));
-    expect(screen.getByText('11–13 of 13 runs')).toBeTruthy();
+    expect(screen.getByText('11–13 of 13 tickets')).toBeTruthy();
     expect(content.scrollTop).toBe(200);
   });
 
@@ -2638,24 +2640,36 @@ it('separates CI waiting, human input and cancelled runs in overview filters', a
         ...r1,
         runId: 'ci',
         reason: 'scm.waitForCi:repo:hash',
-        issue: { ...r1.issue, title: 'CI work' },
+        issue: {
+          ...r1.issue,
+          title: 'CI work',
+          url: 'https://example.test/ci',
+        },
       },
       {
         ...r1,
         runId: 'question',
         reason: 'question',
-        issue: { ...r1.issue, title: 'Question work' },
+        issue: {
+          ...r1.issue,
+          title: 'Question work',
+          url: 'https://example.test/question',
+        },
       },
       {
         ...r1,
         runId: 'cancel',
         status: 'cancelled',
-        issue: { ...r1.issue, title: 'Stopped work' },
+        issue: {
+          ...r1.issue,
+          title: 'Stopped work',
+          url: 'https://example.test/cancel',
+        },
       },
     ],
   });
   render(<App />);
-  const table = await screen.findByRole('table', { name: 'Runs' });
+  const table = await screen.findByRole('list', { name: 'Tickets' });
   expect(within(table).getByText('Waiting for CI')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Needs input 1' }));
   expect(within(table).getByText('Question work')).toBeTruthy();

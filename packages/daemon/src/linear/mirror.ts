@@ -28,7 +28,8 @@ export interface LinearRunMirrorOptions {
   completionAttempt?: number;
   completionRetry?: string;
   issueId: string;
-  sessionId: string;
+  /** Omitted for issue-only manual runs; activity methods remain unavailable. */
+  sessionId?: string;
   teamId: string;
   localOrigin: string;
   /** Optional because Linear rejects some otherwise-valid icon formats (SVG). */
@@ -284,6 +285,14 @@ export class LinearRunMirror {
     );
   }
 
+  private sessionId(): string {
+    if (!this.options.sessionId)
+      throw new Error(
+        'This run has no Linear agent session; use ticket comments instead of activities.',
+      );
+    return this.options.sessionId;
+  }
+
   private async action(
     key: string,
     content: z.infer<typeof actionSchema>['content'],
@@ -293,7 +302,7 @@ export class LinearRunMirror {
     if (ephemeral) {
       const result = await this.network(() =>
         this.options.client.postActivity({
-          sessionId: this.options.sessionId,
+          sessionId: this.sessionId(),
           ephemeral: true,
           content,
         }),
@@ -304,7 +313,7 @@ export class LinearRunMirror {
     }
     const payload = await this.frozen(key, actionSchema, () => ({
       id: randomUUID(),
-      sessionId: this.options.sessionId,
+      sessionId: this.sessionId(),
       ephemeral: false,
       content,
     }));
@@ -531,7 +540,7 @@ export class LinearRunMirror {
           terminalSchema,
           (): z.infer<typeof terminalSchema> => ({
             id: randomUUID(),
-            sessionId: this.options.sessionId,
+            sessionId: this.sessionId(),
             content: {
               type: plan.outcome.kind === 'failed' ? 'error' : 'response',
               body,
@@ -582,7 +591,7 @@ export class LinearRunMirror {
         'ack',
         z.object({ sessionId: z.string(), runUrl: z.string() }),
         () => ({
-          sessionId: this.options.sessionId,
+          sessionId: this.sessionId(),
           runUrl: this.runUrl,
         }),
       );

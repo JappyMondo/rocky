@@ -1,3 +1,4 @@
+import { restartRun } from './restart.js';
 import { EnvironmentOnboarding } from '../environment/onboarding.js';
 import {
   PublicReviews,
@@ -10,7 +11,7 @@ import { RecipeDiscovery, agentRecipeGenerator } from '../recipe-discovery.js';
  * knows about both the daemon's HTTP seams and the durable Run machinery.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 
@@ -33,6 +34,7 @@ import type { AgentSessionEventHandler } from '../linear/events.js';
 import { openExecution, type ExecutionIntegration } from '../run/execution.js';
 import type { RunHeader } from '../run/header.js';
 import { readJournal } from '../run/journal.js';
+import { legacyRecapRecoveryMessage } from '../run/legacy-recap-recovery.js';
 import type { RockyPaths } from '../config/paths.js';
 import {
   agentDiagramGenerator,
@@ -105,15 +107,15 @@ export async function createProductionComposition(options: {
     const cached = controls.get(runId);
     if (cached) return cached;
     const run = await execution.scheduler.get(runId);
-    if (!run?.linear) return undefined;
+    if (!run) return undefined;
     const journal = await execution.journal(runId);
     const control = new LinearRunControl({
       store: journal,
       client,
       runId,
-      sessionId: run.linear.sessionId,
-      issueId: run.linear.issueId,
-      appUserId: run.linear.appUserId,
+      sessionId: run.linear?.sessionId,
+      issueId: run.linear?.issueId,
+      appUserId: run.linear?.appUserId,
       runUrl: `${options.localOrigin ?? `http://localhost:${options.config.current.server.port}`}/runs/${encodeURIComponent(runId)}`,
       beforeElicitation: async () => undefined,
       parked: async () => undefined,
@@ -145,7 +147,51 @@ export async function createProductionComposition(options: {
       prepareOnboardingSnapshot(options.paths, signal),
     checkpoint: async (runId, stepKey, request) => {
       const control = await controlFor(runId);
-      if (!control) throw new Error(`Run ${runId} has no Linear control`);
+      if (!control) throw new Error(`Run ${runId} has no run control`);
+      const waiting = await control.currentCheckpoint();
+      if (
+        waiting?.stepKey === stepKey &&
+        !waiting.answer &&
+        !request.kind &&
+        request.title === 'Approve this change?'
+      ) {
+        const source = await readFile(
+          join(options.paths.run(runId).snapshotDir, 'workflow.json'),
+          'utf8',
+        ).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return undefined;
+          throw error;
+        });
+        if (source) {
+          const workflow = JSON.parse(source);
+          if (
+            !workflow.settings?.recapDecisionVersion &&
+            workflow.nodes?.some(
+              (node: { type?: string }) => node.type === 'delivery.approval',
+            )
+          ) {
+            const entries = (
+              await readJournal(options.paths.run(runId).journal)
+            ).entries;
+            const message = legacyRecapRecoveryMessage({
+              workflow,
+              title: request.title,
+              entries,
+              reports: await new LocalArtifacts(options.paths).listReports(
+                runId,
+              ),
+            });
+            if (message) {
+              await control.answer({
+                stepKey,
+                generation: waiting.generation,
+                requestId: `legacy-recap:${waiting.generation}`,
+                answer: { decision: 'steer', message },
+              });
+            }
+          }
+        }
+      }
       return control.checkpoint(stepKey, request);
     },
     agentSteer: {
@@ -379,12 +425,12 @@ export async function createProductionComposition(options: {
         currentCheckpoint: async (id) => (await controlView(id)).checkpoint,
         answer: async (id, input) => {
           const control = await controlFor(id);
-          if (!control) throw new Error(`Run ${id} has no Linear control`);
+          if (!control) throw new Error(`Run ${id} has no run control`);
           return control.answer({ ...input, requestId: randomUUID() });
         },
         steer: async (id, input) => {
           const control = await controlFor(id);
-          if (!control) throw new Error(`Run ${id} has no Linear control`);
+          if (!control) throw new Error(`Run ${id} has no run control`);
           const receipt = await control.steer(input);
           return {
             requestId: receipt.requestId,
@@ -405,6 +451,8 @@ export async function createProductionComposition(options: {
           }));
         },
         intakeFailures: () => intakeFailures.list(),
+        restart: (runId, input) =>
+          restartRun(execution, hydrateIssue, runId, input),
         recoverSession: async (runId) => {
           const run = await execution.scheduler.recoverSession(runId);
           if (!run.linear)

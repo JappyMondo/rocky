@@ -73,6 +73,21 @@ it('requires retained execution metadata, a snapshot, and a recorded revision fo
     startedAt: run.createdAt,
     result: { members: [] },
   };
+  const failedAllocation: JournalEntry = {
+    ...entry,
+    status: 'failed',
+    result: undefined,
+  };
+  await expect(
+    prepareRetryWorkspace(repos, run, [failedAllocation]),
+  ).resolves.toBeUndefined();
+  expect(restoreRetryWorkspace).not.toHaveBeenCalled();
+  await expect(
+    prepareRetryWorkspace(repos, run, [
+      failedAllocation,
+      { ...entry, seq: 1, step: 'agent' },
+    ]),
+  ).rejects.toThrow(/No recorded workspace/);
   await expect(prepareRetryWorkspace(repos, run, [entry])).rejects.toThrow(
     /No recorded workspace revision/,
   );

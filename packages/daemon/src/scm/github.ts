@@ -42,6 +42,8 @@ const checkSchema = z.object({
   status: z.string(),
   conclusion: z.string().nullable(),
   details_url: z.string().nullable(),
+  completed_at: z.string().nullable().optional(),
+  app: z.object({ slug: z.string() }).nullable().optional(),
   output: z
     .object({
       summary: z.string().nullable(),
@@ -639,8 +641,19 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           pr,
         );
       const failedJobs: FailedJob[] = [];
+      const failedChecks = checks.filter(
+        (check) =>
+          check.status === 'completed' && !successful(check.conclusion),
+      );
       for (const run of runs.filter(
-        (run) => run.status === 'completed' && !successful(run.conclusion),
+        (run) =>
+          (run.status === 'completed' && !successful(run.conclusion)) ||
+          failedChecks.some(
+            (check) =>
+              check.app?.slug === 'github-actions' &&
+              check.details_url ===
+                `${new URL(pr.url).origin}/${options.repo.project}/actions/runs/${run.id}/job/${check.id}`,
+          ),
       )) {
         const jobs = await http.list(
           `${root}/actions/runs/${run.id}/jobs?filter=latest`,
@@ -660,9 +673,14 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             logTail: await http.logTail(
               `${root}/actions/jobs/${job.id}/logs`,
               input.logTailLines,
+              true,
             ),
           });
-        if (!failed.length)
+        if (
+          !failed.length &&
+          run.status === 'completed' &&
+          !successful(run.conclusion)
+        )
           failedJobs.push({
             id: String(run.id),
             name: run.name,
@@ -670,16 +688,8 @@ export function createGitHubScm(options: ScmAdapterOptions) {
             logTail: '',
           });
       }
-      for (const check of checks.filter(
-        (check) =>
-          check.status === 'completed' && !successful(check.conclusion),
-      )) {
-        if (
-          runs.some((run) =>
-            check.details_url?.includes(`/actions/runs/${run.id}/`),
-          )
-        )
-          continue;
+      for (const check of failedChecks) {
+        if (failedJobs.some((job) => job.id === String(check.id))) continue;
         failedJobs.push({
           id: String(check.id),
           name: check.name,
@@ -707,9 +717,24 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           status: 'done',
           result: { status: 'failed', headSha: pr.headSha, failedJobs },
         };
+      // GitHub can retain an in_progress check status after the Actions job
+      // and its workflow concluded. Require independent completion evidence
+      // from the owning current-head workflow; external checks still wait.
+      const completedCheck = (check: z.infer<typeof checkSchema>) =>
+        check.status === 'completed' ||
+        (check.app?.slug === 'github-actions' &&
+          !!check.completed_at &&
+          successful(check.conclusion) &&
+          runs.some(
+            (run) =>
+              run.status === 'completed' &&
+              successful(run.conclusion) &&
+              check.details_url ===
+                `${new URL(pr.url).origin}/${options.repo.project}/actions/runs/${run.id}/job/${check.id}`,
+          ));
       if (
         checks.length + latest.length + runs.length === 0 ||
-        checks.some((check) => check.status !== 'completed') ||
+        checks.some((check) => !completedCheck(check)) ||
         latest.some((status) => status.state !== 'success') ||
         runs.some((run) => run.status !== 'completed')
       )
@@ -789,7 +814,7 @@ export function createGitHubScm(options: ScmAdapterOptions) {
       }
       return { status: 'waiting' };
     },
-    async retryFailedJobs(pr: Pr): Promise<void> {
+    async retryFailedJobs(pr: Pr): Promise<void | { status: 'waiting' }> {
       const initial = await read(pr);
       if (initial.state !== 'open')
         throw refuse(
@@ -805,6 +830,17 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         runSchema,
         'workflow_runs',
       );
+      // Failure evidence can reach the fixer before the workflow finishes.
+      // Let current-head workflows settle before issuing failed-job reruns.
+      // Keep the existing retry Step pending instead of claiming a retry or
+      // consuming the fixer's budget with a temporary refusal.
+      if (
+        runs.some(
+          (run) => run.head_sha === pr.headSha && run.status !== 'completed',
+        )
+      )
+        return { status: 'waiting' };
+      let requested = false;
       for (const run of runs.filter(
         (run) =>
           run.head_sha === pr.headSha &&
@@ -826,7 +862,67 @@ export function createGitHubScm(options: ScmAdapterOptions) {
           `${root}/actions/runs/${run.id}/rerun-failed-jobs`,
           z.object({}),
         );
+        requested = true;
       }
+      const checks = await http.list(
+        `${root}/commits/${encodeURIComponent(pr.headSha)}/check-runs?filter=latest`,
+        checkSchema,
+        'check_runs',
+      );
+      for (const check of checks) {
+        if (check.head_sha !== pr.headSha)
+          throw refuse(
+            options.repo.id,
+            'head_changed',
+            'Check retry reports a different head.',
+            'Refresh the current PR before retrying.',
+            pr,
+          );
+        if (
+          check.status !== 'completed' ||
+          successful(check.conclusion) ||
+          runs.some((run) =>
+            check.details_url?.includes(`/actions/runs/${run.id}/`),
+          )
+        )
+          continue;
+        const current = await read(pr);
+        checkHead(pr, current);
+        if (current.state !== 'open')
+          throw refuse(
+            options.repo.id,
+            'not_open',
+            'PR is not open.',
+            'Inspect the PR before requesting an external check retry.',
+            current,
+          );
+        try {
+          await http.request(
+            'POST',
+            `${root}/check-runs/${check.id}/rerequest`,
+            z.object({}),
+          );
+        } catch (error) {
+          if (error instanceof ScmError && error.status === 404)
+            throw refuse(
+              options.repo.id,
+              'unsupported',
+              `GitHub cannot rerequest check run ${check.id} (HTTP 404).`,
+              'Inspect the current check and the provider app access; use a provider-supported retry path without bypassing CI.',
+              current,
+            );
+          throw error;
+        }
+        requested = true;
+      }
+      if (!requested)
+        throw refuse(
+          options.repo.id,
+          'unsupported',
+          'No failed Actions run or rerequestable check run was found.',
+          'Inspect current CI status and the integration provider. A legacy commit status has no generic retry API; use repository-documented recovery without weakening its gate.',
+          pr,
+        );
     },
     async reviewThreads(pr: Pr): Promise<ReviewThread[]> {
       const verified = await read(pr);

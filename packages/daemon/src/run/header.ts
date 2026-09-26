@@ -113,6 +113,18 @@ const issueSchema = z.object({
   description: z.string(),
   url: z.string(),
   labels: z.array(z.string()),
+  clarifications: z
+    .array(
+      z.object({
+        runId: z.string(),
+        stepKey: z.string(),
+        title: z.string(),
+        question: z.string(),
+        answer: z.string(),
+        answeredAt: z.string(),
+      }),
+    )
+    .optional(),
   comments: z
     .array(
       z.object({
