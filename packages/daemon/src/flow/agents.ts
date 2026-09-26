@@ -94,6 +94,8 @@ export function invokeAgent(
     : agent(config.prompt, opts);
 }
 export interface DeliveryAgents {
+  /** Browser tools attached to a configured role, without invoking the agent. */
+  mcpFor?(role: string): string[];
   selectCommands?(
     input: unknown,
     ids: string[],
@@ -111,7 +113,7 @@ export function deliveryAgents(
   ctx: WorkflowContext,
   data: Record<string, unknown>,
 ): DeliveryAgents {
-  const config = (role: string, input: unknown) => {
+  const agentFor = (role: string) => {
     let agents = attachedNodes(flow, coordinatorId, `agent:${role}`);
     // Frozen graphs predate recap repair. Their review fixer is the explicitly
     // configured edit-capable recovery agent for this same delivery path.
@@ -136,9 +138,18 @@ export function deliveryAgents(
     }
     if (agents.length !== 1)
       throw new Error(`${coordinatorId}: connect exactly one ${role} agent.`);
-    return configuredFlowAgent(flow, agents[0].id, ctx, { ...data, input });
+    return agents[0];
   };
+  const config = (role: string, input: unknown) =>
+    configuredFlowAgent(flow, agentFor(role).id, ctx, { ...data, input });
   return {
+    mcpFor: (role) => [
+      ...new Set(
+        attachedNodes(flow, agentFor(role).id, 'tools')
+          .filter((node) => node.type === 'ai.mcp')
+          .map((node) => String(node.parameters.server)),
+      ),
+    ],
     selectCommands: async (input, ids) => {
       const coordinator = flow.nodes.find((node) => node.id === coordinatorId)!;
       const port = attachmentPorts(coordinator.type).find(

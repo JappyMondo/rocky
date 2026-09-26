@@ -1070,11 +1070,13 @@ it.each([
     });
     const calls: string[] = [];
     const agents = {
+      mcpFor: (role: string) => (role === 'ui-inspector' ? ['playwright'] : []),
       call: async (
         role: string,
         options?: {
           schema?: { safeParse(value: unknown): { success: boolean } };
           label?: string;
+          mcp?: string[];
           input?: {
             fixtures?: unknown;
             fixtureEvidenceDirectory?: string;
@@ -1110,6 +1112,7 @@ it.each([
             summary: 'check',
           };
         if (options?.label?.startsWith('Prepare UI fixtures')) {
+          expect(options.mcp).toEqual(['playwright']);
           expect(options.input).toMatchObject({
             validationResponsibility: {
               repositoryCatalog: expect.arrayContaining([
@@ -1361,6 +1364,7 @@ it.each([
           );
           const journaled = {
             recap: () => ({}),
+            mcpFor: agents.mcpFor,
             call: (role: string, options: Parameters<typeof agents.call>[1]) =>
               ctx.step(`agent ${role}`, async () => {
                 try {
