@@ -1454,7 +1454,7 @@ it.each([
   15_000,
 );
 
-it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
+it.each(['repaired', 'blocked', 'manual', 'ineffective', 'adaptive'] as const)(
   'diagnoses baseline setup with a bounded agent repair (%s)',
   async (mode) => {
     const { createDeliveryOperations } = await import('../flow/delivery.js');
@@ -1466,7 +1466,10 @@ it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
     });
     let repairs = 0;
     const actors = {
-      call: async (role: string, options?: { label?: string }) => {
+      call: async (
+        role: string,
+        options?: { label?: string; input?: { previousRepairs?: unknown[] } },
+      ) => {
         if (role === 'refiner')
           return {
             status: 'clear',
@@ -1479,7 +1482,16 @@ it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
         if (role === 'planner') return { steps: [], summary: 'plan' };
         if (options?.label?.startsWith('Environment diagnosis')) {
           repairs++;
-          if (mode === 'repaired')
+          if (mode === 'adaptive' && repairs === 2) {
+            expect(options.input?.previousRepairs).toEqual([
+              expect.objectContaining({
+                blocker: expect.objectContaining({ kind: 'environment' }),
+                commands: [],
+                summary: 'Diagnostic result',
+              }),
+            ]);
+          }
+          if (mode === 'repaired' || (mode === 'adaptive' && repairs === 2))
             await writeFile(join(f.repoDir, '.prerequisite'), '');
           return {
             action: mode === 'blocked' ? 'blocked' : 'repaired',
@@ -1529,9 +1541,9 @@ it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
       );
     else
       expect(await run('implement', actors)).toBe(
-        mode === 'repaired' ? 'next' : 'exhausted',
+        mode === 'repaired' || mode === 'adaptive' ? 'next' : 'exhausted',
       );
-    expect(repairs).toBe(mode === 'ineffective' ? 2 : 1);
+    expect(repairs).toBe(mode === 'ineffective' || mode === 'adaptive' ? 2 : 1);
     expect(await readdir(f.repoDir)).not.toContain('.forbidden');
   },
 );

@@ -174,6 +174,11 @@ export function createDeliveryOperations(
   const { states, ciCap, ciLogLines } = settings;
   let { reviewCap } = settings;
   let environmentAgentRepairs = 0;
+  const environmentRepairHistory: {
+    blocker: EnvironmentBlocker;
+    commands: string[];
+    summary: string;
+  }[] = [];
   let deliveryRepairs = 0;
   const recoverySetup = new Set<string>();
   const failedValidationChecks = new Set<string>();
@@ -280,12 +285,13 @@ export function createDeliveryOperations(
           plan,
           workspace,
           blocker,
+          previousRepairs: [...environmentRepairHistory],
           commands,
           environment: environmentContext,
           validationResponsibility,
           availableCommands: available,
           instruction:
-            'This call is only environment recovery, not full implementation. Diagnose the supplied environment blocker in the assigned isolated worktrees. Read repository instructions, setup scripts and actual check evidence. Repair missing local dependencies, fixtures, documented development authentication or preview reachability. Select existing non-manual catalog command IDs for the Workflow to execute on the host when sandbox execution is insufficient. Do not weaken checks, invent credentials, claim coverage you did not execute, change external systems, or substitute a mock for required real integration. Preserve prior work and commit any source fixes locally. Return repaired only when a concrete repair was made or selected; otherwise explain the precise remaining blocker. The Workflow reruns validation and the complete UI sweep after repair.',
+            'This call is environment recovery. Diagnose the supplied blocker in the assigned isolated worktrees. Read repository instructions, setup scripts and actual check evidence. The current blocker survived previousRepairs; use that history to change the diagnosis instead of repeating an ineffective setup command. Repair missing local dependencies, fixtures, documented development authentication or preview reachability. A seed command exit or HTTP 200 does not prove that login or the blocked user transition works: probe the failed transition and inspect its response. Where supported, create distinct authorized local test identities instead of relying on an account whose password or enrollment may have changed. For required component states without an existing preview, implement a development/test-only fixture using repository conventions; preserve production behavior and exercise the real component. Do not substitute such a preview for a required real integration. Select existing non-manual catalog command IDs for the Workflow to execute on the host when sandbox execution is insufficient. Do not weaken checks, invent credentials, claim coverage you did not execute, or change external systems. Preserve prior work and commit any source fixes locally. Return repaired only when a concrete repair was made or selected; state exactly what still needs host verification. Otherwise explain the precise remaining blocker. The Workflow reruns validation and the complete UI sweep after repair.',
         },
         schema: z.object({
           action: z.enum(['repaired', 'blocked']),
@@ -314,6 +320,11 @@ export function createDeliveryOperations(
       if (selected.some(({ command }) => command.policy === 'manual'))
         throw new Error('Environment recovery cannot execute manual commands.');
       if (repair.action === 'repaired') {
+        environmentRepairHistory.push({
+          blocker,
+          commands: selected.map((entry) => entry.id),
+          summary: repair.summary,
+        });
         for (const entry of selected) recoverySetup.add(entry.id);
         // The next ensureEnvironment executes the selected setup with endpoint
         // dependencies and live verifiers; no agent assertion replaces evidence.
@@ -1088,9 +1099,11 @@ export function createDeliveryOperations(
                   environment: environmentContext,
                   availableCommands: available,
                   validationResponsibility,
+                  validationSummary,
+                  previousRepairs: [...environmentRepairHistory],
                   previous,
                   instruction:
-                    'Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Navigate each intended state with the browser and return executed:true only after reaching it. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and source as an array of existing repository-relative file paths documenting the route or fixture (one exact path per element, without line numbers, prose, or joined path lists), and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. If a check needs locally generated login credentials, save them in a private mode 0600 file inside fixtureEvidenceDirectory, return its absolute path as credentialFile for that check, and name the matching account role in instructions. The independent inspector can read the supplied credential file and operate the browser, but cannot run seed commands, edit files or the database, or repair source. Every returned fixture must be repeatable with those capabilities. After proving a state, restore its initial conditions or create a separate unused fixture for inspection. Do not hand off consumed one-time links, an already-enrolled setup account, or mutually incompatible global settings unless the instructions restore them through supported browser controls. Use distinct local identities when checks change account state. Do not return credential values. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Search only targeted repository paths, not the entire host. Bound browser and shell commands; if navigation or a tool stalls, stop or reconcile it before returning a blocked result. An unfinished tool call cannot be accepted as a fixture result. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.',
+                    'Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Consult validationSummary and previousRepairs for setup already executed; inspect its local results before requesting the same seed or install again. A passed setup command is evidence to investigate, not proof of fixture readiness. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Navigate each intended state with the browser and return executed:true only after reaching it. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and source as an array of existing repository-relative file paths documenting the route or fixture (one exact path per element, without line numbers, prose, or joined path lists), and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. If a check needs locally generated login credentials, save them in a private mode 0600 file inside fixtureEvidenceDirectory, return its absolute path as credentialFile for that check, and name the matching account role in instructions. The independent inspector can read the supplied credential file and operate the browser, but cannot run seed commands, edit files or the database, or repair source. Every returned fixture must be repeatable with those capabilities. After proving a state, restore its initial conditions or create a separate unused fixture for inspection. Do not hand off consumed one-time links, an already-enrolled setup account, or mutually incompatible global settings unless the instructions restore them through supported browser controls. Use distinct local identities when checks change account state. Do not return credential values. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Search only targeted repository paths, not the entire host. Bound browser and shell commands; if navigation or a tool stalls, stop or reconcile it before returning a blocked result. An unfinished tool call cannot be accepted as a fixture result. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.',
                 },
                 schema,
               }),
