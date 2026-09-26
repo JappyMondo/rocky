@@ -275,15 +275,26 @@ export function createDeliveryOperations(
         },
         schema: z.object({
           action: z.enum(['repaired', 'blocked']),
-          commands: z.array(z.string()),
+          commands: z.array(z.enum(available.map((entry) => entry.id))),
           summary: z.string(),
         }),
       });
       // Agent selection does not grant authority to execute manual commands or
       // manual prerequisites. Check the complete dependency closure first.
+      const catalog = catalogEntries(settings.execution ?? []);
+      const services = new Set(
+        serviceEntries(settings.execution ?? []).map((entry) => entry.id),
+      );
+      // Older repair receipts allowed arbitrary strings, including service IDs.
+      // Services are already started and verified by ensureEnvironment; they
+      // must never be looked up as commands or inserted into setup receipts.
+      // Keep command IDs authoritative when both catalogs use the same ID.
+      const requested = repair.commands.filter(
+        (id) => catalog.some((entry) => entry.id === id) || !services.has(id),
+      );
       const selected = dependencyOrder(
-        catalogEntries(settings.execution ?? []),
-        repair.commands,
+        catalog,
+        requested,
         ({ command }) => command.dependsOn,
       );
       if (selected.some(({ command }) => command.policy === 'manual'))

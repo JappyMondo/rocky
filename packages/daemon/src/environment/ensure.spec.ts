@@ -969,7 +969,12 @@ it.each([true, false])(
     });
     const calls: string[] = [];
     const agents = {
-      call: async (role: string) => {
+      call: async (
+        role: string,
+        options?: {
+          schema?: { safeParse(value: unknown): { success: boolean } };
+        },
+      ) => {
         calls.push(role);
         if (role === 'refiner')
           return {
@@ -990,12 +995,28 @@ it.each([true, false])(
             ],
             summary: 'check',
           };
-        if (role === 'fixer')
+        if (role === 'fixer') {
+          expect(
+            options?.schema?.safeParse({
+              action: 'repaired',
+              commands: ['web/ui'],
+              summary: 'wrong catalog',
+            }).success,
+          ).toBe(false);
+          expect(
+            options?.schema?.safeParse({
+              action: 'repaired',
+              commands: ['web/seed'],
+              summary: 'valid command',
+            }).success,
+          ).toBe(true);
           return {
             action: 'repaired',
-            commands: ['web/seed'],
-            summary: 'Use the documented local seed.',
+            commands: ['web/seed', 'web/ui'],
+            summary:
+              'Use the documented local seed; legacy receipt also names its service.',
           };
+        }
         if (role === 'ui-inspector') {
           const ready = await readFile(
             join(f.repoDir, '.fixture-ready'),

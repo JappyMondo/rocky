@@ -124,6 +124,8 @@ export const retentionSchema = z.looseObject({
 
 export const concurrencySchema = z.looseObject({
   maxRuns: z.number().int().min(1).default(3),
+  /** Disk admission reserve; does not interrupt work already in flight. */
+  minFreeDiskGiB: z.number().finite().min(0).optional(),
 });
 
 /** The harness/model choice made during setup for subsequently created profiles. */

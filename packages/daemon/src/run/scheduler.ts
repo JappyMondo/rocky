@@ -76,6 +76,8 @@ export type RunDelegation =
 export interface RunSchedulerOptions {
   paths: RockyPaths;
   maxRuns?: number;
+  /** Rechecked on every drain; blocked work stays queued without consuming a Boot. */
+  admissionBlocker?(): Promise<string | undefined>;
   retryStep?(run: RunHeader, input: RetryRequest): Promise<void>;
   boot: SchedulerBoot;
   cancellation?: Cancellation;
@@ -550,7 +552,20 @@ export class RunScheduler {
           return undefined;
         }
 
-        const running = { ...next, status: 'running' as const };
+        const blocker = await this.options.admissionBlocker?.();
+        if (blocker) {
+          if (next.reason !== blocker) {
+            const waiting = { ...next, reason: blocker };
+            await this.options.writeHeader(this.options.paths, waiting);
+            this.runs.set(waiting.runId, waiting);
+          }
+          return undefined;
+        }
+        const running = {
+          ...next,
+          status: 'running' as const,
+          reason: undefined,
+        };
         await this.options.writeHeader(this.options.paths, running);
         this.runs.set(running.runId, running);
         this.active.add(running.runId);
@@ -738,6 +753,8 @@ export class RunScheduler {
   }
 
   /** Daemon timer and webhook wiring call this seam; no second replay path. */
+  private nextWorkspaceSweepAt = 0;
+
   async tick(): Promise<void> {
     if (this.closed) return;
     for (const run of this.runs.values()) {
@@ -750,6 +767,18 @@ export class RunScheduler {
         .filter(([, poll]) => poll.at <= this.options.now().getTime())
         .map(([id]) => this.poll(id)),
     );
+    if (
+      this.options.releaseTerminalWorkspace &&
+      this.options.now().getTime() >= this.nextWorkspaceSweepAt
+    ) {
+      this.nextWorkspaceSweepAt = this.options.now().getTime() + 300_000;
+      await this.mutate(async () => {
+        for (const run of this.runs.values()) {
+          if (isTerminal(run) && !this.executions.has(run.runId))
+            await this.releaseTerminalWorkspace(run);
+        }
+      });
+    }
     await this.drain();
   }
 

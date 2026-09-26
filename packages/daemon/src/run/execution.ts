@@ -6,7 +6,7 @@ import {
 } from '../config/source-control.js';
 import { prepareRetryWorkspace } from './retry-workspace.js';
 import { currentRunSourceControl } from './source-control.js';
-import { rm } from 'node:fs/promises';
+import { rm, statfs } from 'node:fs/promises';
 import { createWorkspace, releaseCleanWorkspace } from '../repos/workspace.js';
 import { repairCloneWorktreeConfig } from '../repos/clone.js';
 import type { Issue } from '@rocky/sdk';
@@ -236,6 +236,13 @@ export async function openExecution(options: ExecutionOptions) {
   const scheduler = await RunScheduler.open({
     paths: options.paths,
     maxRuns: options.config().concurrency.maxRuns,
+    admissionBlocker: async () => {
+      const minimum = options.config().concurrency.minFreeDiskGiB ?? 5;
+      const disk = await statfs(options.paths.root);
+      return disk.bavail * disk.bsize < minimum * 1024 ** 3
+        ? `Waiting for disk space: Rocky requires at least ${minimum} GiB free before starting more work.`
+        : undefined;
+    },
     putControl: async (path, key, value) =>
       (await writer(path)).put(key, value),
     boot: async (run, kind, signal) => {
@@ -290,8 +297,10 @@ export async function openExecution(options: ExecutionOptions) {
       );
     },
     releaseTerminalWorkspace: async (run) => {
-      if (run.status === 'failed') return;
-      await releaseCleanWorkspace(options.repos, run.runId);
+      await releaseCleanWorkspace(options.repos, run.runId, {
+        requirePublished: true,
+        cachesOnly: run.status === 'failed',
+      });
     },
     append: async (path, entry, appendOptions) =>
       (await writer(path)).append(entry, appendOptions),

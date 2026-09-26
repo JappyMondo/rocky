@@ -877,3 +877,63 @@ describe('RunScheduler admission', () => {
     expect(started).toEqual([]);
   });
 });
+
+it('keeps storage-blocked work queued and automatically resumes when capacity returns', async () => {
+  let blocked = true;
+  const pending = deferred<BootResult>();
+  const boot = vi.fn(() => pending.promise);
+  const instance = await scheduler(boot, 3, {
+    admissionBlocker: async () =>
+      blocked ? 'Waiting for disk space' : undefined,
+  });
+  const { run } = await instance.delegate(input());
+  await instance.drain();
+  expect(boot).not.toHaveBeenCalled();
+  expect(await instance.get(run.runId)).toMatchObject({
+    status: 'queued',
+    boots: 0,
+    reason: 'Waiting for disk space',
+  });
+  blocked = false;
+  await instance.tick();
+  expect(boot).toHaveBeenCalledOnce();
+  expect(await instance.get(run.runId)).toMatchObject({
+    status: 'running',
+    reason: undefined,
+  });
+  pending.resolve({
+    status: 'finished',
+    outcome: 'completed',
+    boot: 1,
+    replayed: 0,
+    executed: 0,
+  });
+  await vi.waitFor(async () =>
+    expect((await instance.get(run.runId))?.status).toBe('finished'),
+  );
+  await instance.close();
+});
+
+it('retries retained terminal workspace cleanup after restart without touching live runs', async () => {
+  await writeRunHeader(paths, storedRun({}));
+  const cleanup = vi.fn(async (_run: RunHeader) => undefined);
+  const boot = vi.fn(async (): Promise<BootResult> => ({
+    status: 'parked',
+    reason: 'checkpoint',
+    boot: 1,
+    replayed: 0,
+    executed: 0,
+  }));
+  const instance = await scheduler(boot, 3, {
+    releaseTerminalWorkspace: cleanup,
+  });
+  await instance.tick();
+  expect(cleanup).toHaveBeenCalledOnce();
+  expect(cleanup.mock.calls[0]?.[0]).toMatchObject({
+    runId: 'NG-540-1',
+    status: 'finished',
+  });
+  await instance.tick();
+  expect(cleanup).toHaveBeenCalledOnce();
+  await instance.close();
+});

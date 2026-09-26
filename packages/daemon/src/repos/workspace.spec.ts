@@ -980,3 +980,42 @@ it('does not treat an unrelated replacement branch as an exhaustion continuation
     }),
   ).rejects.toThrow(/branch has changed/);
 });
+
+it('releases only published clean worktrees and preserves root evidence while reclaiming cache', async () => {
+  const workspace = await createWorkspace(ctx, {
+    runId: 'NG-601-1',
+    branch: BRANCH,
+    members: [niotix],
+    lead: 'niotix',
+  });
+  await commitInside(workspace.lead.dir, 'unpublished');
+  const store = join(workspace.dir, '.pnpm-store', 'v10');
+  mkdirSync(store, { recursive: true });
+  await writeFile(join(store, 'cached-package'), 'derived');
+  await writeFile(join(workspace.dir, 'evidence.png'), 'keep');
+  await expect(
+    releaseCleanWorkspace(ctx, workspace.runId, { requirePublished: true }),
+  ).resolves.toEqual([]);
+  expect(existsSync(workspace.lead.dir)).toBe(true);
+  expect(existsSync(store)).toBe(true);
+  await git(['push', 'origin', BRANCH], { cwd: workspace.lead.dir });
+  await expect(
+    releaseCleanWorkspace(ctx, workspace.runId, { requirePublished: true }),
+  ).resolves.toEqual(['niotix']);
+  expect(existsSync(workspace.lead.dir)).toBe(false);
+  expect(existsSync(store)).toBe(false);
+  expect(await readFile(join(workspace.dir, 'evidence.png'), 'utf8')).toBe(
+    'keep',
+  );
+});
+
+it('reclaims orphaned package caches without deleting unknown directories', async () => {
+  const dir = paths.run('NG-601-1').workspaceDir;
+  mkdirSync(join(dir, '.pnpm-store', 'v10'), { recursive: true });
+  mkdirSync(join(dir, 'unknown'), { recursive: true });
+  await releaseCleanWorkspace(ctx, 'NG-601-1', { cachesOnly: true });
+  expect(existsSync(join(dir, '.pnpm-store'))).toBe(true);
+  rmSync(join(dir, 'unknown'), { recursive: true });
+  await releaseCleanWorkspace(ctx, 'NG-601-1', { cachesOnly: true });
+  expect(existsSync(dir)).toBe(false);
+});

@@ -31,7 +31,15 @@ import {
  *   worktree is taken exactly as found — uncommitted edits included, because a
  *   half-finished edit is the normal state an agent works from.
  */
-import { mkdir, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import {
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  lstat,
+  rmdir,
+} from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { z } from 'zod';
 
@@ -423,6 +431,7 @@ export async function removeWorkspace(
 export async function releaseCleanWorkspace(
   ctx: RepoContext,
   runId: string,
+  options: { requirePublished?: boolean; cachesOnly?: boolean } = {},
 ): Promise<string[]> {
   const workspaceDir = ctx.paths.run(runId).workspaceDir;
   let children: string[];
@@ -433,21 +442,63 @@ export async function releaseCleanWorkspace(
     throw error;
   }
 
-  for (const repoName of children) {
-    const dir = join(workspaceDir, repoName);
-    if (!(await isWorktree(dir))) return [];
-    if ((await git(['status', '--porcelain'], { cwd: dir })).stdout) return [];
+  const repositories: string[] = [];
+  for (const child of children) {
+    const dir = join(workspaceDir, child);
+    if (await isWorktree(dir)) repositories.push(child);
+    else if (child !== '.pnpm-store' && (await lstat(dir)).isDirectory())
+      return []; // Unknown directory ownership is not permission to delete it.
   }
-
-  for (const repoName of children) {
+  if (options.cachesOnly && repositories.length) return [];
+  for (const repoName of repositories) {
+    const dir = join(workspaceDir, repoName);
+    if ((await git(['status', '--porcelain'], { cwd: dir })).stdout) return [];
+    if (options.requirePublished) {
+      const head = (
+        await git(['rev-parse', 'HEAD'], { cwd: dir })
+      ).stdout.trim();
+      const remote = await git(['ls-remote', '--heads', 'origin'], {
+        cwd: dir,
+        env: ctx.env,
+      });
+      const tips = remote.stdout
+        .split('\n')
+        .map((line) => line.split('\t')[0])
+        .filter(Boolean);
+      let published = false;
+      for (const tip of tips) {
+        if (
+          tip === head ||
+          (await gitOk(['merge-base', '--is-ancestor', head, tip], {
+            cwd: dir,
+          }))
+        ) {
+          published = true;
+          break;
+        }
+      }
+      if (!published) return [];
+    }
+  }
+  for (const repoName of repositories) {
     await ctx.mutex.run(repoName, async () => {
       const dir = join(workspaceDir, repoName);
       const clone = ctx.paths.repo(repoName);
       await git(['worktree', 'remove', dir], { cwd: clone });
     });
   }
-  await rm(workspaceDir, { recursive: true, force: true });
-  return children;
+  // Worktree transfers leave a sibling pnpm content-addressed cache behind.
+  // Remove only this recognized cache layout once no repository depends on it;
+  // preserve screenshots, notes and unknown directories at the workspace root.
+  const store = join(workspaceDir, '.pnpm-store');
+  const info = await lstat(store).catch(() => undefined);
+  if (info?.isDirectory() && !info.isSymbolicLink()) {
+    const versions = await readdir(store);
+    if (versions.length && versions.every((name) => /^v\d+$/.test(name)))
+      await rm(store, { recursive: true, force: true });
+  }
+  if (!(await readdir(workspaceDir)).length) await rmdir(workspaceDir);
+  return repositories;
 }
 
 /** Restore retained local work without fetching or resetting any branch. */
