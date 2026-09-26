@@ -340,11 +340,17 @@ export class ScmHttp {
     // the budget before a test assertion appears.
     const evidenceBudget =
       includeFailures && lines >= 10 ? Math.min(500, Math.floor(lines / 2)) : 0;
+    const ansi = new RegExp(
+      String.fromCharCode(27) + '\\[[0-9;]*[A-Za-z]',
+      'g',
+    );
+    const failureEvidence = new Map<number, string>();
     const strongEvidence = new Map<number, string>();
     const weakEvidence = new Map<number, string>();
     const preceding: { index: number; text: string }[] = [];
     let pending = '';
     let index = 0;
+    let followingFailure = 0;
     let followingStrong = 0;
     let followingWeak = 0;
     const remember = (
@@ -360,19 +366,30 @@ export class ScmHttp {
     };
     const observe = (text: string) => {
       const line = { index: index++, text: text.slice(0, 2000) };
+      const plain = text.replace(ansi, '');
+      const failure =
+        /\bFAIL\s+\S+|Summary of all failing tests|Test Suites:\s*\d+ failed|Exceeded timeout of \d+ ms|Failed tasks:/.test(
+          plain,
+        );
       const strong =
         /\b(?:FAIL|FATAL|AssertionError|Traceback)\b|[●✕]|\b(?:Expected|Received)(?: length)?:|\bError:/.test(
-          text,
+          plain,
         );
+      if (failure) {
+        for (const prior of preceding) remember(failureEvidence, prior);
+        followingFailure = 10;
+      }
       if (strong) {
         for (const prior of preceding) remember(strongEvidence, prior);
         followingStrong = 8;
-      } else if (/\b(?:error|fail(?:ed|ure)?|fatal)\b/i.test(text)) {
+      } else if (/\b(?:error|fail(?:ed|ure)?|fatal)\b/i.test(plain)) {
         for (const prior of preceding) remember(weakEvidence, prior);
         followingWeak = 8;
       }
+      if (followingFailure > 0) remember(failureEvidence, line);
       if (followingStrong > 0) remember(strongEvidence, line);
       if (followingWeak > 0) remember(weakEvidence, line);
+      followingFailure = Math.max(0, followingFailure - 1);
       followingStrong = Math.max(0, followingStrong - 1);
       followingWeak = Math.max(0, followingWeak - 1);
       preceding.push(line);
@@ -405,7 +422,11 @@ export class ScmHttp {
       await reader.cancel();
     }
     const suffix = tail.replace(/\n$/, '').split('\n').slice(-lines);
-    const evidence = strongEvidence.size ? strongEvidence : weakEvidence;
+    const evidence = failureEvidence.size
+      ? failureEvidence
+      : strongEvidence.size
+        ? strongEvidence
+        : weakEvidence;
     const early = [...evidence]
       .filter(([position]) => position < index - suffix.length)
       .sort(([a], [b]) => a - b)

@@ -282,3 +282,23 @@ it('keeps the actual test assertion after setup warnings fill the evidence budge
   expect(excerpt).toContain('cleanup 149');
   expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
 });
+
+it('keeps a failed test after later projects emit many expected error logs', async () => {
+  const log = [
+    'FAIL api mcp-http.integration.spec.ts',
+    'MCP HTTP transport > production manifest',
+    'Exceeded timeout of 30000 ms for a test.',
+    'at mcp-http.integration.spec.ts:302',
+    ...Array.from({ length: 400 }, (_, i) => `Error: expected fixture ${i}`),
+    'Final CI summary',
+  ].join('\n');
+  const excerpt = await http(async () => new Response(log)).logTail(
+    '/logs',
+    40,
+    true,
+  );
+  expect(excerpt).toContain('FAIL api mcp-http.integration.spec.ts');
+  expect(excerpt).toContain('Exceeded timeout of 30000 ms');
+  expect(excerpt).toContain('Final CI summary');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});
