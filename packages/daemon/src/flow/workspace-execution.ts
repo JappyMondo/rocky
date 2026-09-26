@@ -23,6 +23,19 @@ const versionManagerShell = `if ! command -v nvm >/dev/null 2>&1; then
   }
 fi
 `;
+// Docker CLI honors the selected context, while libraries such as
+// Testcontainers also need its socket in DOCKER_HOST when no default socket
+// exists. Resolve only a live local Unix endpoint and preserve explicit env.
+export function dockerContextShell(defaultSocket = '/var/run/docker.sock') {
+  return `if [ -z "\${DOCKER_HOST:-}" ] && [ ! -S ${quote(defaultSocket)} ] && command -v docker >/dev/null 2>&1; then
+  rocky_docker_host=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+  case "$rocky_docker_host" in
+    unix://*) if [ -S "\${rocky_docker_host#unix://}" ]; then export DOCKER_HOST="$rocky_docker_host"; fi ;;
+  esac
+  unset rocky_docker_host
+fi
+`;
+}
 const envValue = (s: string) =>
   /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(s)
     ? `"${s.slice(0, -1)}:?Required environment variable is missing}"`
@@ -304,7 +317,7 @@ run();
     const rel = relative(root, cwd);
     if (rel === '..' || rel.startsWith('../') || isAbsolute(rel))
       throw Error(`Working directory escapes ${repo.name}.`);
-    return `cd -- ${quote(cwd)} && { ${this.environment(repo, task.env)}${versionManagerShell}${command}\n}`;
+    return `cd -- ${quote(cwd)} && { ${this.environment(repo, task.env)}${versionManagerShell}${dockerContextShell()}${command}\n}`;
   }
   async command(id: string, label: string, timeoutMs?: number) {
     const entry = catalogEntries(this.repos).find((entry) => entry.id === id);

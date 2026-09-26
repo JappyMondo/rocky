@@ -1,4 +1,13 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -11,6 +20,7 @@ import {
 import {
   catalogEntries,
   dependencyOrder,
+  dockerContextShell,
   serviceEntries,
   WorkspaceExecution,
 } from './workspace-execution.js';
@@ -26,6 +36,41 @@ afterEach(async () => {
   await Promise.all(
     dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
   );
+});
+it('passes the active local Docker context socket to container libraries without overriding explicit access', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rocky-docker-context-'));
+  dirs.push(root);
+  const bin = join(root, 'bin');
+  const socket = join(root, 'docker.sock');
+  await mkdir(bin);
+  await writeFile(
+    join(bin, 'docker'),
+    `#!/bin/sh\n[ "$1" = context ] && [ "$2" = inspect ] || exit 1\nprintf '%s\\n' 'unix://${socket}'\n`,
+  );
+  await chmod(join(bin, 'docker'), 0o755);
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socket, resolve);
+  });
+  try {
+    const command = `${dockerContextShell(join(root, 'missing.sock'))}printf '%s' "\${DOCKER_HOST:-}"`;
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` };
+    const derived = spawnSync('/bin/sh', ['-c', command], {
+      env: { ...env, DOCKER_HOST: '' },
+      encoding: 'utf8',
+    });
+    expect(derived.status, derived.stderr).toBe(0);
+    expect(derived.stdout).toBe(`unix://${socket}`);
+    const explicit = spawnSync('/bin/sh', ['-c', command], {
+      env: { ...env, DOCKER_HOST: 'unix:///explicit.sock' },
+      encoding: 'utf8',
+    });
+    expect(explicit.status, explicit.stderr).toBe(0);
+    expect(explicit.stdout).toBe('unix:///explicit.sock');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 it('orders cross-repository prerequisites once and rejects missing/cyclic dependencies', () => {
   const entries = [

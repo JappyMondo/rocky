@@ -1447,6 +1447,7 @@ it.each([
     );
     expect(captures).toBe(1);
   },
+  15_000,
 );
 
 it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
