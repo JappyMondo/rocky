@@ -281,7 +281,7 @@ it('keeps the actual test assertion after setup warnings fill the evidence budge
   expect(plain).toContain('FAIL audit-hooks.integration.spec.ts');
   expect(plain).toContain('Expected length: 2');
   expect(plain).toContain('Received length: 1');
-  expect(plain).not.toContain('No recognizable individual failure diagnostic');
+  expect(plain).not.toContain('No recognized individual test failure');
   expect(excerpt).toContain('cleanup 149');
   expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
 });
@@ -325,7 +325,7 @@ it('flags a failed target when the job publishes no individual failure diagnosti
   );
   expect(excerpt).toContain('- server:test');
   expect(excerpt).toContain(
-    'No recognizable individual failure diagnostic found in this job log',
+    'No recognized individual test failure or timeout found in this job log',
   );
   expect(excerpt).toContain('rerun the failed target');
   expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);

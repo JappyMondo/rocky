@@ -354,7 +354,7 @@ export class ScmHttp {
     let followingStrong = 0;
     let followingWeak = 0;
     let sawFailedTasks = false;
-    let sawIndividualDiagnostic = false;
+    let sawIndividualTestSignal = false;
     const remember = (
       evidence: Map<number, string>,
       line: { index: number; text: string },
@@ -375,7 +375,7 @@ export class ScmHttp {
           plain,
         )
       )
-        sawIndividualDiagnostic = true;
+        sawIndividualTestSignal = true;
       const failure =
         /\bFAIL\s+\S+|Summary of all failing tests|Test Suites:\s*\d+ failed|Exceeded timeout of \d+ ms|Failed tasks:/.test(
           plain,
@@ -441,8 +441,8 @@ export class ScmHttp {
       .sort(([a], [b]) => a - b)
       .map(([, text]) => text);
     const diagnosticNote =
-      sawFailedTasks && !sawIndividualDiagnostic
-        ? '[No recognizable individual failure diagnostic found in this job log; rerun the failed target or inspect repository test reports before diagnosing it.]'
+      sawFailedTasks && !sawIndividualTestSignal
+        ? '[No recognized individual test failure or timeout found in this job log; inspect repository test reports and rerun the failed target if needed.]'
         : undefined;
     const note = diagnosticNote ? [diagnosticNote] : [];
     if (!early.length)
