@@ -8,6 +8,14 @@ The user explicitly reauthorized Rocky API restart/reassignment of existing tick
 
 ATT-1098-3 failed because its frozen workflow predates validation service provisioning. The authorized restart API accepted fresh successor ATT-1098-4, with the current snapshot flags. It was queued at admission; its result remains unverified.
 
+## Latest installed code, 2026-09-26 18:19 UTC
+
+Signed `e6d82e8` adds repair history and validation evidence to environment diagnosis and fixture preparation. The 14 focused real-environment/replay tests passed, as did the CI-fixer reachability and old-journal checks, daemon typecheck/lint and formatting. Archive SHA-256: `5c10b6a41a9205054617ff48ca29f9b190b029334c48d1b240fb3cf5cebed4eb`; isolated distribution smoke and SDK-only consumer passed. Both installed prefixes match the archive: flow-runtime SHA-256 `9089b7ee53ef2a5909e2ae2351cc8d1c15682efb66978d5dcaeb5ed6c2cb852d`, boot-child `fd1c64971694ab731910a8e5a005f67df6f94eb2b11e78ab6958deac38d286e6`. Launchd/listener PID 25884 matched, health OK.
+
+Avoid more installation restarts while the current browser attempt is running. ATT-764-5 resumed at Step 255; its agent now reports that local credentials were valid and the previous interaction had not submitted the form. It reached the seeded app and is preparing remaining states. This is agent progress, not an independent UI pass or final acceptance. Its earlier `agent-browser doctor` launch failure was a separate sandboxed Chrome launch; Rocky's isolated host-CDP integration test, including close/reopen, passed. The temporary extended browser test was removed.
+
+ATT-893-3, ATT-920-3, ATT-1098-4, ATT-777-6 and ATT-842-3 remain queued behind the active Run. PR #51 is draft; latest source checks are pending. No new complete unattended acceptance receipt exists.
+
 ## Verified deployment, 2026-09-26 18:08 UTC
 
 Signed commit `8884c73` contains the CI completion reconciliation and multiple-file fixture provenance repair. The full workflow/replay suites passed 158 tests with 61 expected skips; SCM, fixture, validation-environment and environment suites passed 107 tests. Typecheck, lint, formatting and isolated distribution smoke passed. Archive SHA-256: `52b28242a157af6d94f804afe458bee4971591c793887ad3f5caa479f3aee1e2`. Installed flow-runtime SHA-256: `b8c08cf1405aeae7f0331ce160d7e8a5dd5a62d0419e0201473f8390b7eb41cf`; boot-child: `fd1c64971694ab731910a8e5a005f67df6f94eb2b11e78ab6958deac38d286e6`. Both prefixes match the archive. Launchd/listener PID 81540 matched and health was OK.

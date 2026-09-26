@@ -221,7 +221,7 @@ export async function prepareCodexEnvironment(
       env,
       writableDirectories: [root],
       instructions:
-        'Rocky selected the installed Node version from .nvmrc when available and isolated Nx and package caches. Use node and pnpm directly; this noninteractive shell need not run nvm use. Keep the supplied cache paths; do not create repository-local Nx, npm, or Electron caches. Rocky started an isolated host browser. Use agent-browser with $ROCKY_BROWSER_SESSION normally; Rocky connects it through CDP. Close only your session when done.',
+        'Rocky selected the installed Node version from .nvmrc when available and isolated Nx and package caches. Use node and pnpm directly; this noninteractive shell need not run nvm use. Keep the supplied cache paths; do not create repository-local Nx, npm, or Electron caches. Rocky started an isolated host browser. Use agent-browser with $ROCKY_BROWSER_SESSION normally; Rocky connects it through CDP. Run browser commands sequentially and let their native action timeout finish (normally 25 seconds); a shell deadline must allow that timeout and response, at least 35 seconds for one standard action. Killing a CLI client early can leave its daemon processing the previous command. Do not stack retries behind it. The doctor standalone launch test runs inside the sandbox and does not diagnose this host browser; check the supplied CDP endpoint at http://127.0.0.1:$ROCKY_BROWSER_CDP_PORT/json/version instead. Distinguish an unresponsive application page from a missing browser. Close only your session when done.',
       dispose: stop,
     };
   } catch (error) {
