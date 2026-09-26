@@ -269,6 +269,8 @@ it('keeps the actual test assertion after setup warnings fill the evidence budge
     'Expected length: \x1b[32m2\x1b[39m',
     'Received length: \x1b[31m1\x1b[39m',
     ...Array.from({ length: 150 }, (_, i) => `cleanup ${i}`),
+    'Failed tasks:',
+    '- plugin:test',
   ].join('\n');
   const client = http(async () => new Response(log));
   const excerpt = await client.logTail('/logs', 40, true);
@@ -279,6 +281,7 @@ it('keeps the actual test assertion after setup warnings fill the evidence budge
   expect(plain).toContain('FAIL audit-hooks.integration.spec.ts');
   expect(plain).toContain('Expected length: 2');
   expect(plain).toContain('Received length: 1');
+  expect(plain).not.toContain('No recognizable individual failure diagnostic');
   expect(excerpt).toContain('cleanup 149');
   expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
 });
@@ -300,5 +303,30 @@ it('keeps a failed test after later projects emit many expected error logs', asy
   expect(excerpt).toContain('FAIL api mcp-http.integration.spec.ts');
   expect(excerpt).toContain('Exceeded timeout of 30000 ms');
   expect(excerpt).toContain('Final CI summary');
+  expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
+});
+
+it('flags a failed target when the job publishes no individual failure diagnostic', async () => {
+  const log = [
+    '##[group]❌ > nx run server:test',
+    'PASS server helpers.spec.ts',
+    '  ● Console',
+    'Error: expected fixture rejection',
+    ...Array.from({ length: 100 }, (_, i) => `expected error ${i}`),
+    'Failed tasks:',
+    '- server:test',
+    ...Array.from({ length: 100 }, (_, i) => `cleanup ${i}`),
+    '##[error]Process completed with exit code 1.',
+  ].join('\n');
+  const excerpt = await http(async () => new Response(log)).logTail(
+    '/logs',
+    40,
+    true,
+  );
+  expect(excerpt).toContain('- server:test');
+  expect(excerpt).toContain(
+    'No recognizable individual failure diagnostic found in this job log',
+  );
+  expect(excerpt).toContain('rerun the failed target');
   expect(excerpt.split('\n').length).toBeLessThanOrEqual(40);
 });

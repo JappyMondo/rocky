@@ -353,6 +353,8 @@ export class ScmHttp {
     let followingFailure = 0;
     let followingStrong = 0;
     let followingWeak = 0;
+    let sawFailedTasks = false;
+    let sawIndividualDiagnostic = false;
     const remember = (
       evidence: Map<number, string>,
       line: { index: number; text: string },
@@ -367,6 +369,13 @@ export class ScmHttp {
     const observe = (text: string) => {
       const line = { index: index++, text: text.slice(0, 2000) };
       const plain = text.replace(ansi, '');
+      if (/\bFailed tasks:/.test(plain)) sawFailedTasks = true;
+      if (
+        /\bFAIL\s+\S+|Summary of all failing tests|Test Suites:\s*\d+ failed|Exceeded timeout of \d+ ms|\b(?:AssertionError|Traceback)\b|●(?!\s*Console\b)|✕|\b(?:Expected|Received)(?: length)?:/.test(
+          plain,
+        )
+      )
+        sawIndividualDiagnostic = true;
       const failure =
         /\bFAIL\s+\S+|Summary of all failing tests|Test Suites:\s*\d+ failed|Exceeded timeout of \d+ ms|Failed tasks:/.test(
           plain,
@@ -431,11 +440,18 @@ export class ScmHttp {
       .filter(([position]) => position < index - suffix.length)
       .sort(([a], [b]) => a - b)
       .map(([, text]) => text);
-    if (!early.length) return suffix.join('\n');
+    const diagnosticNote =
+      sawFailedTasks && !sawIndividualDiagnostic
+        ? '[No recognizable individual failure diagnostic found in this job log; rerun the failed target or inspect repository test reports before diagnosing it.]'
+        : undefined;
+    const note = diagnosticNote ? [diagnosticNote] : [];
+    if (!early.length)
+      return [...note, ...suffix.slice(-(lines - note.length))].join('\n');
     return [
+      ...note,
       ...early,
       '[... intervening log omitted; final log lines follow ...]',
-      ...suffix.slice(-(lines - early.length - 1)),
+      ...suffix.slice(-(lines - note.length - early.length - 1)),
     ].join('\n');
   }
 

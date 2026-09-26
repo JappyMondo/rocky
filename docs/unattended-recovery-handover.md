@@ -2,6 +2,13 @@
 
 Updated 2026-09-26. Continue durable fixes if further failures occur. Do not treat this handover as current run status; refresh the daemon first.
 
+## Current checkpoint, 2026-09-26 17:33 UTC
+
+- Rocky's generic SCM reader now flags a failed-target log with no recognizable individual diagnostic and tells the CI fixer to rerun the repository check or inspect test reports. The captured 815 KB `test` job log had no Jest failure summary; its GitHub failure annotation only reported exit 1, and the workflow run had no test-report artifact. The separate failed `plugins` job did contain an assertion and retains it without the note. No Attraccess source or Run was manually changed for this fix.
+- A project-neutral regression first failed on the missing note, then passed. Four SCM, workflow and snapshot files passed 83 tests; daemon typecheck, lint and formatting passed. Temporary tests against both full captured job logs passed and were removed. The packaged archive SHA-256 is `db2e8dc7155b4ca0ad8302bdd63185e08b32221b77d98a7bda641ac667a836a0`; its isolated distribution smoke passed on port 47625.
+- The archive was installed into both global prefixes. Their `dist/boot-child.js` hashes and the archive hash are `ed3c444ed3e90fadd2ca07c7c6f94ac2e4905c8f11b0e59d6ecf68503504e86d`; both contain the new diagnostic note. Main and flow-runtime hashes remain as recorded below. Both LaunchAgents restarted, listener PID 67741 matched launchd, `/api/health` returned OK, and ATT-777-5 resumed on Boot 28. The earlier installer script was absent, so this installation used `/tmp/rocky-ci-gap-install.sh` with an EXIT restore trap.
+- Latest statuses at that read: ATT-777-5 running UI fixture preparation, ATT-893-3 parked at current-head CI, ATT-764-5, ATT-1098-3 and ATT-920-3 queued. ATT-920-3 has not run under the new install. No complete unattended Run receipt exists. Keep Rocky PR #51 draft and re-read these statuses before reporting them later.
+
 ## Scope and operating rules
 
 - Fix recurring failures in Rocky runtime, shipped workflow, or repository configuration. A repaired individual run is verification, not the deliverable.
@@ -13,7 +20,7 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, journal-safe fixture blocker handling, private UI fixture credential handoff, Docker context socket bridging, and committed CI repair reconciliation. See [the implementation notes](unattended-recovery.md). Signed head `b9589ef` was packed into archive SHA-256 `47c993c37d8185f35bb656963e2b237e48adf795ff1bbedd49ff0b493c24af9b`, passed the isolated distribution smoke test, and was installed into both global prefixes at 17:03 UTC. The daemon and ingress LaunchAgents restarted; health is OK and listener PID matched launchd. Both installed `dist/main.js` files hash `2a8fd73fdf83e0a6e6e990c17810d86201e84c381af94970a7c921dab246b601`, both `dist/flow-runtime.js` files hash `2a933dc2c76d41b116df6f46d4f0d2f4b3a61cb6517b775471e8114c6b342c2d`, and both `dist/boot-child.js` files hash `2b4cb4f894c2d2c0719512bf83c1da5959b7d32bc061b00e3d6e9a7563f5f92c`; all match the archive. Do not infer installed code from the unchanged Rocky version number. This is not live end-to-end acceptance.
+The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, journal-safe fixture blocker handling, private UI fixture credential handoff, Docker context socket bridging, and committed CI repair reconciliation. See [the implementation notes](unattended-recovery.md). At the 17:03 UTC checkpoint, signed head `b9589ef` was packed into archive SHA-256 `47c993c37d8185f35bb656963e2b237e48adf795ff1bbedd49ff0b493c24af9b`, passed the isolated distribution smoke test, and was installed into both global prefixes. The later current checkpoint above supersedes that installation. The daemon and ingress LaunchAgents restarted; health is OK and listener PID matched launchd. Both installed `dist/main.js` files hash `2a8fd73fdf83e0a6e6e990c17810d86201e84c381af94970a7c921dab246b601`, both `dist/flow-runtime.js` files hash `2a933dc2c76d41b116df6f46d4f0d2f4b3a61cb6517b775471e8114c6b342c2d`; these stayed the same in the later archive. The earlier `dist/boot-child.js` hash was `2b4cb4f894c2d2c0719512bf83c1da5959b7d32bc061b00e3d6e9a7563f5f92c`. Do not infer installed code from the unchanged Rocky version number. This is not live end-to-end acceptance.
 
 Important recent commits:
 
@@ -151,7 +158,7 @@ ROCKY_DISTRIBUTION_PORT=47625 pnpm test:distribution
 
 Tarball: `dist/tarballs/rocky-0.2.0.tgz`. Install this local archive, not the public npm package, into both prefixes `/opt/homebrew` and `/Users/jappy/.nvm/versions/node/v24.19.0` using `npm install --global --prefix PREFIX --ignore-scripts --no-audit --no-fund ARCHIVE`.
 
-Existing `/tmp/rocky-install-fixed.sh` stops ingress and daemon LaunchAgents, installs both, and restores services via an EXIT trap. Inspect it before reuse. LaunchAgents live under `~/Library/LaunchAgents/com.digimondo.rocky{,.ingress}.plist`, launchctl domain `gui/$(id -u)`. Preserve ExitTimeOut=60, allow owned workers to stop and planned-shutdown markers to flush. Avoid API mutations during restart. Verify health, actual listener process and installed archive bytes afterward.
+Current `/tmp/rocky-ci-gap-install.sh` stops ingress and daemon LaunchAgents, installs both, and restores services via an EXIT trap. Inspect it before reuse; temporary scripts can disappear. LaunchAgents live under `~/Library/LaunchAgents/com.digimondo.rocky{,.ingress}.plist`, launchctl domain `gui/$(id -u)`. Preserve ExitTimeOut=60, allow owned workers to stop and planned-shutdown markers to flush. Avoid API mutations during restart. Verify health, actual listener process and installed archive bytes afterward.
 
 Recent logs: `/tmp/rocky-fixtures-{final-integration,final-checks,distribution,pack,install}.log` and `/tmp/rocky-fixtures-tests.log`.
 
