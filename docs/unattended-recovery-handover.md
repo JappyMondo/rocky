@@ -13,10 +13,12 @@ Updated 2026-09-26. Continue durable fixes if further failures occur. Do not tre
 
 ## Code and installed state
 
-The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, and journal-safe fixture blocker handling. See [the implementation notes](unattended-recovery.md). The local `rocky-0.2.0.tgz` has SHA-256 `db00045fa3be4f156a5a88c5f1364f1281ea8b894de53e70de13d85a0e8e4bec`. It passed the isolated distribution smoke test and was installed into both global prefixes at 11:58 UTC. Both installed `dist/main.js` files have SHA-256 `b6ea8f439e15dc5ca5a884ab9e9fba7622082ce842abd88b39ce9b765050c453`, both `dist/boot-child.js` files have SHA-256 `2fa6bcf2cc03cb5c24dd2a26b9318b9721dbd894afb216b19cc835a336ba9252`, and both `dist/flow-runtime.js` files have SHA-256 `360e01e50f383004c3059c7380192486be7b41f546fd8d9d6ed119480c82ca14`; these match the archive. Daemon and ingress LaunchAgents restarted and health returned OK. All four checks passed on the previous head of draft PR [#51](https://github.com/JappyMondo/rocky/pull/51); the new blocker change has not yet completed CI. This is not live end-to-end acceptance.
+The `fix/unattended-recovery` branch contains the completion gate, retained-run replay repairs, current UI endpoint binding, blocked-fixture recovery, stronger CI log excerpts, mandatory rechecks for previously failed configured commands, and journal-safe fixture blocker handling. See [the implementation notes](unattended-recovery.md). The signed head `86803fc` also defaults to one concurrent Run and keeps diagnostic logs outside Git worktrees. The local `rocky-0.2.0.tgz` has SHA-256 `0ae91026989b14febb265f2783c1507aaa0934bfb8d710f3eb40b799b482b629`. It passed the isolated distribution smoke test and was installed into both global prefixes at 15:03 UTC. Both installed `dist/main.js` files have SHA-256 `c359cd4034b28b0f278713b6ffb968ac663cb385fd5ca984b4b157204b9f2925`, and both `dist/flow-runtime.js` files have SHA-256 `fc41bf549e7070fe0329944ccf974d6af4624813cf6a53452c26a7c1f4de5fda`; these match the archive. Daemon and ingress LaunchAgents restarted and health returned OK. All four checks passed on the signed head of draft PR [#51](https://github.com/JappyMondo/rocky/pull/51). This is not live end-to-end acceptance.
 
 Important recent commits:
 
+- `86803fc`: keep diagnostic evidence outside Git worktrees so it cannot block pushes; this commit is signed and GitHub verified. The tree was packaged and installed before the signing amend.
+- `ab9a950`: default to one concurrent Run to avoid overloading a typical local host; the local configuration also explicitly sets one.
 - Current blocker change: accept a validated agent blocker inside the journaled fixture Step on new recovery snapshots, then route it through bounded repair; older snapshots retain the exception path.
 - `f0133e5`, `d7d6268`: preserve actual CI assertions in bounded log excerpts and force previously failed configured validation commands into subsequent new-snapshot validation rounds; then format the changes.
 - `0cd1e37`: route blocked UI fixture preparation through bounded environment repair on new snapshots; preserve old journal order.
@@ -34,6 +36,14 @@ Important recent commits:
 - Earlier commits cover refinement comments/prior answers, fresh-snapshot restart, CI retry SHA synchronization, worktree adoption, service provisioning for validation/recaps, settled runs and ticket grouping.
 
 The original `/Users/jappy/.t3/worktrees/rocky/t3code-48f9ab53` checkout had no commits missing from the recovery branch at the previous handover. Recheck the main checkout and remote before further edits.
+
+## Live recovery update, 2026-09-26 15:24 UTC
+
+- Bitwarden's SSH agent was locked after the reboot. The user unlocked it; `ssh-add -l` succeeded, the Rocky head was amended to a signed commit, pushed, and verified by GitHub. Signing is no longer the observed blocker.
+- OrbStack had stopped after the reboot, so the full ATT-1098 plugin check could not start Testcontainers. `orbctl start` restored Docker, and `app.start_at_login` was enabled and read back. ATT-1098-3 is **queued** at retained Step 306 after eight untracked diagnostic logs were moved into its Run evidence directory. Its exact configured plugin command still needs an exit-zero receipt.
+- ATT-764-5's fixture Step 84 returned a valid blocked result and is recorded **done**, not failed. This is live evidence that the new journal-safe result path works. It reached Step 85 for a bounded follow-up fixture attempt; missing supported component previews and request-failure browser states remain unresolved. No visual acceptance has been claimed.
+- ATT-920-2 pushed signed, GitHub-verified Attraccess head `7316252` to draft PR [#1888](https://github.com/Attraccess/Attraccess/pull/1888). All configured local validation commands passed. Its current-head GitHub `test` job failed in `api:test`, while other checks were green or pending; the job log did not contain a concrete failing assertion. The Run is **parked** at its CI wait and has a held failure-evidence steer for the CI fixer. Do not treat the earlier green CI receipt as current-head proof.
+- ATT-777-5 and ATT-893-3 have green current-head PR checks but remain **queued** before final review, UI verification, and handoff. No new live Run has completed all required work successfully.
 
 ## Live recovery update, 2026-09-26 12:00 UTC
 
