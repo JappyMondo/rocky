@@ -671,6 +671,7 @@ it('accepts a versioned catalog repair after exhaustion and preserves implementa
   });
   const settings = {
     ...defaultFlowSettings(),
+    uiFixtureVersion: undefined,
     recoveryVersion: undefined, // Pre-recovery snapshot keeps its continuation boundary.
     pullRequests: 'lead' as const,
     environmentVersion: 1 as const,
@@ -956,9 +957,14 @@ it.each([0, 1])(
   },
 );
 
-it.each([true, false])(
+it.each([
+  { recapEnvironment: true, fixturePreflight: false },
+  { recapEnvironment: false, fixturePreflight: false },
+  { recapEnvironment: true, fixturePreflight: true },
+  { recapEnvironment: true, fixturePreflight: true, sourceChanged: true },
+])(
   'repairs UI fixtures and provisions recap previews across journal replay (new snapshot=%s)',
-  async (recapEnvironment) => {
+  async ({ recapEnvironment, fixturePreflight, sourceChanged = false }) => {
     const { createDeliveryOperations } = await import('../flow/delivery.js');
     const f = await fixture();
     f.repo.environment.capabilities[0].kind = 'browser';
@@ -973,6 +979,8 @@ it.each([true, false])(
         role: string,
         options?: {
           schema?: { safeParse(value: unknown): { success: boolean } };
+          label?: string;
+          input?: { fixtures?: unknown };
         },
       ) => {
         calls.push(role);
@@ -995,6 +1003,41 @@ it.each([true, false])(
             ],
             summary: 'check',
           };
+        if (options?.label?.startsWith('Prepare UI fixtures')) {
+          const exists = await readFile(
+            join(f.repoDir, '.fixture-ready'),
+            'utf8',
+          ).then(
+            () => true,
+            () => false,
+          );
+          await mkdir(join(f.root, 'screenshots'), { recursive: true });
+          await writeFile(
+            join(f.root, 'screenshots', 'fixture.png'),
+            'fixture evidence',
+          );
+          return exists
+            ? {
+                status: 'ready',
+                summary: 'Local fixture verified',
+                fixtures: [
+                  {
+                    id: 'feature',
+                    url: '/',
+                    instructions: 'Open the prepared local feature',
+                    repository: 'web',
+                    source: 'README.md',
+                    executed: true,
+                    screenshot: join(f.root, 'screenshots', 'fixture.png'),
+                  },
+                ],
+              }
+            : {
+                status: 'setup',
+                commands: ['web/seed'],
+                summary: 'Seed the local fixture first',
+              };
+        }
         if (role === 'fixer') {
           expect(
             options?.schema?.safeParse({
@@ -1018,6 +1061,14 @@ it.each([true, false])(
           };
         }
         if (role === 'ui-inspector') {
+          if (fixturePreflight)
+            expect(options?.input?.fixtures).toEqual([
+              expect.objectContaining({
+                id: 'feature',
+                url: '/',
+                executed: true,
+              }),
+            ]);
           const ready = await readFile(
             join(f.repoDir, '.fixture-ready'),
             'utf8',
@@ -1058,6 +1109,7 @@ it.each([true, false])(
         `printf '%s' '{"status":"passed","checks":[{"id":"runtime","executed":true,"passed":true}]}'`,
       ),
     );
+    let sourceReads = 0;
     let approved = false;
     let captures = 0;
     const journalPath = join(f.root, 'recovery-journal.jsonl');
@@ -1080,9 +1132,22 @@ it.each([true, false])(
             },
             {
               exec: (cmd, background, timeout) =>
-                /git (push|diff|rev-parse)/.test(cmd)
-                  ? Promise.resolve({ exitCode: 0, stdout: 'head', stderr: '' })
-                  : f.exec(cmd, background, timeout),
+                cmd.includes('git hash-object --stdin')
+                  ? Promise.resolve({
+                      exitCode: 0,
+                      stdout:
+                        sourceChanged && ++sourceReads > 1
+                          ? 'changed-source'
+                          : 'head',
+                      stderr: '',
+                    })
+                  : /git (push|diff|rev-parse)/.test(cmd)
+                    ? Promise.resolve({
+                        exitCode: 0,
+                        stdout: 'head',
+                        stderr: '',
+                      })
+                    : f.exec(cmd, background, timeout),
               changedFiles: async () => ['web/view.ts'],
               external: () =>
                 ({
@@ -1126,6 +1191,7 @@ it.each([true, false])(
             f.input,
             {
               ...defaultFlowSettings(),
+              uiFixtureVersion: fixturePreflight ? 1 : undefined,
               recoveryVersion: 1,
               ...(recapEnvironment
                 ? { recapEnvironmentVersion: 1 as const }
@@ -1140,7 +1206,9 @@ it.each([true, false])(
           await run('clarify', journaled);
           await run('plan', journaled);
           await run('implement', journaled);
-          expect(await run('ui', journaled)).toBe('retry');
+          expect(await run('ui', journaled)).toBe(
+            fixturePreflight && !sourceChanged ? 'next' : 'retry',
+          );
           expect(await run('ui', journaled)).toBe('next');
           expect(await run('recap', journaled)).toBe('next');
           await ctx.checkpoint({ title: 'review', body: '' });
@@ -1149,7 +1217,9 @@ it.each([true, false])(
       });
     const first = await boot();
     expect(first, JSON.stringify(first)).toMatchObject({ status: 'parked' });
-    expect(calls.filter((role) => role === 'fixer')).toHaveLength(1);
+    expect(calls.filter((role) => role === 'fixer')).toHaveLength(
+      fixturePreflight ? 3 : 1,
+    );
     expect(await readFile(join(f.repoDir, '.fixture-ready'), 'utf8')).toBe('');
     approved = true;
     const replay = await boot();
@@ -1157,8 +1227,12 @@ it.each([true, false])(
       status: 'finished',
       outcome: 'completed',
     });
-    expect(calls.filter((role) => role === 'fixer')).toHaveLength(1);
-    expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(2);
+    expect(calls.filter((role) => role === 'fixer')).toHaveLength(
+      fixturePreflight ? 3 : 1,
+    );
+    expect(calls.filter((role) => role === 'ui-inspector')).toHaveLength(
+      sourceChanged ? 1 : 2,
+    );
     expect(captures).toBe(1);
   },
 );
@@ -1221,6 +1295,7 @@ it.each(['repaired', 'blocked', 'manual', 'ineffective'] as const)(
       f.input,
       {
         ...defaultFlowSettings(),
+        uiFixtureVersion: undefined,
         recoveryVersion: 1,
         environmentVersion: 1,
         workspaceSetup: true,

@@ -43,6 +43,8 @@ export interface FlowSettings {
   recapEnvironmentVersion?: 1;
   /** Provision command endpoint dependencies before validation in new journals. */
   validationEnvironmentVersion?: 1;
+  /** Prepare concrete browser fixtures before inspection in new snapshots. */
+  uiFixtureVersion?: 1;
   /** Resolved profile catalog, populated only in immutable run snapshots. */
   execution?: import('./workspace.js').WorkspaceRepository[];
   /** Explicit opt-in preserves positional replay for older frozen flows. */
@@ -414,6 +416,7 @@ export const defaultFlowSettings = (): FlowSettings => ({
   scopeCommentVersion: 1,
   recapEnvironmentVersion: 1,
   validationEnvironmentVersion: 1,
+  uiFixtureVersion: 1,
   pullRequests: 'all-changed',
   commands: { install: '', test: '', lint: '', build: '' },
   ui: null,
@@ -505,6 +508,8 @@ export function parseFlow(source: string): WorkflowFlow {
     edgeIds.add(edge.id);
   }
   const s = value.settings;
+  if (s.uiFixtureVersion !== undefined && s.uiFixtureVersion !== 1)
+    throw new Error('Unsupported UI fixture version.');
   if (
     s.validationEnvironmentVersion !== undefined &&
     s.validationEnvironmentVersion !== 1

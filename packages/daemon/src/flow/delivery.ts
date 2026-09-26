@@ -1,3 +1,4 @@
+import { prepareUiFixtures, uiFixturesSchema } from './ui-fixtures.js';
 import {
   ensureEnvironment,
   EnvironmentBlocked,
@@ -26,7 +27,7 @@ import {
   type CheckpointAnswer,
   z,
 } from '@rocky/sdk';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import {
   Plan,
   Refinement,
@@ -46,7 +47,7 @@ import {
   type Resolution,
 } from './schemas.js';
 
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, isAbsolute, sep } from 'node:path';
 import type { FlowSettings, UiEndpoint } from '@rocky/local-contracts';
 import { resolveUiEndpoint } from './ui-endpoint.js';
 import { isRecapAuditError } from '../review-report/recap.js';
@@ -62,6 +63,9 @@ function requireScm<T>(result: T | ScmRefusal): T {
     throw new Error(`${result.message}\n${result.fix}`);
   return result as T;
 }
+
+class UiFixtureBlocked extends EnvironmentBlocked {}
+class UiFixtureSourceChanged extends Error {}
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
@@ -179,6 +183,7 @@ export function createDeliveryOperations(
       )
     : undefined;
   let environmentUiRepairs = 0;
+  let uiFixtureSourceRepairs = 0;
   let recapServices: string[] = [];
   let recapCapabilities: string[] = [];
   let environmentContext: VerifiedEnvironment | undefined;
@@ -239,11 +244,13 @@ export function createDeliveryOperations(
   async function environmentFailure(
     blocker: EnvironmentBlocker,
     resume: () => Promise<string>,
+    recover = true,
   ): Promise<string> {
     ctx.stage('Environment: blocked');
     // This snapshot version is the migration boundary. Never insert new agent
     // Steps into immutable journals created before autonomous recovery existed.
     if (
+      recover &&
       settings.recoveryVersion &&
       execution &&
       settings.execution?.length &&
@@ -984,6 +991,151 @@ export function createDeliveryOperations(
           });
         server = undefined;
       } else {
+        let fixtures;
+        if (settings.uiFixtureVersion && execution && configuredUi.external) {
+          const available = catalogEntries(settings.execution ?? []).filter(
+            ({ command }) => command.policy !== 'manual',
+          );
+          const schema = uiFixturesSchema(
+            checks,
+            available.map((entry) => entry.id),
+          );
+          const sourceRevision = async (phase: string) => {
+            const revisions = [];
+            for (const member of workspace.members) {
+              const result = await ctx.exec(
+                `cd -- ${quote(join(runDir, 'workspace', member.path))} && git rev-parse HEAD && git diff --no-ext-diff HEAD -- | git hash-object --stdin`,
+                {
+                  label: `UI fixture source ${phase} ${revision}/${serviceKey}/${member.name}`,
+                },
+              );
+              if (result.exitCode !== 0)
+                throw new Error(
+                  'Cannot verify source state around UI fixture preparation.',
+                );
+              revisions.push(result.stdout);
+            }
+            return revisions.join('\n');
+          };
+          const sourceBefore = await sourceRevision('before');
+          const prepared = await prepareUiFixtures({
+            prepare: (attempt, previous) =>
+              actors.call('fixer', {
+                label: `Prepare UI fixtures ${revision}/${serviceKey}/${attempt}`,
+                input: {
+                  issue,
+                  workspace,
+                  checks,
+                  baseUrl: url!,
+                  screenshotDirectory: join(runDir, 'screenshots'),
+                  environment: environmentContext,
+                  availableCommands: available,
+                  previous,
+                  instruction:
+                    'Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Navigate each intended state with the browser and return executed:true only after reaching it. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and an existing repository source path documenting the route or fixture, and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.',
+                },
+                schema,
+              }),
+            setup: async (ids, attempt) => {
+              const selected = dependencyOrder(
+                catalogEntries(settings.execution ?? []),
+                ids,
+                ({ command }) => command.dependsOn,
+              );
+              if (selected.some(({ command }) => command.policy === 'manual'))
+                throw new Error(
+                  'UI fixture setup cannot execute manual commands.',
+                );
+              const provisioned = await ensure(
+                [serviceKey],
+                `UI fixture setup ${revision}/${serviceKey}/${attempt}`,
+                [],
+                selected.map((entry) => entry.id),
+              );
+              if (provisioned.status === 'blocked')
+                throw new UiFixtureBlocked(provisioned.blocker, true);
+            },
+            verify: async (items) => {
+              const receipt = await ctx.step(
+                `UI fixture readiness ${revision}/${serviceKey}/${items.map((item) => item.id).join(',')}`,
+                async () => {
+                  try {
+                    for (const fixture of items) {
+                      await execution!.checkSources(fixture.repository, [
+                        fixture.source,
+                      ]);
+                      const target = new URL(fixture.url, url!);
+                      const origins = new Set(
+                        Object.values(
+                          environmentContext?.endpoints ?? {},
+                        ).flatMap((endpoints) =>
+                          Object.values(endpoints).map(
+                            (endpoint) => new URL(endpoint).origin,
+                          ),
+                        ),
+                      );
+                      origins.add(new URL(url!).origin);
+                      if (
+                        !origins.has(target.origin) ||
+                        target.username ||
+                        target.password
+                      )
+                        throw new Error(
+                          `Fixture ${fixture.id} must use a verified local service endpoint.`,
+                        );
+                      const evidence = await realpath(fixture.screenshot);
+                      const inside = relative(
+                        await realpath(join(runDir, 'screenshots')),
+                        evidence,
+                      );
+                      if (
+                        !inside ||
+                        inside === '..' ||
+                        inside.startsWith(`..${sep}`) ||
+                        isAbsolute(inside) ||
+                        !(await stat(evidence)).isFile()
+                      )
+                        throw new Error(
+                          `Fixture ${fixture.id} needs browser evidence inside this Run's screenshot directory.`,
+                        );
+                      // A cookie-free host request cannot verify an authenticated
+                      // state. The preparer's browser evidence is followed by an
+                      // independent inspector using the repeatable instructions.
+                    }
+                    return { ready: true, error: '' };
+                  } catch (error) {
+                    return {
+                      ready: false,
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : 'Fixture probe failed',
+                    };
+                  }
+                },
+              );
+              if (!receipt.ready) throw new Error(receipt.error);
+            },
+          });
+          if (prepared.status !== 'ready') {
+            const reason =
+              prepared.status === 'blocked' ? prepared.reason : 'environment';
+            throw new UiFixtureBlocked(
+              {
+                kind: reason === 'environment' ? 'environment' : 'human',
+                code: reason === 'environment' ? 'verification' : reason,
+                capability: serviceKey,
+                action: prepared.summary,
+              },
+              true,
+            );
+          }
+          if ((await sourceRevision('after')) !== sourceBefore)
+            throw new UiFixtureSourceChanged(
+              'Fixture preparation changed tracked source; validation must run again.',
+            );
+          fixtures = prepared.fixtures;
+        }
         const screenshotDir = join(runDir, 'screenshots');
         const result = await actors.call('ui-inspector', {
           label: `ui-inspector ${revision}/${reviewCap}`,
@@ -992,6 +1144,13 @@ export function createDeliveryOperations(
             checks,
             rules,
             previousExplanations,
+            ...(fixtures
+              ? {
+                  fixtures,
+                  fixtureInstruction:
+                    'Use the supplied prepared fixtures and their repeatable instructions for every check. Verify the actual state in the browser; readiness evidence is not a visual pass. Preserve all checks and report any regressed prerequisite as blocked.',
+                }
+              : {}),
             ...(settings.environmentVersion
               ? {
                   environment: environmentContext,
@@ -1685,13 +1844,35 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
             }
           }
         } catch (error) {
+          if (error instanceof UiFixtureSourceChanged) {
+            if (uiFixtureSourceRepairs >= 2)
+              return environmentFailure(
+                {
+                  kind: 'environment',
+                  code: 'verification',
+                  capability: 'ui-fixtures',
+                  action:
+                    'Fixture preparation repeatedly changed tracked source. Repair the fixture recipe before continuing.',
+                },
+                operations.ui,
+                false,
+              );
+            uiFixtureSourceRepairs++;
+            await push();
+            reviewCap++;
+            return 'retry';
+          }
           if (
             !(error instanceof EnvironmentBlocked) ||
             (ctx.replaying && !(settings.recoveryVersion && error.recorded))
           )
             throw error;
           if (settings.recoveryVersion)
-            return await environmentFailure(error.blocker, operations.ui);
+            return await environmentFailure(
+              error.blocker,
+              operations.ui,
+              !(error instanceof UiFixtureBlocked),
+            );
           await execution.stop(label);
           if (
             error.blocker.kind === 'environment' &&

@@ -103,6 +103,7 @@ export async function prepareProfileSnapshot(
       flow.settings.scopeCommentVersion = 1;
       flow.settings.recapEnvironmentVersion = 1;
       flow.settings.validationEnvironmentVersion = 1;
+      flow.settings.uiFixtureVersion = 1;
       flow.settings.uiConfigurationVersion = 1;
       flow.settings.mergeReadinessVersion = 1;
       workflowSource = JSON.stringify(flow);
