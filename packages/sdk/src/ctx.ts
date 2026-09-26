@@ -111,6 +111,8 @@ export interface AgentCallOpts<S extends z.ZodType = z.ZodType> {
   tools?: ('read' | 'edit' | 'bash')[];
   /** Names of servers declared in `.rocky/mcp.json`. */
   mcp?: string[];
+  /** Allow this agent to write browser evidence into this Run's screenshot directory. */
+  screenshotWrite?: boolean;
 }
 
 export type RecapAgentRole = 'inventory' | 'narrative' | 'capture' | 'audit';

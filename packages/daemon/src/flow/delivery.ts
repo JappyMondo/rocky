@@ -1025,6 +1025,7 @@ export function createDeliveryOperations(
             prepare: (attempt, previous) =>
               actors.call('fixer', {
                 label: `Prepare UI fixtures ${revision}/${serviceKey}/${attempt}`,
+                screenshotWrite: true,
                 input: {
                   issue,
                   workspace,

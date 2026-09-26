@@ -1,7 +1,7 @@
 import { JournalWriter } from './writer.js';
 import { GRACEFUL_SHUTDOWN_CONTROL } from './journal.js';
 import { HarnessContinuationError } from '../harness/types.js';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -80,6 +80,36 @@ it('grants only the Run evidence directory to read-enabled Steps without edit ac
     [screenshotDir],
     undefined,
     undefined,
+  ]);
+});
+
+it('creates and grants the Run screenshot directory only for an opted-in fixture writer', async () => {
+  const f = fixture();
+  const screenshotDir = join(dir, 'screenshots');
+  f.options.prepareEnvironment = vi.fn(async () => ({
+    env: {},
+    writableDirectories: ['/tmp/fixture-cache'],
+    dispose: async () => undefined,
+  }));
+  const outcome = await runBoot({
+    journalPath: join(dir, 'fixture-writer.jsonl'),
+    workflow: async (steps) => {
+      await createAgent(steps, { ...f.options, screenshotDir })(
+        { prompt: 'Capture a local browser fixture.' },
+        {
+          label: 'Prepare UI fixtures',
+          tools: ['read', 'edit', 'bash'],
+          screenshotWrite: true,
+        },
+      );
+      return 'completed';
+    },
+  });
+  expect(outcome).toMatchObject({ status: 'finished' });
+  expect((await stat(screenshotDir)).isDirectory()).toBe(true);
+  expect(f.run.mock.calls[0][0].writableDirectories).toEqual([
+    '/tmp/fixture-cache',
+    screenshotDir,
   ]);
 });
 

@@ -1,5 +1,5 @@
 import { HarnessContinuationError } from '../harness/types.js';
-import { readFile, realpath } from 'node:fs/promises';
+import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import {
@@ -718,6 +718,14 @@ export function createAgent(
                 );
               }
               attemptSignal.throwIfAborted();
+              if (opts.screenshotWrite) {
+                if (!runtime.screenshotDir)
+                  throw new Error('Run screenshot directory is unavailable.');
+                await mkdir(runtime.screenshotDir, {
+                  recursive: true,
+                  mode: 0o700,
+                });
+              }
               progress = { ...progress, phase: 'invoking' };
               await handle.update(progress);
               attemptSignal.throwIfAborted();
@@ -738,7 +746,16 @@ export function createAgent(
                 effort: opts.effort,
                 capabilities: opts.tools ?? [],
                 gitMetadataDirectories: runtime.gitMetadataDirectories,
-                writableDirectories: preparedEnvironment?.writableDirectories,
+                writableDirectories: opts.screenshotWrite
+                  ? [
+                      ...new Set([
+                        ...(preparedEnvironment?.writableDirectories ?? []),
+                        ...(runtime.screenshotDir
+                          ? [runtime.screenshotDir]
+                          : []),
+                      ]),
+                    ]
+                  : preparedEnvironment?.writableDirectories,
                 ...(runtime.screenshotDir &&
                 opts.tools?.includes('read') &&
                 !opts.tools.includes('edit')
