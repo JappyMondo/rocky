@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { verifyBinding } from "./binding.mjs";
+import { failureDiagnostics } from "./failure-diagnostics.mjs";
 import { sentinel } from "./sentinel.mjs";
 import { attachScreenshots } from "./screenshots.mjs";
 import { login, logout } from "./flows.mjs";
@@ -32,7 +33,8 @@ export async function evaluateFault(
   let env,
     foreign,
     s,
-    observed = "unknown";
+    observed = "unknown",
+    diagnostics;
   const outcome = {
     id,
     fault: fault.id,
@@ -225,6 +227,7 @@ export async function evaluateFault(
             previousInstance: before.body.instanceId,
             currentInstance: recovered.instance.instanceId,
             recoveryUserId: me.id,
+            recoveredRuntime: await runtimeState(rt, env, s),
           });
           await b.screenshot("service-recovered");
         });
@@ -342,6 +345,10 @@ export async function evaluateFault(
       } else throw Error("unimplemented-fault");
     }
   } catch (error) {
+    if (env) {
+      diagnostics = failureDiagnostics(env, s, root);
+      diagnostics.catch(() => {});
+    }
     observed = classify(error, "fault");
     writePrivate(join(root, "private-observed-failure.json"), {
       name: error.name,
@@ -375,6 +382,7 @@ export async function evaluateFault(
     if (JSON.stringify(evaluatorFiles()) !== JSON.stringify(inputs))
       outcome.status = "failed";
     try {
+      if (diagnostics) await diagnostics;
       originalSource(rt);
       verifyRuntime(rt);
       const artifacts = [];

@@ -12,6 +12,11 @@ import {
 } from "./assertions.mjs";
 import { writePrivate, sha } from "./runtime.mjs";
 
+import {
+  readyService,
+  observeService,
+  automaticExit,
+} from "./service-observation.mjs";
 import { responseAction } from "./response-action.mjs";
 
 const cy = (name) => `[data-cy=${name}]`;
@@ -649,6 +654,9 @@ export async function uploadPlugin(rt, env, s) {
   const admin = env.api(s);
   await admin.login(s.admin);
   const before = await admin.request("/api/plugins/status");
+  const serviceBefore = await readyService(env, s);
+  const logPath = join(s.serviceRoot, "serve.log");
+  const logOffset = readFileSync(logPath).length;
   const data = new FormData();
   data.set(
     "pluginZip",
@@ -665,30 +673,23 @@ export async function uploadPlugin(rt, env, s) {
     "ENV11",
     "plugin-upload-failed",
   );
-  // Observe the product's scheduled exit, then request the explicit owned restart.
+  // Await explicit source-backed exit markers, then independently prove that the
+  // actual API socket owners have exited. A transient HTTP failure is insufficient.
   const deadline = Date.now() + 10000;
-  let exitObserved = false;
+  let appendedLog;
   while (Date.now() < deadline) {
-    try {
-      const r = await fetch(s.apiUrl + "/api/info", {
-        signal: AbortSignal.timeout(500),
-        redirect: "error",
-      });
-      if (!r.ok) {
-        exitObserved = true;
-        break;
-      }
-    } catch {
-      exitObserved = true;
+    appendedLog = readFileSync(logPath).subarray(logOffset).toString("utf8");
+    if (
+      appendedLog.includes("Restarting app by exiting") &&
+      appendedLog.includes("Process exited with code 0")
+    )
       break;
-    }
     await new Promise((r) => setTimeout(r, 100));
   }
-  need(
-    exitObserved,
-    "product_failed",
-    "ENV11",
-    "automatic-plugin-exit-unobserved",
+  const exitEvidence = automaticExit(
+    serviceBefore,
+    await observeService(env, s),
+    appendedLog,
   );
   const restarted = await env.restart(s, {
     pluginMode: "enabled",
@@ -703,7 +704,10 @@ export async function uploadPlugin(rt, env, s) {
   return {
     sha256: sha(zip),
     uploadStatus: uploaded.status,
-    exitObserved,
+    exitEvidence,
+    serviceBefore,
+    logPath,
+    logOffset,
     before: before.body.instanceId,
     after: restarted.instance.instanceId,
   };

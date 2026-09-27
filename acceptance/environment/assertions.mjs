@@ -67,6 +67,49 @@ export function permissions(me, role) {
     );
   return { id: me.id, username: me.username, permissions: actual };
 }
+export function roleAssignments(assignments, me, kind, cycleId) {
+  const valid =
+    Array.isArray(assignments) &&
+    assignments.length === (kind === "member" ? 2 : 1) &&
+    new Set(assignments.map((a) => a.roleId)).size === assignments.length &&
+    assignments.every(
+      (a) =>
+        Number.isSafeInteger(a.id) &&
+        a.userId === me.id &&
+        Number.isSafeInteger(a.roleId) &&
+        a.roleId === a.role?.id &&
+        a.source === "manual",
+    );
+  requireObservation(
+    valid,
+    "fixture_failed",
+    "ENV06",
+    "invalid-role-linkage-or-count",
+  );
+  const baseKey = kind === "admin" ? "administrator" : "user";
+  const base = assignments.find((a) => a.role.key === baseKey)?.role;
+  requireObservation(
+    base?.isSystemManaged === true && base.isDefault === (kind !== "admin"),
+    "fixture_failed",
+    "ENV06",
+    "missing-exact-builtin-role",
+  );
+  if (kind === "member") {
+    const custom = assignments.find((a) => a.role.key !== "user")?.role;
+    requireObservation(
+      custom?.name === "role-" + cycleId &&
+        typeof custom.key === "string" &&
+        custom.key.length > 0 &&
+        !["administrator", "owner"].includes(custom.key) &&
+        custom.isSystemManaged === false &&
+        custom.isDefault === false,
+      "fixture_failed",
+      "ENV06",
+      "invalid-member-role",
+    );
+  }
+  return assignments;
+}
 export function persisted(saved, reloaded, authoritative, expected) {
   requireObservation(
     saved === 200 && reloaded === expected && authoritative === expected,

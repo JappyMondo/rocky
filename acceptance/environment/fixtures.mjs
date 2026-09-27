@@ -11,9 +11,12 @@ import { DatabaseSync } from "node:sqlite";
 import {
   requireObservation as need,
   permissions,
+  roleAssignments,
   clean,
 } from "./assertions.mjs";
 import { sha, json, ROOT } from "./runtime.mjs";
+
+import { readyService } from "./service-observation.mjs";
 
 export function originalSource(rt) {
   const source = rt.api.TARGET.source;
@@ -159,7 +162,12 @@ export async function runtimeState(rt, env, s) {
     network.Internal === true &&
       network.Labels["rocky-next.owner"] === env.ownership.owner &&
       Object.keys(app.NetworkSettings.Networks).length === 1 &&
-      Object.keys(mail.NetworkSettings.Networks).length === 1,
+      Object.keys(mail.NetworkSettings.Networks).length === 1 &&
+      app.HostConfig.NetworkMode === s.network &&
+      app.NetworkSettings.Networks[s.network]?.Aliases.includes("app") &&
+      [app, mail].every((c) =>
+        Object.values(c.NetworkSettings.Networks).every((n) => !n.Gateway),
+      ),
     "isolation_failed",
     "ENV05",
     "runtime-network-not-internal",
@@ -268,6 +276,7 @@ export async function runtimeState(rt, env, s) {
     })),
     network: { id: network.Id, internal: network.Internal },
     ports: p,
+    service: await readyService(env, s),
     portsSha256: sha(ports.stdout),
     mapped: ingress.NetworkSettings.Ports,
     database: { path: db, device: statSync(db).dev, inode: statSync(db).ino },
@@ -309,10 +318,21 @@ export async function fixtureState(rt, env, s, prior = []) {
     "ENV06",
     "admin-exact-permissions",
   );
+  const adminRoles = await admin.request(
+    "/api/users/" + current.body.id + "/roles",
+  );
+  need(
+    adminRoles.status === 200,
+    "fixture_failed",
+    "ENV06",
+    "admin-roles-unavailable",
+  );
+  roleAssignments(adminRoles.body, current.body, "admin", s.id);
   const userReads = {
     admin: {
       id: current.body.id,
       permissions: current.body.effectivePermissions,
+      roles: adminRoles.body,
     },
   };
   for (const [kind, user] of Object.entries(s.users)) {
@@ -332,13 +352,12 @@ export async function fixtureState(rt, env, s, prior = []) {
     };
     const roles = await admin.request("/api/users/" + me.body.id + "/roles");
     need(
-      roles.status === 200 &&
-        roles.body.every((r) => r.role?.name !== "administrator"),
+      roles.status === 200,
       "fixture_failed",
       "ENV06",
       "member-or-denied-admin-role",
     );
-    userReads[kind].roles = roles.body;
+    userReads[kind].roles = roleAssignments(roles.body, me.body, kind, s.id);
   }
   const resources = await admin.request("/api/resources?limit=100");
   need(
@@ -429,13 +448,10 @@ export function cleanupState(rt, env, receipt) {
     db.close();
   }
   need(
-    !effects.some(
-      (e) =>
-        e.kind === "owned-docker" && ["pending", "sending"].includes(e.state),
-    ),
+    !effects.some((e) => ["pending", "sending"].includes(e.state)),
     "isolation_failed",
     "ENV13",
-    "pending-docker-effect",
+    "pending-effect",
   );
   return {
     receipt,

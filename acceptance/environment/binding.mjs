@@ -29,7 +29,7 @@ const git = (args) =>
 const file = (path) => ({ path, sha256: sha(readFileSync(path)) });
 export function preparationLedger() {
   const base = join(ROOT, ".qualification/attraccess");
-  const producer = file(join(base, "handoff-e919a12/preparation-ledger.json"));
+  const producer = file(join(base, "handoff-2ff6cab/preparation-ledger.json"));
   const evaluator = readdirSync(base)
     .filter((n) => /^evaluator-(discovery|sanity)-/.test(n))
     .sort()
@@ -132,10 +132,10 @@ export async function buildProposal() {
     base = rt.api.TARGET.root;
   const evidence = [
     INPUTS,
-    join(base, "handoff-e919a12/HANDOFF.md"),
-    join(base, "handoff-e919a12/retained-files.json"),
-    join(base, "handoff-e919a12/runtime-dependency-inventory.json"),
-    join(base, "handoff-e919a12/checks.json"),
+    join(base, "handoff-2ff6cab/HANDOFF.md"),
+    join(base, "handoff-2ff6cab/retained-files.json"),
+    join(base, "handoff-2ff6cab/runtime-dependency-inventory.json"),
+    join(base, "handoff-2ff6cab/checks.json"),
     join(base, "image-packaging-2026-09-27T15-22-30-613Z/Dockerfile"),
     join(
       base,

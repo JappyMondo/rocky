@@ -7,6 +7,7 @@ import {
   freshInstall,
   clean,
   permissions,
+  roleAssignments,
   ObservationFailure,
   assertionResults,
 } from "./assertions.mjs";
@@ -112,4 +113,72 @@ test("every assertion needs terminal checkpoint plus hashed evidence, even after
       "passed",
     );
   }
+});
+
+test("role assignment checks reject wrong user, duplicate, elevated key and renamed administrator", () => {
+  const user = { id: 2 };
+  const base = {
+    id: 2,
+    userId: 2,
+    roleId: 1,
+    source: "manual",
+    role: { id: 1, key: "user", isSystemManaged: true, isDefault: true },
+  };
+  roleAssignments([base], user, "denied", "cycle");
+  for (const assignments of [
+    [],
+    [base, base],
+    [{ ...base, userId: 3 }],
+    [{ ...base, roleId: 3 }],
+    [{ ...base, role: { ...base.role, key: "administrator", name: "User" } }],
+  ])
+    assert.throws(
+      () => roleAssignments(assignments, user, "denied", "cycle"),
+      ObservationFailure,
+    );
+  const custom = {
+    id: 3,
+    userId: 2,
+    roleId: 4,
+    source: "manual",
+    role: {
+      id: 4,
+      key: "custom-key",
+      name: "role-cycle",
+      isSystemManaged: false,
+      isDefault: false,
+    },
+  };
+  roleAssignments([base, custom], user, "member", "cycle");
+  assert.throws(
+    () =>
+      roleAssignments(
+        [base, { ...custom, role: { ...custom.role, key: "administrator" } }],
+        user,
+        "member",
+        "cycle",
+      ),
+    ObservationFailure,
+  );
+});
+
+test("transient unavailable API is not explicit automatic exit proof", async () => {
+  const { automaticExit } = await import("./service-observation.mjs");
+  const before = {
+    sockets: [{ port: 3000, owners: [42] }],
+    processes: [{ pid: 42, startTicks: "123" }],
+  };
+  const after = {
+    sockets: [],
+    processes: [],
+    commandId: "read-only-observation",
+  };
+  assert.throws(() => automaticExit(before, after, ""), ObservationFailure);
+  const log =
+    "api: [Nest] 42  - date [PluginService] Restarting app by exiting\napi: NX Process exited with code 0, waiting for changes to restart...";
+  assert.throws(
+    () => automaticExit(before, { ...after, processes: before.processes }, log),
+    ObservationFailure,
+  );
+  assert.equal(automaticExit(before, after, log).explicitExitCode, 0);
 });

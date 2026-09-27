@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 export const ROOT = "/Users/jappy/.t3/worktrees/rocky/rocky-next";
 export const INPUTS = join(
   ROOT,
-  ".qualification/attraccess/handoff-e919a12/proposed-inputs.json",
+  ".qualification/attraccess/handoff-2ff6cab/proposed-inputs.json",
 );
 export const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const json = (path) => JSON.parse(readFileSync(path, "utf8"));
@@ -33,7 +33,7 @@ export async function runtime() {
   workspace();
   if (
     sha(readFileSync(INPUTS)) !==
-    "71725b65a2330bb377aee1fe3d42fd01c196b8ea4c439303d83c10b033ac06f7"
+    "9f4b3ce3e6492f560fabfa164717821f275fcae1b60d118d6193c97ff0950f85"
   )
     throw Error("producer-input-drift");
   const inputs = json(INPUTS);
@@ -79,6 +79,18 @@ export function verifyRuntime({ inputs, api }) {
     sha(readFileSync(inputs.prepared.shellyZip)) !== inputs.shelly.sha256
   )
     throw Error("prepared-browser-or-zip-drift");
+  const build = json(join(inputs.packageRoot, "dist/build-identity.json"));
+  if (
+    build.sourceDirty ||
+    build.sourceCommit !== inputs.sourceCommit ||
+    build.buildId !== inputs.rockyBuildId ||
+    api.adapterIdentity() !== inputs.adapterSha256 ||
+    api.TARGET.commit !== inputs.targetCommit ||
+    api.TARGET.tree !== inputs.targetTree ||
+    sha(api.canonical(inputs.prepared.sourceInventory)) !==
+      inputs.sourceInventorySha256
+  )
+    throw Error("installed-source-build-or-target-drift");
   const integrity = api.runtimeIntegrity();
   for (const [field, actual] of Object.entries({
     installedBuildInventorySha256: integrity.installedBuildInventorySha256,

@@ -1,6 +1,6 @@
 # Independent environment evaluator
 
-**Checkpoint status: incomplete and unqualified; blocked by Taskbot #36.** The installed producer restart still names the removed bootstrap network. This checkpoint preserves work for the producer's clean packaging prerequisite; it is not a completed #27 handoff or an admission proposal. Do not run the proposal builder or qualification entry point yet. Resume only after the repaired producer artifact is independently reviewed and the root explicitly regrants the evaluator lease.
+**Implementation status: unqualified; final preparation and immutable proposal pending.** Producer repair #36 was independently accepted by #37 at `2ff6cabc4ffddc94033f252d1f1969858100006a`; the evaluator lease resumed under epic comment250. The original restart failure remains retained and unresolved historically. No qualification series or approval exists.
 
 This executable belongs to Taskbot rocky-next #27, independently of the production adapter author. The protected v1.0.1 contract remains unchanged. No E01–E10 qualification series or X01–X11 scored fault series is authorized by this implementation or by preparation results. Independent #28 approval of the exact immutable proposal is required first.
 
