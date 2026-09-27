@@ -429,12 +429,10 @@ export async function wizard(rt, env, s, browser, privateRoot) {
         "ENV12",
         "toast-lifetime-exceeded",
       );
-      await active
-        .first()
-        .waitFor({
-          state: "hidden",
-          timeout: Math.max(1, deadline - Date.now()),
-        });
+      await active.first().waitFor({
+        state: "hidden",
+        timeout: Math.max(1, deadline - Date.now()),
+      });
     }
   }
   async function next(step, button) {

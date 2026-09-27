@@ -107,20 +107,18 @@ try {
       page.setDefaultTimeout(15000);
       writePrivate(join(root, "wizard-initial-dom.json"), {
         snapshot: await page.ariaSnapshot(),
-        accordions: await page
-          .locator("[data-slot]")
-          .evaluateAll((es) =>
-            es
-              .filter((e) =>
-                String(e.getAttribute("data-slot")).includes("accordion"),
-              )
-              .map((e) => ({
-                slot: e.getAttribute("data-slot"),
-                id: e.id,
-                role: e.getAttribute("role"),
-                "aria-label": e.getAttribute("aria-label"),
-              })),
-          ),
+        accordions: await page.locator("[data-slot]").evaluateAll((es) =>
+          es
+            .filter((e) =>
+              String(e.getAttribute("data-slot")).includes("accordion"),
+            )
+            .map((e) => ({
+              slot: e.getAttribute("data-slot"),
+              id: e.id,
+              role: e.getAttribute("role"),
+              "aria-label": e.getAttribute("aria-label"),
+            })),
+        ),
       });
       await url.fill(session.frontendUrl);
       await url

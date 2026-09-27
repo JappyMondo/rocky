@@ -129,22 +129,20 @@ export function attachScreenshots(browser, root) {
       "ENV14",
       "screenshot-name-reused",
     );
-    const canvases = await p
-      .locator("canvas:visible")
-      .evaluateAll((es) =>
-        es.map((e) => ({
-          insideQr: !!e.closest("div.flex.flex-col.items-center.gap-2"),
-          decorative:
-            e.parentElement === document.body &&
-            e.style.position === "fixed" &&
-            e.style.width === "100%" &&
-            e.style.height === "100%" &&
-            e.style.top === "0px" &&
-            e.style.left === "0px" &&
-            e.style.zIndex === "1000" &&
-            e.style.pointerEvents === "none",
-        })),
-      );
+    const canvases = await p.locator("canvas:visible").evaluateAll((es) =>
+      es.map((e) => ({
+        insideQr: !!e.closest("div.flex.flex-col.items-center.gap-2"),
+        decorative:
+          e.parentElement === document.body &&
+          e.style.position === "fixed" &&
+          e.style.width === "100%" &&
+          e.style.height === "100%" &&
+          e.style.top === "0px" &&
+          e.style.left === "0px" &&
+          e.style.zIndex === "1000" &&
+          e.style.pointerEvents === "none",
+      })),
+    );
     // js-confetti@0.13.1 creates this exact body-level decorative canvas at module load.
     // Every other visible canvas must be inside the fully masked QR region.
     need(
