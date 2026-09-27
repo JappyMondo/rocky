@@ -33,12 +33,14 @@ import {
 } from "./assertions.mjs";
 import { ROOT, writePrivate, sha, verifyRuntime } from "./runtime.mjs";
 import { attachScreenshots, screenshotRegression } from "./screenshots.mjs";
+import { principalCoverage } from "./principal-ui.mjs";
 import { responseAction } from "./response-action.mjs";
 import { failureDiagnostics } from "./failure-diagnostics.mjs";
 import { sentinel } from "./sentinel.mjs";
 
 export { evaluatorFiles } from "./identity.mjs";
 import { evaluatorFiles } from "./identity.mjs";
+import { admissionAttempt } from "./admission-ledger.mjs";
 import { verifyBinding } from "./binding.mjs";
 export function classify(error, stage) {
   if (error.classification) return error.classification;
@@ -59,14 +61,28 @@ export function classify(error, stage) {
 export async function evaluateCycle(
   rt,
   cycle,
-  { id, root, admissionPath, approval, preparation = false, prior = [] },
+  {
+    id,
+    root,
+    admissionPath,
+    approvalPath,
+    approval,
+    preparation = false,
+    prior = [],
+  },
 ) {
+  const admission = preparation
+    ? undefined
+    : await admissionAttempt(
+        { phase: "cycle-entry", seriesId: id, admissionPath, approvalPath },
+        () => verifyBinding(rt, admissionPath, approval),
+      );
   const contract = JSON.parse(
     readFileSync(join(ROOT, "acceptance/environment/manifest.json")),
   );
   const viewport = contract.policy.viewports[cycle.viewport],
     files = evaluatorFiles();
-  if (!preparation) verifyBinding(rt, admissionPath, approval);
+
   const env = new rt.api.AttraccessEnvironment(
     rt.inputs.prepared,
     id,
@@ -75,7 +91,8 @@ export async function evaluateCycle(
       : { purpose: "qualification", admissionPath, approval },
   );
   const values = new Map(),
-    completed = new Set();
+    completed = new Set(),
+    principalStates = [];
   let count = 0,
     stage = "setup",
     s,
@@ -100,6 +117,7 @@ export async function evaluateCycle(
     },
     assertions: [],
     status: "running",
+    ...(admission ? { admissionReceipt: admission.receipt } : {}),
   };
   if (!preparation)
     outcome.identity.admissionSha256 = sha(readFileSync(admissionPath));
@@ -134,6 +152,8 @@ export async function evaluateCycle(
       );
       completed.add("ENV02");
       attachScreenshots(b, browserRoot);
+      b.expectedUi = { locale: cycle.locale, viewport };
+      b.principalStates = principalStates;
       if (preparation && name === "account")
         record("ENV14", {
           syntheticMaskRegression: await screenshotRegression(b, browserRoot),
@@ -477,6 +497,12 @@ export async function evaluateCycle(
       }
     }
     if (cycle.fixture === "shelly") completed.add("ENV11");
+    record("ENV12", {
+      principalCoverage: principalCoverage(cycle.fixture, principalStates, {
+        locale: cycle.locale,
+        viewport,
+      }),
+    });
     completed.add("ENV12");
     record("ENV01", await sourceSnapshot(rt, env, s));
     completed.add("ENV01");

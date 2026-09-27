@@ -17,6 +17,7 @@ import {
   observeService,
   automaticExit,
 } from "./service-observation.mjs";
+import { principalState } from "./principal-ui.mjs";
 import { responseAction } from "./response-action.mjs";
 
 const cy = (name) => `[data-cy=${name}]`;
@@ -282,6 +283,12 @@ export async function enroll(env, s, browser, privateRoot) {
       exact: true,
     })
     .click();
+  await principalState(browser, "enrollment-start", [
+    {
+      name: "enable",
+      locator: p.getByRole("button", { name: "Enable 2FA", exact: true }),
+    },
+  ]);
   const raw = await responseAction(
     p,
     (r) =>
@@ -308,8 +315,20 @@ export async function enroll(env, s, browser, privateRoot) {
   );
   await input.waitFor({ state: "visible", timeout: 15000 });
   await control(input);
-  await browser.screenshot("two-factor-masked");
+  await principalState(browser, "enrollment-secret", [
+    {
+      name: "manual-secret",
+      locator: p.getByLabel("Manual setup key", { exact: true }),
+    },
+    { name: "otp", locator: input },
+  ]);
   await input.fill(totp(material.otpauthUrl));
+  await principalState(browser, "enrollment-action", [
+    {
+      name: "verify-enable",
+      locator: p.getByRole("button", { name: "Verify & enable", exact: true }),
+    },
+  ]);
   const verify = await responseAction(
     p,
     (r) =>
@@ -331,6 +350,18 @@ export async function enroll(env, s, browser, privateRoot) {
     "ENV09",
     "2fa-not-enabled",
   );
+  await p.locator(cy("two-factor-disable-code-input")).waitFor();
+  await principalState(browser, "enrollment-complete", [
+    {
+      name: "authenticator-code",
+      locator: p.locator(cy("two-factor-disable-code-input")),
+    },
+    {
+      name: "disable-requires-code",
+      locator: p.getByRole("button", { name: "Disable 2FA", exact: true }),
+      enabled: false,
+    },
+  ]);
   return material.otpauthUrl;
 }
 export async function permissionProbe(env, s, resource, record) {
@@ -422,7 +453,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
   };
   const step = (n) => p.getByRole("group", { name: stepName[n], exact: true });
   await step(1).getByLabel("Anwendungs-URL", { exact: true }).waitFor();
-  await browser.screenshot("wizard-initial");
+
   async function dismissToasts() {
     await p.mouse.move(0, 0);
     const active = p.locator("[data-sonner-toast][data-removed=false]"),
@@ -463,6 +494,16 @@ export async function wizard(rt, env, s, browser, privateRoot) {
   await step(1)
     .getByLabel("Anwendungs-URL", { exact: true })
     .fill(s.frontendUrl);
+  await principalState(browser, "wizard-initial", [
+    {
+      name: "application-url",
+      locator: step(1).getByLabel("Anwendungs-URL", { exact: true }),
+    },
+    {
+      name: "continue",
+      locator: step(1).getByRole("button", { name: "Weiter", exact: true }),
+    },
+  ]);
   await next(1, "Weiter");
   const smtp = step(2);
   // The exact Select trigger is frozen by discover.mjs before admission.
@@ -487,13 +528,43 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     "ENV10",
     "smtp-tls-unexpected",
   );
-  await browser.screenshot("wizard-smtp");
+  await principalState(browser, "wizard-smtp", [
+    { name: "service", locator: select },
+    ...["Host", "Port", "Absenderadresse"].map((name) => ({
+      name,
+      locator: smtp.getByLabel(name, { exact: true }),
+    })),
+    {
+      name: "continue",
+      locator: smtp.getByRole("button", { name: "Weiter", exact: true }),
+    },
+  ]);
   await next(2, "Weiter");
+  await principalState(browser, "wizard-license-choice", [
+    {
+      name: "community-license",
+      locator: p.locator(cy("community-license-button")),
+    },
+  ]);
   await p.locator(cy("community-license-button")).click();
+  await principalState(browser, "wizard-license-confirmation", [
+    {
+      name: "confirm-license",
+      locator: p.locator(cy("community-license-confirm")),
+    },
+  ]);
   await p.locator(cy("community-license-confirm")).click();
   await p.getByRole("dialog").waitFor({ state: "hidden" });
   await dismissToasts();
-  await browser.screenshot("wizard-community-license");
+  await principalState(browser, "wizard-community-license", [
+    {
+      name: "save-license",
+      locator: step(3).getByRole("button", {
+        name: "Lizenz speichern",
+        exact: true,
+      }),
+    },
+  ]);
   await next(3, "Lizenz speichern");
   const before = await rt.api.mailboxIds(s.mailpitUrl);
   const admin = step(4);
@@ -506,6 +577,23 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     .locator(cy("create-admin-password-confirmation-input"))
     .fill(s.admin.password);
   await dismissToasts();
+  await principalState(browser, "wizard-admin-form", [
+    ...["Benutzername", "E-Mail-Adresse"].map((name) => ({
+      name,
+      locator: admin.getByLabel(name, { exact: true }),
+    })),
+    ...[
+      "create-admin-password-input",
+      "create-admin-password-confirmation-input",
+    ].map((name) => ({ name, locator: admin.locator(cy(name)) })),
+    {
+      name: "create-admin",
+      locator: admin.getByRole("button", {
+        name: "Admin-Konto anlegen",
+        exact: true,
+      }),
+    },
+  ]);
   const response = await responseAction(
     p,
     (r) =>
@@ -523,6 +611,15 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     "wizard-admin-create",
   );
   s.admin.id = (await response.json()).id;
+  await principalState(browser, "wizard-verification-pending", [
+    {
+      name: "go-to-login",
+      locator: step(5).getByRole("button", {
+        name: "Zur Anmeldung",
+        exact: true,
+      }),
+    },
+  ]);
   const verified = await rt.api.verifyMail(
     s.mailpitUrl,
     s.admin,
@@ -539,7 +636,16 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     "wizard-email-verification",
   );
   await p.reload();
-  await browser.screenshot("wizard-complete");
+  await p.locator(cy("login-form-sign-in-button")).waitFor();
+  await principalState(
+    browser,
+    "wizard-complete",
+    [
+      "login-form-username-input",
+      "login-form-password-input",
+      "login-form-sign-in-button",
+    ].map((name) => ({ name, locator: p.locator(cy(name)) })),
+  );
   const status = await request(
     env,
     s,

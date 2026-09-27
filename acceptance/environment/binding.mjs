@@ -26,6 +26,7 @@ import {
   completePreparations,
   retainedEvidence,
 } from "./admission-evidence.mjs";
+import { admissionSnapshot } from "./admission-ledger.mjs";
 import { originalSource } from "./fixtures.mjs";
 
 const git = (args) =>
@@ -60,7 +61,13 @@ export function preparationLedger() {
         qualificationCredit: false,
       };
     });
-  return { producer, evaluator, scoredCycles: 0, scoredFaults: 0 };
+  return {
+    producer,
+    evaluator,
+    admissionAttempts: admissionSnapshot(),
+    scoredCycles: 0,
+    scoredFaults: 0,
+  };
 }
 export function verifyProposal(rt, path) {
   workspace();

@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { ROOT, sha, json } from "./runtime.mjs";
+import { principalCoverage } from "./principal-ui.mjs";
 import { verifyFiles } from "./identity.mjs";
 
 export function verifyExpected(bytes, expected, path) {
@@ -52,6 +53,20 @@ export function completePreparations(rt, ledger) {
         verifyFiles(
           Object.fromEntries(assertion.evidence.map((e) => [e.path, e.sha256])),
         );
+      }
+      if (["fresh_install", "fresh_2fa"].includes(fixture)) {
+        const receipts = selected.result.assertions
+          .find((a) => a.assertion === "ENV12")
+          .evidence.map((e) => json(e.path));
+        const coverage = receipts
+          .map((r) => r.observation.principalCoverage)
+          .find(Boolean);
+        if (!coverage)
+          throw Error("missing-current-principal-ui-coverage:" + fixture);
+        principalCoverage(fixture, coverage.states, {
+          locale: selected.result.identity.locale,
+          viewport: selected.result.identity.viewport,
+        });
       }
       return [
         fixture,
@@ -122,6 +137,19 @@ export function retainedEvidence(ledger) {
     for (const [path, expected] of Object.entries(json(p))) add(path, expected);
     add(join(base, name, "preparation-ledger.json"));
   }
+  if (existsSync(join(base, "admission-attempts")))
+    walk(join(base, "admission-attempts"));
+  for (const name of readdirSync(base).filter((n) =>
+    n.startsWith("admission-supporting-regression-"),
+  ))
+    walk(join(base, name));
+  add(
+    join(
+      base,
+      "admission-proposal-2026-09-27T19-43-34-027Z/environment-admission.json",
+    ),
+    "8f48e7875787cc0fda8988038711162fdbc41946fcef3ef7c30153cbbddf76d0",
+  );
   if (existsSync(join(base, "active-runtimes")))
     walk(join(base, "active-runtimes"));
   const references = (value) => {

@@ -1,10 +1,11 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { admissionAttempt } from "./admission-ledger.mjs";
 import { verifyBinding } from "./binding.mjs";
 import { failureDiagnostics } from "./failure-diagnostics.mjs";
 import { sentinel } from "./sentinel.mjs";
 import { attachScreenshots } from "./screenshots.mjs";
-import { login, logout } from "./flows.mjs";
+import { login } from "./flows.mjs";
 import {
   fixtureState,
   cleanupState,
@@ -12,7 +13,6 @@ import {
   runtimeState,
 } from "./fixtures.mjs";
 import {
-  ObservationFailure,
   requireObservation as need,
   fresh2fa,
   freshInstall,
@@ -20,16 +20,21 @@ import {
   totp,
 } from "./assertions.mjs";
 import { writePrivate, sha, verifyRuntime } from "./runtime.mjs";
+import { FaultProof, expectFailure, injectedTimeout } from "./fault-proof.mjs";
 import { evaluatorFiles, classify } from "./evaluator.mjs";
 
 export async function evaluateFault(
   rt,
   fault,
-  { id, root, admissionPath, approval, prior = [] },
+  { id, root, admissionPath, approvalPath, approval, prior = [] },
 ) {
-  verifyBinding(rt, admissionPath, approval); // No preparation bypass for fault trials.
+  const admission = await admissionAttempt(
+    { phase: "fault-entry", seriesId: id, admissionPath, approvalPath },
+    () => verifyBinding(rt, admissionPath, approval),
+  ); // No preparation bypass.
   const inputs = evaluatorFiles(),
-    observations = [];
+    observations = [],
+    proof = new FaultProof(fault.id, fault.expected_class);
   let env,
     foreign,
     s,
@@ -40,6 +45,7 @@ export async function evaluateFault(
     fault: fault.id,
     scope: "qualification-fault",
     expectedClass: fault.expected_class,
+    admissionReceipt: admission.receipt,
     startedAt: new Date().toISOString(),
     admissionSha256: sha(readFileSync(admissionPath)),
     files: inputs,
@@ -69,19 +75,34 @@ export async function evaluateFault(
       },
     );
   const classified = (name, reason) => {
-    throw new ObservationFailure(name, fault.id, reason);
+    proof.observe(name, reason);
+    observed = name;
   };
   try {
     originalSource(rt);
+    if (["X06", "X11"].includes(fault.id))
+      proof.prerequisites({ sourceVerified: true, bindingVerified: true });
     if (fault.id === "X06") {
+      proof.inject({
+        synthetic: true,
+        operation: "corrupted-persistence-receipt",
+      });
       observations.push({
         synthetic: true,
         saveStatus: 200,
         reload: "expected",
         authoritative: "different",
       });
-      persisted(200, "expected", "different", "expected");
+      await expectFailure(
+        () => persisted(200, "expected", "different", "expected"),
+        "product_failed",
+        "ENV07",
+        "username-persistence-mismatch",
+      );
+      classified("product_failed", "username-persistence-mismatch");
+      proof.contain({ syntheticOnly: true, resourceEffects: 0 });
     } else if (fault.id === "X11") {
+      proof.inject({ operation: "altered-presented-bindings", fields: 4 });
       for (const [field, width] of [
         ["targetCommit", 40],
         ["contractSha256", 64],
@@ -95,8 +116,9 @@ export async function evaluateFault(
         let rejected = false;
         try {
           rt.api.validateAdmission(path, approval, rt.inputs.prepared);
-        } catch {
-          rejected = true;
+        } catch (error) {
+          rejected =
+            error.message === "independent-admission-approval-required";
         }
         need(rejected, "unknown", "X11", "changed-admission-was-accepted");
         observations.push({
@@ -107,6 +129,7 @@ export async function evaluateFault(
         });
       }
       classified("evidence_missing", "altered-binding-rejected");
+      proof.contain({ rejected: observations.length, resourceEffects: 0 });
     } else {
       const authority = { purpose: "qualification", admissionPath, approval };
       env = new rt.api.AttraccessEnvironment(rt.inputs.prepared, id, authority);
@@ -117,11 +140,23 @@ export async function evaluateFault(
       await env.start(s);
       await env.provisionAccounts(s);
       observations.push({ initialRuntime: await runtimeState(rt, env, s) });
-      const fixture = await fixtureState(rt, env, s, []);
+      const fixture = await fixtureState(rt, env, s, prior);
       const admin = env.api(s);
-      await admin.login(s.admin);
+      need(
+        (await admin.login(s.admin)).status === 201,
+        "fixture_failed",
+        "ENV06",
+        "fault-admin-login",
+      );
+      proof.prerequisites({
+        sourceVerified: true,
+        bindingVerified: true,
+        runtimeReady: true,
+        fixtureVerified: true,
+      });
       if (fault.id === "X01") {
         const wrong = { ...s.admin, password: s.admin.password + "invalid" };
+        proof.inject({ operation: "wrong-fixture-password" });
         const probe = await env.api(s).login(wrong);
         await browser("invalid-login", async (b) => {
           observations.push(await login(env, s, b, wrong, { expected: 401 }));
@@ -129,14 +164,44 @@ export async function evaluateFault(
         });
         observations.push({ fixtureLoginStatus: probe.status });
         need(
-          probe.status === 201,
+          probe.status === 401,
+          "unknown",
+          "X01",
+          "wrong-password-probe-not-rejected",
+        );
+        await expectFailure(
+          () =>
+            need(
+              probe.status === 201,
+              "fixture_failed",
+              "ENV06",
+              "expected-valid-fixture-password-rejected",
+            ),
           "fixture_failed",
           "ENV06",
           "expected-valid-fixture-password-rejected",
         );
+        classified(
+          "fixture_failed",
+          "expected-valid-fixture-password-rejected",
+        );
+        proof.contain({ invalidBrowserLoginStatus: 401, noSession: true });
       } else if (fault.id === "X02") {
         const api = env.api(s);
-        await api.login(s.users.fresh_2fa);
+        need(
+          (await api.login(s.users.fresh_2fa)).status === 201,
+          "fixture_failed",
+          "ENV09",
+          "fresh-account-login-failed",
+        );
+        const unconsumed = await api.request("/api/auth/two-factor");
+        need(
+          unconsumed.status === 200,
+          "fixture_failed",
+          "ENV09",
+          "fresh-status-unavailable",
+        );
+        fresh2fa(unconsumed.body);
         const setup = await api.json("/api/auth/two-factor/setup", "POST", {});
         need(
           setup.status === 201,
@@ -156,47 +221,112 @@ export async function evaluateFault(
         );
         const state = await api.request("/api/auth/two-factor");
         observations.push({ enabled: state.body.enabled });
-        fresh2fa(state.body);
+        need(
+          state.status === 200 && state.body.enabled === true,
+          "unknown",
+          "X02",
+          "consumed-fixture-not-observed",
+        );
+        proof.inject({ operation: "enrolled-fresh-account", enabled: true });
+        await expectFailure(
+          () => fresh2fa(state.body),
+          "fixture_failed",
+          "ENV09",
+          "2fa-fixture-already-consumed",
+        );
+        classified("fixture_failed", "2fa-fixture-already-consumed");
+        proof.contain({ resetPerformed: false });
       } else if (fault.id === "X03") {
         const state = await admin.request("/api/settings/first-time-setup");
         observations.push(state);
-        freshInstall(state.body);
-      } else if (fault.id === "X04") {
-        let timeout;
-        try {
-          await browser("timeout", async (b) => {
-            await login(env, s, b, s.admin);
-            await b.screenshot("before-timeout");
-            await b.page.waitForFunction(() => false, undefined, {
-              timeout: 250,
-            });
-          });
-        } catch (error) {
-          timeout = error;
-        }
         need(
-          timeout?.name === "TimeoutError",
+          state.status === 200 && state.body.available === false,
+          "unknown",
+          "X03",
+          "initialized-db-not-observed",
+        );
+        proof.inject({
+          operation: "initialized-db-as-fresh",
+          available: false,
+        });
+        await expectFailure(
+          () => freshInstall(state.body),
+          "fixture_failed",
+          "ENV10",
+          "initialized-fresh-install-fixture",
+        );
+        classified("fixture_failed", "initialized-fresh-install-fixture");
+        proof.contain({ resetPerformed: false });
+      } else if (fault.id === "X04") {
+        let expiredPage, expiredContext;
+        await browser("timeout", async (b) => {
+          await login(env, s, b, s.admin);
+          expiredPage = b.page;
+          expiredContext = b.context;
+          await b.screenshot("before-timeout");
+          proof.inject({ operation: "waitForFunction-false", timeoutMs: 250 });
+          const timeout = await injectedTimeout(() =>
+            b.page.waitForFunction(() => false, undefined, { timeout: 250 }),
+          );
+          writePrivate(join(root, "private-timeout.json"), timeout);
+          classified("environment_failed", "owned-browser-timeout");
+        });
+        need(
+          expiredPage.isClosed(),
           "unknown",
           "X04",
-          "actual-timeout-not-observed",
+          "timed-out-context-not-closed",
         );
-        writePrivate(join(root, "private-timeout.json"), {
-          name: timeout.name,
-          message: timeout.message,
-        });
         await browser("bounded-new-context-recovery", async (b) => {
+          need(
+            b.context !== expiredContext,
+            "unknown",
+            "X04",
+            "timeout-context-reused",
+          );
           const me = await login(env, s, b, s.admin);
           observations.push({
-            timeoutName: timeout.name,
+            timeoutName: "TimeoutError",
             recoveryUserId: me.id,
             recoveryContexts: 1,
           });
           await b.screenshot("recovered-login");
         });
-        classified("environment_failed", "owned-browser-timeout");
+        proof.contain({ freshContextLogin: true, boundedTransport: true });
       } else if (fault.id === "X05") {
         const before = await admin.request("/api/plugins/status");
+        need(
+          before.status === 200 && typeof before.body.instanceId === "string",
+          "unknown",
+          "X05",
+          "pre-death-instance-missing",
+        );
         const injection = await env.fault(s, "service-death");
+        const killed = JSON.parse(
+          rt.internal.dockerRead(env.ownership, [
+            "container",
+            "inspect",
+            injection.containerId,
+          ]),
+        )[0];
+        need(
+          killed.Id === injection.containerId &&
+            killed.Config.Labels["rocky-next.owner"] === env.ownership.owner &&
+            killed.State.Running === false &&
+            killed.State.ExitCode === 137,
+          "unknown",
+          "X05",
+          "owned-service-kill-not-observed",
+        );
+        observations.push({
+          killed: {
+            id: killed.Id,
+            running: killed.State.Running,
+            exitCode: killed.State.ExitCode,
+            finishedAt: killed.State.FinishedAt,
+          },
+        });
+        proof.inject({ operation: "owned-service-death", receipt: injection });
         let unavailable = false;
         try {
           unavailable = !(
@@ -209,6 +339,7 @@ export async function evaluateFault(
           unavailable = true;
         }
         need(unavailable, "unknown", "X05", "killed-service-still-ready");
+        classified("environment_failed", "owned-service-death");
         const recovered = await env.restart(s, {
           pluginMode: "enabled",
           observer: admin,
@@ -231,8 +362,16 @@ export async function evaluateFault(
           });
           await b.screenshot("service-recovered");
         });
-        classified("environment_failed", "owned-service-death");
+        proof.contain({
+          freshReadiness: true,
+          freshLogin: true,
+          newInstance: recovered.instance.instanceId,
+        });
       } else if (fault.id === "X07") {
+        proof.inject({
+          operation: "foreign-container-offer",
+          identity: foreign.before,
+        });
         let refused = false;
         try {
           await env.exec({ ...s, container: foreign.name }, ["true"], 1000);
@@ -246,6 +385,10 @@ export async function evaluateFault(
           survived: foreign.verify(),
         });
         classified("isolation_failed", "foreign-process-identity");
+        proof.contain({
+          refusedBeforeTakeover: true,
+          sentinelUnchanged: foreign.verify(),
+        });
       } else if (fault.id === "X08") {
         need(
           prior.length > 0,
@@ -269,8 +412,25 @@ export async function evaluateFault(
           injectedPriorDescription: prior[0].description,
           resourceId: fixture.resource.id,
         });
-        await fixtureState(rt, env, s, prior);
+        proof.inject({
+          operation: "prior-cycle-description",
+          status: write.status,
+          resourceId: fixture.resource.id,
+        });
+        await expectFailure(
+          () => fixtureState(rt, env, s, prior),
+          "isolation_failed",
+          "ENV03",
+          "prior-fixture-survived",
+        );
+        classified("isolation_failed", "prior-fixture-survived");
+        proof.contain({ resetPerformed: false });
       } else if (fault.id === "X09") {
+        proof.inject({
+          operation: "owned-tmpfs-fill",
+          path: "/fault",
+          bytes: 65536,
+        });
         let failed = false;
         try {
           await env.fault(s, "storage-exhaustion");
@@ -286,6 +446,9 @@ export async function evaluateFault(
         need(
           failed &&
             command.result.outcome === "failed" &&
+            command.spec.args.includes(
+              "require('fs').writeFileSync('/fault/owned-pressure',Buffer.alloc(1024*1024))",
+            ) &&
             stderr.includes("ENOSPC"),
           "unknown",
           "X09",
@@ -299,6 +462,7 @@ export async function evaluateFault(
           enospc: true,
         });
         classified("environment_failed", "owned-tmpfs-exhaustion");
+        proof.contain({ enospc: true, commandId: command.id, hostFill: false });
       } else if (fault.id === "X10") {
         const execution = env
           .exec(s, ["node", "-e", "setInterval(()=>{},1000)"])
@@ -320,14 +484,32 @@ export async function evaluateFault(
           await new Promise((r) => setTimeout(r, 50));
         }
         need(Boolean(running), "unknown", "X10", "execution-not-running");
-        const cleanup = await env.fault(s, "cancel");
-        const executionResult = await execution;
+        proof.inject({
+          operation: "cancel-owned-command",
+          commandId: running.id,
+        });
+        const commandsBefore = env.commands.store.commands(
+          env.commands.lease.runId,
+        ).length;
+        const cleanupPending = env.fault(s, "cancel");
+        cleanupPending.catch(() => {});
         let fenced = false;
         try {
-          await env.exec(s, ["true"], 1000);
-        } catch {
-          fenced = true;
+          await env.commands.dockerCommand(["exec", s.container, "true"], 1000);
+        } catch (error) {
+          fenced = error.message === "cancelled";
         }
+        const commandsAfter = env.commands.store.commands(
+          env.commands.lease.runId,
+        ).length;
+        need(
+          commandsAfter === commandsBefore,
+          "unknown",
+          "X10",
+          "new-command-created-after-cancel",
+        );
+        const cleanup = await cleanupPending;
+        const executionResult = await execution;
         need(
           fenced && !executionResult.unexpectedSuccess,
           "unknown",
@@ -342,9 +524,16 @@ export async function evaluateFault(
           foreign: foreign.verify(),
         });
         classified("cancelled", "cancel-during-owned-command");
+        proof.contain({
+          fenced: true,
+          executionSettled: true,
+          sentinelUnchanged: foreign.verify(),
+        });
       } else throw Error("unimplemented-fault");
     }
+    proof.finish();
   } catch (error) {
+    proof.fail(error);
     if (env) {
       diagnostics = failureDiagnostics(env, s, root);
       diagnostics.catch(() => {});
@@ -359,7 +548,8 @@ export async function evaluateFault(
   } finally {
     outcome.observedClass = observed;
     outcome.observations = observations;
-    outcome.status = observed === fault.expected_class ? "passed" : "failed";
+    outcome.faultProof = proof.receipt();
+    outcome.status = proof.passed() ? "passed" : "failed";
     if (env)
       try {
         outcome.cleanup = cleanupState(rt, env, await env.stop());

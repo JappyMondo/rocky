@@ -99,6 +99,7 @@ export function imageContent(bytes) {
 
 export function attachScreenshots(browser, root) {
   browser.page.setDefaultTimeout(15000);
+  browser.evidenceRoot = root;
   const directory = join(root, "public-masked");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   browser.screenshot = async (name) => {
