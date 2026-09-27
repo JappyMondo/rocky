@@ -408,14 +408,32 @@ export async function evaluateFault(
           "X08",
           "contamination-injection-failed",
         );
+        const readback = await admin.request(
+          "/api/resources/" + fixture.resource.id,
+        );
+        need(
+          readback.status === 200 &&
+            readback.body.id === fixture.resource.id &&
+            readback.body.description === prior[0].description,
+          "unknown",
+          "X08",
+          "contamination-authoritative-readback-mismatch",
+        );
         observations.push({
           injectedPriorDescription: prior[0].description,
           resourceId: fixture.resource.id,
+          authoritativeReadback: {
+            status: readback.status,
+            resourceId: readback.body.id,
+            description: readback.body.description,
+          },
         });
         proof.inject({
           operation: "prior-cycle-description",
           status: write.status,
           resourceId: fixture.resource.id,
+          authoritativeStatus: readback.status,
+          authoritativeDescription: readback.body.description,
         });
         await expectFailure(
           () => fixtureState(rt, env, s, prior),

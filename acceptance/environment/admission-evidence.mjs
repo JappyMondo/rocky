@@ -140,7 +140,7 @@ export function retainedEvidence(ledger) {
   if (existsSync(join(base, "admission-attempts")))
     walk(join(base, "admission-attempts"));
   for (const name of readdirSync(base).filter((n) =>
-    n.startsWith("admission-supporting-regression-"),
+    /^(admission-supporting|fixture-contamination)-regression-/.test(n),
   ))
     walk(join(base, name));
   add(

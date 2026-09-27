@@ -413,7 +413,6 @@ export async function fixtureState(rt, env, s, prior = []) {
   need(
     data.length === 1 &&
       data[0].name === "resource-" + s.id &&
-      data[0].description === "cycle-sentinel-" + s.id &&
       data[0].groups?.length === 1 &&
       data[0].groups[0].name === "group-" + s.id,
     "isolation_failed",
@@ -452,6 +451,15 @@ export async function fixtureState(rt, env, s, prior = []) {
         "prior-session-survived",
       );
   }
+  // Keep structural/group checks above contamination detection, so unrelated
+  // damage cannot satisfy X08. A known prior sentinel is diagnosed before the
+  // generic current-description check; unknown/wrong descriptions still fail.
+  need(
+    data[0].description === "cycle-sentinel-" + s.id,
+    "isolation_failed",
+    "ENV03",
+    "resource-group-or-cycle-sentinel-mismatch",
+  );
   return { users: userReads, resource: data[0] };
 }
 export function cleanupState(rt, env, receipt) {
