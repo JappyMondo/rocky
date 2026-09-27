@@ -75,6 +75,55 @@ class UiFixtureSourceChanged extends Error {}
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
+/** Poll Boots replay old UI receipts while their background services stay stopped.
+ * A working Boot still probes the live endpoint, including on replay.
+ */
+export async function uiReadiness(
+  ctx: Pick<WorkflowContext, 'step' | 'polling' | 'ports'>,
+  endpoint: UiEndpoint,
+  workspace: string,
+  serverLog: string,
+  readiness: { attempts: number; intervalMs: number },
+  revision: number,
+) {
+  let ready = false;
+  let url: string | undefined;
+  if (!ctx.polling)
+    for (let attempt = 0; attempt < readiness.attempts; attempt++) {
+      try {
+        const log = await readFile(serverLog, 'utf8').catch(() => '');
+        url = await resolveUiEndpoint(endpoint, {
+          port: ctx.ports[0],
+          log,
+          workspace,
+        });
+        if (!url) throw new Error('endpoint not reported yet');
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
+        });
+        ready = response.ok;
+        await response.body?.cancel();
+      } catch {
+        /* A booting server commonly refuses connections. */
+      }
+      if (ready) break;
+      await new Promise((resolve) => setTimeout(resolve, readiness.intervalMs));
+    }
+  const boot = await ctx.step(`UI readiness ${revision}/1`, async () => ({
+    ready,
+    log: ready
+      ? ''
+      : await readFile(serverLog, 'utf8').catch(
+          (error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT')
+              return 'The dev server did not become ready and produced no log.';
+            throw error;
+          },
+        ),
+  }));
+  return { ready: ctx.polling ? boot.ready : ready, url, boot };
+}
+
 async function loadRules(ctx: WorkflowContext, snapshotDir: string) {
   // Every file is prompt text. Delete this call to opt out; no README belongs here.
   return ctx.step('load rules', async () => {
@@ -1011,43 +1060,14 @@ export function createDeliveryOperations(
           `{ cd -- ${quote(configuredUi.workspace)} && export PORT=${ctx.ports[0]} && { ${configuredUi.start}\n}; } > ${quote(serverLog)} 2>&1`,
           { background: true, label: 'dev server' },
         );
-      // Probe again on every Boot; only the recorded result chooses the replay path.
-      let ready = false;
-      let url: string | undefined;
-      for (let attempt = 0; attempt < readiness.attempts; attempt++) {
-        try {
-          const log = await readFile(serverLog, 'utf8').catch(() => '');
-          url = await resolveUiEndpoint(configuredUi.endpoint, {
-            port: ctx.ports[0],
-            log,
-            workspace: configuredUi.workspace,
-          });
-          if (!url) throw new Error('endpoint not reported yet');
-          const response = await fetch(url, {
-            signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
-          });
-          ready = response.ok;
-          await response.body?.cancel();
-        } catch {
-          /* A booting server commonly refuses connections. */
-        }
-        if (ready) break;
-        await new Promise((resolve) =>
-          setTimeout(resolve, readiness.intervalMs),
-        );
-      }
-      const boot = await ctx.step(`UI readiness ${revision}/1`, async () => ({
-        ready,
-        log: ready
-          ? ''
-          : await readFile(serverLog, 'utf8').catch(
-              (error: NodeJS.ErrnoException) => {
-                if (error.code === 'ENOENT')
-                  return 'The dev server did not become ready and produced no log.';
-                throw error;
-              },
-            ),
-      }));
+      const { ready, url, boot } = await uiReadiness(
+        ctx,
+        configuredUi.endpoint,
+        configuredUi.workspace,
+        serverLog,
+        readiness,
+        revision,
+      );
       if (settings.environmentVersion && (!boot.ready || !ready))
         throw new EnvironmentBlocked({
           kind: 'environment',
