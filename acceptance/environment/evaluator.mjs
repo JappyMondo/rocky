@@ -33,7 +33,10 @@ import {
 } from "./assertions.mjs";
 import { ROOT, writePrivate, sha, verifyRuntime } from "./runtime.mjs";
 import { attachScreenshots, screenshotRegression } from "./screenshots.mjs";
-import { principalCoverage } from "./principal-ui.mjs";
+import {
+  principalCoverage,
+  controlOcclusionRegression,
+} from "./principal-ui.mjs";
 import { responseAction } from "./response-action.mjs";
 import { failureDiagnostics } from "./failure-diagnostics.mjs";
 import { sentinel } from "./sentinel.mjs";
@@ -265,6 +268,10 @@ export async function evaluateCycle(
     let usernameEvidence;
     if (preparation)
       await browse("response-observer-regression", async (b) => {
+        record("ENV14", {
+          syntheticControlOcclusionRegression:
+            await controlOcclusionRegression(b),
+        });
         await b.page.setContent(
           "<h1>Bounded response observer regression</h1>",
         );

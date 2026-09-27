@@ -16,51 +16,11 @@ import {
 } from "./assertions.mjs";
 import { sha, json, ROOT } from "./runtime.mjs";
 
+import { verifyToolchain } from "./toolchain-identity.mjs";
 import { readyService } from "./service-observation.mjs";
 
-export function originalSource(rt) {
-  const source = rt.api.TARGET.source;
-  const git = (args) =>
-    execFileSync("git", ["-C", source, ...args], { encoding: "utf8" }).trim();
-  need(
-    git(["rev-parse", "HEAD"]) === rt.inputs.targetCommit &&
-      git(["rev-parse", "HEAD^{tree}"]) === rt.inputs.targetTree &&
-      git(["status", "--porcelain"]) === "",
-    "evidence_missing",
-    "ENV01",
-    "original-source-git-drift",
-  );
-  for (const [file, expected] of Object.entries(
-    rt.inputs.prepared.sourceInventory,
-  )) {
-    const path = join(source, file),
-      st = lstatSync(path);
-    const mode = st.isSymbolicLink()
-      ? "120000"
-      : st.isFile()
-        ? st.mode & 0o111
-          ? "100755"
-          : "100644"
-        : "unsupported";
-    const hash = sha(
-      st.isSymbolicLink()
-        ? Buffer.from(readlinkSync(path))
-        : readFileSync(path),
-    );
-    need(
-      mode === expected.mode && hash === expected.sha256,
-      "evidence_missing",
-      "ENV01",
-      "original-source-file-drift:" + file,
-    );
-  }
-  return {
-    commit: rt.inputs.targetCommit,
-    tree: rt.inputs.targetTree,
-    files: Object.keys(rt.inputs.prepared.sourceInventory).length,
-    inventorySha256: rt.inputs.sourceInventorySha256,
-  };
-}
+export { originalSource } from "./source-provenance.mjs";
+import { originalSource } from "./source-provenance.mjs";
 export async function sourceSnapshot(rt, env, s) {
   const inventory = rt.inputs.prepared.sourceInventory;
   // Independent read-only verifier. The target inventory input is data, never executable target code.
@@ -223,7 +183,7 @@ export async function runtimeState(rt, env, s) {
   );
   const toolchain = json(join(env.commands.root, "toolchain.json"));
   need(
-    toolchain.stdout === rt.inputs.toolchain.stdout,
+    Boolean(verifyToolchain(toolchain.stdout, rt.inputs)),
     "evidence_missing",
     "ENV02",
     "toolchain-executable-drift",

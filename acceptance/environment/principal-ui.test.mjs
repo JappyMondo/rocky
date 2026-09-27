@@ -69,6 +69,7 @@ test("principal geometry rejects clipped/overflow/hidden/disabled controls", () 
     { ...good, box: { ...good.box, x: 350 } },
     { ...good, clipping: [{ left: 0, top: 0, right: 50, bottom: 100 }] },
     { ...good, visible: false },
+    { ...good, unobstructed: false },
     { ...good, enabled: false },
   ])
     assert.throws(() => assertGeometry(bad, viewport));

@@ -494,6 +494,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
   await step(1)
     .getByLabel("Anwendungs-URL", { exact: true })
     .fill(s.frontendUrl);
+  await dismissToasts();
   await principalState(browser, "wizard-initial", [
     {
       name: "application-url",
@@ -528,6 +529,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     "ENV10",
     "smtp-tls-unexpected",
   );
+  await dismissToasts();
   await principalState(browser, "wizard-smtp", [
     { name: "service", locator: select },
     ...["Host", "Port", "Absenderadresse"].map((name) => ({
@@ -540,6 +542,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     },
   ]);
   await next(2, "Weiter");
+  await dismissToasts();
   await principalState(browser, "wizard-license-choice", [
     {
       name: "community-license",
@@ -547,6 +550,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     },
   ]);
   await p.locator(cy("community-license-button")).click();
+  await dismissToasts();
   await principalState(browser, "wizard-license-confirmation", [
     {
       name: "confirm-license",
@@ -555,6 +559,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
   ]);
   await p.locator(cy("community-license-confirm")).click();
   await p.getByRole("dialog").waitFor({ state: "hidden" });
+  await dismissToasts();
   await dismissToasts();
   await principalState(browser, "wizard-community-license", [
     {
@@ -576,6 +581,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
   await admin
     .locator(cy("create-admin-password-confirmation-input"))
     .fill(s.admin.password);
+  await dismissToasts();
   await dismissToasts();
   await principalState(browser, "wizard-admin-form", [
     ...["Benutzername", "E-Mail-Adresse"].map((name) => ({
@@ -611,6 +617,7 @@ export async function wizard(rt, env, s, browser, privateRoot) {
     "wizard-admin-create",
   );
   s.admin.id = (await response.json()).id;
+  await dismissToasts();
   await principalState(browser, "wizard-verification-pending", [
     {
       name: "go-to-login",

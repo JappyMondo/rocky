@@ -51,6 +51,7 @@ export function assertGeometry(observed, viewport, expectedEnabled = true) {
       b.width > 0 &&
       b.height > 0 &&
       observed.visible &&
+      observed.unobstructed !== false &&
       observed.enabled === expectedEnabled &&
       b.x >= -1 &&
       b.y >= -1 &&
@@ -79,6 +80,34 @@ export function assertViewport(observed, expected) {
     "principal-state-locale-viewport-or-overflow",
   );
 }
+export async function observeControlGeometry(locator) {
+  return locator.evaluate((e) => {
+    const r = e.getBoundingClientRect(),
+      clipping = [];
+    for (let a = e.parentElement; a; a = a.parentElement) {
+      const s = getComputedStyle(a),
+        b = a.getBoundingClientRect();
+      const x = /hidden|clip|scroll|auto/.test(s.overflowX),
+        y = /hidden|clip|scroll|auto/.test(s.overflowY);
+      if (x || y)
+        clipping.push({
+          left: x ? b.left + a.clientLeft : -1e9,
+          right: x ? b.left + a.clientLeft + a.clientWidth : 1e9,
+          top: y ? b.top + a.clientTop : -1e9,
+          bottom: y ? b.top + a.clientTop + a.clientHeight : 1e9,
+        });
+    }
+    const hit = document.elementFromPoint(
+      r.x + r.width / 2,
+      r.y + r.height / 2,
+    );
+    return {
+      unobstructed: Boolean(hit && (e.contains(hit) || hit.contains(e))),
+      box: { x: r.x, y: r.y, width: r.width, height: r.height },
+      clipping,
+    };
+  });
+}
 export async function principalState(browser, id, controls) {
   const p = browser.page,
     expected = browser.expectedUi;
@@ -98,27 +127,7 @@ export async function principalState(browser, id, controls) {
       "principal-control-not-unique",
     );
     await locator.scrollIntoViewIfNeeded();
-    const geometry = await locator.evaluate((e) => {
-      const r = e.getBoundingClientRect(),
-        clipping = [];
-      for (let a = e.parentElement; a; a = a.parentElement) {
-        const s = getComputedStyle(a),
-          b = a.getBoundingClientRect();
-        const x = /hidden|clip|scroll|auto/.test(s.overflowX),
-          y = /hidden|clip|scroll|auto/.test(s.overflowY);
-        if (x || y)
-          clipping.push({
-            left: x ? b.left + a.clientLeft : -1e9,
-            right: x ? b.left + a.clientLeft + a.clientWidth : 1e9,
-            top: y ? b.top + a.clientTop : -1e9,
-            bottom: y ? b.top + a.clientTop + a.clientHeight : 1e9,
-          });
-      }
-      return {
-        box: { x: r.x, y: r.y, width: r.width, height: r.height },
-        clipping,
-      };
-    });
+    const geometry = await observeControlGeometry(locator);
     const observed = {
       ...geometry,
       visible: await locator.isVisible(),
@@ -182,4 +191,43 @@ export function principalCoverage(fixture, states, expected) {
       assertGeometry(c, expected.viewport, c.name !== "disable-requires-code");
   }
   return { required, states };
+}
+
+export async function controlOcclusionRegression(browser) {
+  const page = browser.page,
+    viewport = page.viewportSize();
+  const button =
+    '<button id="principal" style="position:fixed;left:20px;top:20px;width:150px;height:40px">Synthetic primary</button>';
+  await page.setContent(
+    button +
+      '<div style="position:fixed;left:20px;top:20px;width:150px;height:40px;z-index:10;background:white">Synthetic notification</div>',
+  );
+  const locator = page.locator("#principal");
+  const blocked = {
+    ...(await observeControlGeometry(locator)),
+    visible: await locator.isVisible(),
+    enabled: await locator.isEnabled(),
+  };
+  let rejected = false;
+  try {
+    assertGeometry(blocked, viewport);
+  } catch (error) {
+    rejected =
+      error.message ===
+      "principal-control-clipped-hidden-or-wrong-enabled-state";
+  }
+  need(
+    rejected && blocked.unobstructed === false,
+    "evidence_missing",
+    "ENV14",
+    "synthetic-occlusion-not-rejected",
+  );
+  await page.setContent(button);
+  const clear = {
+    ...(await observeControlGeometry(locator)),
+    visible: await locator.isVisible(),
+    enabled: await locator.isEnabled(),
+  };
+  assertGeometry(clear, viewport);
+  return { scope: "synthetic-supporting-only", blocked, clear, rejected };
 }

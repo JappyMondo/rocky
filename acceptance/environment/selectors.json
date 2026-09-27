@@ -1,5 +1,4 @@
 {
-  "targetCommit": "afa58e8a5eadfb340f317e6ec3227af0cf9b6c54",
   "login": {
     "path": "/",
     "observed": "evaluator-discovery-otp-2026-09-27T17-22-25-487Z",
@@ -13,7 +12,8 @@
     "descendantRequired": false,
     "observed": "evaluator-discovery-otp-2026-09-27T17-22-25-487Z",
     "loginSelector": "[data-cy=login-form-two-factor-input]",
-    "loginEvidence": "observed direct editable INPUT, scrolled secret controls and fresh-context TOTP login in evaluator-sanity-fresh-2fa-2026-09-27T19-14-41-771Z"
+    "loginEvidence": "observed direct editable INPUT, scrolled secret controls and fresh-context TOTP login in evaluator-sanity-fresh-2fa-2026-09-27T19-14-41-771Z",
+    "principalCoverageObservation": "evaluator-sanity-fresh-2fa-2026-09-27T20-08-01-699Z"
   },
   "wizard": {
     "path": "/first-time-setup",
@@ -27,7 +27,8 @@
     "role": "group",
     "scope": "accessible group name, not collection id",
     "observed": "evaluator-discovery-wizard-2026-09-27T17-32-50-367Z",
-    "collectionIdsAreDomIds": false
+    "collectionIdsAreDomIds": false,
+    "currentFullObservation": "evaluator-sanity-fresh-install-2026-09-27T22-39-44-672Z"
   },
   "smtpSelect": {
     "role": "button",
@@ -36,6 +37,9 @@
     "haspopup": "listbox",
     "item": "[data-cy=select-item-SMTP]",
     "itemEvidence": "observed SMTP item interaction and complete wizard in evaluator-sanity-fresh-install-2026-09-27T19-32-24-247Z",
-    "observed": "evaluator-discovery-wizard-2026-09-27T17-32-50-367Z"
-  }
+    "observed": "evaluator-discovery-wizard-2026-09-27T17-32-50-367Z",
+    "currentObservation": "evaluator-sanity-fresh-install-2026-09-27T22-39-44-672Z"
+  },
+  "originalObservationTargetCommit": "afa58e8a5eadfb340f317e6ec3227af0cf9b6c54",
+  "currentFixtureCommit": "72117986185e6fea85cb7f66cbd2831e48cb99db"
 }

@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 export const ROOT = "/Users/jappy/.t3/worktrees/rocky/rocky-next";
 export const INPUTS = join(
   ROOT,
-  ".qualification/attraccess/handoff-2ff6cab/proposed-inputs.json",
+  ".qualification/attraccess/handoff-d413790/proposed-inputs.json",
 );
 export const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const json = (path) => JSON.parse(readFileSync(path, "utf8"));
@@ -33,7 +33,7 @@ export async function runtime() {
   workspace();
   if (
     sha(readFileSync(INPUTS)) !==
-    "9f4b3ce3e6492f560fabfa164717821f275fcae1b60d118d6193c97ff0950f85"
+    "f48d64a8c9ef2fef93044c7dea3e9413807cfe14e1def72288cd27884a7deec4"
   )
     throw Error("producer-input-drift");
   const inputs = json(INPUTS);
@@ -64,7 +64,7 @@ export function verifyProtected() {
       sha(
         execFileSync(
           "git",
-          ["show", "a0f268a8ef0c772c24bb9d73515290a407d37e99:" + p],
+          ["show", "60f1e2e326e4379acf090f833ca64d3861349340:" + p],
           { cwd: ROOT },
         ),
       )

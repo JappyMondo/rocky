@@ -25,6 +25,8 @@ import { evaluatorFiles, concrete, verifyFiles } from "./identity.mjs";
 import {
   completePreparations,
   retainedEvidence,
+  historicalSourceEvidence,
+  excludedSourceCopies,
 } from "./admission-evidence.mjs";
 import { admissionSnapshot } from "./admission-ledger.mjs";
 import { originalSource } from "./fixtures.mjs";
@@ -34,7 +36,7 @@ const git = (args) =>
 const file = (path) => ({ path, sha256: sha(readFileSync(path)) });
 export function preparationLedger() {
   const base = join(ROOT, ".qualification/attraccess");
-  const producer = file(join(base, "handoff-2ff6cab/preparation-ledger.json"));
+  const producer = file(join(base, "handoff-d413790/preparation-ledger.json"));
   const evaluator = readdirSync(base)
     .filter((n) => /^evaluator-(discovery|sanity)-/.test(n))
     .sort()
@@ -97,9 +99,26 @@ export function verifyProposal(rt, path) {
     process.version !== a.evaluator.hostNode.version
   )
     throw Error("evaluator-host-node-drift");
-  originalSource(rt);
+  const observedSource = originalSource(rt);
+  if (
+    rt.api.canonical(observedSource) !==
+      rt.api.canonical(a.target.provenanceObservation) ||
+    rt.api.canonical(completePreparations(rt, a.preparationLedger)) !==
+      rt.api.canonical(a.preparationCoverage)
+  )
+    throw Error("proposal-preparation-or-source-drift");
   verifyRuntime(rt);
   verifyFiles(a.retainedEvidenceFiles);
+  if (
+    rt.api.canonical(excludedSourceCopies()) !==
+    rt.api.canonical(a.excludedSourceCopies)
+  )
+    throw Error("source-copy-disposition-drift");
+  if (
+    rt.api.canonical(historicalSourceEvidence()) !==
+    rt.api.canonical(a.historicalSourceEvidence)
+  )
+    throw Error("historical-source-evidence-drift");
   verifyFiles({ [a.evaluatorValidation.path]: a.evaluatorValidation.sha256 });
   const validation = json(a.evaluatorValidation.path);
   verifyFiles({
@@ -205,7 +224,7 @@ export async function buildProposal(validationPath) {
   const all = evaluatorFiles(),
     fixtureFiles = Object.fromEntries(
       Object.entries(all).filter(([p]) =>
-        /\/(fixtures|flows|assertions|runtime)\.mjs$|\/selectors\.json$/.test(
+        /\/(fixtures|flows|assertions|runtime|source-provenance|toolchain-identity)\.mjs$|\/selectors\.json$/.test(
           p,
         ),
       ),
@@ -246,11 +265,11 @@ export async function buildProposal(validationPath) {
     validation.stoppedState.path,
     ...validation.commands.map((c) => c.log.path),
     INPUTS,
-    join(base, "handoff-2ff6cab/HANDOFF.md"),
-    join(base, "handoff-2ff6cab/retained-files.json"),
-    join(base, "handoff-2ff6cab/dependency-inventory.json"),
-    join(base, "handoff-2ff6cab/checks.json"),
-    join(base, "handoff-2ff6cab/runtime-integrity.json"),
+    join(base, "handoff-d413790/HANDOFF.md"),
+    join(base, "handoff-d413790/retained-files.json"),
+    join(base, "handoff-d413790/dependency-inventory.json"),
+    join(base, "handoff-d413790/checks.json"),
+    join(base, "handoff-d413790/runtime-integrity.json"),
     join(base, "image-packaging-2026-09-27T15-22-30-613Z/Dockerfile"),
     join(
       base,
@@ -304,25 +323,27 @@ export async function buildProposal(validationPath) {
     runtimeHelperFiles,
     preparationEvidenceFiles,
     retainedEvidenceFiles,
+    historicalSourceEvidence: historicalSourceEvidence(),
+    excludedSourceCopies: excludedSourceCopies(),
     preparationCoverage,
     evaluatorValidation: file(validationPath),
     evidenceInventoryPolicy:
       "Retained evaluator evidence directories and referenced producer evidence descendants only; no dependency caches or whole provisioned snapshots. Separate exact target source inventory.",
     producerReview: {
       project: "rocky-next",
-      implementationTicket: 36,
-      reviewTicket: 37,
-      standardsComment: 242,
-      specComment: 243,
+      implementationTicket: 44,
+      reviewTicket: 51,
+      standardsComment: 379,
+      specComment: 380,
       reviewedSourceCommit: rt.inputs.sourceCommit,
     },
     contractApproval: {
       project: "rocky-next",
-      ticket: 23,
-      comment: 106,
-      reviewer: "/root/environment_review",
-      reviewedCommit: "a0f268a8ef0c772c24bb9d73515290a407d37e99",
-      lastContractChange: "740bdd3f687b365c9ca743d7503c3a54a1fe3394",
+      ticket: 50,
+      comment: 366,
+      reviewer: "evaluator-spec-review",
+      reviewedCommit: "60f1e2e326e4379acf090f833ca64d3861349340",
+      version: "1.0.3",
     },
     evaluator: {
       author: "/root/environment_evaluator",
@@ -359,6 +380,8 @@ export async function buildProposal(validationPath) {
     target: {
       root: rt.api.TARGET.source,
       sourceInventory: i.prepared.sourceInventory,
+      provenance: i.provenance,
+      provenanceObservation: originalSource(rt),
       sourceLock: file(join(rt.api.TARGET.source, "pnpm-lock.yaml")),
       generatedPaths: rt.api.GENERATED,
     },
