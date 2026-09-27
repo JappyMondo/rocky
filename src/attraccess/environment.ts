@@ -274,7 +274,9 @@ export class AttraccessEnvironment {
         "--hostname",
         container,
         "--network",
-        prepareNetwork,
+        network,
+        "--network-alias",
+        "app",
 
         "--memory",
         String(LIMITS.memoryBytes),
@@ -317,6 +319,12 @@ export class AttraccessEnvironment {
     );
     this.ownership.containers.push(container);
     persistOwnership(this.ownership);
+    // Docker preserves the creation-time NetworkMode across restarts. Keep the
+    // permanent internal network primary; bootstrap egress is only an attachment.
+    await this.#mutate(
+      ["network", "connect", prepareNetwork, container],
+      "preparation-egress-connect",
+    );
     await this.#mutate(["start", container], "app-start");
     const ingressNetwork = name + "-ingress";
     await this.#mutate(
@@ -517,10 +525,6 @@ export class AttraccessEnvironment {
     await this.#inspect(s.container);
     const app = await this.#inspect(s.container);
     if (app.NetworkSettings.Networks[s.prepareNetwork]) {
-      await this.#mutate(
-        ["network", "connect", "--alias", "app", s.network, s.container],
-        "runtime-connect",
-      );
       await this.#mutate(
         ["network", "disconnect", s.prepareNetwork, s.container],
         "preparation-egress-disconnect",
