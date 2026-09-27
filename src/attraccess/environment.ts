@@ -70,6 +70,7 @@ export interface Session {
   instanceId?: string;
   serviceRoot?: string;
   serviceHistory?: string[];
+  nxWorkspaceDataDirectory?: string;
 }
 const COMMUNITY =
   "I AM USING THIS SOFTWARE ONLY FOR NON-PROFIT AND COMPLY TO ALL TERMS OF THE LICENSE.md at https://github.com/Attraccess/Attraccess/blob/main/LICENSE.md";
@@ -540,7 +541,15 @@ export class AttraccessEnvironment {
     s.serviceRoot = serviceRoot;
     (s.serviceHistory ??= []).push(serviceRoot);
     const servicePath = "/owned/private/" + serviceName;
-    const wrapper = `const fs=require('fs'),cp=require('child_process');const fd=fs.openSync('${servicePath}/serve.log','w',384);let total=0,retained=0;const child=cp.spawn('pnpm',['serve'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});fs.writeFileSync('${servicePath}/serve-process.json',JSON.stringify({pid:child.pid,startedAt:Date.now()}),{mode:384});for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{total+=chunk.length;const n=Math.min(chunk.length,${LIMITS.logBytes}-retained);if(n>0){fs.writeSync(fd,chunk,0,n);retained+=n;}});child.on('close',(code,signal)=>{fs.closeSync(fd);fs.writeFileSync('${servicePath}/serve-exit.json',JSON.stringify({code,signal,totalBytes:total,retainedBytes:retained,truncated:total>retained}),{mode:384});process.exit(code??1);});`;
+    // A container restart resets its PID namespace, but retains the writable
+    // layer. Nx's persisted running-task PID/command can then match a new
+    // coordinator. Scope that generated state to this service generation.
+    s.nxWorkspaceDataDirectory = "/app/.nx/rocky-" + serviceName;
+    this.commands.save("service-generation-" + this.#sequence, {
+      serviceRoot,
+      nxWorkspaceDataDirectory: s.nxWorkspaceDataDirectory,
+    });
+    const wrapper = `const fs=require('fs'),cp=require('child_process');const fd=fs.openSync('${servicePath}/serve.log','w',384);let total=0,retained=0;const nxWorkspaceDataDirectory='${s.nxWorkspaceDataDirectory}';const child=cp.spawn('pnpm',['serve'],{cwd:'/app',env:{...process.env,NX_WORKSPACE_DATA_DIRECTORY:nxWorkspaceDataDirectory},stdio:['ignore','pipe','pipe']});fs.writeFileSync('${servicePath}/serve-process.json',JSON.stringify({pid:child.pid,startedAt:Date.now(),nxWorkspaceDataDirectory}),{mode:384});for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{total+=chunk.length;const n=Math.min(chunk.length,${LIMITS.logBytes}-retained);if(n>0){fs.writeSync(fd,chunk,0,n);retained+=n;}});child.on('close',(code,signal)=>{fs.closeSync(fd);fs.writeFileSync('${servicePath}/serve-exit.json',JSON.stringify({code,signal,totalBytes:total,retainedBytes:retained,truncated:total>retained}),{mode:384});process.exit(code??1);});`;
     writeFileSync(join(serviceRoot, "serve.cjs"), wrapper, {
       mode: 0o600,
     });
@@ -576,6 +585,7 @@ export class AttraccessEnvironment {
         const receipt = {
           at: new Date().toISOString(),
           serviceRoot: s.serviceRoot,
+          nxWorkspaceDataDirectory: s.nxWorkspaceDataDirectory,
           ports,
           portsSha256: digest(portResult.stdout),
           mappings: s.ports,

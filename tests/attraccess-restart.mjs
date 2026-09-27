@@ -55,7 +55,58 @@ const stage = (name, evidence) => {
   console.log(JSON.stringify({ id, stage: name }));
 };
 save();
-let environment, foreign;
+let environment, foreign, sentinelAlive;
+const workspaceDirectories = new Set();
+async function serviceProcesses(env, s) {
+  const directory = s.nxWorkspaceDataDirectory;
+  assert.match(directory, /^\/app\/\.nx\/rocky-service-\d+$/);
+  assert.equal(workspaceDirectories.has(directory), false);
+  workspaceDirectories.add(directory);
+  const program = `const fs=require('fs'),{DatabaseSync}=require('node:sqlite');
+const directory=${JSON.stringify(directory)};
+const db=new DatabaseSync(directory+'/machine-v2.db',{readOnly:true});
+const runningTasks=db.prepare('SELECT * FROM running_tasks').all();db.close();
+const processes=fs.readdirSync('/proc').filter(n=>/^\\d+$/.test(n)).flatMap(pid=>{try{const status=fs.readFileSync('/proc/'+pid+'/status','utf8');return [{pid:Number(pid),ppid:Number(status.match(/^PPid:\\s+(\\d+)/m)[1]),command:fs.readFileSync('/proc/'+pid+'/cmdline','utf8').replaceAll('\\0',' ')}]}catch{return []}});
+const sockets=['/proc/net/tcp','/proc/net/tcp6'].flatMap(p=>fs.readFileSync(p,'utf8').trim().split('\\n').slice(1).map(l=>l.trim().split(/\\s+/))).filter(r=>r[3]==='0A'&&[3000,4200].includes(parseInt(r[1].split(':')[1],16))).map(r=>({port:parseInt(r[1].split(':')[1],16),inode:r[9],owners:[]}));
+for(const p of processes){try{for(const fd of fs.readdirSync('/proc/'+p.pid+'/fd')){let link;try{link=fs.readlinkSync('/proc/'+p.pid+'/fd/'+fd)}catch{continue}for(const socket of sockets)if(link==='socket:['+socket.inode+']')socket.owners.push(p.pid)}}catch{}}
+console.log(JSON.stringify({directory,runningTasks,processes,sockets}));`;
+  const observed = JSON.parse(
+    (await env.exec(s, ["node", "-e", program])).stdout,
+  );
+  assert.deepEqual(observed.runningTasks.map((t) => t.task_id).sort(), [
+    "api:serve:development",
+    "frontend:serve",
+  ]);
+  assert.deepEqual(
+    [...new Set(observed.sockets.map((s) => s.port))].sort((a, b) => a - b),
+    [3000, 4200],
+  );
+  for (const socket of observed.sockets) {
+    assert.ok(
+      socket.owners.length > 0,
+      "listening service must have a live owner",
+    );
+    for (const pid of socket.owners) {
+      let current = observed.processes.find((p) => p.pid === pid);
+      const ancestors = new Set();
+      while (current && !ancestors.has(current.pid)) {
+        ancestors.add(current.pid);
+        current = observed.processes.find((p) => p.pid === current.ppid);
+      }
+      assert.ok(
+        observed.runningTasks.some(
+          (t) => ancestors.has(t.pid) && t.pid !== pid,
+        ),
+        "listener must descend from the actual Nx task owner",
+      );
+    }
+  }
+  const manifest = JSON.parse(
+    readFileSync(join(s.serviceRoot, "serve-process.json")),
+  );
+  assert.equal(manifest.nxWorkspaceDataDirectory, directory);
+  return observed;
+}
 async function topology(env, s, bootstrap) {
   const app = assertOwned(env.ownership, "container", s.container);
   const mail = assertOwned(env.ownership, "container", s.mailpit);
@@ -159,7 +210,7 @@ try {
   );
   await c.mutation(["start", name], "sentinel-start");
   const sentinel = assertOwned(foreign.ownership, "container", name);
-  const sentinelAlive = () => {
+  sentinelAlive = () => {
     const now = assertOwned(foreign.ownership, "container", name);
     assert.equal(now.Id, sentinel.Id);
     assert.equal(now.State.StartedAt, sentinel.State.StartedAt);
@@ -193,6 +244,7 @@ try {
   stage("initial-ready", {
     readiness: initialReadiness,
     topology: await topology(environment, s, false),
+    serviceProcesses: await serviceProcesses(environment, s),
   });
   const api = environment.api(s);
   assert.ok([200, 201].includes((await api.login(s.admin)).status));
@@ -287,6 +339,7 @@ try {
     stage("restart-" + i + "-" + mode, {
       restart,
       topology: config,
+      serviceProcesses: await serviceProcesses(environment, s),
       plugin,
       devices,
       firmware,
@@ -328,9 +381,12 @@ try {
     }
   if (foreign)
     try {
+      sentinelAlive?.();
+      result.foreignSentinelSurvived = true;
       result.sentinelCleanup = await foreign.close();
     } catch (e) {
       result.sentinelCleanupError = e.message;
+      result.status = "failed";
       process.exitCode = 1;
     }
   result.finishedAt = new Date().toISOString();
