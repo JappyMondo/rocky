@@ -61,6 +61,8 @@ export interface Session {
   users: Record<string, Account>;
   ports: unknown;
   instanceId?: string;
+  serviceRoot?: string;
+  serviceHistory?: string[];
 }
 const COMMUNITY =
   "I AM USING THIS SOFTWARE ONLY FOR NON-PROFIT AND COMPLY TO ALL TERMS OF THE LICENSE.md at https://github.com/Attraccess/Attraccess/blob/main/LICENSE.md";
@@ -77,6 +79,12 @@ export class AttraccessEnvironment {
   #heartbeat: NodeJS.Timeout;
   #browsers = new Set<BrowserSession>();
   #sequence = 0;
+  #deadline = Date.now() + LIMITS.setupMs;
+  #remaining() {
+    const remaining = Math.min(LIMITS.setupMs, this.#deadline - Date.now());
+    if (remaining <= 0) throw new Error("environment-stage-deadline-exceeded");
+    return Math.ceil(remaining);
+  }
   #sessions = new Set<Session>();
   #observers = new Map<Session, ApiSession>();
   #stopped?: Promise<ReturnType<typeof cleanOwned>>;
@@ -137,7 +145,11 @@ export class AttraccessEnvironment {
   }
   async #mutate(args: string[], name: string) {
     this.commands.store.assertLease(this.commands.lease);
-    return this.commands.mutation(args, String(++this.#sequence) + "-" + name);
+    return this.commands.mutation(
+      args,
+      String(++this.#sequence) + "-" + name,
+      Math.min(30000, this.#remaining()),
+    );
   }
   async #inspect(container: string) {
     return assertOwned(this.ownership, "container", container);
@@ -444,7 +456,8 @@ export class AttraccessEnvironment {
     ];
     if (s.fixture !== "fresh_install")
       lines.push(
-        "ATTRACCESS_URL=" + s.apiUrl,
+        "ATTRACCESS_URL=" + s.frontendUrl,
+        "ATTRACCESS_PUBLIC_INTERNET_URL=" + s.frontendUrl,
         "ATTRACCESS_FRONTEND_URL=" + s.frontendUrl,
         "LICENSE_KEY=" + COMMUNITY,
         "SMTP_SERVICE=SMTP",
@@ -460,7 +473,7 @@ export class AttraccessEnvironment {
     await this.#inspect(s.container);
     return this.commands.dockerCommand(
       ["exec", "--workdir", "/app", s.container, ...args],
-      timeoutMs,
+      Math.min(timeoutMs, this.#remaining()),
     );
   }
   async #seed(s: Session) {
@@ -490,6 +503,8 @@ export class AttraccessEnvironment {
     await this.exec(s, ["node", "/owned/private/seed.cjs"]);
   }
   async start(s: Session) {
+    this.#remaining();
+    this.#deadline = Date.now() + LIMITS.serveMs;
     await this.#inspect(s.container);
     const app = await this.#inspect(s.container);
     if (app.NetworkSettings.Networks[s.prepareNetwork]) {
@@ -506,19 +521,27 @@ export class AttraccessEnvironment {
         "prepare-network-remove",
       );
     }
-    const wrapper = `const fs=require('fs'),cp=require('child_process');const fd=fs.openSync('/owned/private/serve.log','w',384);let total=0,retained=0;const child=cp.spawn('pnpm',['serve'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});fs.writeFileSync('/owned/private/serve-process.json',JSON.stringify({pid:child.pid,startedAt:Date.now()}),{mode:384});for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{total+=chunk.length;const n=Math.min(chunk.length,${LIMITS.logBytes}-retained);if(n>0){fs.writeSync(fd,chunk,0,n);retained+=n;}});child.on('close',(code,signal)=>{fs.closeSync(fd);fs.writeFileSync('/owned/private/serve-exit.json',JSON.stringify({code,signal,totalBytes:total,retainedBytes:retained,truncated:total>retained}),{mode:384});process.exit(code??1);});`;
-    writeFileSync(join(s.root, "private", "serve.cjs"), wrapper, {
+    const serviceName = "service-" + ++this.#sequence;
+    const serviceRoot = join(s.root, "private", serviceName);
+    mkdirSync(serviceRoot, { mode: 0o700 });
+    s.serviceRoot = serviceRoot;
+    (s.serviceHistory ??= []).push(serviceRoot);
+    const servicePath = "/owned/private/" + serviceName;
+    const wrapper = `const fs=require('fs'),cp=require('child_process');const fd=fs.openSync('${servicePath}/serve.log','w',384);let total=0,retained=0;const child=cp.spawn('pnpm',['serve'],{cwd:'/app',env:process.env,stdio:['ignore','pipe','pipe']});fs.writeFileSync('${servicePath}/serve-process.json',JSON.stringify({pid:child.pid,startedAt:Date.now()}),{mode:384});for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{total+=chunk.length;const n=Math.min(chunk.length,${LIMITS.logBytes}-retained);if(n>0){fs.writeSync(fd,chunk,0,n);retained+=n;}});child.on('close',(code,signal)=>{fs.closeSync(fd);fs.writeFileSync('${servicePath}/serve-exit.json',JSON.stringify({code,signal,totalBytes:total,retainedBytes:retained,truncated:total>retained}),{mode:384});process.exit(code??1);});`;
+    writeFileSync(join(serviceRoot, "serve.cjs"), wrapper, {
       mode: 0o600,
     });
     await this.exec(s, [
       "bash",
       "-c",
-      "node /owned/private/serve.cjs >/dev/null 2>&1 & echo $! > /owned/private/serve.pid",
+      `node ${servicePath}/serve.cjs >/dev/null 2>&1 & echo $! > ${servicePath}/serve.pid`,
     ]);
-    return this.readiness(s);
+    const receipt = await this.readiness(s);
+    this.#deadline = Infinity;
+    return receipt;
   }
   async readiness(s: Session) {
-    const end = Date.now() + LIMITS.serveMs;
+    const end = Math.min(this.#deadline, Date.now() + LIMITS.serveMs);
     let last = "not-ready";
     while (Date.now() < end) {
       this.commands.store.assertLease(this.commands.lease);
@@ -539,6 +562,7 @@ export class AttraccessEnvironment {
         const info = await api.json();
         const receipt = {
           at: new Date().toISOString(),
+          serviceRoot: s.serviceRoot,
           ports,
           portsSha256: digest(portResult.stdout),
           mappings: s.ports,
@@ -681,6 +705,8 @@ export class AttraccessEnvironment {
           anonymous,
           s.frontendUrl,
           priorMail,
+          (message) =>
+            this.#private(s, "verification-mail-" + ++this.#sequence, message),
         );
         if (verified.status !== 201 && verified.status !== 200)
           throw new Error("fixture-email-verification-failed");
@@ -880,7 +906,7 @@ export class AttraccessEnvironment {
       throw new Error("browser-capacity");
     this.commands.store.assertLease(this.commands.lease);
     const browser = await openBrowser(
-      join(s.root, "private", "browser-" + scenario.id),
+      join(this.commands.root, "private-browser", scenario.id),
       {
         executablePath: this.prepared.browserExecutable,
         locale: scenario.locale,

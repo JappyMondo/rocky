@@ -151,6 +151,13 @@ test("supervisor death kills its gated group and preserves partial logs for reco
   const id = runner.start(lease, { ...spec(dir), timeoutMs: 5000 });
   await until(() => existsSync(dir + "/descendant.pid"));
   const running = store.command(id);
+  // The fixture creates descendant.pid before emitting stdout. Kill only after
+  // observing bytes whose survival this test is intended to verify.
+  await until(() =>
+    readFileSync(running.spec.outputDir + "/stdout.log", "utf8").includes(
+      "UNIQUE-STDOUT",
+    ),
+  );
   process.kill(running.supervisor.pid, "SIGKILL");
   await until(() => !alive(running.supervisor.pid));
   const recovered = runner.recover(lease, id);

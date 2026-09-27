@@ -155,6 +155,7 @@ export async function verifyMail(
   api: ApiSession,
   origin: string,
   before: readonly string[],
+  privateMessage?: (message: unknown) => void,
 ) {
   const end = Date.now() + 30000;
   while (Date.now() < end) {
@@ -169,10 +170,13 @@ export async function verifyMail(
       .map((m) => m.ID);
     const matches: { id: string; token: string }[] = [];
     for (const id of ids) {
-      const response = await fetch(mailpit + "/api/v1/message/" + id, {
-        signal: AbortSignal.timeout(5000),
-        redirect: "error",
-      });
+      const response = await fetch(
+        mailpit + "/api/v1/message/" + encodeURIComponent(id),
+        {
+          signal: AbortSignal.timeout(5000),
+          redirect: "error",
+        },
+      );
       if (!response.ok) throw new Error("fixture-mail-detail-unavailable");
       const content = (await response.json()) as {
         To: { Address: string }[];
@@ -184,6 +188,7 @@ export async function verifyMail(
         )
       )
         continue;
+      privateMessage?.({ id, message: content });
       matches.push({
         id,
         token: verificationLink(content.HTML, origin, user.email),

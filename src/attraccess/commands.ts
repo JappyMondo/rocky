@@ -122,7 +122,7 @@ export class EnvironmentCommands {
       timeoutMs,
     );
   }
-  async mutation(args: string[], key: string) {
+  async mutation(args: string[], key: string, timeoutMs = 30000) {
     this.store.transition(this.lease, "environment-effect", {
       key: this.attempt + "/" + key,
       kind: "owned-docker",
@@ -137,7 +137,7 @@ export class EnvironmentCommands {
             execFile(
               this.docker,
               ["--host", this.dockerHost, ...args],
-              { timeout: 30000, maxBuffer: 1024 * 1024 },
+              { timeout: timeoutMs, maxBuffer: 1024 * 1024 },
               (error, stdout, stderr) => {
                 if (error) {
                   this.save("effect-error-" + key.replaceAll("/", "-"), {
