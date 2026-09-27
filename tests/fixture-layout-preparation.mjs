@@ -1,6 +1,13 @@
 // Producer preparation only. Uses no independent evaluator code or approval.
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  appendFileSync,
+  chmodSync,
+  existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -15,6 +22,7 @@ const { runtimeIntegrity } = await load("attraccess/integrity.js");
 const { digest } = await load("store/json.js");
 const { TARGET, LIMITS } = await load("attraccess/policy.js");
 const imageRoot = process.argv[2];
+const layoutOnly = process.argv.includes("--layout-only");
 if (!imageRoot) throw Error("prepared-image-root-required");
 const images = JSON.parse(
     readFileSync(join(imageRoot, "prepared-images.json")),
@@ -58,7 +66,35 @@ const result = {
   startedAt: new Date().toISOString(),
   status: "running",
   stages: [],
+  layoutOnly,
 };
+if (layoutOnly) {
+  const priorPath = process.argv[process.argv.indexOf("--layout-only") + 1];
+  assert.ok(priorPath, "prior-static-attempt-required");
+  const prior = JSON.parse(readFileSync(priorPath));
+  assert.equal(prior.prepared.devImage, prepared.devImage);
+  assert.equal(
+    digest(JSON.stringify(prior.prepared.sourceInventory)),
+    digest(JSON.stringify(prepared.sourceInventory)),
+  );
+  assert.equal(
+    prior.integrity.installedBuildInventorySha256,
+    result.integrity.installedBuildInventorySha256,
+  );
+  for (const name of [
+    "component-and-wizard-unit",
+    "component-eslint",
+    "frontend-typecheck",
+  ])
+    assert.ok(prior.stages.some((s) => s.name === name));
+  result.staticChecksReusedFrom = {
+    path: priorPath,
+    sha256: digest(readFileSync(priorPath)),
+    priorStatus: prior.status,
+    reason:
+      "same target image and compiled producer; only supporting evidence capture changed",
+  };
+}
 const save = () =>
   writeFileSync(join(root, "result.json"), JSON.stringify(result, null, 2), {
     mode: 0o600,
@@ -69,7 +105,7 @@ const stage = (name, evidence) => {
   console.log(JSON.stringify({ id, stage: name }));
 };
 save();
-let env, foreign, sentinel, foreignIdentity;
+let env, session, foreign, sentinel, foreignIdentity, currentBrowserRoot;
 async function browserCase(s, locale, viewport, execute) {
   const c = env.commands,
     key = id + "/browser/" + randomUUID(),
@@ -77,6 +113,7 @@ async function browserCase(s, locale, viewport, execute) {
       root,
       "private-browser-" + locale + "-" + viewport.width,
     );
+  currentBrowserRoot = browserRoot;
   c.store.transition(c.lease, "producer-browser-intent", {
     key,
     kind: "producer-owned-browser",
@@ -101,6 +138,7 @@ async function browserCase(s, locale, viewport, execute) {
             persistOwnership(env.ownership);
           },
         });
+        attachFreshInstallScreenshots(browser, browserRoot);
         await browser.context.route("**/*", (route) => {
           try {
             c.store.assertLease(c.lease);
@@ -148,8 +186,138 @@ async function browserCase(s, locale, viewport, execute) {
     throw failure ?? Error("producer-browser-unresolved");
   return value;
 }
+function attachFreshInstallScreenshots(browser, directory) {
+  // This helper is restricted to the uninitialized wizard, which has no QR flow.
+  browser.screenshot = async (name) => {
+    const p = browser.page;
+    assert.equal(new URL(p.url()).pathname, "/first-time-setup");
+    assert.match(name, /^[a-z0-9-]+$/);
+    assert.equal(
+      await p.locator("[data-cy=two-factor-setup-code-input]").count(),
+      0,
+    );
+    const canvases = await p.locator("canvas:visible").evaluateAll((elements) =>
+      elements.map((e) => ({
+        decorative:
+          e.parentElement === document.body &&
+          e.style.position === "fixed" &&
+          e.style.width === "100%" &&
+          e.style.height === "100%" &&
+          e.style.top === "0px" &&
+          e.style.left === "0px" &&
+          e.style.zIndex === "1000" &&
+          e.style.pointerEvents === "none",
+      })),
+    );
+    assert.ok(
+      canvases.every((e) => e.decorative),
+      "unknown-canvas-refused",
+    );
+    const secrets = p.locator(
+      'input[type=password]:visible,input[readonly]:visible,input[autocomplete=one-time-code]:visible,img[src^="data:"]:visible',
+    );
+    const masked = await secrets.evaluateAll((elements) =>
+      elements.map((e) => {
+        const r = e.getBoundingClientRect();
+        return {
+          tag: e.tagName,
+          type: e.getAttribute("type"),
+          x: r.x,
+          y: r.y,
+          width: r.width,
+          height: r.height,
+        };
+      }),
+    );
+    const file = join(directory, name + ".png");
+    assert.equal(existsSync(file), false);
+    const bytes = await p.screenshot({
+      path: file,
+      fullPage: false,
+      animations: "disabled",
+      mask: [secrets],
+      maskColor: "#20252b",
+    });
+    chmodSync(file, 0o600);
+    const content = await p.evaluate(async (encoded) => {
+      const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: "image/png" }),
+      );
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height),
+        ctx = canvas.getContext("2d");
+      ctx.drawImage(bitmap, 0, 0);
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data,
+        colors = new Set();
+      let masks = 0,
+        total = 0;
+      for (
+        let i = 0;
+        i < data.length;
+        i += 4 * Math.max(1, Math.floor((bitmap.width * bitmap.height) / 10000))
+      ) {
+        const color = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+        colors.add(color);
+        if (color === 0x20252b || color === 0xff00ff) masks++;
+        total++;
+      }
+      return {
+        width: bitmap.width,
+        height: bitmap.height,
+        distinctColors: colors.size,
+        maskFraction: masks / total,
+      };
+    }, bytes.toString("base64"));
+    assert.ok(
+      content.distinctColors >= 16 && content.maskFraction < 0.5,
+      "unusable-masked-screenshot",
+    );
+    const receipt = {
+      file,
+      sha256: digest(bytes),
+      scope: "fresh-install-only",
+      masked,
+      canvases,
+      content,
+    };
+    writeFileSync(
+      join(directory, name + "-image.json"),
+      JSON.stringify(receipt, null, 2),
+      { mode: 0o600 },
+    );
+    return receipt;
+  };
+}
+async function scrollState(locator) {
+  return locator.evaluate((el) => {
+    const rows = [];
+    for (let p = el; p; p = p.parentElement) {
+      const r = p.getBoundingClientRect(),
+        s = getComputedStyle(p);
+      rows.push({
+        tag: p.tagName,
+        role: p.getAttribute("role"),
+        slot: p.getAttribute("data-slot"),
+        className: p.className,
+        scrollLeft: p.scrollLeft,
+        scrollTop: p.scrollTop,
+        clientWidth: p.clientWidth,
+        scrollWidth: p.scrollWidth,
+        overflowX: s.overflowX,
+        overflowY: s.overflowY,
+        display: s.display,
+        flexWrap: s.flexWrap,
+        justifyContent: s.justifyContent,
+        gap: s.gap,
+        rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+      });
+    }
+    return rows;
+  });
+}
 async function control(locator) {
   await locator.waitFor({ state: "visible" });
+  const beforeScroll = await scrollState(locator);
   await locator.scrollIntoViewIfNeeded();
   assert.equal(await locator.isEnabled(), true);
   // Wait for accordion/modal movement before measuring actual hit targets.
@@ -212,6 +380,17 @@ async function control(locator) {
       text: el.textContent,
     };
   });
+  const afterScroll = await scrollState(locator);
+  appendFileSync(
+    join(currentBrowserRoot, "geometry.jsonl"),
+    JSON.stringify({
+      at: new Date().toISOString(),
+      observed,
+      beforeScroll,
+      afterScroll,
+    }) + "\n",
+    { mode: 0o600 },
+  );
   const { rect: r, clip: c } = observed;
   assert.ok(r.width > 0 && r.height > 0);
   assert.ok(
@@ -237,12 +416,10 @@ async function waitForToasts(page) {
   const toasts = page.locator("[data-sonner-toast][data-removed=false]");
   while (await toasts.count()) {
     assert.ok(Date.now() < deadline, "toast-lifetime-exceeded");
-    await toasts
-      .first()
-      .waitFor({
-        state: "hidden",
-        timeout: Math.max(1, deadline - Date.now()),
-      });
+    await toasts.first().waitFor({
+      state: "hidden",
+      timeout: Math.max(1, deadline - Date.now()),
+    });
   }
 }
 async function postAction(page, action) {
@@ -291,41 +468,54 @@ try {
   foreignIdentity = assertOwned(foreign.ownership, "container", sentinel);
   env = new AttraccessEnvironment(prepared, id);
   const s = await env.provision("fresh_install");
+  session = s;
   stage("provisioned", { source: await env.verifySource(s) });
-  for (const [name, args] of [
-    [
-      "component-and-wizard-unit",
+  if (!layoutOnly)
+    for (const [name, args] of [
       [
-        "pnpm",
-        "exec",
-        "vitest",
-        "run",
-        "--config",
-        "apps/frontend/vitest.config.ts",
-        "apps/frontend/src/components/CommunityLicenseButton/index.test.tsx",
-        "apps/frontend/src/app/first-time-setup/index.test.tsx",
-        "--maxWorkers=1",
+        "component-and-wizard-unit",
+        [
+          "pnpm",
+          "exec",
+          "vitest",
+          "run",
+          "--config",
+          "apps/frontend/vitest.config.ts",
+          "apps/frontend/src/components/CommunityLicenseButton/index.test.tsx",
+          "apps/frontend/src/app/first-time-setup/index.test.tsx",
+          "--maxWorkers=1",
+        ],
       ],
-    ],
-    [
-      "component-eslint",
       [
-        "pnpm",
-        "exec",
-        "eslint",
-        "--config",
-        "apps/frontend/eslint.config.cjs",
-        "apps/frontend/src/components/CommunityLicenseButton/index.tsx",
+        "component-eslint",
+        [
+          "pnpm",
+          "exec",
+          "eslint",
+          "--config",
+          "apps/frontend/eslint.config.cjs",
+          "apps/frontend/src/components/CommunityLicenseButton/index.tsx",
+        ],
       ],
-    ],
-    [
-      "frontend-typecheck",
-      ["pnpm", "nx", "run", "frontend:typecheck", "--skipNxCache"],
-    ],
-  ]) {
-    const r = await env.exec(s, args);
-    stage(name, { command: args, commandId: r.record.id });
-  }
+      [
+        "frontend-typecheck",
+        ["pnpm", "nx", "run", "frontend:typecheck", "--skipNxCache"],
+      ],
+    ]) {
+      const r = await env.exec(s, args);
+      stage(name, { command: args, commandId: r.record.id });
+    }
+  const confetti = await env.exec(s, [
+    "node",
+    "-e",
+    `const fs=require('fs'),c=require('crypto'),f=require.resolve('js-confetti'),b=fs.readFileSync(f);console.log(JSON.stringify({file:f,sha256:c.createHash('sha256').update(b).digest('hex')}));`,
+  ]);
+  const confettiSource = JSON.parse(confetti.stdout);
+  assert.equal(
+    confettiSource.sha256,
+    "fd2695448051ca9672f7c20267c29bf57a484cf237bde1f455138846321696da",
+  );
+  stage("decorative-canvas-source", confettiSource);
   const readiness = await env.start(s);
   stage("ready", { readiness });
   const initial = await env.api(s).request("/api/settings/first-time-setup");
@@ -414,6 +604,8 @@ try {
         await button.focus();
         await p.keyboard.press("Space");
         const confirm = p.locator("[data-cy=community-license-confirm]");
+        await confirm.waitFor({ state: "visible" });
+        await browser.screenshot("license-confirmation-before-scroll");
         const confirmationGeometry = await control(confirm),
           cancelGeometry = await control(cancel);
         await browser.screenshot("license-confirmation");
@@ -483,6 +675,18 @@ try {
   });
   process.exitCode = 1;
 } finally {
+  if (env && session && result.status === "failed") {
+    try {
+      result.isolation = await env.isolationProbe(session);
+    } catch (error) {
+      result.isolationError = error.message;
+    }
+    try {
+      result.sourceAfter = await env.verifySource(session);
+    } catch (error) {
+      result.sourceAfterError = error.message;
+    }
+  }
   if (env)
     try {
       result.cleanup = await env.stop();
