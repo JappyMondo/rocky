@@ -17,6 +17,28 @@ export function requireObservation(
   if (!condition)
     throw new ObservationFailure(classification, assertion, reason);
 }
+// Exact union from pinned libs/shared/src/lib/system-permissions.ts.
+export const ADMIN_PERMISSIONS = [
+  "resources.read",
+  "resources.create",
+  "resources.update",
+  "resources.delete",
+  "resources.access.manage",
+  "resources.maintenance.manage",
+  "resources.reports.export",
+  "users.read",
+  "users.create",
+  "users.update",
+  "users.delete",
+  "users.roles.manage",
+  "users.api-tokens.manage",
+  "system.settings.manage",
+  "system.audit.read",
+  "system.sso.manage",
+  "system.plugins.manage",
+  "billing.read",
+  "billing.manage",
+].sort();
 export function permissions(me, role) {
   requireObservation(
     me && Number.isSafeInteger(me.id) && me.isEmailVerified === true,
@@ -31,7 +53,7 @@ export function permissions(me, role) {
       : ["resources.read"];
   if (role === "admin")
     requireObservation(
-      actual.includes("resources.update") && actual.includes("users.update"),
+      JSON.stringify(actual) === JSON.stringify(ADMIN_PERMISSIONS),
       "fixture_failed",
       "ENV06",
       "admin-permissions-missing",
