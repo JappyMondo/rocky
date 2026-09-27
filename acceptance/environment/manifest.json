@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract_version": "1.0.0",
+  "contract_version": "1.0.1",
   "status": "pending_independent_review",
   "execution_status": "not_executed",
   "ticket": 22,
@@ -72,7 +72,7 @@
       "sources": ["settings_seed", "settings", "wizard", "license_ui", "license", "license_api"]
     },
     "shelly": {
-      "provision": "Fresh admin/resources plus pnpm nx run plugin-shelly:zip; apps/plugins/shelly/dist/plugin-shelly.zip, manifest shelly@0.1.0, npm @attraccess/plugin-shelly@0.1.0-alpha.0. POST /api/plugins multipart pluginZip application/zip then owned restart. Build pack-test before final zip if used: pack deletes dist. Empty device registry, never discover/add/probe/firmware.",
+      "provision": "Fresh admin/resources plus pnpm nx run plugin-shelly:zip; apps/plugins/shelly/dist/plugin-shelly.zip, manifest shelly@0.1.0, npm @attraccess/plugin-shelly@0.1.0-alpha.0. POST /api/plugins multipart pluginZip application/zip then owned restart. Build pack-test before final zip if used: pack deletes dist. Empty device registry: local devices and devices/firmware GETs allowed; physical device contact, discovery, add/probe and firmware-update actions forbidden.",
       "sources": ["plugin_build", "plugin_manifest", "plugin_package", "plugin_api", "shelly_api"]
     }
   },
@@ -93,8 +93,8 @@
       "read": "GET /api/users/me"
     },
     "permission_probe": {
-      "write": "PATCH /api/resources/:fixtureId",
-      "body": "{name: unique cycle value}",
+      "write": "PUT /api/resources/:fixtureId",
+      "body": "multipart/form-data: one text field name containing the unique cycle string; omit image and all other fields; FormData encoder supplies the boundary",
       "read": "GET /api/resources/:fixtureId",
       "member_status": 200,
       "denied_status": 403
@@ -236,9 +236,9 @@
     {
       "id": "ENV08",
       "requirements": ["R10", "R11", "R12"],
-      "expect": "Member with resources.update successfully PATCHes its fixture resource name and GET observes it. Denied authenticated user lacks that permission, same PATCH returns 403 and admin readback proves unchanged. Both see their own account; fresh fixtures prevent inherited admin grants.",
+      "expect": "Member with resources.update successfully PUTs its fixture resource name using multipart/form-data with a single string name field and GET observes it. Denied authenticated user lacks that permission, same PUT returns 403 and admin readback proves unchanged. Both see their own account; fresh fixtures prevent inherited admin grants.",
       "evidence": "Exact permissions, resource/group fixture membership, positive update/readback and denied request/unchanged readback.",
-      "sources": ["resources", "rbac", "role_dto", "roles", "seed"]
+      "sources": ["resources", "resource_update_dto", "rbac", "role_dto", "roles", "seed"]
     },
     {
       "id": "ENV09",
@@ -258,7 +258,7 @@
       "id": "ENV11",
       "requirements": ["R10", "R11"],
       "expect": "E10 installs digest-bound Shelly ZIP, restarts and observes loaded backend/frontend with empty devices/firmware arrays. Restart with DISABLE_PLUGINS=true: new instanceId, disabled:true, backend device route absent (404), plugins-disabled-warning visible. Unset variable to reenable and prove backend returns again. Installed files remain identical. Frontend/sidebar disappearance is not promised by this source; record observed behavior.",
-      "evidence": "ZIP/member digest inventory, upload, each instanceId/status, manifest loaded/no error, API arrays/404 and /shelly screenshot/trace; no discover/add/probe/firmware/device calls.",
+      "evidence": "ZIP/member digest inventory, upload, each instanceId/status, manifest loaded/no error, API arrays/404 and /shelly screenshot/trace; local GET /api/shelly/devices and GET /api/shelly/devices/firmware are permitted only with the empty registry; physical device contact, discovery, add/probe and firmware-update actions are forbidden.",
       "sources": ["plugin_build", "plugin_manifest", "plugin_package", "plugin_api", "plugin_service", "plugin_module", "plugin_provider", "plugin_settings", "shelly_backend", "shelly_api", "shelly_frontend", "shelly_page"]
     },
     {
@@ -368,6 +368,7 @@
     "later_obligations": ["Frozen affected base/head Nx core lint/typecheck/test/e2e", "Applicable CRAP integration/report", "Plugins lint/test/e2e/pack-test and generator tests; Hello World pack fixture as CI requires", "Applicable firmware version/tests and fail2ban/Grafana/Balena/companion/container guards", "PR title/aggregate and merge_group current-head receipts under separate authority"]
   },
   "sources": {
+    "resource_update_dto": {"path": "apps/api/src/resources/dtos/updateResource.dto.ts", "sha256": "614baa573f23c26d188f181ddf992d6017e5aa888c328d358508fe3766f9c0bd"},
     "instructions": {"path": "AGENTS.md", "sha256": "02434a20111485d05d86a9ae0c1f636736543bc28a5d6798bbbf9074a041c77b"},
     "node": {"path": ".nvmrc", "sha256": "7e8a2fa94951112b894a3dbe3d05efef5e9263741fa49125f0a70f40fedab4cc"},
     "package": {"path": "package.json", "sha256": "3ebec76b8a8758ceff926404db85f5f2dc544e77fcaf64ce1e27c53cb7286f59"},
