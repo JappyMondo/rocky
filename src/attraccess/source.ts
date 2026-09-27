@@ -1,0 +1,138 @@
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import {
+  readFileSync,
+  mkdirSync,
+  lstatSync,
+  readlinkSync,
+  writeFileSync,
+  realpathSync,
+  existsSync,
+} from "node:fs";
+import { join, resolve, relative, dirname } from "node:path";
+import { digest, canonical } from "../store/json.js";
+import { TARGET, GENERATED } from "./policy.js";
+export type SourceInventory = Record<string, { mode: string; sha256: string }>;
+export function ownedPath(path: string) {
+  const root = realpathSync(TARGET.root);
+  const full = resolve(path);
+  if (full !== root && !full.startsWith(root + "/"))
+    throw new Error("outside-authorized-environment-root");
+  let existing = full;
+  while (!existsSync(existing)) existing = dirname(existing);
+  if (
+    realpathSync(existing) !== root &&
+    !realpathSync(existing).startsWith(root + "/")
+  )
+    throw new Error("environment-symlink-escape");
+  return full;
+}
+export function sourceInventory(source = TARGET.source): SourceInventory {
+  const rows = execFileSync(
+    "git",
+    ["-C", source, "ls-tree", "-rz", TARGET.commit],
+    { maxBuffer: 16 * 1024 * 1024 },
+  )
+    .toString()
+    .split("\0")
+    .filter(Boolean);
+  const result: SourceInventory = {};
+  for (const row of rows) {
+    const [header, path] = row.split("\t");
+    if (!header || !path) throw new Error("invalid-source-tree");
+    const [mode, type, oid] = header.split(" ");
+    if (type !== "blob" || !oid || !mode)
+      throw new Error("unsupported-source-entry");
+    const file = join(source, path);
+    const bytes =
+      mode === "120000" ? Buffer.from(readlinkSync(file)) : readFileSync(file);
+    if (
+      createHash("sha1")
+        .update(Buffer.from("blob " + bytes.length + "\0"))
+        .update(bytes)
+        .digest("hex") !== oid
+    )
+      throw new Error("source-blob-drift:" + path);
+    result[path] = { mode, sha256: digest(bytes) };
+  }
+  return result;
+}
+export function verifySnapshot(snapshot: string, inventory: SourceInventory) {
+  const differences: string[] = [];
+  for (const [path, entry] of Object.entries(inventory)) {
+    const file = join(snapshot, path);
+    try {
+      const stat = lstatSync(file);
+      const bytes = stat.isSymbolicLink()
+        ? Buffer.from(readlinkSync(file))
+        : readFileSync(file);
+      if (digest(bytes) !== entry.sha256) differences.push(path);
+      if (!stat.isSymbolicLink() && stat.nlink !== 1)
+        throw new Error("shared-source-hardlink");
+      if (
+        stat.isSymbolicLink() &&
+        !resolve(dirname(file), readlinkSync(file)).startsWith(snapshot + "/")
+      )
+        throw new Error("escaping-source-link");
+    } catch {
+      differences.push(path);
+    }
+  }
+  if (differences.length)
+    throw new Error("source-integrity-failure:" + differences.join(","));
+  return {
+    files: Object.keys(inventory).length,
+    sha256: digest(canonical(inventory)),
+  };
+}
+export function materialize(destination: string) {
+  ownedPath(destination);
+  if (existsSync(destination)) throw new Error("snapshot-already-exists");
+  const head = execFileSync("git", ["-C", TARGET.source, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+  if (head !== TARGET.commit) throw new Error("source-revision-drift");
+  if (
+    execFileSync("git", ["-C", TARGET.source, "status", "--porcelain"], {
+      encoding: "utf8",
+    }).trim()
+  )
+    throw new Error("source-checkout-dirty");
+  mkdirSync(destination, { recursive: true, mode: 0o700 });
+  // A local independent clone creates no new target commit/branch and prevents Nx finding the parent Rocky repository.
+  execFileSync(
+    "git",
+    [
+      "clone",
+      "--no-hardlinks",
+      "--no-checkout",
+      "--local",
+      TARGET.source,
+      destination,
+    ],
+    { stdio: "pipe" },
+  );
+  execFileSync(
+    "git",
+    ["-C", destination, "checkout", "--detach", TARGET.commit],
+    { stdio: "pipe" },
+  );
+  execFileSync("git", ["-C", destination, "remote", "remove", "origin"]);
+  if (existsSync(join(destination, ".git/objects/info/alternates")))
+    throw new Error("shared-git-object-store");
+  const inventory = sourceInventory();
+  verifySnapshot(destination, inventory);
+  return {
+    snapshot: destination,
+    commit: head,
+    tree: TARGET.tree,
+    inventory,
+    inventorySha256: digest(canonical(inventory)),
+    generated: GENERATED,
+    gitRoot: execFileSync(
+      "git",
+      ["-C", destination, "rev-parse", "--show-toplevel"],
+      { encoding: "utf8" },
+    ).trim(),
+  };
+}

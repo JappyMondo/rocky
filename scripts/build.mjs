@@ -5,10 +5,31 @@ import {
   chmodSync,
   readdirSync,
   rmSync,
+  existsSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 if (process.version !== "v24.16.0") throw new Error("Use pinned Node 24.16.0");
+// An active adapter invokes supervisor.js lazily: replacing dist mid-run can strand it.
+const activeRoot = ".qualification/attraccess/active-runtimes";
+if (existsSync(activeRoot))
+  for (const file of readdirSync(activeRoot)) {
+    const marker = JSON.parse(readFileSync(join(activeRoot, file)));
+    let fingerprint;
+    try {
+      fingerprint = execFileSync(
+        "/bin/ps",
+        ["-p", String(marker.process?.pid), "-o", "lstart=", "-o", "command="],
+        { encoding: "utf8", timeout: 1000 },
+      ).trim();
+    } catch {
+      continue;
+    }
+    if (fingerprint === marker.process?.fingerprint)
+      throw new Error(
+        "active-environment-runtime-build-refused:" + marker.attempt,
+      );
+  }
 const sha = execFileSync("git", ["rev-parse", "HEAD"], {
   encoding: "utf8",
 }).trim();
