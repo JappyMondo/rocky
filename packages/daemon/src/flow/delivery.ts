@@ -75,6 +75,55 @@ class UiFixtureSourceChanged extends Error {}
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
+/** Poll Boots replay old UI receipts while their background services stay stopped.
+ * A working Boot still probes the live endpoint, including on replay.
+ */
+export async function uiReadiness(
+  ctx: Pick<WorkflowContext, 'step' | 'polling' | 'ports'>,
+  endpoint: UiEndpoint,
+  workspace: string,
+  serverLog: string,
+  readiness: { attempts: number; intervalMs: number },
+  revision: number,
+) {
+  let ready = false;
+  let url: string | undefined;
+  if (!ctx.polling)
+    for (let attempt = 0; attempt < readiness.attempts; attempt++) {
+      try {
+        const log = await readFile(serverLog, 'utf8').catch(() => '');
+        url = await resolveUiEndpoint(endpoint, {
+          port: ctx.ports[0],
+          log,
+          workspace,
+        });
+        if (!url) throw new Error('endpoint not reported yet');
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
+        });
+        ready = response.ok;
+        await response.body?.cancel();
+      } catch {
+        /* A booting server commonly refuses connections. */
+      }
+      if (ready) break;
+      await new Promise((resolve) => setTimeout(resolve, readiness.intervalMs));
+    }
+  const boot = await ctx.step(`UI readiness ${revision}/1`, async () => ({
+    ready,
+    log: ready
+      ? ''
+      : await readFile(serverLog, 'utf8').catch(
+          (error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT')
+              return 'The dev server did not become ready and produced no log.';
+            throw error;
+          },
+        ),
+  }));
+  return { ready: ctx.polling ? boot.ready : ready, url, boot };
+}
+
 async function loadRules(ctx: WorkflowContext, snapshotDir: string) {
   // Every file is prompt text. Delete this call to opt out; no README belongs here.
   return ctx.step('load rules', async () => {
@@ -809,6 +858,13 @@ export function createDeliveryOperations(
         namespace,
         disagreements,
         validation: { summary: validationSummary, ...validationResponsibility },
+        runEvidence: {
+          summaries: [...changes],
+          workspaceEvidenceDirectory: evidenceDirectory,
+          screenshotsDirectory: join(runDir, 'screenshots'),
+          instruction:
+            "These summaries and directories belong to this Run. Inspect the actual files before reporting current-run evidence missing or accepting a claimed browser result. Earlier runs' artifacts do not establish current coverage; an agent summary alone is not proof that a check passed.",
+        },
         ...(rules === undefined ? {} : { rules }),
       },
       schema: ReviewFor(
@@ -1004,43 +1060,14 @@ export function createDeliveryOperations(
           `{ cd -- ${quote(configuredUi.workspace)} && export PORT=${ctx.ports[0]} && { ${configuredUi.start}\n}; } > ${quote(serverLog)} 2>&1`,
           { background: true, label: 'dev server' },
         );
-      // Probe again on every Boot; only the recorded result chooses the replay path.
-      let ready = false;
-      let url: string | undefined;
-      for (let attempt = 0; attempt < readiness.attempts; attempt++) {
-        try {
-          const log = await readFile(serverLog, 'utf8').catch(() => '');
-          url = await resolveUiEndpoint(configuredUi.endpoint, {
-            port: ctx.ports[0],
-            log,
-            workspace: configuredUi.workspace,
-          });
-          if (!url) throw new Error('endpoint not reported yet');
-          const response = await fetch(url, {
-            signal: AbortSignal.timeout(Math.max(1, readiness.intervalMs)),
-          });
-          ready = response.ok;
-          await response.body?.cancel();
-        } catch {
-          /* A booting server commonly refuses connections. */
-        }
-        if (ready) break;
-        await new Promise((resolve) =>
-          setTimeout(resolve, readiness.intervalMs),
-        );
-      }
-      const boot = await ctx.step(`UI readiness ${revision}/1`, async () => ({
-        ready,
-        log: ready
-          ? ''
-          : await readFile(serverLog, 'utf8').catch(
-              (error: NodeJS.ErrnoException) => {
-                if (error.code === 'ENOENT')
-                  return 'The dev server did not become ready and produced no log.';
-                throw error;
-              },
-            ),
-      }));
+      const { ready, url, boot } = await uiReadiness(
+        ctx,
+        configuredUi.endpoint,
+        configuredUi.workspace,
+        serverLog,
+        readiness,
+        revision,
+      );
       if (settings.environmentVersion && (!boot.ready || !ready))
         throw new EnvironmentBlocked({
           kind: 'environment',
@@ -1106,6 +1133,16 @@ export function createDeliveryOperations(
               actors.call('fixer', {
                 label: `Prepare UI fixtures ${revision}/${serviceKey}/${attempt}`,
                 screenshotWrite: true,
+                ...(actors.mcpFor
+                  ? {
+                      mcp: [
+                        ...new Set([
+                          ...actors.mcpFor('fixer'),
+                          ...actors.mcpFor('ui-inspector'),
+                        ]),
+                      ],
+                    }
+                  : {}),
                 blockedAsResult: !!settings.uiFixtureRecoveryVersion,
                 input: {
                   issue,
@@ -1121,7 +1158,7 @@ export function createDeliveryOperations(
                   previousRepairs: [...environmentRepairHistory],
                   previous,
                   instruction:
-                    "Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Consult validationSummary and previousRepairs for setup already executed; inspect its local results before requesting the same seed or install again. A passed setup command is evidence to investigate, not proof of fixture readiness. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Establish each check's access, data and initial conditions, then exercise its entry route or action in the browser. This is not acceptance review: after those prerequisites are verified, an application error, endless loading state, or missing/broken control is product evidence for the inspector, not a reason to demand more setup. Hand off repeatable steps and an honest screenshot of the actual defective state; do not claim the expected behavior passed. Return executed:true only for entry/actions you actually exercised. A tool failure or unavailable prerequisite still blocks readiness. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and source as an array of existing repository-relative file paths documenting the route or fixture (one exact path per element, without line numbers, prose, or joined path lists), and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. If a check needs locally generated login credentials, save them in a private mode 0600 file inside fixtureEvidenceDirectory, return its absolute path as credentialFile for that check, and name the matching account role in instructions. The independent inspector can read the supplied credential file and operate the browser, but cannot run seed commands, edit files or the database, or repair source. Every returned fixture must be repeatable with those capabilities. After proving a state, restore its initial conditions or create a separate unused fixture for inspection. Do not hand off consumed one-time links, an already-enrolled setup account, or mutually incompatible global settings unless the instructions restore them through supported browser controls. Use distinct local identities when checks change account state. Do not return credential values. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Search only targeted repository paths, not the entire host. Bound browser and shell commands; if navigation or a tool stalls, stop or reconcile it before returning a blocked result. An unfinished tool call cannot be accepted as a fixture result. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.",
+                    "Prepare the local prerequisites for EVERY supplied browser check before visual inspection. Read repository instructions and actual component/route usage. Consult validationSummary and previousRepairs for setup already executed; inspect its local results before requesting the same seed or install again. A passed setup command is evidence to investigate, not proof of fixture readiness. Locate or create authorized local seed data, role/session states, and documented component previews where needed. A reachable server alone is not fixture readiness. Establish each check's access, data and initial conditions, then exercise its entry route or action in the browser. This is not acceptance review: after those prerequisites are verified, an application error, endless loading state, or missing/broken control is product evidence for the inspector, not a reason to demand more setup. Hand off repeatable steps and an honest screenshot of the actual defective state; do not claim the expected behavior passed. Return executed:true only for entry/actions you actually exercised. A tool failure or unavailable prerequisite still blocks readiness. If one browser tool stalls, reconcile its unfinished call and use another configured browser tool when available; repeat navigation and capture fresh evidence in the new session. Supply its concrete URL path relative to baseUrl (never a cached host/port), repeatable navigation/setup instructions, and source as an array of existing repository-relative file paths documenting the route or fixture (one exact path per element, without line numbers, prose, or joined path lists), and a browser screenshot captured in screenshotDirectory proving the intended state is reachable. If a check needs locally generated login credentials, save them in a private mode 0600 file inside fixtureEvidenceDirectory, return its absolute path as credentialFile for that check, and name the matching account role in instructions. The independent inspector can read the supplied credential file and operate the browser, but cannot run seed commands, edit files or the database, or repair source. Every returned fixture must be repeatable with those capabilities. After proving a state, restore its initial conditions or create a separate unused fixture for inspection. Do not hand off consumed one-time links, an already-enrolled setup account, or mutually incompatible global settings unless the instructions restore them through supported browser controls. Use distinct local identities when checks change account state. Do not return credential values. Keep fixture data ephemeral; do not modify tracked application or test sources during preparation. Search only targeted repository paths, not the entire host. Bound browser and shell commands; if navigation or a tool stalls, stop or reconcile it before returning a blocked result. An unfinished tool call cannot be accepted as a fixture result. Preserve all check IDs and acceptance criteria. Do not invent inaccessible variants, waive coverage, change production behavior just to manufacture a preview, fabricate evidence, or include credentials in results. If a state has no product route, use a repository-supported local component preview or test fixture; explain its provenance. Choose setup only for commands in availableCommands; the host executes them and calls you again to verify readiness. Repair local fixture problems within this task. Missing external credentials, authorization, or unavailable external infrastructure must be reported as blocked. This is environment preparation, not a product review.",
                 },
                 schema,
               }),
@@ -1798,7 +1835,15 @@ ${conversation.map((turn) => `${turn.questions.join('\n')}\n\nAnswer: ${turn.ans
         if (revision === reviewCap) return exhaust(validationProblems);
         const fixed = await actors.call('fixer', {
           label: `Validation fixer ${revision}/${reviewCap}`,
-          input: { issue, delivery, complaints: validationProblems, commands },
+          input: {
+            issue,
+            delivery,
+            complaints: validationProblems,
+            commands,
+            validationResponsibility,
+            instruction:
+              'Rocky already ran these configured checks on the host. Diagnose the recorded output and repair the cause within your grants. Do not rerun a host-owned check in your Agent sandbox solely to reproduce its host failure. Keep unresolved check results explicit; never claim that a timeout or sandbox denial passed.',
+          },
           schema: FixReportFor(validationProblems),
         });
         changes.push(fixed.summary);

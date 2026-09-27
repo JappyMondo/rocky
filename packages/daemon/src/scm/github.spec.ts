@@ -193,6 +193,67 @@ it.each(['completed', 'in_progress'])(
   },
 );
 
+it('routes a failed job to the fixer when its signed log has expired', async () => {
+  const transport = scriptedFetch([
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+    {
+      path: '/repos/team/repo/commits/abc/check-runs?filter=latest&per_page=100&page=1',
+      value: { check_runs: [] },
+    },
+    {
+      path: '/repos/team/repo/commits/abc/statuses?per_page=100&page=1',
+      value: [],
+    },
+    {
+      path: '/repos/team/repo/actions/runs?head_sha=abc&per_page=100&page=1',
+      value: {
+        workflow_runs: [
+          {
+            id: 20,
+            name: 'CI',
+            head_sha: 'abc',
+            status: 'completed',
+            conclusion: 'failure',
+          },
+        ],
+      },
+    },
+    {
+      path: '/repos/team/repo/actions/runs/20/jobs?filter=latest&per_page=100&page=1',
+      value: {
+        jobs: [
+          {
+            id: 21,
+            name: 'test',
+            conclusion: 'failure',
+            steps: [{ name: 'assertion', conclusion: 'failure' }],
+          },
+        ],
+      },
+    },
+    {
+      path: '/repos/team/repo/actions/jobs/21/logs',
+      status: 302,
+      headers: { location: 'https://logs.test/signed' },
+    },
+    { path: '/signed', status: 410, text: 'expired' },
+    { path: '/repos/team/repo/pulls/7', value: githubPull },
+  ]);
+  await expect(
+    createGitHubScm({ ...githubOptions, fetch: transport.fetch }).waitForCi(
+      githubPr(),
+      { logTailLines: 200 },
+    ),
+  ).resolves.toMatchObject({
+    status: 'done',
+    result: {
+      status: 'failed',
+      failedJobs: [{ id: '21', name: 'test', failedSteps: ['assertion'] }],
+    },
+  });
+  transport.done();
+});
+
 it('parks a failed-job retry until Actions finishes without attempting a check rerequest', async () => {
   const transport = scriptedFetch([
     { path: '/repos/team/repo/pulls/7', value: githubPull },

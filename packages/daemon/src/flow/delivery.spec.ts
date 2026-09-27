@@ -1,8 +1,79 @@
 import { expect, it, vi } from 'vitest';
 import { defaultFlowSettings } from '@rocky/local-contracts';
 import type { VisualRecapResult, WorkflowContext } from '@rocky/sdk';
-import { createDeliveryOperations } from './delivery.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runBoot } from '../run/replay.js';
+import { createDeliveryOperations, uiReadiness } from './delivery.js';
 import type { DeliveryAgents } from './agents.js';
+
+it('replays a pre-change UI receipt on a CI poll without probing its stopped service', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'rocky-ui-poll-'));
+  let serviceRunning = true;
+  const fetcher = vi.fn(async () => {
+    if (!serviceRunning)
+      throw new Error('The service stopped while CI waited.');
+    return new Response('', { status: 200 });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  let ciCalls = 0;
+  try {
+    const boot = (poll: boolean) =>
+      runBoot({
+        journalPath: join(directory, 'journal.jsonl'),
+        poll,
+        workflow: async (runner) => {
+          const ctx = {
+            polling: runner.polling,
+            ports: [4200],
+            step: <T>(label: string, work: () => T | Promise<T>) =>
+              runner.step('step', { label }, async () => ({
+                status: 'done',
+                result: await work(),
+              })),
+          } as Pick<WorkflowContext, 'step' | 'polling' | 'ports'>;
+          if (poll) {
+            const replayed = await uiReadiness(
+              ctx,
+              { kind: 'fixed', url: 'http://127.0.0.1:4200/' },
+              directory,
+              join(directory, 'service.log'),
+              { attempts: 1, intervalMs: 1 },
+              1,
+            );
+            expect(replayed).toMatchObject({
+              ready: true,
+              boot: { ready: true },
+            });
+          } else {
+            // The first Boot uses the receipt format written before this fix.
+            await ctx.step('UI readiness 1/1', async () => ({
+              ready: (await fetch('http://127.0.0.1:4200/')).ok,
+              log: '',
+            }));
+          }
+          await runner.step('scm:waitForCi', {}, async () =>
+            ++ciCalls === 1
+              ? { status: 'waiting' }
+              : { status: 'done', result: null },
+          );
+          return 'merged';
+        },
+      });
+    expect(await boot(false)).toMatchObject({
+      status: 'parked',
+      reason: 'scm:waitForCi',
+    });
+    serviceRunning = false;
+    expect(await boot(true)).toMatchObject({ status: 'ready' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(ciCalls).toBe(2);
+  } finally {
+    vi.unstubAllGlobals();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 it('confirms a Linear comment and closes the issue before the recap', async () => {
   const calls: string[] = [];

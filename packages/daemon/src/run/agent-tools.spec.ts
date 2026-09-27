@@ -25,6 +25,12 @@ it('only offers shell/browser instructions to Agents granted bash', () => {
   expect(
     agentToolInstructions({ tools: ['read', 'bash'], mcp: ['browser'] }),
   ).toContain('Enabled MCP servers: browser');
+  const instructions = agentToolInstructions({
+    tools: ['read', 'bash'],
+    mcp: ['browser'],
+  });
+  expect(instructions).toContain('use an enabled browser MCP tool');
+  expect(instructions).toContain('do not search the host filesystem');
 });
 
 it('limits validation handoff to existing non-manual catalog checks without waiving evidence', () => {

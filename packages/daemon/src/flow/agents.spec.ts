@@ -78,6 +78,7 @@ it('executes the implementation role using its wired agent, custom model, prompt
   const actors = deliveryAgents(flow, 'implement', ctx, {
     issue: { title: 'Feature' },
   });
+  expect(actors.mcpFor?.('implementer')).toEqual(['docs']);
   await actors.call('implementer', { input: { plan: 'the plan' } });
   expect(ctx.agent).toHaveBeenCalledWith(
     { prompt: 'Build Feature using the plan' },

@@ -663,19 +663,35 @@ export function createGitHubScm(options: ScmAdapterOptions) {
         const failed = jobs.filter(
           (job) => job.conclusion && !successful(job.conclusion),
         );
-        for (const job of failed)
+        for (const job of failed) {
+          let logTail = '';
+          try {
+            logTail = await http.logTail(
+              `${root}/actions/jobs/${job.id}/logs`,
+              input.logTailLines,
+              true,
+            );
+          } catch (error) {
+            options.signal?.throwIfAborted();
+            if (
+              !(error instanceof ScmError) ||
+              error.refusal.reason !== 'unavailable'
+            )
+              throw error;
+            // Job and failed-step metadata still identifies the failure. A
+            // missing signed log must not strand the CI fixer.
+            logTail =
+              '[GitHub job log unavailable; inspect the failed job directly.]';
+          }
           failedJobs.push({
             id: String(job.id),
             name: job.name,
             failedSteps: job.steps
               .filter((step) => step.conclusion && !successful(step.conclusion))
               .map((step) => step.name),
-            logTail: await http.logTail(
-              `${root}/actions/jobs/${job.id}/logs`,
-              input.logTailLines,
-              true,
-            ),
+            logTail,
           });
+        }
         if (
           !failed.length &&
           run.status === 'completed' &&

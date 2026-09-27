@@ -1,7 +1,23 @@
-import { join, resolve, relative, isAbsolute } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import {
+  join,
+  resolve,
+  relative,
+  isAbsolute,
+  dirname,
+  basename,
+} from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { readFile, realpath, rm, stat } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
+import lockfile from 'proper-lockfile';
 import type { WorkflowContext, WorkflowInput } from '@rocky/sdk';
 import type { WorkspaceRepository, DevService } from '@rocky/local-contracts';
 import { resolveUiEndpoint } from './ui-endpoint.js';
@@ -87,6 +103,51 @@ export class ServiceStartupError extends Error {
   }
 }
 const portLeases = new Set<number>();
+
+// A repository may discover several free ports before it binds any of them.
+// Serialize that launch through readiness across Run workers, which are
+// separate processes. This is live Boot coordination, never a journal Step.
+async function lockServiceStart(
+  runDir: string,
+  repositoryUrl: string,
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<() => Promise<void>> {
+  const parent = dirname(runDir);
+  const root = basename(parent) === 'runs' ? dirname(parent) : runDir;
+  const directory = join(root, 'service-start-locks');
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const path = join(
+    directory,
+    createHash('sha256').update(repositoryUrl).digest('hex'),
+  );
+  await writeFile(path, '', { flag: 'a', mode: 0o600 });
+  for (;;) {
+    signal?.throwIfAborted();
+    try {
+      return await lockfile.lock(path, {
+        realpath: false,
+        stale: 30_000,
+        update: 10_000,
+        retries: 0,
+      });
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code !== 'ELOCKED' ||
+        Date.now() >= deadline
+      )
+        throw error;
+      await delay(
+        Math.min(100, Math.max(1, deadline - Date.now())),
+        undefined,
+        {
+          signal,
+        },
+      );
+    }
+  }
+}
+
 export class WorkspaceExecution {
   private leasedPorts = new Set<number>();
   private running: Array<{
@@ -344,14 +405,37 @@ run();
     );
   }
   async start(selected: string[], label: string, timeoutMs = 120_000) {
-    const deadline = Date.now() + timeoutMs;
+    let deadline = Date.now() + timeoutMs;
     const entries = dependencyOrder(
       serviceEntries(this.repos),
       selected,
       (entry) => entry.service.dependsOn,
     );
     const endpoints = this.endpoints;
+    const releaseStarts: Array<() => Promise<void>> = [];
     try {
+      if (this.verified && !this.polling) {
+        // Acquire in a stable order when a service depends on another repo.
+        const urls = [
+          ...new Set(
+            entries
+              .filter((entry) => !endpoints[entry.id])
+              .map((entry) => entry.repository.url),
+          ),
+        ].sort();
+        const lockWaitStarted = Date.now();
+        for (const url of urls)
+          releaseStarts.push(
+            await lockServiceStart(
+              this.runDir,
+              url,
+              Date.now() + Math.max(timeoutMs, 120_000),
+              this.signal,
+            ),
+          );
+        // Contention must not consume this Boot's service readiness window.
+        deadline += Date.now() - lockWaitStarted;
+      }
       for (const [index, entry] of entries.entries()) {
         const { service, repository, id } = entry;
         if (this.polling && this.verified) {
@@ -494,7 +578,12 @@ run();
             : `cd -- ${quote(cwd)} && { ${this.environment(repository, task.env)}${service.start}\n} > ${quote(log)} 2>&1`,
           { background: true, label: `${label}: start ${id}` },
         );
-        this.running.push({ id, pid: started.pid, repo: repository, service });
+        this.running.push({
+          id,
+          pid: started.pid,
+          repo: repository,
+          service,
+        });
         let ready = false;
         for (let attempt = 0; attempt < service.readiness.attempts; attempt++) {
           this.signal?.throwIfAborted();
@@ -623,6 +712,10 @@ run();
     } catch (error) {
       await this.stop(label);
       throw error;
+    } finally {
+      // The failed launch is stopped in catch before another Run may choose
+      // its ports. No journal Step is added, including on old snapshots.
+      for (const release of releaseStarts.reverse()) await release();
     }
   }
   async stop(label: string) {

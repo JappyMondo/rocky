@@ -38,6 +38,7 @@ export interface OwnedCommand {
   result: Promise<ExecResult | BackgroundExecResult>;
   closed: Promise<void>;
   stop(): Promise<void>;
+  output(): Pick<ExecResult, 'stdout' | 'stderr'>;
 }
 
 export function startCommand(
@@ -129,5 +130,10 @@ export function startCommand(
         void stop();
       }, options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS);
   });
-  return { result, closed, stop };
+  return {
+    result,
+    closed,
+    stop,
+    output: () => ({ stdout, stderr }),
+  };
 }
