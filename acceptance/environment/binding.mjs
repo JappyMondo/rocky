@@ -241,8 +241,9 @@ export async function buildProposal(validationPath) {
     INPUTS,
     join(base, "handoff-2ff6cab/HANDOFF.md"),
     join(base, "handoff-2ff6cab/retained-files.json"),
-    join(base, "handoff-2ff6cab/runtime-dependency-inventory.json"),
+    join(base, "handoff-2ff6cab/dependency-inventory.json"),
     join(base, "handoff-2ff6cab/checks.json"),
+    join(base, "handoff-2ff6cab/runtime-integrity.json"),
     join(base, "image-packaging-2026-09-27T15-22-30-613Z/Dockerfile"),
     join(
       base,
