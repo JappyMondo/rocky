@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { digest, canonical } from "../store/json.js";
 import { TARGET, LIMITS, COMMANDS, checkPlan } from "./policy.js";
+import { runtimeIntegrity } from "./integrity.js";
 import type { PreparedEnvironment } from "./environment.js";
 export interface AdmissionApproval {
   ticket: 28;
@@ -21,6 +22,10 @@ export interface EnvironmentAdmission {
   shellyZipSha256: string;
   sourceInventorySha256: string;
   rockyBuildId: string;
+  installedBuildInventorySha256: string;
+  runtimeDependenciesSha256: string;
+  driverTreeSha256: string;
+  runtimePackageSha256: string;
   adapterSha256: string;
   scenarioSha256: string;
   fixtureSha256: string;
@@ -83,6 +88,10 @@ export function validateAdmission(
     "shellyZipSha256",
     "sourceInventorySha256",
     "rockyBuildId",
+    "installedBuildInventorySha256",
+    "runtimeDependenciesSha256",
+    "driverTreeSha256",
+    "runtimePackageSha256",
     "adapterSha256",
     "scenarioSha256",
     "fixtureSha256",
@@ -145,6 +154,15 @@ export function validateAdmission(
       digest(canonical(checkPlan(TARGET.commit, TARGET.commit)))
   )
     throw new Error("admission-code-drift");
+  const runtime = runtimeIntegrity();
+  if (
+    admission.installedBuildInventorySha256 !==
+      runtime.installedBuildInventorySha256 ||
+    admission.runtimeDependenciesSha256 !== runtime.runtimeDependenciesSha256 ||
+    admission.driverTreeSha256 !== runtime.driverTreeSha256 ||
+    admission.runtimePackageSha256 !== runtime.packageSha256
+  )
+    throw new Error("admission-runtime-drift");
   const build = JSON.parse(
     readFileSync(new URL("../build-identity.json", import.meta.url), "utf8"),
   );

@@ -7,6 +7,7 @@ import { CommandRunner, type CommandResult } from "../runner/index.js";
 import { Evidence } from "../evidence/index.js";
 import { LIMITS, TARGET } from "./policy.js";
 import { identify } from "../runner/process.js";
+import { verifyInstalledBuild } from "./integrity.js";
 import { redact } from "./http.js";
 import type { Json } from "../store/json.js";
 export class EnvironmentCommands {
@@ -25,6 +26,7 @@ export class EnvironmentCommands {
     docker?: { executable: string; host: string },
     scope = "environment-preparation",
   ) {
+    verifyInstalledBuild();
     mkdirSync(root, { recursive: true, mode: 0o700 });
     this.store = new Store(join(root, "run.sqlite"));
     const versions = {
@@ -137,7 +139,11 @@ export class EnvironmentCommands {
             execFile(
               this.docker,
               ["--host", this.dockerHost, ...args],
-              { timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+              {
+                timeout: timeoutMs,
+                killSignal: "SIGKILL",
+                maxBuffer: 1024 * 1024,
+              },
               (error, stdout, stderr) => {
                 if (error) {
                   this.save("effect-error-" + key.replaceAll("/", "-"), {

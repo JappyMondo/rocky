@@ -12,10 +12,17 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { EnvironmentCommands } from "./commands.js";
 import { TARGET, LIMITS, COMMANDS, GENERATED } from "./policy.js";
-import { ownedPath, sourceInventory, type SourceInventory } from "./source.js";
+import {
+  ownedPath,
+  sourceInventory,
+  inventoryProbe,
+  type SourceInventory,
+} from "./source.js";
 import {
   persistOwnership,
   cleanOwned,
+  CleanupIncomplete,
+  type CleanupReceipt,
   assertOwned,
   dockerRead,
   type Ownership,
@@ -87,7 +94,8 @@ export class AttraccessEnvironment {
   }
   #sessions = new Set<Session>();
   #observers = new Map<Session, ApiSession>();
-  #stopped?: Promise<ReturnType<typeof cleanOwned>>;
+  #stopped: Promise<CleanupReceipt> | undefined;
+  #closing = false;
   constructor(
     readonly prepared: PreparedEnvironment,
     readonly attemptId: string,
@@ -623,10 +631,11 @@ export class AttraccessEnvironment {
     const appNegative = await this.exec(s, ["node", "-e", probe(false)], 10000);
     await this.#inspect(s.mailpit);
     const mailProbe = this.ownership.owner + "-mail-net-probe";
-    const mailNegative = await this.commands.dockerCommand(
+    this.ownership.containers.push(mailProbe);
+    persistOwnership(this.ownership);
+    await this.#mutate(
       [
-        "run",
-        "--rm",
+        "create",
         "--name",
         mailProbe,
         "--label",
@@ -643,8 +652,19 @@ export class AttraccessEnvironment {
         "-e",
         probe(false),
       ],
+      "mail-net-probe-create",
+    );
+    await this.#mutate(["start", mailProbe], "mail-net-probe-start");
+    const mailWait = await this.commands.dockerCommand(
+      ["wait", mailProbe],
       10000,
     );
+    const mailNegative = await this.commands.dockerCommand(
+      ["logs", mailProbe],
+      10000,
+    );
+    if (mailWait.stdout.trim() !== "0")
+      throw new Error("mail-network-probe-failed");
     const receipt = {
       sentinelId: inspect.Id,
       positive: JSON.parse(positive.stdout),
@@ -780,7 +800,7 @@ export class AttraccessEnvironment {
       JSON.stringify(this.prepared.sourceInventory),
       { mode: 0o600 },
     );
-    const script = `const fs=require('fs'),p=require('path'),c=require('crypto');const files=JSON.parse(fs.readFileSync('/owned/private/source-inventory.json'));const changed=[];for(const [name,entry] of Object.entries(files)){try{const path=p.join('/app',name),st=fs.lstatSync(path),bytes=st.isSymbolicLink()?Buffer.from(fs.readlinkSync(path)):fs.readFileSync(path);if(c.createHash('sha256').update(bytes).digest('hex')!==entry.sha256 || (entry.mode==='120000')!==st.isSymbolicLink() || (entry.mode==='100755' && !(st.mode&64)))changed.push(name);}catch{changed.push(name);}}console.log(JSON.stringify({files:Object.keys(files).length,changed}));process.exit(changed.length?2:0);`;
+    const script = inventoryProbe("/owned/private/source-inventory.json");
     writeFileSync(join(s.root, "private", "inventory.cjs"), script, {
       mode: 0o600,
     });
@@ -952,13 +972,24 @@ export class AttraccessEnvironment {
   }
   async fault(
     s: Session,
-    kind: "service-death" | "cancel" | "browser-timeout" | "storage-exhaustion",
+    kind:
+      | "service-death"
+      | "cancel"
+      | "browser-timeout"
+      | "browser-death"
+      | "storage-exhaustion",
   ) {
     if (kind === "cancel") {
       this.commands.store.cancel(this.commands.lease.runId);
       return this.stop();
     }
     if (kind === "browser-timeout") {
+      if (!this.#browsers.size) throw new Error("no-owned-browser");
+      return Promise.all(
+        [...this.#browsers].map((browser) => browser.timeoutProbe()),
+      );
+    }
+    if (kind === "browser-death") {
       for (const browser of this.#browsers) await browser.close();
       return { kind };
     }
@@ -976,27 +1007,52 @@ export class AttraccessEnvironment {
     await this.#mutate(["kill", "--signal", "KILL", owned.Id], "service-death");
     return { kind, containerId: owned.Id };
   }
-  stop() {
-    return (this.#stopped ??= this.#stop());
+  stop(): Promise<CleanupReceipt> {
+    if (!this.#stopped) {
+      const attempt = this.#stop();
+      this.#stopped = attempt;
+      void attempt.catch(() => {
+        if (this.#stopped === attempt) this.#stopped = undefined;
+      });
+    }
+    return this.#stopped;
   }
-  async #stop() {
-    this.ownership.expiresAt = Date.now() + LIMITS.teardownMs;
-    persistOwnership(this.ownership);
+  async #stop(): Promise<CleanupReceipt> {
+    const deadline = Date.now() + LIMITS.teardownMs;
     clearInterval(this.#heartbeat);
-    for (const b of this.#browsers)
-      try {
-        await b.close();
-      } catch {
-        /* Raw private partial trace retained. */
+    try {
+      if (!this.#closing) {
+        this.#closing = true;
+        this.commands.store.cancel(this.commands.lease.runId);
       }
-    this.#browsers.clear();
-    const receipt = cleanOwned(this.ownership);
-    writeFileSync(
-      join(this.commands.root, "stopped.json"),
-      JSON.stringify(receipt),
-      { mode: 0o600 },
-    );
-    this.commands.close();
-    return receipt;
+      this.ownership.expiresAt = deadline;
+      persistOwnership(this.ownership);
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          Promise.allSettled([...this.#browsers].map((b) => b.close())),
+          new Promise<void>((r) => {
+            timer = setTimeout(
+              r,
+              Math.min(5000, Math.max(0, deadline - Date.now())),
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+      this.#browsers.clear();
+      const receipt = await cleanOwned(this.ownership, deadline);
+      if (receipt.status !== "complete") throw new CleanupIncomplete(receipt);
+      writeFileSync(
+        join(this.commands.root, "stopped.json"),
+        JSON.stringify(receipt),
+        { mode: 0o600 },
+      );
+      return receipt;
+    } finally {
+      // Even failed teardown must stop renewal and release the active build marker.
+      this.commands.close();
+    }
   }
 }

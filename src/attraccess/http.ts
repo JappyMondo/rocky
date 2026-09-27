@@ -20,7 +20,7 @@ export function redact(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [
         k,
-        /password|secret|token|cookie|qr|authorization/i.test(k)
+        /password|secret|token|cookie|qr|authorization|otpauth/i.test(k)
           ? "[PRIVATE]"
           : redact(v),
       ]),

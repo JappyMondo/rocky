@@ -1,8 +1,9 @@
-import { EnvironmentCommands } from "../dist/attraccess/commands.js";
-import { TARGET } from "../dist/attraccess/policy.js";
+import { load } from "./attraccess-runtime.mjs";
+const { EnvironmentCommands } = await load("attraccess/commands.js");
+const { TARGET } = await load("attraccess/policy.js");
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { digest } from "../dist/store/json.js";
+const { digest } = await load("store/json.js");
 const previous = process.argv[2],
   old = JSON.parse(readFileSync(join(previous, "prepared-images.json"))),
   source = JSON.parse(readFileSync(join(previous, "source-inventory.json")));

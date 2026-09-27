@@ -17,6 +17,7 @@ export interface BrowserSession {
   page: Page;
   close: () => Promise<unknown>;
   screenshot: (name: string) => Promise<unknown>;
+  timeoutProbe: (timeoutMs?: number) => Promise<unknown>;
 }
 export async function openBrowser(
   root: string,
@@ -81,6 +82,30 @@ export async function openBrowser(
       browser,
       context,
       page,
+      timeoutProbe: async (timeoutMs = 250) => {
+        if (
+          !Number.isFinite(timeoutMs) ||
+          timeoutMs < 1 ||
+          timeoutMs > options.timeoutMs
+        )
+          throw new Error("invalid-browser-probe-timeout");
+        const startedAt = Date.now();
+        try {
+          await page.waitForFunction(() => false, undefined, {
+            timeout: timeoutMs,
+          });
+          throw new Error("browser-timeout-not-observed");
+        } catch (error) {
+          if (!(error instanceof Error) || error.name !== "TimeoutError")
+            throw error;
+          return {
+            kind: "browser-timeout",
+            errorName: error.name,
+            timeoutMs,
+            elapsedMs: Date.now() - startedAt,
+          };
+        }
+      },
       screenshot: async (name) => {
         if (!/^[a-z0-9-]+$/.test(name))
           throw new Error("invalid-screenshot-name");
@@ -90,7 +115,7 @@ export async function openBrowser(
           fullPage: true,
           mask: [
             page.locator(
-              'input[type=password],input[autocomplete=one-time-code],[data-cy=two-factor-setup-code-input],canvas,img[src^="data:"]',
+              'input[type=password],input[readonly],input[autocomplete=one-time-code],[data-cy=two-factor-setup-code-input],canvas,svg,img[src^="data:"]',
             ),
           ],
         });

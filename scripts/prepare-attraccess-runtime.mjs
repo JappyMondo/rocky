@@ -19,6 +19,8 @@ const load = (path) => import(pathToFileURL(join(runtime, path)).href);
 const { EnvironmentCommands } = await load("attraccess/commands.js");
 const { AttraccessEnvironment } = await load("attraccess/environment.js");
 const { TARGET } = await load("attraccess/policy.js");
+const { runtimeIntegrity } = await load("attraccess/integrity.js");
+const integrityBefore = runtimeIntegrity();
 const { digest, canonical } = await load("store/json.js");
 const imagePreparation = process.argv[2];
 if (!imagePreparation) throw new Error("image-preparation-directory-required");
@@ -42,6 +44,7 @@ const outcome = {
 };
 c.save("attempt", outcome);
 try {
+  c.save("runtime-integrity", integrityBefore);
   const browserRoot = join(TARGET.root, "browsers-1.60.0");
   process.env.PLAYWRIGHT_BROWSERS_PATH = browserRoot;
   await c.command("/usr/bin/env", [
@@ -108,7 +111,11 @@ try {
   if (canonical(await environment.stop()) !== canonical(stopped))
     throw new Error("non-idempotent-cleanup");
   environment = undefined;
+  const integrityAfter = runtimeIntegrity();
+  if (canonical(integrityAfter) !== canonical(integrityBefore))
+    throw new Error("preparation-runtime-drift");
   Object.assign(outcome, {
+    runtimeIntegrity: integrityAfter,
     status: "prepared-runtime",
     finishedAt: new Date().toISOString(),
     prepared,

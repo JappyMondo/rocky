@@ -12,6 +12,19 @@ import {
 import { join, resolve, relative, dirname } from "node:path";
 import { digest, canonical } from "../store/json.js";
 import { TARGET, GENERATED } from "./policy.js";
+export function gitMode(stat: import("node:fs").Stats): string {
+  return stat.isSymbolicLink()
+    ? "120000"
+    : stat.isFile()
+      ? stat.mode & 0o111
+        ? "100755"
+        : "100644"
+      : "unsupported";
+}
+// Self-contained code shared by both inside-container verifiers.
+export function inventoryProbe(inventoryPath: string, sourceRoot = "/app") {
+  return `const fs=require('fs'),p=require('path'),c=require('crypto');const files=JSON.parse(fs.readFileSync(${JSON.stringify(inventoryPath)}));const changed=[];for(const [name,e] of Object.entries(files)){try{const f=p.join(${JSON.stringify(sourceRoot)},name),s=fs.lstatSync(f),mode=s.isSymbolicLink()?'120000':s.isFile()?(s.mode&73?'100755':'100644'):'unsupported',b=s.isSymbolicLink()?Buffer.from(fs.readlinkSync(f)):fs.readFileSync(f);if(mode!==e.mode||c.createHash('sha256').update(b).digest('hex')!==e.sha256)changed.push(name);}catch{changed.push(name);}}console.log(JSON.stringify({files:Object.keys(files).length,changed}));if(changed.length)process.exit(2);`;
+}
 export type SourceInventory = Record<string, { mode: string; sha256: string }>;
 export function ownedPath(path: string) {
   const root = realpathSync(TARGET.root);
@@ -44,6 +57,8 @@ export function sourceInventory(source = TARGET.source): SourceInventory {
     if (type !== "blob" || !oid || !mode)
       throw new Error("unsupported-source-entry");
     const file = join(source, path);
+    if (gitMode(lstatSync(file)) !== mode)
+      throw new Error("source-mode-drift:" + path);
     const bytes =
       mode === "120000" ? Buffer.from(readlinkSync(file)) : readFileSync(file);
     if (
@@ -66,7 +81,8 @@ export function verifySnapshot(snapshot: string, inventory: SourceInventory) {
       const bytes = stat.isSymbolicLink()
         ? Buffer.from(readlinkSync(file))
         : readFileSync(file);
-      if (digest(bytes) !== entry.sha256) differences.push(path);
+      if (digest(bytes) !== entry.sha256 || gitMode(stat) !== entry.mode)
+        differences.push(path);
       if (!stat.isSymbolicLink() && stat.nlink !== 1)
         throw new Error("shared-source-hardlink");
       if (

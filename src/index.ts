@@ -8,3 +8,4 @@ export * from "./attraccess/admission.js";
 export * from "./attraccess/http.js";
 export * from "./attraccess/policy.js";
 export * from "./runner/browser.js";
+export * from "./attraccess/integrity.js";

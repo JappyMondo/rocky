@@ -1,11 +1,10 @@
-import { EnvironmentCommands } from "../dist/attraccess/commands.js";
-import { materialize, verifySnapshot } from "../dist/attraccess/source.js";
-import {
-  TARGET,
-  LIMITS,
-  COMMANDS,
-  checkPlan,
-} from "../dist/attraccess/policy.js";
+import { load } from "./attraccess-runtime.mjs";
+const { OwnedProbes } = await load("attraccess/probes.js");
+const { EnvironmentCommands } = await load("attraccess/commands.js");
+const { materialize, verifySnapshot } = await load("attraccess/source.js");
+const { TARGET, LIMITS, COMMANDS, checkPlan } = await load(
+  "attraccess/policy.js",
+);
 import {
   mkdirSync,
   writeFileSync,
@@ -14,12 +13,13 @@ import {
   statfsSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { digest } from "../dist/store/json.js";
+const { digest } = await load("store/json.js");
 import { execFileSync } from "node:child_process";
 const id = "prepare-" + new Date().toISOString().replaceAll(":", "-");
 const root = join(TARGET.root, id);
 mkdirSync(root, { recursive: true, mode: 0o700 });
 const c = new EnvironmentCommands(root, id);
+const probes = new OwnedProbes(c);
 const outcome = {
   id,
   scope: "preparation-only",
@@ -73,12 +73,7 @@ try {
   await c.dockerCommand(["pull", TARGET.mailpitImage]);
   const mail = await c.inspectImage(TARGET.mailpitImage);
   const identity = (
-    await c.dockerCommand([
-      "run",
-      "--rm",
-      "--network",
-      "none",
-      image,
+    await probes.run(built.Id, [
       "bash",
       "-c",
       `node --version && pnpm --version && sha256sum /usr/local/bin/node /usr/local/bin/pnpm && git rev-parse HEAD --show-toplevel && node -e 'console.log(typeof require(require("path").join(require("path").dirname(require.resolve("nx/package.json")),"dist/src/native")).WorkspaceContext)'`,
@@ -99,8 +94,6 @@ try {
     commands: COMMANDS,
     checkPlan: checkPlan(TARGET.commit, TARGET.commit),
   });
-  c.save("prepared-images", outcome);
-  console.log(JSON.stringify(outcome));
 } catch (error) {
   Object.assign(outcome, {
     status: "preparation-failed",
@@ -111,6 +104,21 @@ try {
   console.error(JSON.stringify(outcome));
   process.exitCode = 1;
 } finally {
-  c.save("attempt", outcome);
-  c.close();
+  try {
+    outcome.cleanup = await probes.close();
+  } catch (error) {
+    outcome.cleanupError = error.message;
+    outcome.status = "preparation-failed";
+    process.exitCode = 1;
+  } finally {
+    c.save("attempt", outcome);
+    if (
+      outcome.status === "prepared-images" &&
+      outcome.cleanup?.status === "complete"
+    ) {
+      c.save("prepared-images", outcome);
+      console.log(JSON.stringify({ root, ...outcome }));
+    }
+    c.close();
+  }
 }
