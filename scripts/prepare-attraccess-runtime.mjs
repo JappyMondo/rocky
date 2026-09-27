@@ -105,6 +105,8 @@ try {
   const fixtures = await environment.provisionAccounts(session);
   const sourceAfter = await environment.verifySource(session);
   const stopped = await environment.stop();
+  if (canonical(await environment.stop()) !== canonical(stopped))
+    throw new Error("non-idempotent-cleanup");
   environment = undefined;
   Object.assign(outcome, {
     status: "prepared-runtime",

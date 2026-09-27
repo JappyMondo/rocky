@@ -221,6 +221,7 @@ test("Environment lease survives nested idle work but never starts after cancel 
     );
   } finally {
     c.close();
+    c.close();
   }
   const other = new EnvironmentCommands(
     mkdtempSync(join(root, "takeover-")),
@@ -298,6 +299,7 @@ test("Fixture HTTP writes record intent before dispatch and redact durable recei
     assert.equal(received, 1);
   } finally {
     await new Promise((r) => server.close(r));
+    c.close();
     c.close();
   }
 });

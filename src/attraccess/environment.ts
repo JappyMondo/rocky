@@ -79,6 +79,7 @@ export class AttraccessEnvironment {
   #sequence = 0;
   #sessions = new Set<Session>();
   #observers = new Map<Session, ApiSession>();
+  #stopped?: Promise<ReturnType<typeof cleanOwned>>;
   constructor(
     readonly prepared: PreparedEnvironment,
     readonly attemptId: string,
@@ -949,7 +950,10 @@ export class AttraccessEnvironment {
     await this.#mutate(["kill", "--signal", "KILL", owned.Id], "service-death");
     return { kind, containerId: owned.Id };
   }
-  async stop() {
+  stop() {
+    return (this.#stopped ??= this.#stop());
+  }
+  async #stop() {
     this.ownership.expiresAt = Date.now() + LIMITS.teardownMs;
     persistOwnership(this.ownership);
     clearInterval(this.#heartbeat);

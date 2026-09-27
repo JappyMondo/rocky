@@ -18,6 +18,7 @@ export class EnvironmentCommands {
   readonly dockerHost: string;
   #heartbeat: NodeJS.Timeout;
   #activeMarker: string;
+  #closed = false;
   constructor(
     readonly root: string,
     readonly attempt: string,
@@ -190,6 +191,8 @@ export class EnvironmentCommands {
     return this.evidence.put(bytes);
   }
   close() {
+    if (this.#closed) return;
+    this.#closed = true;
     clearInterval(this.#heartbeat);
     this.store.close();
     try {
