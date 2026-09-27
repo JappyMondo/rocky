@@ -10,9 +10,12 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { matches, signalGroup, identify } from "../runner/process.js";
 import type { ProcessIdentity } from "../store/index.js";
+import { sealAndReadEffects, mutationHazards } from "./mutations.js";
+import { delay } from "../runner/process.js";
 import { LIMITS } from "./policy.js";
 export interface Ownership {
   owner: string;
+  runId?: string;
   docker: string;
   dockerHost: string;
   root: string;
@@ -59,6 +62,7 @@ export interface CleanupReceipt {
     browsers: number[];
   };
   errors: { operation: string; error: string }[];
+  pendingMutations: { key: string; reason: string }[];
 }
 export class CleanupIncomplete extends Error {
   constructor(readonly receipt: CleanupReceipt) {
@@ -83,6 +87,7 @@ export async function cleanOwned(
     removed: { containers: [], networks: [] },
     remaining: { containers: null, networks: null, browsers: [] },
     errors: [],
+    pendingMutations: [],
   };
   const fail = (operation: string, error: unknown) =>
     receipt.errors.push({
@@ -203,6 +208,26 @@ export async function cleanOwned(
         receipt.remaining.browsers.push(browser.pid);
       }
     }
+    // Cancel serializes with the actual dispatch seam in each independent keeper.
+    // An empty label snapshot is only absence now, never evidence against a late create.
+    if (Date.now() >= deadline) throw Error("cleanup-deadline-exceeded");
+    const effects = sealAndReadEffects(state.root, state.runId);
+    const initial = {
+      containers: await listing("containers"),
+      networks: await listing("networks"),
+    };
+    receipt.pendingMutations = await mutationHazards(
+      state.root,
+      state.owner,
+      effects,
+      async (kind, name) => JSON.parse(await run([kind, "inspect", name]))[0],
+    );
+    if (receipt.pendingMutations.length) {
+      receipt.remaining.containers = initial.containers;
+      receipt.remaining.networks = initial.networks;
+      fail("mutation-quiescence", new Error("pending-daemon-effects"));
+      return receipt;
+    }
     for (const kind of ["containers", "networks"] as const) {
       const known = await listing(kind);
       for (const id of known ?? []) {
@@ -268,5 +293,19 @@ export async function cleanOwned(
     }
     save();
   }
+  return receipt;
+}
+
+export async function settleOwned(
+  state: Ownership,
+  deadline = Date.now() + LIMITS.teardownMs,
+) {
+  let receipt: CleanupReceipt;
+  do {
+    receipt = await cleanOwned(state, deadline);
+    if (receipt.status === "complete" || !receipt.pendingMutations.length)
+      return receipt;
+    await delay(Math.max(0, Math.min(250, deadline - Date.now())));
+  } while (Date.now() < deadline);
   return receipt;
 }

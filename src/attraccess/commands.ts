@@ -1,5 +1,19 @@
-import { execFileSync, execFile } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  unlinkSync,
+  existsSync,
+} from "node:fs";
+import { fileURLToPath } from "node:url";
+import { delay } from "../runner/process.js";
+import {
+  prepareMutation,
+  creationFor,
+  durableJson,
+  type MutationResult,
+} from "./mutations.js";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Store, type Lease } from "../store/index.js";
@@ -125,41 +139,64 @@ export class EnvironmentCommands {
     );
   }
   async mutation(args: string[], key: string, timeoutMs = 30000) {
+    const effectKey = this.attempt + "/" + key;
+    const dir = prepareMutation({
+      key: effectKey,
+      root: this.root,
+      docker: this.docker,
+      dockerHost: this.dockerHost,
+      args,
+      lease: this.lease,
+      timeoutMs,
+      creation: creationFor(args),
+    });
     this.store.transition(this.lease, "environment-effect", {
-      key: this.attempt + "/" + key,
+      key: effectKey,
       kind: "owned-docker",
       payload: { args },
     });
-    const effect = await this.store.dispatch(
-      this.lease,
-      this.attempt + "/" + key,
-      {
-        begin: () =>
-          new Promise((resolve, reject) => {
-            execFile(
-              this.docker,
-              ["--host", this.dockerHost, ...args],
-              {
-                timeout: timeoutMs,
-                killSignal: "SIGKILL",
-                maxBuffer: 1024 * 1024,
-              },
-              (error, stdout, stderr) => {
-                if (error) {
-                  this.save("effect-error-" + key.replaceAll("/", "-"), {
-                    message: "docker-operation-unconfirmed",
-                    stdout,
-                    stderr,
-                  });
-                  reject(new Error("docker-operation-unconfirmed"));
-                } else resolve({ stdout, stderr });
-              },
-            );
+    const effect = await this.store.dispatch(this.lease, effectKey, {
+      begin: () => {
+        durableJson(join(dir, "launch.json"), { at: new Date().toISOString() });
+        const worker = spawn(
+          process.execPath,
+          [
+            fileURLToPath(new URL("./mutation-worker.js", import.meta.url)),
+            dir,
+          ],
+          {
+            detached: true,
+            stdio: "ignore",
+            env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+          },
+        );
+        worker.once("error", (error) =>
+          durableJson(join(dir, "result.json"), {
+            status: "not-dispatched",
+            at: new Date().toISOString(),
+            stdout: "",
+            stderr: error.message,
           }),
+        );
+        worker.unref();
+        return (async () => {
+          const deadline = Date.now() + timeoutMs + 5000;
+          while (!existsSync(join(dir, "result.json"))) {
+            if (Date.now() >= deadline)
+              throw Error("docker-transport-outcome-unresolved");
+            await delay(25);
+          }
+          const result = JSON.parse(
+            readFileSync(join(dir, "result.json"), "utf8"),
+          ) as MutationResult;
+          if (result.status !== "acknowledged")
+            throw Error("docker-operation-unconfirmed");
+          return { stdout: result.stdout, stderr: result.stderr };
+        })();
       },
-    );
+    });
     if (effect.state !== "confirmed")
-      throw new Error("docker-effect-reconciliation-required:" + effect.key);
+      throw Error("docker-effect-reconciliation-required:" + effect.key);
     return effect.receipt as { stdout: string; stderr: string };
   }
   async httpEffect<T>(

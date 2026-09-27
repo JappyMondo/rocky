@@ -54,25 +54,36 @@ export class Store {
   constructor(
     path: string,
     readonly clock: () => number = Date.now,
+    busyTimeoutMs = 5000,
   ) {
+    if (
+      !Number.isSafeInteger(busyTimeoutMs) ||
+      busyTimeoutMs < 1 ||
+      busyTimeoutMs > 5000
+    )
+      throw new Error("invalid-store-busy-timeout");
     this.path = resolve(path);
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-    this.#db = new DatabaseSync(this.path, { timeout: 5000 });
-    const schema = Number(
-      this.#db.prepare("PRAGMA user_version").get()?.user_version,
-    );
-    if (schema !== 0 && schema !== 1) {
-      this.#db.close();
-      throw new Error("incompatible-store-schema");
-    }
-    this.#db
-      .exec(`PRAGMA user_version=1; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
+    this.#db = new DatabaseSync(this.path, { timeout: busyTimeoutMs });
+    try {
+      const schema = Number(
+        this.#db.prepare("PRAGMA user_version").get()?.user_version,
+      );
+      if (schema !== 0 && schema !== 1) {
+        throw new Error("incompatible-store-schema");
+      }
+      this.#db
+        .exec(`PRAGMA user_version=1; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, data TEXT NOT NULL, owner TEXT, fence INTEGER NOT NULL DEFAULT 0, expires INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS effects(key TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;`);
+    } catch (error) {
+      this.#db.close();
+      throw error;
+    }
   }
   close() {
     this.#db.close();
@@ -105,7 +116,11 @@ export class Store {
     return this.#db
       .prepare("SELECT * FROM events WHERE run_id=? ORDER BY seq")
       .all(id)
-      .map((r) => ({ ...r, data: JSON.parse(String(r.data)) as Json }));
+      .map((r) => ({
+        ...r,
+        kind: String(r.kind),
+        data: JSON.parse(String(r.data)) as Json,
+      }));
   }
   admit(input: {
     id: string;

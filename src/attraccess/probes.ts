@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 import { EnvironmentCommands } from "./commands.js";
 import {
   persistOwnership,
-  cleanOwned,
+  settleOwned,
   CleanupIncomplete,
   type Ownership,
   type CleanupReceipt,
@@ -23,6 +23,7 @@ export class OwnedProbes {
       root: commands.root,
       docker: commands.docker,
       dockerHost: commands.dockerHost,
+      runId: commands.lease.runId,
       expiresAt: Date.now() + LIMITS.leaseMs,
       containers: [],
       networks: [],
@@ -129,7 +130,7 @@ export class OwnedProbes {
       }
       this.ownership.expiresAt = deadline;
       persistOwnership(this.ownership);
-      const receipt = await cleanOwned(this.ownership, deadline);
+      const receipt = await settleOwned(this.ownership, deadline);
       if (receipt.status !== "complete") throw new CleanupIncomplete(receipt);
       writeFileSync(
         join(this.commands.root, "stopped.json"),

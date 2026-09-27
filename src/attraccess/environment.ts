@@ -20,7 +20,7 @@ import {
 } from "./source.js";
 import {
   persistOwnership,
-  cleanOwned,
+  settleOwned,
   CleanupIncomplete,
   type CleanupReceipt,
   assertOwned,
@@ -121,6 +121,7 @@ export class AttraccessEnvironment {
       root,
       docker: this.commands.docker,
       dockerHost: this.commands.dockerHost,
+      runId: this.commands.lease.runId,
       expiresAt: Date.now() + LIMITS.leaseMs,
       containers: [],
       networks: [],
@@ -1042,7 +1043,7 @@ export class AttraccessEnvironment {
         clearTimeout(timer);
       }
       this.#browsers.clear();
-      const receipt = await cleanOwned(this.ownership, deadline);
+      const receipt = await settleOwned(this.ownership, deadline);
       if (receipt.status !== "complete") throw new CleanupIncomplete(receipt);
       writeFileSync(
         join(this.commands.root, "stopped.json"),
