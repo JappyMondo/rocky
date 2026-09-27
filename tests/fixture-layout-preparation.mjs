@@ -18,7 +18,7 @@ const { OwnedProbes } = await load("attraccess/probes.js");
 const { assertOwned, persistOwnership } = await load("attraccess/resources.js");
 const { openBrowser } = await load("runner/browser.js");
 const { matches } = await load("runner/process.js");
-const { runtimeIntegrity } = await load("attraccess/integrity.js");
+const { runtimeIntegrity, adapterIdentity } = await load("index.js");
 const { digest } = await load("store/json.js");
 const { TARGET, LIMITS } = await load("attraccess/policy.js");
 const imageRoot = process.argv[2];
@@ -62,6 +62,7 @@ const result = {
   runtime,
   sourceCommit: identity.sourceCommit,
   integrity: runtimeIntegrity(),
+  adapterSha256: adapterIdentity(),
   prepared,
   startedAt: new Date().toISOString(),
   status: "running",
@@ -351,7 +352,7 @@ async function control(locator) {
       r.x + r.width / 2,
       r.y + r.height / 2,
     );
-    const span = el.querySelector("span"),
+    const span = el.tagName === "BUTTON" ? el.querySelector("span") : null,
       label = span?.getBoundingClientRect();
     return {
       rect: {
@@ -537,6 +538,7 @@ try {
         const p = browser.page;
         await p.goto(s.frontendUrl + "/first-time-setup");
         const transport = [];
+        let licensePersistence;
         if (index === 3) {
           const app = p.getByRole("group", {
             name: "Anwendungseinstellungen",
@@ -608,6 +610,24 @@ try {
         await browser.screenshot("license-confirmation-before-scroll");
         const confirmationGeometry = await control(confirm),
           cancelGeometry = await control(cancel);
+        const footer = p.locator('[data-slot="modal-footer"]');
+        const footerGeometry = await control(footer),
+          dialogGeometry = await control(p.getByRole("dialog"));
+        const footerWrap = await footer.evaluate(
+          (el) => getComputedStyle(el).flexWrap,
+        );
+        assert.equal(footerWrap, "wrap");
+        if (locale === "de" && viewport.width === 390) {
+          assert.ok(
+            cancelGeometry.rect.bottom <= confirmationGeometry.rect.y + 1,
+            "German mobile footer must retain two contained rows",
+          );
+          assert.ok(
+            footerGeometry.rect.height >=
+              cancelGeometry.rect.height + confirmationGeometry.rect.height,
+            "wrapped-footer-height",
+          );
+        }
         await browser.screenshot("license-confirmation");
         await cancel.focus();
         await p.keyboard.press("Tab");
@@ -640,6 +660,16 @@ try {
           assert.equal(status.body.stepsCompleted.app, true);
           assert.equal(status.body.stepsCompleted.smtp, true);
           assert.equal(status.body.stepsCompleted.admin, false);
+          await p.reload();
+          await p
+            .getByRole("group", { name: "Admin-Benutzer anlegen", exact: true })
+            .getByLabel("Benutzername", { exact: true })
+            .waitFor();
+          await browser.screenshot("wizard-license-persisted");
+          licensePersistence = {
+            status: status.body,
+            adminStepAfterReload: true,
+          };
         }
         return {
           locale,
@@ -647,6 +677,10 @@ try {
           buttonGeometry,
           confirmationGeometry,
           cancelGeometry,
+          footerGeometry,
+          dialogGeometry,
+          footerWrap,
+          licensePersistence,
           keyboard: {
             enterOpens: true,
             enterCancelsWithoutValue: true,

@@ -8,7 +8,7 @@ const { OwnedProbes } = await load("attraccess/probes.js");
 const { materialize, inventoryProbe } = await load("attraccess/source.js");
 const { TARGET, LIMITS } = await load("attraccess/policy.js");
 const { digest, canonical } = await load("store/json.js");
-const { runtimeIntegrity } = await load("attraccess/integrity.js");
+const { runtimeIntegrity, adapterIdentity } = await load("index.js");
 const priorPath = process.argv[2];
 if (!priorPath) throw Error("accepted-prior-proposed-inputs-required");
 const prior = JSON.parse(readFileSync(priorPath));
@@ -28,6 +28,7 @@ const outcome = {
   scope: "unscored-fixture-image-preparation",
   runtime,
   runtimeIntegrity: runtimeIntegrity(),
+  adapterSha256: adapterIdentity(),
   status: "running",
   startedAt: new Date().toISOString(),
   priorPath,

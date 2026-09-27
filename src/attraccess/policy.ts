@@ -1,28 +1,52 @@
 export const TARGET = {
-  commit: "e5b6170088e07ef29fd35c552ea67d18d52ccf27",
-  tree: "c2e8704c720590bf90553145722f7e6038de4f70",
+  commit: "72117986185e6fea85cb7f66cbd2831e48cb99db",
+  tree: "08b779a29a3ca4c61ca6670956a53298f8a58963",
   source:
     "/Users/jappy/.t3/worktrees/rocky/rocky-next/.qualification/attraccess/fixture-layout-baseline",
   root: "/Users/jappy/.t3/worktrees/rocky/rocky-next/.qualification/attraccess",
-  contract: "43a58eae6306ce23b5c9eff9d86a59798ef5846e380d3f40cd8c50140fccde51",
+  contract: "e201489b67d9b2c94f48f4dcfcea611e4b66aba29faf9c603c0a29928da8e972",
   provenance: {
-    authorityTicket: 40,
-    authorityComment: 293,
     originalSource: "/Users/jappy/.t3/worktrees/Attraccess/t3code-47ed3e60",
     originalCommit: "afa58e8a5eadfb340f317e6ec3227af0cf9b6c54",
     originalTree: "b1dd957b63d9afab16d3c1b395d7fc28ffb066fb",
     originalInventorySha256:
       "12e8f5e46b91eaf4949d097b51b1582302a12796287fbd7316e933fd7cb699c5",
     fixtureInventorySha256:
-      "f776edd233f8688776e6db4998491d167021d8e3436f2b3eb03efac6c8cd602f",
+      "2d141ba9af869253fbf2099a16934dbbd8029c83244f7205da6276d275d7bb6d",
     changedFile:
       "apps/frontend/src/components/CommunityLicenseButton/index.tsx",
     preimageSha256:
       "fe01a93dfa57f0ba91f1019cbf1cf9bce7ae15b22bc1ca57298d150ee2b1694a",
     postimageSha256:
-      "f64704b6df6ef06c01427fb9451e3aaf46c5929e3ab00e0717fcca02b7b7864a",
-    patchSha256:
-      "857a72b12ddde5e9556beb301ee160b59720f572b9c7ce1f542e22844f062ed5",
+      "7e87f7164157d610ae948db60b907f0bb159694f7ae72c901925408b2c137653",
+    approvedCommits: [
+      {
+        commit: "e5b6170088e07ef29fd35c552ea67d18d52ccf27",
+        tree: "c2e8704c720590bf90553145722f7e6038de4f70",
+        parent: "afa58e8a5eadfb340f317e6ec3227af0cf9b6c54",
+        authorityTicket: 40,
+        authorityComment: 293,
+        preimageSha256:
+          "fe01a93dfa57f0ba91f1019cbf1cf9bce7ae15b22bc1ca57298d150ee2b1694a",
+        postimageSha256:
+          "f64704b6df6ef06c01427fb9451e3aaf46c5929e3ab00e0717fcca02b7b7864a",
+        patchSha256:
+          "857a72b12ddde5e9556beb301ee160b59720f572b9c7ce1f542e22844f062ed5",
+      },
+      {
+        commit: "72117986185e6fea85cb7f66cbd2831e48cb99db",
+        tree: "08b779a29a3ca4c61ca6670956a53298f8a58963",
+        parent: "e5b6170088e07ef29fd35c552ea67d18d52ccf27",
+        authorityTicket: 46,
+        authorityComment: 343,
+        preimageSha256:
+          "f64704b6df6ef06c01427fb9451e3aaf46c5929e3ab00e0717fcca02b7b7864a",
+        postimageSha256:
+          "7e87f7164157d610ae948db60b907f0bb159694f7ae72c901925408b2c137653",
+        patchSha256:
+          "544b6ded328168e9f8df0b060dc69a7e8ef8b1d580c0367ba0211fe841dbcd56",
+      },
+    ],
   },
   node: "24.19.0",
   pnpm: "10.34.5",

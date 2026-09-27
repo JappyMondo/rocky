@@ -5,7 +5,7 @@ import {
   sourceInventory,
   verifyFixtureInventories,
 } from "../dist/attraccess/source.js";
-test("approved fixture has one pinned difference and rejects in-memory source or mode drift", () => {
+test("two-commit approved fixture has one pinned file difference and rejects in-memory source or mode drift", () => {
   const fixture = sourceInventory();
   const original = structuredClone(fixture);
   original[TARGET.provenance.changedFile].sha256 =
@@ -33,6 +33,13 @@ test("approved fixture has one pinned difference and rejects in-memory source or
       /provenance-inventory-drift/,
     );
   }
+  const staleFirstFixture = structuredClone(fixture);
+  staleFirstFixture[TARGET.provenance.changedFile].sha256 =
+    TARGET.provenance.approvedCommits[0].postimageSha256;
+  assert.throws(
+    () => verifyFixtureInventories(original, staleFirstFixture),
+    /provenance-inventory-drift/,
+  );
   const changedOriginal = structuredClone(original);
   changedOriginal["package.json"].mode = "100755";
   assert.throws(

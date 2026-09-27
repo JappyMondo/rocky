@@ -108,12 +108,44 @@ export function sourceInventory(source = TARGET.source): SourceInventory {
       throw new Error("fixture-provenance-checkout-drift");
   }
   if (
-    git(source, "rev-list", "--parents", "-n", "1", "HEAD") !==
-      TARGET.commit + " " + p.originalCommit ||
     git(source, "remote") ||
     existsSync(join(source, ".git/objects/info/alternates"))
   )
     throw new Error("fixture-provenance-git-drift");
+  let parent = p.originalCommit;
+  for (const approved of p.approvedCommits) {
+    if (
+      approved.parent !== parent ||
+      git(source, "rev-list", "--parents", "-n", "1", approved.commit) !==
+        approved.commit + " " + parent ||
+      git(source, "rev-parse", approved.commit + "^{tree}") !== approved.tree ||
+      git(
+        source,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        parent,
+        approved.commit,
+      ) !== p.changedFile
+    )
+      throw new Error("fixture-provenance-history-drift");
+    for (const [revision, expected] of [
+      [parent, approved.preimageSha256],
+      [approved.commit, approved.postimageSha256],
+    ]) {
+      const bytes = execFileSync("git", [
+        "-C",
+        source,
+        "show",
+        revision + ":" + p.changedFile,
+      ]);
+      if (digest(bytes) !== expected)
+        throw new Error("fixture-provenance-approved-source-drift");
+    }
+    parent = approved.commit;
+  }
+  if (parent !== TARGET.commit)
+    throw new Error("fixture-provenance-history-drift");
   const original = inventoryAt(p.originalSource, p.originalCommit);
   const fixture = inventoryAt(source, TARGET.commit);
   verifyFixtureInventories(original, fixture);
