@@ -1954,6 +1954,12 @@ describe.each(['legacy', 'flow'])('%s default workflow', (mode) => {
               'No local validation commands configured',
             ),
           },
+          runEvidence: {
+            summaries: ['Fixture summary.'],
+            screenshotsDirectory: expect.stringContaining('/screenshots'),
+            workspaceEvidenceDirectory:
+              expect.stringContaining('/.rocky-evidence'),
+          },
         });
       }
       const before = f.trace.length;

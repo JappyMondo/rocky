@@ -809,6 +809,13 @@ export function createDeliveryOperations(
         namespace,
         disagreements,
         validation: { summary: validationSummary, ...validationResponsibility },
+        runEvidence: {
+          summaries: [...changes],
+          workspaceEvidenceDirectory: evidenceDirectory,
+          screenshotsDirectory: join(runDir, 'screenshots'),
+          instruction:
+            "These summaries and directories belong to this Run. Inspect the actual files before reporting current-run evidence missing or accepting a claimed browser result. Earlier runs' artifacts do not establish current coverage; an agent summary alone is not proof that a check passed.",
+        },
         ...(rules === undefined ? {} : { rules }),
       },
       schema: ReviewFor(
