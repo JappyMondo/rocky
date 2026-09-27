@@ -1,0 +1,418 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "status": "pending_independent_review",
+  "execution_status": "not_executed",
+  "ticket": 22,
+  "review_ticket": 23,
+  "implementation_ticket": 7,
+  "concept_sections": [6, 13],
+  "requirements": ["R05", "R06", "R08", "R09", "R10", "R11", "R12", "R16", "R17", "R19", "R22", "R23", "R24", "R28", "R31", "R33"],
+  "authority": {
+    "environment_ticket": 21,
+    "allowed_root": "/Users/jappy/.t3/worktrees/rocky/rocky-next/.qualification/attraccess",
+    "source_development_root": "/Users/jappy/.t3/worktrees/rocky/rocky-next",
+    "branch": "rocky-next",
+    "forbidden": ["Attraccess source edits or commits", "target/remote PR or merge/tracker effects", "shared services or old daemon changes"],
+    "later_coding_authority_ticket": 4
+  },
+  "inputs": {
+    "target_repository": "Attraccess/Attraccess",
+    "target_commit": "afa58e8a5eadfb340f317e6ec3227af0cf9b6c54",
+    "target_tree": "b1dd957b63d9afab16d3c1b395d7fc28ffb066fb",
+    "source_read_root": "/Users/jappy/.t3/worktrees/Attraccess/t3code-47ed3e60",
+    "protected_requirements_sha256": "c841384bc5f1402693e61fe833326106ca4fb3d3dd49429a57ef0b40f288de52",
+    "benchmark": "UNFROZEN under ticket 6; no coding issue is a prerequisite to these environment cycles"
+  },
+  "admission_binding": {
+    "status": "required_before_qualification",
+    "artifact": "Immutable environment-admission.json in run evidence, separate from this contract",
+    "required_fields": ["contract SHA256SUMS plus approved contract commit", "target commit/tree and complete source-file digest inventory", "Node/pnpm exact versions plus executable and lockfile digests", "source-preserving dev-image digest and recipe hash; private Mailpit image digest", "browser engine/version/executable digest and driver package/lock identity", "Shelly ZIP sha256 plus extracted file inventory and build receipt", "Rocky source/build/installed artifact, adapter and runner identities", "executable scenario/fixture/check-plan hashes and exact commands/selectors/DTOs", "network/egress/loopback publication policy and resource ownership scheme", "numeric setup/serve/browser/teardown deadlines, disk/process/browser limits", "independent reviewer identity and approval binding this artifact hash"],
+    "rules": ["All required values concrete/nonempty; missing, placeholder or null identity rejects admission. Do not invent pre-build digests.", "Preparation may build/bootstrap under ticket 21, but qualification attempts start only after binding independently approved by an Astra/high reviewer other than implementer/author.", "Approval must cover exact immutable binding hash and this contract hash. A changed artifact, fixture, command, script or limit requires new binding approval before a new qualification series.", "Binding fills implementation details; cannot delete assertions, increase retry cap, redefine failures or expand authority. Preparatory failures remain in ledger."]
+  },
+  "policy": {
+    "required_clean_cycles": 10,
+    "max_environment_retries_per_cycle": 1,
+    "concurrency": 1,
+    "viewports": {
+      "desktop": {
+        "width": 1440,
+        "height": 900
+      },
+      "mobile": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    "qualification_rule": "All E01-E10 complete every required assertion, plus X01-X11 pass their expected classification/containment checks. Retain all failed attempts and retries; a recovered cycle reports its earlier failure and is not a first-attempt clean pass. Report ten full clean completions separately from first-attempt rate. No replacement IDs/denominator hiding or operator repair.",
+    "faults_separate_from_clean_cycles": true,
+    "result_classes": ["passed", "setup_failed", "fixture_failed", "environment_failed", "product_failed", "isolation_failed", "cancelled", "evidence_missing", "unknown"],
+    "unknown_rule": "Do not infer product success or blame from an unclassified failure; preserve and stop/escalate."
+  },
+  "recipe": ["Prepare independently copied exact snapshot under allowed_root; no target worktree registration/shared writable files. Enumerate expected generated outputs before execution and reject source changes.", "Use source-preserving dev container based on Dockerfile development dependency section, not full firmware-dependent production build. Pin image after build in admission. Publish only explicit 127.0.0.1 ports; private owned Mailpit. Do not run pnpm services/shared Compose. API binds 0.0.0.0 in source; container boundary is mandatory.", "Per cycle create fresh storage below snapshot storage/cycle-ID and precreate owned .env before bootstrap (script otherwise copies .env.example). Pin Node24.19.0/pnpm10.34.5, INSTALL_ESP_IDF=false; no invented SKIP_COMPOSE/HOST flag. STORAGE_ROOT absolute inside container, PORT/VITE_PORT/VITE_PREVIEW_PORT chosen owned internal ports; record host mapping.", "Run ./scripts/setup-dev-dependencies.sh and retain pnpm install + pnpm nx run api:migrations-run receipts; run pnpm nx run react-query-client:generate as required for frontend. No target source/client commits. Ensure generated writes enumerated and source originals unchanged.", "Provision fresh fixtures as below. node scripts/seed-dev-user.mjs --db <cycle-storage>/attraccess.sqlite uses explicit --db; STORAGE_ROOT alone is ignored. Never use --allow-external-db; seed password output private. Roles only add and custom seed username still gets administrator.", "Run pnpm serve within owned process/container lifecycle; read .dev-serve-ports.json and check actual endpoints, then execute full cycle. Keep Mailpit SMTP private, its API only owned/private or loopback. Actual Mailpit API/version/message matching frozen in admission; verify exact recipient/token, never consume unrelated mail.", "Every cycle performs setup/migrate/provision/start/login/account-save/reload/authoritative-read/new-login/teardown. Fault attempts are additional and use only owned resources. Preserve every outcome and cleanup receipt."],
+  "fixtures": {
+    "admin_resources": {
+      "provision": "Explicit seed --db creates fresh admin and fixture resource/group JSON. Read back exact IDs/group linkage; include unique cycle sentinel.",
+      "sources": ["seed"]
+    },
+    "member": {
+      "provision": "Seed separate admin. Register via POST /api/users {username,email,password,strategy:local_password}; verify private Mailpit token via POST /api/users/verify-email {email,token}. Admin POST /api/rbac/roles {name,permissionKeys:[resources.update]}, assign returned roleId via POST /api/users/:id/roles. Read exact effectivePermissions; remove unintended grants using separate admin if required before admission. For each ENV08 cycle also provision its fresh denied counterpart and admin observer so both positive and negative probes run.",
+      "sources": ["registration", "registration_service", "rbac", "role_dto", "roles", "profile"]
+    },
+    "denied": {
+      "provision": "Same registration/verification, with no resources.update or administrator grant; admin provisions matching resource/group. Exact permission set frozen/read back before denial probe. For E07 also provision the fresh member counterpart and admin observer for both ENV08 probes.",
+      "sources": ["registration", "roles", "resources"]
+    },
+    "fresh_2fa": {
+      "provision": "Fresh verified account, GET /api/auth/two-factor proves disabled. Use UI setup and two-factor-setup-code-input; new local TOTP secret/code stays private. Do not reuse enrolled fixture.",
+      "sources": ["2fa", "2fa_ui"]
+    },
+    "fresh_install": {
+      "provision": "No seed; omit app URL/license/SMTP migration preseeds; initial setup status all incomplete. Wizard #step-1 through #step-5 configures owned URL/private SMTP/license/admin/email verification. Use built-in community test key from license_ui source, not an invented purchased license; assert GET /api/license-data after login.",
+      "sources": ["settings_seed", "settings", "wizard", "license_ui", "license", "license_api"]
+    },
+    "shelly": {
+      "provision": "Fresh admin/resources plus pnpm nx run plugin-shelly:zip; apps/plugins/shelly/dist/plugin-shelly.zip, manifest shelly@0.1.0, npm @attraccess/plugin-shelly@0.1.0-alpha.0. POST /api/plugins multipart pluginZip application/zip then owned restart. Build pack-test before final zip if used: pack deletes dist. Empty device registry, never discover/add/probe/firmware.",
+      "sources": ["plugin_build", "plugin_manifest", "plugin_package", "plugin_api", "shelly_api"]
+    }
+  },
+  "selectors_and_endpoints": {
+    "login": ["[data-cy=login-form]", "[data-cy=login-form-username-input]", "[data-cy=login-form-password-input]", "[data-cy=login-form-sign-in-button]", "[data-cy=login-form-two-factor-input]", "[data-cy=login-form-error-alert]"],
+    "account": {
+      "path": "/account",
+      "username_label": {
+        "en": "Username",
+        "de": "Benutzername"
+      },
+      "save_button": {
+        "en": "Save",
+        "de": "Speichern"
+      },
+      "scope": "UsernameForm label/control container; avoid other account Save buttons",
+      "write": "PATCH /api/users/me/username",
+      "read": "GET /api/users/me"
+    },
+    "permission_probe": {
+      "write": "PATCH /api/resources/:fixtureId",
+      "body": "{name: unique cycle value}",
+      "read": "GET /api/resources/:fixtureId",
+      "member_status": 200,
+      "denied_status": 403
+    },
+    "plugin": {
+      "status": "GET /api/plugins/status",
+      "manifests": "GET /api/plugins",
+      "devices": "GET /api/shelly/devices",
+      "firmware": "GET /api/shelly/devices/firmware",
+      "route": "/shelly",
+      "heading": "Shelly Devices",
+      "empty_control": "[data-cy=shelly-add-open-empty]",
+      "disabled_warning": "[data-cy=plugins-disabled-warning]",
+      "reenable": "UNSET DISABLE_PLUGINS; string false is truthy under z.coerce.boolean"
+    }
+  },
+  "cycles": [
+    {
+      "id": "E01",
+      "fixture": "admin_resources",
+      "locale": "en",
+      "viewport": "desktop",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14"]
+    },
+    {
+      "id": "E02",
+      "fixture": "admin_resources",
+      "locale": "de",
+      "viewport": "desktop",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14"]
+    },
+    {
+      "id": "E03",
+      "fixture": "admin_resources",
+      "locale": "en",
+      "viewport": "mobile",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14"]
+    },
+    {
+      "id": "E04",
+      "fixture": "admin_resources",
+      "locale": "de",
+      "viewport": "mobile",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14"]
+    },
+    {
+      "id": "E05",
+      "fixture": "member",
+      "locale": "en",
+      "viewport": "desktop",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14", "ENV08"]
+    },
+    {
+      "id": "E06",
+      "fixture": "member",
+      "locale": "de",
+      "viewport": "mobile",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14", "ENV08"]
+    },
+    {
+      "id": "E07",
+      "fixture": "denied",
+      "locale": "de",
+      "viewport": "desktop",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14", "ENV08"]
+    },
+    {
+      "id": "E08",
+      "fixture": "fresh_2fa",
+      "locale": "en",
+      "viewport": "mobile",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14", "ENV09"]
+    },
+    {
+      "id": "E09",
+      "fixture": "fresh_install",
+      "locale": "de",
+      "viewport": "mobile",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14", "ENV10"]
+    },
+    {
+      "id": "E10",
+      "fixture": "shelly",
+      "locale": "en",
+      "viewport": "desktop",
+      "assertions": ["ENV01", "ENV02", "ENV03", "ENV04", "ENV05", "ENV06", "ENV07", "ENV12", "ENV13", "ENV14", "ENV11"]
+    }
+  ],
+  "assertions": [
+    {
+      "id": "ENV01",
+      "requirements": ["R05", "R06"],
+      "expect": "Materialize exact target commit as independent bytes: no shared writable links, git worktree registration or source edits. Before/after source-file digest inventory matches baseline; original target unchanged. Explicitly enumerate generated/dependency/runtime paths separately.",
+      "evidence": "Snapshot/tree/source inventories and original-target before/after status; unauthorized tracked/generated overlap rejects admission.",
+      "sources": ["instructions", "lock", "package"]
+    },
+    {
+      "id": "ENV02",
+      "requirements": ["R06", "R08"],
+      "expect": "Actual Node 24.19.0 and pnpm 10.34.5; bootstrap, dependency integrity, migration and client generation complete successfully using approved commands/digests. No ignored failure or cache-only success substituted for receipts.",
+      "evidence": "Executable versions/digests, image identity, exit codes and bounded full logs; initial build/preparation receipts retained.",
+      "sources": ["node", "package", "bootstrap"]
+    },
+    {
+      "id": "ENV03",
+      "requirements": ["R09", "R10"],
+      "expect": "Every cycle has fresh DB/storage, users, browser context and fixture IDs. Explicit seed --db points inside that cycle storage; prior sentinel/account/session absent. Seed always creates administrator and is not a member/denied-user provisioner.",
+      "evidence": "Canonical storage/SQLite identities, negative prior-sentinel probe, users/me effectivePermissions and fixture readbacks; seed output private/redacted.",
+      "sources": ["seed", "database", "roles", "profile"]
+    },
+    {
+      "id": "ENV04",
+      "requirements": ["R09", "R19"],
+      "expect": "Read .dev-serve-ports.json, match its actual ports to owned listeners and container mappings, then verify API/frontend responses and real browser login. File/process existence alone never readiness. Recheck after restart/death.",
+      "evidence": "Ports file hash, process/container identity, HTTP and browser probes with timestamp and instance identity.",
+      "sources": ["serve", "auth", "login"]
+    },
+    {
+      "id": "ENV05",
+      "requirements": ["R05", "R09", "R28"],
+      "expect": "Dev app and private Mailpit run only as owned containers/private network with explicit 127.0.0.1 host publications. No host network, Docker socket mount, shared Compose/services, host-global toolchain writes or LAN device contact. Bootstrap egress dependencies are predeclared; runtime network rules prevent external mail/device access.",
+      "evidence": "Container/network/port/mount configuration and actual listener inspection; resource IDs/labels and unrelated sentinel before/after.",
+      "sources": ["image", "api_bind", "vite", "bootstrap"]
+    },
+    {
+      "id": "ENV06",
+      "requirements": ["R10", "R11", "R12"],
+      "expect": "Use actual login form and session cookie; authenticated GET /api/users/me matches fixture user and exact effective permission set. Intentional invalid-login rejection is a product assertion, whereas accidental bad fixture password is fixture_failed.",
+      "evidence": "Browser trace, redacted request status and user/permission readback; secrets/session material remain private.",
+      "sources": ["login", "auth", "profile"]
+    },
+    {
+      "id": "ENV07",
+      "requirements": ["R11"],
+      "expect": "On /account change username once via localized label/button. Observe successful PATCH /api/users/me/username; reload and GET /api/users/me retain exact new value; a new browser context can log in with new username. Toast alone cannot pass.",
+      "evidence": "Before/after screenshot, PATCH/GET statuses and values, reload/new-session trace, unique fixture name.",
+      "sources": ["username", "username_en", "username_de", "profile"]
+    },
+    {
+      "id": "ENV08",
+      "requirements": ["R10", "R11", "R12"],
+      "expect": "Member with resources.update successfully PATCHes its fixture resource name and GET observes it. Denied authenticated user lacks that permission, same PATCH returns 403 and admin readback proves unchanged. Both see their own account; fresh fixtures prevent inherited admin grants.",
+      "evidence": "Exact permissions, resource/group fixture membership, positive update/readback and denied request/unchanged readback.",
+      "sources": ["resources", "rbac", "role_dto", "roles", "seed"]
+    },
+    {
+      "id": "ENV09",
+      "requirements": ["R10", "R11"],
+      "expect": "E08 starts with 2FA disabled; UI enrolls using new private setup secret and valid time-bound code, status becomes enabled; fresh login requires and succeeds with TOTP. Previously enrolled account cannot satisfy fresh enrollment.",
+      "evidence": "GET /api/auth/two-factor before/after, setup/verify and new login receipts; private secret/QR and redacted trace.",
+      "sources": ["2fa", "2fa_ui", "login"]
+    },
+    {
+      "id": "ENV10",
+      "requirements": ["R10", "R11"],
+      "expect": "E09 begins with empty DB, no seeded user/app URL/license/SMTP, all wizard steps incomplete. Configure URL, private Mailpit, repository community test license, create admin and verify received email. Reload confirms complete setup; authenticated license-data valid:true/isNonProfit:true.",
+      "evidence": "Initial/final GET /api/settings/first-time-setup, wizard screenshots, private Mailpit message/verification receipt and license-data response.",
+      "sources": ["settings", "settings_api", "settings_seed", "wizard", "license_ui", "license_step", "license", "license_api", "registration"]
+    },
+    {
+      "id": "ENV11",
+      "requirements": ["R10", "R11"],
+      "expect": "E10 installs digest-bound Shelly ZIP, restarts and observes loaded backend/frontend with empty devices/firmware arrays. Restart with DISABLE_PLUGINS=true: new instanceId, disabled:true, backend device route absent (404), plugins-disabled-warning visible. Unset variable to reenable and prove backend returns again. Installed files remain identical. Frontend/sidebar disappearance is not promised by this source; record observed behavior.",
+      "evidence": "ZIP/member digest inventory, upload, each instanceId/status, manifest loaded/no error, API arrays/404 and /shelly screenshot/trace; no discover/add/probe/firmware/device calls.",
+      "sources": ["plugin_build", "plugin_manifest", "plugin_package", "plugin_api", "plugin_service", "plugin_module", "plugin_provider", "plugin_settings", "shelly_backend", "shelly_api", "shelly_frontend", "shelly_page"]
+    },
+    {
+      "id": "ENV12",
+      "requirements": ["R11"],
+      "expect": "Use declared locale and viewport; key controls visible, enabled when appropriate and operable; no clipped primary controls or horizontal document overflow beyond 1 CSS pixel. Verify localized account labels and retain every principal state screenshot.",
+      "evidence": "Actual locale/viewport dimensions, document scrollWidth/clientWidth, control bounding boxes, screenshots and script/console errors.",
+      "sources": ["login", "username_en", "username_de", "wizard", "shelly_page"]
+    },
+    {
+      "id": "ENV13",
+      "requirements": ["R09", "R22", "R23", "R31"],
+      "expect": "Stop/teardown only receipt-owned resources, verify no surviving owned descendants/listeners/containers/network/browser contexts; preserve evidence and unpublished data. Unrelated sentinel remains live/unchanged. Cancel/error follows same ownership rule.",
+      "evidence": "Before/after ownership inventory, process identity/start time/container IDs, port probes, retained artifact inventory, disk/process/browser measurements.",
+      "sources": ["serve"]
+    },
+    {
+      "id": "ENV14",
+      "requirements": ["R16", "R17", "R19", "R24", "R33"],
+      "expect": "Independent evaluator verifies each required assertion from raw receipts and content hashes, never trusts adapter passed:true. Bind manifest/admission approval, target tree, Rocky installed build, adapter/runner/scenario/fixture versions, role/locale/viewport/attempt to artifacts. Missing/tampered/stale evidence cannot pass.",
+      "evidence": "Per-assertion pass/fail/blocked/stale with artifact links+hashes; full attempt ledger and independent evaluation digest.",
+      "sources": ["instructions"]
+    }
+  ],
+  "adversarial": [
+    {
+      "id": "X01",
+      "inject": "Wrong password supplied for expected-valid fixture",
+      "expected_class": "fixture_failed",
+      "required_observation": "ENV06; no browser/product pass; intentional invalid-login assertion separately proves rejection."
+    },
+    {
+      "id": "X02",
+      "inject": "Enroll E08 account before fresh-fixture admission",
+      "expected_class": "fixture_failed",
+      "required_observation": "ENV09 precondition rejects; no reset in place to conceal consumed state."
+    },
+    {
+      "id": "X03",
+      "inject": "Present initialized DB as fresh install",
+      "expected_class": "fixture_failed",
+      "required_observation": "ENV10 precondition rejects even if wizard route can be loaded."
+    },
+    {
+      "id": "X04",
+      "inject": "Force owned browser timeout",
+      "expected_class": "environment_failed",
+      "required_observation": "Retain partial trace/screenshots/log; bounded fresh-context recovery, never fake pass."
+    },
+    {
+      "id": "X05",
+      "inject": "Kill owned API/service after readiness",
+      "expected_class": "environment_failed",
+      "required_observation": "Readiness becomes false; prior historical evidence retained; fresh readiness/login required after restart."
+    },
+    {
+      "id": "X06",
+      "inject": "Evaluator receives successful save/toast but reload/GET value differs",
+      "expected_class": "product_failed",
+      "required_observation": "ENV07 rejects; synthetic corrupted receipt probe is labeled synthetic and cannot prove live product behavior."
+    },
+    {
+      "id": "X07",
+      "inject": "Offer occupied foreign port or foreign process identity",
+      "expected_class": "isolation_failed",
+      "required_observation": "Refuse before takeover; foreign sentinel remains unchanged; never kill by port alone."
+    },
+    {
+      "id": "X08",
+      "inject": "Insert prior-cycle sentinel/session into next fixture",
+      "expected_class": "isolation_failed",
+      "required_observation": "ENV03 rejects; no silent cleanup then success for that attempt."
+    },
+    {
+      "id": "X09",
+      "inject": "Constrain only owned disposable storage to simulate disk exhaustion",
+      "expected_class": "environment_failed",
+      "required_observation": "Stop safely, preserve logs/evidence/unpublished data; no host filesystem fill."
+    },
+    {
+      "id": "X10",
+      "inject": "Cancel during owned execution",
+      "expected_class": "cancelled",
+      "required_observation": "No new steps/effects; terminate owned descendants, retain evidence, leave foreign sentinel."
+    },
+    {
+      "id": "X11",
+      "inject": "Present wrong target/manifest/admission/artifact digest",
+      "expected_class": "evidence_missing",
+      "required_observation": "Reject admission or stale evidence before success; no source mutation required."
+    }
+  ],
+  "adapter_binding": {
+    "operations": {
+      "prepare": "Approved identities + owned roots -> bootstrap/source/resource receipts",
+      "provision": "Cycle fixture -> exact entity/permission/state readbacks and private credential references",
+      "start": "Ownership + ports -> fresh readiness receipts",
+      "runScenario": "Bound script + cycle -> raw browser/API/artifact receipts, never self-approved result",
+      "stop": "Exact resource identities -> cleanup/retention/unrelated-resource receipts"
+    },
+    "receipt_fields": ["run/cycle/attempt/stage/assertion ID", "binding/contract/artifact hashes", "target/Rocky/adapter/scenario/fixture identity", "role/locale/viewport", "start/end/status/classification", "command/exit/log or browser/request evidence", "owned resource IDs and cleanup status"],
+    "independent_evaluator": "Outside implementation writable scope; verifies hashes, assertions, ledgers and ownership. Fault injection provenance distinguishes actual process/browser faults from synthetic evaluator probes."
+  },
+  "check_policy": {
+    "scope": "Environment contract is not full coding/CI acceptance. Bind bootstrap/migration/client generation and plugin packaging checks here. Later R07 cannot use this gate to omit required CI checks.",
+    "ci_source": "ci",
+    "later_obligations": ["Frozen affected base/head Nx core lint/typecheck/test/e2e", "Applicable CRAP integration/report", "Plugins lint/test/e2e/pack-test and generator tests; Hello World pack fixture as CI requires", "Applicable firmware version/tests and fail2ban/Grafana/Balena/companion/container guards", "PR title/aggregate and merge_group current-head receipts under separate authority"]
+  },
+  "sources": {
+    "instructions": {"path": "AGENTS.md", "sha256": "02434a20111485d05d86a9ae0c1f636736543bc28a5d6798bbbf9074a041c77b"},
+    "node": {"path": ".nvmrc", "sha256": "7e8a2fa94951112b894a3dbe3d05efef5e9263741fa49125f0a70f40fedab4cc"},
+    "package": {"path": "package.json", "sha256": "3ebec76b8a8758ceff926404db85f5f2dc544e77fcaf64ce1e27c53cb7286f59"},
+    "lock": {"path": "pnpm-lock.yaml", "sha256": "f4b8b18368eaf566fbfedddec13ed9da0e2d3a2fca7767549285dd02a88ed94c"},
+    "bootstrap": {"path": "scripts/setup-dev-dependencies.sh", "sha256": "355655269a5916b097952f4916007f80fb3eab911c7b79da1e423eab78d618cb"},
+    "serve": {"path": "scripts/dev-serve.mts", "sha256": "9b0c4bbbc7f03f8c7d3f406f61cb9d7a2470e6f4eee4b5ace333ebde641e76cd"},
+    "seed": {"path": "scripts/seed-dev-user.mjs", "sha256": "7dca5080a19353d2171cacb7d1ae1f3dae97031d27ac92ea489391ebbfdba69d"},
+    "image": {"path": "Dockerfile", "sha256": "bfbc7ad42eded006a79c332bb92ed4080d3dbd010de6d11ee1a708f0ffb19201"},
+    "api_bind": {"path": "apps/api/src/main.bootstrap.ts", "sha256": "56d8b4dec97173b07d49792a05f373fb603ae46721ddff83b84aed7c55f04ef8"},
+    "vite": {"path": "apps/frontend/vite.config.ts", "sha256": "678e8a5db91afbe1dcd94e90fb379e029992947f6cce5b2d62f6e79e2f0dbd5d"},
+    "database": {"path": "apps/api/src/database/datasource.ts", "sha256": "f9cd927a2979403d96ec566fc037430b8230da313363bce4c2dd12ef2b46d271"},
+    "settings": {"path": "apps/api/src/settings/settings.service.ts", "sha256": "68218b66d0d5df52eb5ab051a09c379e6cbca2cae26042d18badd0e43d262a2a"},
+    "settings_api": {"path": "apps/api/src/settings/settings.controller.ts", "sha256": "ae415c534af163c64337d22951ce4de57c0736b848823ac94706ab6659682927"},
+    "settings_seed": {"path": "apps/api/src/database/migrations/1770236486649-seed-settings-from-env.ts", "sha256": "b35712fb9fbb67a0e67c60d7f935029d7c3e1551576749389ed8ec78eaeaa3f2"},
+    "registration": {"path": "apps/api/src/users-and-auth/users/users-registration.controller.ts", "sha256": "45d8b465d4eccb7adadc27df343d6488dc55ca34078c51fbb354f197739fef66"},
+    "registration_service": {"path": "apps/api/src/users-and-auth/users/user-registration.service.ts", "sha256": "b9496a2c5b00fdbd09be3bb7351be37d7be9df2a4fd0d5f5bd9b2cb0a624d923"},
+    "roles": {"path": "apps/api/src/users-and-auth/users/user-permissions.controller.ts", "sha256": "bc58806643a2f36f65aa8b875090ad6e1fab1d5e36a68527e62162fbf1e4385b"},
+    "rbac": {"path": "apps/api/src/users-and-auth/rbac/rbac.controller.ts", "sha256": "309c0852fa44864daed9f2bf4154aab54974a94a1f2b8c4565ed65241e897727"},
+    "role_dto": {"path": "apps/api/src/users-and-auth/rbac/dtos/create-role.dto.ts", "sha256": "2bef5ee50735cafbc6acefe5c1528e341f4f5956feea4d5d9fc338a4074f8d5c"},
+    "resources": {"path": "apps/api/src/resources/resources.controller.ts", "sha256": "4c1c91a9f4a37bc9280e51da1b1858d42039c37d588681d3bec98aec8d2a7c68"},
+    "profile": {"path": "apps/api/src/users-and-auth/users/user-profile.controller.ts", "sha256": "c6daed79783a0a7532df599b6696bf53f127396a2011e7cdcde596a6db4d3f34"},
+    "auth": {"path": "apps/api/src/users-and-auth/auth/auth.controller.ts", "sha256": "de06850805b0fed38268ef46c02d60f0df21512bf30b5a1ebf9c4e72c3cd8c83"},
+    "login": {"path": "apps/frontend/src/app/unauthorized/loginForm.tsx", "sha256": "11485d27710993e87ea1775efe43e511e9a6e7fa933c29782ebc6dbe77963a90"},
+    "username": {"path": "apps/frontend/src/app/account/username/index.tsx", "sha256": "8d294810f436961460c1615960dcf4672f9a4cae9dc240d546fbb8d7bfd3a3a7"},
+    "username_en": {"path": "apps/frontend/src/app/account/username/en.json", "sha256": "a03e089a0f8d7cf047994f7565916430c0cd73c032fc0218f91233a97358e41f"},
+    "username_de": {"path": "apps/frontend/src/app/account/username/de.json", "sha256": "c731a0b530977237e7a039b7577a4bfbb07cebdecb11045567ac10b0f218cf16"},
+    "2fa": {"path": "apps/api/src/users-and-auth/auth/two-factor.controller.ts", "sha256": "daf06b0b0b84c1b0d01c561838bd54b06114e9fd41c286276a54dcddf2028d05"},
+    "2fa_ui": {"path": "apps/frontend/src/app/account/two-factor/index.tsx", "sha256": "6be92679fbf77088f18439541e6a5d4ed6e1eed312c3f2b2b9268a49f6306bbb"},
+    "wizard": {"path": "apps/frontend/src/app/first-time-setup/index.tsx", "sha256": "80e94e32f038324b4d9ce5302d690b780b9f18b559299751ea01c82648ae213d"},
+    "license_ui": {"path": "apps/frontend/src/components/CommunityLicenseButton/index.tsx", "sha256": "fe01a93dfa57f0ba91f1019cbf1cf9bce7ae15b22bc1ca57298d150ee2b1694a"},
+    "license_step": {"path": "apps/frontend/src/app/first-time-setup/steps/LicenseStep/index.tsx", "sha256": "129fff1c5c8c73769446d6cbe92eb19388b196fbf2038a341e6daa0698a1aeb3"},
+    "license": {"path": "apps/api/src/license/license.service.ts", "sha256": "f05f5da82af34a4110666b44e6df8a997ba60ae518779d91a9333642283db5e1"},
+    "license_api": {"path": "apps/api/src/license/license.controller.ts", "sha256": "226327375c4a43621ff00a02d77678f8510c45873a4a46c0ef72c469fb56c480"},
+    "plugin_build": {"path": "apps/plugins/shelly/project.json", "sha256": "68f94b14a742432920f08f240b6e2a732de7c88be99146e64e137c096ecd81cb"},
+    "plugin_manifest": {"path": "apps/plugins/shelly/plugin.json", "sha256": "b19744d5e5361ca7034a76b3040415b55564258d48428d2c0d1b0df48b7baf18"},
+    "plugin_package": {"path": "apps/plugins/shelly/package.json", "sha256": "df241a480983ce4c5894427983d5a7c4e3a9796abd71318a0adcb41f6337134b"},
+    "plugin_api": {"path": "apps/api/src/plugin-system/plugin.controller.ts", "sha256": "6d19c790325930ab0c834119c980190afe7df319f43d5ab7852d7f62e5a9b74f"},
+    "plugin_service": {"path": "apps/api/src/plugin-system/plugin.service.ts", "sha256": "e06b820a1e04dae01fa56ac08c5089a6f9c0c0ce0472754967b439fa6744b910"},
+    "plugin_module": {"path": "apps/api/src/plugin-system/plugin.module.ts", "sha256": "730f346f2bf2d3e089a16f353cc1796ab047f92dcb2ca399866ac36d8f8348f6"},
+    "plugin_provider": {"path": "apps/frontend/src/app/plugins/plugin-provider.tsx", "sha256": "85d216876658916dc20ebe8f0355a4b28c7df21dd90f9a8bd3dae80d635c900c"},
+    "plugin_settings": {"path": "apps/frontend/src/app/settings/sections/plugins/index.tsx", "sha256": "42a48b2f89e08bbc9a2b745cf632e8d973b12b5d787ea80382a6dd06cf3cbedf"},
+    "shelly_backend": {"path": "apps/plugins/shelly/backend/plugin.ts", "sha256": "543369de219869a359b5f9278c22d8e2311cc248100600950b695039c291e93a"},
+    "shelly_api": {"path": "apps/plugins/shelly/backend/shelly.controller.ts", "sha256": "333fe16439fb6c2516f783593136a8401b9ef85fdd7a523dcaabc7fc178c04d7"},
+    "shelly_frontend": {"path": "apps/plugins/shelly/frontend/src/plugin.tsx", "sha256": "b3eacb5f7e2d7c0099f7653eee321f3bd404126f99484d9d83205ba6eccdc1cf"},
+    "shelly_page": {"path": "apps/plugins/shelly/frontend/src/DevicesPage.tsx", "sha256": "2caf54f9dc95f6ad756d66a1531eb145b45c846e520e389a30aaa3a5cfae65fe"},
+    "ci": {"path": ".github/workflows/pull-requests.yml", "sha256": "a3597ce8bd35470a89bc2ad1c17cf4896be7ea44c8ccea7343429daa0ebee82a"}
+  }
+}
