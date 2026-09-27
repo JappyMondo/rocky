@@ -68,8 +68,13 @@ test('F02 real competing claimers and expired owner cannot start or mutate', asy
     const snapshot = { run: store.get('run'), events: store.events('run') };
     assert.throws(() => store.transition(old, 'stale', { key: 'stale', kind: 'fake', payload: {} }), /stale-lease/);
     assert.throws(() => store.guardedStart(old, () => { throw new Error('BAD_SEND'); }), /stale-lease/);
-    assert.deepEqual({ run: store.get('run'), events: store.events('run') }, snapshot);
-    receipt('fencing', { results, old, newLease, snapshot });
+    store.transition(newLease, 'delivery', { key: 'valid-intent', kind: 'fake', payload: {} });
+    let staleSends = 0;
+    await assert.rejects(() => store.dispatch(old, 'valid-intent', { begin: () => { staleSends++; return Promise.resolve({}); } }), /stale-lease/);
+    assert.equal(staleSends, 0);
+    assert.equal(store.get('run').stage, 'delivery');
+    assert.equal(store.effect('valid-intent').state, 'pending');
+    receipt('fencing', { results, old, newLease, snapshot, staleSends, after: store.events('run') });
   } finally { await Promise.all(children.map(stop)); store.close(); }
 });
 
@@ -83,22 +88,25 @@ test('F04 F05 killed response owner, ambiguous reconciliation and cancellation',
     await new Promise(resolve => setTimeout(resolve, 300));
     const lease = store.claim('run', 'reconciler', versions, 2000);
     const sent = store.effect('run/draft/1'); assert.equal(sent.state, 'sending');
+    store.transition(lease, 'queued', { key: 'run/draft/2', kind: 'fake-draft', payload: { head: 'H' } });
     let attempts = 0;
     await assert.rejects(() => store.dispatch(lease, sent.key, { begin: () => { attempts++; return Promise.resolve({}); } }), /reconciliation-required/);
     const unknown = await store.reconcile(lease, sent.key, async () => ({ status: 'unknown' }));
     assert.equal(unknown.state, 'unresolved'); assert.equal(unknown.receipt, null);
     store.cancel('run');
+    await assert.rejects(() => store.dispatch(lease, 'run/draft/2', { begin: () => { attempts++; return Promise.resolve({}); } }), /cancelled/);
     const confirmed = await store.reconcile(lease, sent.key, async () => ({ status: 'confirmed', receipt: JSON.parse(readFileSync(ledger)) }));
     assert.equal(confirmed.state, 'confirmed'); assert.equal(confirmed.receipt.creates, 1);
     assert.equal(attempts, 0); assert.equal(JSON.parse(readFileSync(ledger)).creates, 1);
     assert.throws(() => store.transition(lease, 'later', { key: 'new-send', kind: 'fake', payload: {} }), /cancelled/);
-    receipt('effects', { sent, unknown, confirmed, attempts, ledger: JSON.parse(readFileSync(ledger)), canceled: store.get('run').cancelled });
+    receipt('effects', { sent, unknown, confirmed, pending: store.effect('run/draft/2'), attempts, ledger: JSON.parse(readFileSync(ledger)), canceled: store.get('run').cancelled });
   } finally { await stop(child); store.close(); }
 });
 
 test('F06 F11 each identity change, tamper/missing and fresh readiness', async () => {
   const location = dir('evidence'); const evidence = new Evidence(location);
   const artifact = evidence.put('browser trace');
+  assert.deepEqual(evidence.put('browser trace'), artifact);
   const reference = evidence.record({ schema: 1, kind: 'browser', inputs, outcome: 'pass', artifacts: [artifact] });
   assert.equal(evidence.validate(reference, inputs).valid, true);
   const changes = {};
@@ -165,6 +173,8 @@ test('F05 F07 cancellation terminates owned descendant and retains partial logs'
 test('F08 killed worker reclaims command without second start and preserves workspace', async () => {
   const { location, db, store } = fresh('worker-death', { leaseMs: 300 });
   const marker = join(location, 'unpublished.txt'); writeFileSync(marker, 'unpublished bytes');
+  const evidence = new Evidence(join(location, 'retained-evidence'));
+  const retained = evidence.put('prior evidence bytes');
   const started = join(location, 'started.txt');
   const child = worker('command', db, started);
   try {
@@ -180,12 +190,13 @@ test('F08 killed worker reclaims command without second start and preserves work
     const final = await waitFor(() => { const record = store.command(id); return record.state === 'finished' && record; });
     assert.equal(final.result.outcome, 'lease-lost');
     assert.equal(readFileSync(marker, 'utf8'), 'unpublished bytes');
+    assert.equal(evidence.read(retained).toString(), 'prior evidence bytes');
     const uncertainId = 'uncertain-process';
     store.reserveCommand(lease, uncertainId, 'capability', {});
     store.observeCommand(uncertainId, 'capability', { supervisor: { pid: process.pid, fingerprint: 'wrong' }, group: { pid: process.pid, fingerprint: 'wrong' } });
     const uncertain = runner.recover(lease, uncertainId);
     assert.equal(uncertain.state, 'recovery-required'); assert.ok(alive(process.pid));
-    receipt('worker-death', { recovered, final, uncertain, markerSha256: createHash('sha256').update(readFileSync(marker)).digest('hex') });
+    receipt('worker-death', { recovered, final, uncertain, retained, markerSha256: createHash('sha256').update(readFileSync(marker)).digest('hex') });
   } finally { await stop(child); store.close(); }
 });
 
