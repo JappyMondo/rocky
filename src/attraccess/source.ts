@@ -40,12 +40,10 @@ export function ownedPath(path: string) {
     throw new Error("environment-symlink-escape");
   return full;
 }
-export function sourceInventory(source = TARGET.source): SourceInventory {
-  const rows = execFileSync(
-    "git",
-    ["-C", source, "ls-tree", "-rz", TARGET.commit],
-    { maxBuffer: 16 * 1024 * 1024 },
-  )
+function inventoryAt(source: string, commit: string): SourceInventory {
+  const rows = execFileSync("git", ["-C", source, "ls-tree", "-rz", commit], {
+    maxBuffer: 16 * 1024 * 1024,
+  })
     .toString()
     .split("\0")
     .filter(Boolean);
@@ -71,6 +69,55 @@ export function sourceInventory(source = TARGET.source): SourceInventory {
     result[path] = { mode, sha256: digest(bytes) };
   }
   return result;
+}
+export function verifyFixtureInventories(
+  original: SourceInventory,
+  fixture: SourceInventory,
+) {
+  const p = TARGET.provenance;
+  if (
+    digest(canonical(original)) !== p.originalInventorySha256 ||
+    digest(canonical(fixture)) !== p.fixtureInventorySha256
+  )
+    throw new Error("fixture-provenance-inventory-drift");
+  const changed = Object.keys(fixture).filter(
+    (path) => canonical(fixture[path]) !== canonical(original[path]),
+  );
+  if (
+    changed.length !== 1 ||
+    changed[0] !== p.changedFile ||
+    original[p.changedFile]?.sha256 !== p.preimageSha256 ||
+    fixture[p.changedFile]?.sha256 !== p.postimageSha256
+  )
+    throw new Error("fixture-provenance-diff-drift");
+}
+export function sourceInventory(source = TARGET.source): SourceInventory {
+  if (realpathSync(source) !== TARGET.source)
+    throw new Error("unexpected-fixture-source");
+  const p = TARGET.provenance;
+  const git = (root: string, ...args: string[]) =>
+    execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+  for (const [root, commit, tree] of [
+    [source, TARGET.commit, TARGET.tree],
+    [p.originalSource, p.originalCommit, p.originalTree],
+  ] as const) {
+    if (
+      git(root, "rev-parse", "HEAD", "HEAD^{tree}") !== commit + "\n" + tree ||
+      git(root, "status", "--porcelain")
+    )
+      throw new Error("fixture-provenance-checkout-drift");
+  }
+  if (
+    git(source, "rev-list", "--parents", "-n", "1", "HEAD") !==
+      TARGET.commit + " " + p.originalCommit ||
+    git(source, "remote") ||
+    existsSync(join(source, ".git/objects/info/alternates"))
+  )
+    throw new Error("fixture-provenance-git-drift");
+  const original = inventoryAt(p.originalSource, p.originalCommit);
+  const fixture = inventoryAt(source, TARGET.commit);
+  verifyFixtureInventories(original, fixture);
+  return fixture;
 }
 export function verifySnapshot(snapshot: string, inventory: SourceInventory) {
   const differences: string[] = [];
@@ -145,6 +192,7 @@ export function materialize(destination: string) {
     inventory,
     inventorySha256: digest(canonical(inventory)),
     generated: GENERATED,
+    provenance: TARGET.provenance,
     gitRoot: execFileSync(
       "git",
       ["-C", destination, "rev-parse", "--show-toplevel"],

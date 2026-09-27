@@ -807,9 +807,9 @@ export class AttraccessEnvironment {
     return { readiness, previousInstanceId, instance };
   }
   async verifySource(s: Session) {
-    const original = digest(canonical(sourceInventory()));
-    if (original !== digest(canonical(this.prepared.sourceInventory)))
-      throw new Error("original-target-source-drift");
+    const declared = digest(canonical(sourceInventory()));
+    if (declared !== digest(canonical(this.prepared.sourceInventory)))
+      throw new Error("declared-target-source-drift");
     writeFileSync(
       join(s.root, "private", "source-inventory.json"),
       JSON.stringify(this.prepared.sourceInventory),
@@ -857,7 +857,9 @@ export class AttraccessEnvironment {
       throw new Error("unexpected-generated-output:" + unexpected.join(","));
     return {
       inventory: JSON.parse(result.stdout),
-      originalSourceInventorySha256: original,
+      sourceInventorySha256: declared,
+      originalSourceInventorySha256: TARGET.provenance.originalInventorySha256,
+      provenance: TARGET.provenance,
       git: git.stdout,
       branch,
       base: TARGET.commit,
