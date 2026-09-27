@@ -1,0 +1,706 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "approval_status": "pending-independent-review",
+  "source_commit": "5bb89a7d376565749c3f2bab9b67462bcb097afc",
+  "authority": "docs/rocky-next-concept.md plus orchestrator prompt and Taskbot epic 1",
+  "owner_ticket": 9,
+  "protected_paths": [
+    "acceptance/contracts/"
+  ],
+  "requirements": [
+    {
+      "id": "R01",
+      "concept_sections": [
+        1,
+        4,
+        5
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "fixed-workflow",
+      "required_behavior": "One supported Attraccess workflow and harness, one active implementation, typed deterministic transitions; agents do engineering judgment.",
+      "required_evidence": "Local backend and UI coding cases plus run timeline show software-owned setup/checks/publication.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R02",
+      "concept_sections": [
+        3,
+        5,
+        14
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "admission-inbox",
+      "required_behavior": "Durable issue-event deduplication, clarification distinct from approval, explicit steering/scope revisions, cancellation and issue ownership.",
+      "required_evidence": "Duplicate/steered/cancelled events produce one accountable run and no conflicting coordinator owner.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R03",
+      "concept_sections": [
+        5,
+        8,
+        10
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "admission-policy",
+      "required_behavior": "Before expensive work validate credentials, disk/capacity, supported repository, fixtures/hardware, effective configuration and executing release.",
+      "required_evidence": "Admission matrix names missing prerequisite and records every rejection; no unsupported task edits start.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R04",
+      "concept_sections": [
+        5
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "scope-baseline",
+      "required_behavior": "Version behavior, exclusions, affected surfaces, fixture IDs, evidence and delivery mode; freeze base SHA and run smoke baseline.",
+      "required_evidence": "Pre-existing failure stays distinct from introduced defect; changed scope invalidates dependent decisions.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R05",
+      "concept_sections": [
+        3,
+        6,
+        8,
+        14
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "workspace",
+      "required_behavior": "Task-owned isolated workspace records base/head/instruction digests and preserves unpublished changes; no old branch overwrite.",
+      "required_evidence": "Workspace ownership, safe teardown and unpublished-work retention receipts.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R06",
+      "concept_sections": [
+        6
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "toolchain-setup",
+      "required_behavior": "Verify repository-pinned toolchain and lockfile; successful repository bootstrap receipt; fail unsupported script/instruction/config drift.",
+      "required_evidence": "Actual binary identities, bootstrap output and injected drift rejection.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R07",
+      "concept_sections": [
+        6
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "checks-policy",
+      "required_behavior": "Frozen affected-project comparison resolves all applicable core/e2e/plugin packaging/firmware/guard checks from authoritative repository metadata.",
+      "required_evidence": "Check plan covers actual CI obligations; no agent can suppress required checks.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R08",
+      "concept_sections": [
+        6
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "client-and-plans",
+      "required_behavior": "Generate API client when relevant without committing generated client or repository-prohibited plans/specs; plans live in run store.",
+      "required_evidence": "Required generation receipt and final target diff show policy compliance.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R09",
+      "concept_sections": [
+        6,
+        13
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "environment",
+      "required_behavior": "Own database/storage/migrations/seeds/processes; consume authoritative ports and verify actual frontend/API; ten clean setup/test/teardown cycles.",
+      "required_evidence": "All cycle artifacts, data isolation, ownership and zero leaked/cross-contaminated services/ports.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R10",
+      "concept_sections": [
+        6
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "fixtures",
+      "required_behavior": "Independent fresh install/admin/member/denied/resource-group/unenrolled-2FA/plugin enabled-disabled fixtures; accounts and authentication data private.",
+      "required_evidence": "Fresh installation never reuses initialized DB; one-time state is not shared; actual plugin installed.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R11",
+      "concept_sections": [
+        4,
+        6
+      ],
+      "module": "runner",
+      "ticket": 7,
+      "work_package": "browser",
+      "required_behavior": "Pinned deterministic browser scenarios assert behavior and save/reload persistence; EN/DE and desktop/mobile coverage per changed surface; retain traces/screenshots.",
+      "required_evidence": "Script assertions and artifacts bound to head/scenario/fixture/role/locale/viewport.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R12",
+      "concept_sections": [
+        4,
+        6,
+        8
+      ],
+      "module": "attraccess",
+      "ticket": 7,
+      "work_package": "failure-classification",
+      "required_behavior": "Separate fixture/environment/product failure; login/session failures are product when under test; label simulated/compiled/physical evidence and require physical availability if mandatory.",
+      "required_evidence": "Adversarial fixture and device-capability cases yield accurate named outcomes, never HTTP-only proof.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R13",
+      "concept_sections": [
+        3,
+        5,
+        9
+      ],
+      "module": "agents",
+      "ticket": 8,
+      "work_package": "typed-harness",
+      "required_behavior": "One harness with typed results, explicit completion of pending tools, owned resumable sessions, model/effort identity and cancellation.",
+      "required_evidence": "Incomplete, malformed, failed and cancelled sessions cannot authorize delivery.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R14",
+      "concept_sections": [
+        4,
+        5,
+        6
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "independent-review",
+      "required_behavior": "Independent acceptance and bounded code/subjective UX review; new tests fail old behavior when applicable; implementation cannot weaken protected scenarios.",
+      "required_evidence": "Evaluator manifest unchanged; old/new behavior evidence and stable findings/resolutions.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R15",
+      "concept_sections": [
+        5,
+        7,
+        8
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "budgets",
+      "required_behavior": "Local checks precede expensive review; CI collection and repair allowance independent of review; bound no-op/repeated signatures and one disagreement arbitration.",
+      "required_evidence": "Failed CI reaches repair after review exhaustion; unchanged findings stop without raising limits.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        10,
+        11
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R16",
+      "concept_sections": [
+        7
+      ],
+      "module": "evidence",
+      "ticket": 5,
+      "work_package": "receipt-identity",
+      "required_behavior": "Local receipt binds head/tree/base/command/toolchain/status/log; browser binds scenario/fixture/role/locale/viewport; review binds head/scope/findings; approval binds approver/head/scope/action.",
+      "required_evidence": "Mutation of a relevant identity makes the old receipt stale; agents receive authoritative receipts directly.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        7,
+        10,
+        12
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R17",
+      "concept_sections": [
+        7,
+        8
+      ],
+      "module": "evidence",
+      "ticket": 5,
+      "work_package": "artifact-integrity",
+      "required_behavior": "Immutable artifact manifests and bounded full logs with partial timeout output; retain diagnostic excerpts and explicit missing-artifact/log gaps.",
+      "required_evidence": "Hash mismatch or missing artifact cannot become pass; command timeout retains pre-timeout output.",
+      "qualification": "local",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R18",
+      "concept_sections": [
+        5,
+        7
+      ],
+      "module": "integrations/github",
+      "ticket": 10,
+      "work_package": "github-ci",
+      "required_behavior": "Observe real workflow/job/attempt and required checks; distinguish PR head and synthetic integration/merge-group SHA and superseding attempts.",
+      "required_evidence": "Current remote CI identities/protection state and missing-log failure receipts.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R19",
+      "concept_sections": [
+        7
+      ],
+      "module": "evidence",
+      "ticket": 5,
+      "work_package": "validity-lifetimes",
+      "required_behavior": "Code changes invalidate relevant checks/reviews; fixture/scenario changes stale browser evidence; live service readiness differs from historical verification; reporting retry may reuse valid evidence.",
+      "required_evidence": "Changed-head/fixture tests and CI polling after deliberate service stop do not fabricate readiness or erase historical pass.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        7,
+        10,
+        12
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R20",
+      "concept_sections": [
+        8,
+        9
+      ],
+      "module": "store",
+      "ticket": 5,
+      "work_package": "durable-ownership",
+      "required_behavior": "Transactional stage/input identity, append-only events and fenced single owner; sessions are not run authority.",
+      "required_evidence": "Rollback/crash, competing claimant and stale-owner mutations preserve one valid committed state.",
+      "qualification": "local",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R21",
+      "concept_sections": [
+        7,
+        9
+      ],
+      "module": "store",
+      "ticket": 5,
+      "work_package": "durable-effects",
+      "required_behavior": "Commit intent before external write; stable operation identity and payload; persist confirmed receipt; lost response requires reconciliation before repeat.",
+      "required_evidence": "Crash windows and duplicate transport demonstrate one remote object or explicit unresolved reconciliation, never claimed exactly-once.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        10,
+        11,
+        12
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R22",
+      "concept_sections": [
+        8
+      ],
+      "module": "runner",
+      "ticket": 5,
+      "work_package": "process-lifecycle",
+      "required_behavior": "Owned process groups, bounded command deadlines/logs, cancellation stopping owned descendants only; recover/inspect lost workers.",
+      "required_evidence": "Timeout/cancel/orphan cases preserve logs, remove owned processes and leave unrelated sentinel alive.",
+      "qualification": "local",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R23",
+      "concept_sections": [
+        8
+      ],
+      "module": "coordinator",
+      "ticket": 8,
+      "work_package": "waits-cleanup",
+      "required_behavior": "External waits back off with deadline/next wake and release execution capacity; cancellation blocks new effects while reconciling sent effects; cleanup preserves evidence and unpublished work.",
+      "required_evidence": "Waiting/cancelled/recovery states and bounded resource retention are observable.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        11
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R24",
+      "concept_sections": [
+        9
+      ],
+      "module": "store",
+      "ticket": 5,
+      "work_package": "versioning",
+      "required_behavior": "Record workflow/adapter/prompt/runner/build versions; no silent in-flight upgrade; compatible resume, drain or explicit tested migration.",
+      "required_evidence": "Old run under incompatible build stops before effects and retains original identities.",
+      "qualification": "local",
+      "related_tickets": [
+        11
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R25",
+      "concept_sections": [
+        5,
+        7
+      ],
+      "module": "evidence",
+      "ticket": 12,
+      "work_package": "handoff-report",
+      "required_behavior": "Artifact-derived concise change/acceptance/screenshots/limitations/PR package; report outage stays pending without rerunning engineering; no-code outcome separately verified and excluded from coding metric.",
+      "required_evidence": "PR report/publication receipts and no-code denominator exclusion.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R26",
+      "concept_sections": [
+        3,
+        5,
+        7
+      ],
+      "module": "integrations/github",
+      "ticket": 12,
+      "work_package": "approval-merge",
+      "required_behavior": "Revision/scope/action-bound human approval, revocation and changed-head invalidation; actual protections/merge queue honored.",
+      "required_evidence": "Stale approval rejected; ready-for-review, merge-requested and merged are separate verified states.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R27",
+      "concept_sections": [
+        5,
+        7,
+        9
+      ],
+      "module": "integrations/linear",
+      "ticket": 12,
+      "work_package": "tracker-closeout",
+      "required_behavior": "Coordinator-owned tracker effects with durable receipts; confirm Linear state independently from merge; publication failures do not replay code.",
+      "required_evidence": "Merged-but-closeout-pending failure and reconciled tracker receipt.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R28",
+      "concept_sections": [
+        3,
+        10
+      ],
+      "module": "config",
+      "ticket": 5,
+      "work_package": "configuration-security",
+      "required_behavior": "One validated effective config with provenance; operator credential references/bot identity/capacity/budgets/delivery/notifications distinct from maintainer policy; secrets separated and ingress minimal.",
+      "required_evidence": "Invalid config rejected; provenance visible; secret redaction and tool/ingress authorization tests.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        13
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R29",
+      "concept_sections": [
+        12
+      ],
+      "module": "operator",
+      "ticket": 13,
+      "work_package": "operator-ux",
+      "required_behavior": "Queue/Run/Evidence/Decision/Operations answer change, verification, blocker and next action; linked raw transcripts, read-only workflow, elapsed/cost/disk/versions/worker health.",
+      "required_evidence": "Real-browser essential-state verification includes blocked/stale/waiting/report-pending and stopped daemon.",
+      "qualification": "live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R30",
+      "concept_sections": [
+        9,
+        12,
+        13
+      ],
+      "module": "config",
+      "ticket": 5,
+      "work_package": "distribution-identity",
+      "required_behavior": "Clean installable committed artifact embeds source/build identity; tested artifact matches running verification instance; documented install/operation.",
+      "required_evidence": "Clean package/install smoke and health identity comparison; foundation smoke alone is not installed live acceptance.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        13
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R31",
+      "concept_sections": [
+        8,
+        13
+      ],
+      "module": "runner",
+      "ticket": 13,
+      "work_package": "resource-qualification",
+      "required_behavior": "Measure disk/process/browser capacity, waits and cleanup; one implementation initially; contention preserves ownership.",
+      "required_evidence": "Resource and competing-worker tests, no lost unpublished work; expansion only after evidence gate.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R32",
+      "concept_sections": [
+        13
+      ],
+      "module": "acceptance",
+      "ticket": 6,
+      "work_package": "benchmark",
+      "required_behavior": "Freeze ten real eligible coding tasks before scored trials; >=8 verified PR handoffs without operator repair; report every admission rejection/attempt/failure/intervention and missing artifact.",
+      "required_evidence": "Immutable corpus/base/fixture/model/budget identities plus complete denominator and outcomes.",
+      "qualification": "live",
+      "related_tickets": [
+        14
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R33",
+      "concept_sections": [
+        13
+      ],
+      "module": "acceptance",
+      "ticket": 11,
+      "work_package": "adversarial-qualification",
+      "required_behavior": "Every mandatory adversarial case passes without relaxing criteria; all failures accurately classified.",
+      "required_evidence": "Individual retained scenario receipts for A01-A14, not an aggregate assertion.",
+      "qualification": "local-and-live",
+      "related_tickets": [
+        6,
+        14
+      ],
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R34",
+      "concept_sections": [
+        14
+      ],
+      "module": "operations",
+      "ticket": 13,
+      "work_package": "safe-reference-corpus",
+      "required_behavior": "Archive selected old source/PR/profile/run/failure evidence without credentials; preserve unfinished branches/PRs; no old runtime restart/import by default.",
+      "required_evidence": "Reference inventory and secret-safe retention evidence; explicit import rereads branch/PR and invalidates unproven receipts.",
+      "qualification": "local",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R35",
+      "concept_sections": [
+        1,
+        9,
+        11,
+        13
+      ],
+      "module": "architecture",
+      "ticket": 9,
+      "work_package": "modular-scope",
+      "required_behavior": "Narrow internal repository/tracker/runner/effect interfaces; no public workflow SDK/editor/arbitrary repository or multiple harness delivery in v1.",
+      "required_evidence": "Module ownership and same acceptance corpus; deferred capabilities visibly listed.",
+      "qualification": "local",
+      "verification_status": "unverified"
+    },
+    {
+      "id": "R36",
+      "concept_sections": [
+        13,
+        14
+      ],
+      "module": "acceptance",
+      "ticket": 15,
+      "work_package": "completion-gate",
+      "required_behavior": "Independent review, clean committed source, installed artifact identity, all required local/live evidence, accurate Taskbot state, no unresolved blockers.",
+      "required_evidence": "Final gate names incomplete external authority/evidence; no scaffold/mock/draft/queued success substitution.",
+      "qualification": "local-and-live",
+      "verification_status": "unverified"
+    }
+  ],
+  "planning_only_references": [
+    {
+      "sections": [
+        2,
+        3
+      ],
+      "purpose": "Observed failures motivate tests; historical observations are not current verified capabilities."
+    },
+    {
+      "sections": [
+        11
+      ],
+      "purpose": "External research is design evidence, not implementation acceptance."
+    }
+  ],
+  "ticket_mapping_policy": "Each requirement has an accountable concrete implementation, qualification or final-review ticket; related_tickets identify later integration/evidence responsibility without implying completed verification.",
+  "benchmark": {
+    "status": "UNFROZEN",
+    "freeze_ticket": 6,
+    "authority_ticket": 4,
+    "threshold": {
+      "tasks": 10,
+      "unattended_verified_pr_handoffs": 8,
+      "all_mandatory_adversarial_cases": true
+    },
+    "slots": [
+      {
+        "id": "B01",
+        "candidate_family": "English copy correction",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B02",
+        "candidate_family": "German locale consistency",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B03",
+        "candidate_family": "Desktop 2FA enrollment layout",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B04",
+        "candidate_family": "Mobile 2FA interaction/layout",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B05",
+        "candidate_family": "Authorized-member permission behavior",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B06",
+        "candidate_family": "Denied-user permission regression",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B07",
+        "candidate_family": "Backend validation regression",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B08",
+        "candidate_family": "Backend persisted-update regression",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B09",
+        "candidate_family": "Plugin packaging defect",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      },
+      {
+        "id": "B10",
+        "candidate_family": "Plugin enabled/disabled integration",
+        "eligibility": "UNASSESSED",
+        "baseline_sha": null,
+        "issue": null,
+        "scenario_hashes": [],
+        "status": "UNFROZEN"
+      }
+    ],
+    "freeze_requires": [
+      "Real independent bounded defects confirmed against exact Attraccess source; no fabricated eligibility or inherited repaired branches.",
+      "For each task freeze issue/spec, base SHA, check plan, scope, exclusions, fixtures/scenarios, models, budgets, delivery mode and authority.",
+      "Record all attempts and admission rejections; reruns do not replace failures; no-code conclusions do not count.",
+      "Record completion/interventions excluding planned approval, failure signatures, environment failures, elapsed/model/cost and missing artifacts.",
+      "No retroactive eligibility exclusions or acceptance weakening."
+    ],
+    "execution_ticket": 14
+  },
+  "explicit_deferrals": [
+    "Arbitrary repositories and multi-repository changes",
+    "Flow editor, user-defined nodes and public workflow SDK",
+    "Multiple harnesses and high concurrent implementation",
+    "Multi-agent recap pipeline",
+    "Historical Rocky workflow replay",
+    "Large dashboard and firmware benchmark tasks pending decomposition and fixture/device readiness"
+  ],
+  "authority_blockers": [
+    {
+      "ticket": 4,
+      "scope": "Isolated Attraccess setup outside authorized Rocky worktree",
+      "status": "unresolved"
+    },
+    {
+      "ticket": 4,
+      "scope": "Attraccess target-source mutation and remote draft/CI/Linear test effects",
+      "status": "unresolved"
+    },
+    {
+      "ticket": 4,
+      "scope": "Protected merge requires exact-revision human approval",
+      "status": "unresolved"
+    }
+  ]
+}

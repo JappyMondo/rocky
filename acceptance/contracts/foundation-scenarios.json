@@ -1,0 +1,523 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "approval_status": "pending-independent-review",
+  "owner_ticket": 9,
+  "implementation_ticket": 5,
+  "protection": "Foundation implementer has no write permission to acceptance/contracts; changes require separately leased acceptance author plus independent review and version bump.",
+  "execution_status": "NOT_EXECUTED",
+  "test_data_policy": "All fixtures synthetic and local. Fake effects prove reconciliation semantics only, never real GitHub/Linear delivery. Do not use real credentials or existing services.",
+  "scenarios": [
+    {
+      "id": "F01",
+      "requirement_ids": [
+        "R16",
+        "R20",
+        "R24"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "run": "synthetic-001",
+        "head": "1111111111111111111111111111111111111111",
+        "base": "0000000000000000000000000000000000000000",
+        "scope": "scope-v1",
+        "versions": {
+          "workflow": "wf-1",
+          "adapter": "aa-1",
+          "prompt": "p-1",
+          "runner": "r-1",
+          "build": "build-A"
+        }
+      },
+      "action": "Admit and commit a synthetic run, close the store, reopen via a fresh owner.",
+      "assertions": [
+        "Recorded input identities and state are identical after reopen.",
+        "Committed event ordering and immutable identities survive restart; no agent transcript is required."
+      ],
+      "evidence": [
+        "Before/after machine-readable run snapshots",
+        "Event sequence"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F02",
+      "requirement_ids": [
+        "R20",
+        "R31"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "owners": [
+          "worker-A",
+          "worker-B"
+        ],
+        "lease_duration_ms": 100,
+        "clock": "controllable for store semantics"
+      },
+      "action": "Race A/B for one run; expire the winner, let the other acquire a strictly newer fencing token; have old owner try transition and effect intent.",
+      "assertions": [
+        "Exactly one initial claim succeeds.",
+        "New lease is valid and old owner cannot commit state/event/effect mutations.",
+        "A failed stale mutation leaves state and event count unchanged."
+      ],
+      "evidence": [
+        "Claim results and fencing tokens",
+        "Before/after state/events"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F03",
+      "requirement_ids": [
+        "R20",
+        "R21"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "run": "synthetic-001",
+        "operation_key": "synthetic-001/create-draft/1",
+        "payload": {
+          "head": "1111111111111111111111111111111111111111"
+        }
+      },
+      "action": "Interrupt transaction before commit, then separately after committed intent but before dispatch; reopen each state.",
+      "assertions": [
+        "Uncommitted transition/event/intent is absent as a unit.",
+        "Committed intent survives and has no fabricated success receipt.",
+        "Dispatch is impossible without a committed intent and current owner."
+      ],
+      "evidence": [
+        "Transaction fault locations",
+        "Recovered states/outbox"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F04",
+      "requirement_ids": [
+        "R21"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "transport": "local controlled fake with independently persisted object ledger",
+        "operation_key": "synthetic-001/create-draft/1",
+        "remote_id": "fake-pr-1"
+      },
+      "action": "Dispatch committed intent; let remote ledger accept once; lose response and kill owner before receipt. Restart and reconcile by operation identity. Repeat with unreadable ledger.",
+      "assertions": [
+        "Confirmed ledger case links one existing object and stores confirmed receipt without a second create.",
+        "Unreadable/ambiguous case remains unresolved/waiting and cannot blindly repeat or claim success.",
+        "Same operation key with changed payload is rejected or requires a new explicit operation; old receipt cannot satisfy it."
+      ],
+      "evidence": [
+        "Independent fake ledger",
+        "Dispatch/reconcile call sequence",
+        "Outbox/receipt after restart"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F05",
+      "requirement_ids": [
+        "R21",
+        "R22",
+        "R23"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "effects": [
+          "pending-not-sent",
+          "sent-unconfirmed"
+        ],
+        "processes": [
+          "owned child with owned descendant",
+          "unrelated sentinel"
+        ]
+      },
+      "action": "Persist cancellation; attempt to start a new command and effect; reconcile the previously sent effect.",
+      "assertions": [
+        "No new command or external effect begins after cancellation is effective.",
+        "Owned child and descendant terminate within the configured cleanup bound; unrelated sentinel stays alive.",
+        "Previously sent effect may be reconciled and recorded without being sent again.",
+        "Cancellation and retained partial output survive reopen."
+      ],
+      "evidence": [
+        "Cancellation state/events",
+        "Process observations",
+        "Effect call ledger",
+        "Partial command logs"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F06",
+      "requirement_ids": [
+        "R16",
+        "R17",
+        "R19"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "head": "1111111111111111111111111111111111111111",
+        "scope": "scope-v1",
+        "artifact_bytes": "foundation evidence\n",
+        "scenario": "scenario-1",
+        "fixture": "fixture-1"
+      },
+      "action": "Record a passing receipt/artifact; attempt overwrite; change head, scope, scenario/fixture, command/toolchain individually; tamper artifact bytes and separately remove artifact.",
+      "assertions": [
+        "Content-addressed identity cannot silently change under the same receipt.",
+        "Each relevant changed input invalidates its dependent receipt.",
+        "Tampered/missing artifact is explicit integrity/missing evidence failure and cannot satisfy pass.",
+        "Unchanged receipt remains readable; unrelated display/report retry does not require rerunning valid code checks."
+      ],
+      "evidence": [
+        "Original manifest/hash",
+        "Per-mutation validity result",
+        "Integrity failure records"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F07",
+      "requirement_ids": [
+        "R17",
+        "R22"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "command_behavior": "write unique marker to stdout and stderr; spawn owned descendant; wait indefinitely",
+        "deadline_ms": 150,
+        "cleanup_bound_ms": 2000
+      },
+      "action": "Run command to timeout, then repeat with explicit cancellation and with output exceeding configured cap.",
+      "assertions": [
+        "Outcome distinguishes timeout, cancellation and success; a timeout is never success.",
+        "Both pre-timeout markers survive as bounded partial logs and truncation is explicit.",
+        "Owned descendants exit within cleanup bound; no orphan remains.",
+        "Unrelated sentinel is never signalled or killed."
+      ],
+      "evidence": [
+        "Command identity/exit outcome",
+        "Bounded stdout/stderr artifacts",
+        "Process ownership and cleanup observations"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F08",
+      "requirement_ids": [
+        "R20",
+        "R22",
+        "R24"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "running_command": "owned long-lived local child",
+        "worker": "separate disposable process",
+        "version": "wf-1"
+      },
+      "action": "Kill worker while command is running; reclaim after lease expiry and inspect retained process identity; repeat when identity cannot be safely established.",
+      "assertions": [
+        "New owner reconciles owned process state instead of launching a duplicate.",
+        "Uncertain ownership yields recovery-required and does not kill an arbitrary PID.",
+        "Unpublished workspace sentinel and prior evidence remain intact."
+      ],
+      "evidence": [
+        "Worker death/reclaim events",
+        "Process identity observations",
+        "Retained workspace/evidence hashes"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F09",
+      "requirement_ids": [
+        "R24"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "persisted_versions": {
+          "workflow": "wf-1",
+          "adapter": "aa-1",
+          "prompt": "p-1",
+          "runner": "r-1",
+          "build": "build-A"
+        },
+        "new_worker": "incompatible-wf-2"
+      },
+      "action": "Attempt resume with incompatible worker, then with matching compatible worker.",
+      "assertions": [
+        "Incompatible worker stops at explicit compatibility/migration boundary before commands or effects.",
+        "Original versions remain unchanged; compatible worker can resume the recorded stage.",
+        "No implicit migration or replay from workflow start occurs."
+      ],
+      "evidence": [
+        "Compatibility decision",
+        "Original and final versions",
+        "Zero-effect ledger for incompatible case"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F10",
+      "requirement_ids": [
+        "R28",
+        "R30"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "source_commit": "reported committed revision",
+        "config_override": {
+          "capacity": 1
+        },
+        "secret": "SYNTHETIC-SECRET-DO-NOT-LOG"
+      },
+      "action": "Validate effective config, inspect exported diagnostics/provenance, package and install in a clean local temporary prefix using the documented procedure.",
+      "assertions": [
+        "Invalid values fail before admission; effective values name their source.",
+        "Credential references are handled separately; synthetic secret never appears in public diagnostics/artifacts.",
+        "Installed command reports source commit/build identity matching package manifest; no source checkout dependency.",
+        "This proves local package behavior only; no live deployment is claimed."
+      ],
+      "evidence": [
+        "Config validation/provenance output",
+        "Secret-scan result",
+        "Package digest and installed identity",
+        "Clean install command/result"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    },
+    {
+      "id": "F11",
+      "requirement_ids": [
+        "R19"
+      ],
+      "qualification": "local-foundation",
+      "setup": {
+        "browser_receipt": "passing at head H and fixture F",
+        "service": "subsequently stopped",
+        "ci_poll": "local fake read-only observation"
+      },
+      "action": "Poll CI after deliberate service stop; separately request a new browser execution.",
+      "assertions": [
+        "CI polling can retain valid historical browser evidence without claiming the service is currently ready.",
+        "New browser execution requires fresh readiness and cannot reuse an old readiness claim."
+      ],
+      "evidence": [
+        "Evidence validity result",
+        "Distinct readiness state",
+        "CI poll call trace"
+      ],
+      "status": "not-executed",
+      "implementation_boundary": "Exercise foundation primitives with local fixtures; full coordinator/browser/remote integration remains in later tickets."
+    }
+  ],
+  "eventual_adversarial_scenarios": [
+    {
+      "id": "A01",
+      "requirement_ids": [
+        "R10",
+        "R12"
+      ],
+      "stimulus": "Wrong password, consumed 2FA, initialized setup DB",
+      "required_result": "Named fixture failure or reproducible reset; no fabricated UI pass.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A02",
+      "requirement_ids": [
+        "R11",
+        "R12"
+      ],
+      "stimulus": "UI save looks successful without persistence",
+      "required_result": "Reload or authoritative read fails product acceptance.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A03",
+      "requirement_ids": [
+        "R09",
+        "R11",
+        "R22"
+      ],
+      "stimulus": "Browser timeout or service death",
+      "required_result": "Trace/logs retained, owned cleanup, one bounded known recipe retry.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A04",
+      "requirement_ids": [
+        "R05",
+        "R20",
+        "R31"
+      ],
+      "stimulus": "Disk full, worker killed, competing launch",
+      "required_result": "No unpublished loss, correct admission/lease recovery, no duplicate owner.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A05",
+      "requirement_ids": [
+        "R15",
+        "R18"
+      ],
+      "stimulus": "CI fails with unavailable logs after review exhausted",
+      "required_result": "Failure plus diagnostics-unavailable retained; protected CI repair/escalation reachable.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A06",
+      "requirement_ids": [
+        "R14",
+        "R15",
+        "R16"
+      ],
+      "stimulus": "Reviewer disputes authoritative recorded CI",
+      "required_result": "Same receipt supplied, stable finding and one arbitration; bounded no-op loop.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A07",
+      "requirement_ids": [
+        "R16",
+        "R19",
+        "R26"
+      ],
+      "stimulus": "Head/scope changes after screenshot/review/approval, or approval revoked",
+      "required_result": "Stale receipts rejected before handoff/merge; new scope/head needs fresh evidence/authority.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A08",
+      "requirement_ids": [
+        "R21",
+        "R25",
+        "R26",
+        "R27"
+      ],
+      "stimulus": "API succeeds but response lost; crash before/after push, draft, publication, merge and receipt",
+      "required_result": "Existing object/effect reconciled before retry; no duplicate or invented success.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A09",
+      "requirement_ids": [
+        "R23"
+      ],
+      "stimulus": "Cancel around unsent and already-sent effects",
+      "required_result": "No further sends; sent effects reconciled; unpublished data/evidence retained.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A10",
+      "requirement_ids": [
+        "R24"
+      ],
+      "stimulus": "New release with old run",
+      "required_result": "Compatible resume or explicit migration boundary, not silent version substitution.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A11",
+      "requirement_ids": [
+        "R18",
+        "R26"
+      ],
+      "stimulus": "PR head differs from merge-group/integration SHA",
+      "required_result": "Both identities and relationship retained; actual required merge-group checks enforced.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A12",
+      "requirement_ids": [
+        "R25",
+        "R27"
+      ],
+      "stimulus": "Merge succeeds while Linear/report fails",
+      "required_result": "Merged/closeout-pending or report-pending stays distinct; no coding replay.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A13",
+      "requirement_ids": [
+        "R29"
+      ],
+      "stimulus": "Daemon stops while persisted header says running",
+      "required_result": "Console distinguishes historical state from absent live owner and states next action.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    },
+    {
+      "id": "A14",
+      "requirement_ids": [
+        "R06",
+        "R07"
+      ],
+      "stimulus": "Repository instruction/script/CI drift",
+      "required_result": "Named unsupported drift; no invented replacement or relaxed required check.",
+      "status": "not-executed",
+      "qualification": "full-workflow-local-and-live",
+      "owner_ticket": 11,
+      "design_ticket": 6
+    }
+  ],
+  "execution_rules": [
+    "Exercise the public module interface; do not make acceptance depend on private SQLite table or function names.",
+    "Use separate worker processes for actual kill/reopen cases; a mocked exception alone is insufficient crash proof.",
+    "Deterministic fake clock is allowed for store expiry; command/process termination needs actual disposable local processes.",
+    "Specify executable invocation and retained artifact paths when implementation exists; this contract intentionally contains no invented executable command.",
+    "Validation output must record contract hash, tested commit/build, command and exit status, individual assertions, artifacts, unresolved gaps.",
+    "Independent evaluator verifies contract hashes before/after attempts and lives outside coding-agent writable target scope.",
+    "Every full-workflow A-case must later have real integration coverage where applicable; foundation passes cannot satisfy live requirements."
+  ]
+}
