@@ -334,6 +334,28 @@ test("Runtime verification rejects compiled and driver implementation drift with
     );
     writeFileSync(file, bytes);
   }
+  const { unlinkSync } = await import("node:fs");
+  const nestedCompiled = join(dir, "dist/node_modules/shadow.js");
+  mkdirSync(join(dir, "dist/node_modules"), { recursive: true });
+  writeFileSync(nestedCompiled, "shadow");
+  assert.throws(
+    () => copied.validateAdmission(admissionPath, approval, prepared),
+    /installed-build-file-drift/,
+  );
+  unlinkSync(nestedCompiled);
+  const nestedDriver = join(
+    dir,
+    "node_modules/playwright/lib/node_modules/shadow.js",
+  );
+  mkdirSync(join(dir, "node_modules/playwright/lib/node_modules"), {
+    recursive: true,
+  });
+  writeFileSync(nestedDriver, "shadow");
+  assert.throws(
+    () => copied.validateAdmission(admissionPath, approval, prepared),
+    /admission-runtime-drift/,
+  );
+  unlinkSync(nestedDriver);
   const before = dependencyIdentity(dir);
   for (const name of [
     "playwright/lib/index.js",

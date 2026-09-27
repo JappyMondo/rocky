@@ -19,7 +19,7 @@ export function fileTree(
     for (const name of readdirSync(directory).sort()) {
       const path = join(directory, name),
         key = relative(root, path).replaceAll("\\", "/");
-      if (exclude.includes(key) || name === "node_modules") continue;
+      if (exclude.includes(key)) continue;
       const st = lstatSync(path);
       if (st.isSymbolicLink()) {
         throw Error("runtime-symlink-refused:" + key);
