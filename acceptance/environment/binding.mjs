@@ -22,6 +22,10 @@ import {
   attemptRoot,
 } from "./runtime.mjs";
 import { evaluatorFiles, concrete, verifyFiles } from "./identity.mjs";
+import {
+  completePreparations,
+  retainedEvidence,
+} from "./admission-evidence.mjs";
 import { originalSource } from "./fixtures.mjs";
 
 const git = (args) =>
@@ -58,13 +62,15 @@ export function preparationLedger() {
     });
   return { producer, evaluator, scoredCycles: 0, scoredFaults: 0 };
 }
-export function verifyBinding(rt, path, approval) {
+export function verifyProposal(rt, path) {
   workspace();
-  concrete(json(path));
-  if (approval.reviewer?.includes("environment_evaluator"))
-    throw Error("evaluator-cannot-approve-own-binding");
-  const result = rt.api.validateAdmission(path, approval, rt.inputs.prepared),
-    a = result.admission;
+  const a = json(path);
+  concrete(a);
+  if (
+    a.scope !== "independent-environment-admission-proposal" ||
+    a.qualificationAuthorized !== false
+  )
+    throw Error("invalid-unapproved-proposal-scope");
   if ((statSync(path).mode & 0o222) !== 0)
     throw Error("admission-must-be-readonly");
   if (
@@ -86,13 +92,109 @@ export function verifyBinding(rt, path, approval) {
     throw Error("evaluator-host-node-drift");
   originalSource(rt);
   verifyRuntime(rt);
-  return result;
+  verifyFiles(a.retainedEvidenceFiles);
+  verifyFiles({ [a.evaluatorValidation.path]: a.evaluatorValidation.sha256 });
+  const validation = json(a.evaluatorValidation.path);
+  verifyFiles({
+    [validation.stoppedState.path]: validation.stoppedState.sha256,
+  });
+  if (
+    rt.api.canonical(validation.files) !==
+      rt.api.canonical(a.evaluator.files) ||
+    !validation.commands.length ||
+    validation.commands.some((c) => c.exitCode !== 0)
+  )
+    throw Error("evaluator-validation-incomplete-or-stale");
+  verifyFiles(
+    Object.fromEntries(
+      validation.commands.map((c) => [c.log.path, c.log.sha256]),
+    ),
+  );
+  const expected = {
+    devImage: rt.inputs.prepared.devImage,
+    mailpitImage: rt.inputs.prepared.mailpitImage,
+    browserExecutableSha256: rt.inputs.browser.sha256,
+    shellyZipSha256: rt.inputs.shelly.sha256,
+    sourceInventorySha256: rt.inputs.sourceInventorySha256,
+    driverVersion: rt.inputs.browser.driver.split("@").at(-1),
+    driverPackageSha256: rt.inputs.browser.driverPackageSha256,
+    nodeVersion: rt.api.TARGET.node,
+    pnpmVersion: rt.api.TARGET.pnpm,
+    contractSha256: rt.inputs.contractSha256,
+    targetCommit: rt.inputs.targetCommit,
+    targetTree: rt.inputs.targetTree,
+    rockyBuildId: rt.inputs.rockyBuildId,
+    adapterSha256: rt.api.adapterIdentity(),
+    checkPlanSha256: rt.inputs.checkPlanSha256,
+    installedBuildInventorySha256: rt.inputs.installedBuildInventorySha256,
+    runtimeDependenciesSha256: rt.inputs.runtimeDependenciesSha256,
+    driverTreeSha256: rt.inputs.driverTreeSha256,
+    runtimePackageSha256: rt.inputs.runtimePackageSha256,
+  };
+  for (const [key, value] of Object.entries(expected))
+    if (a[key] !== value) throw Error("proposal-identity-drift:" + key);
+  if (
+    rt.api.canonical(a.limits) !== rt.api.canonical(rt.api.LIMITS) ||
+    rt.api.canonical(a.commands) !== rt.api.canonical(rt.api.COMMANDS)
+  )
+    throw Error("proposal-policy-drift");
+  if (sha(rt.api.canonical(a.checkPlan)) !== a.checkPlanSha256)
+    throw Error("proposal-check-plan-drift");
+  if (
+    a.scenarioSha256 !== sha(rt.api.canonical(a.scenarioFiles)) ||
+    a.fixtureSha256 !== sha(rt.api.canonical(a.fixtureFiles))
+  )
+    throw Error("proposal-file-inventory-drift");
+  verifyFiles(a.scenarioFiles);
+  verifyFiles(a.fixtureFiles);
+  return {
+    admission: a,
+    sha256: sha(readFileSync(path)),
+    qualificationAuthorized: false,
+  };
 }
-export async function buildProposal() {
+export function verifyBinding(rt, path, approval) {
+  verifyProposal(rt, path);
+  if (
+    /environment[_-]evaluator|foundation|restart[_-]repair/.test(
+      approval.reviewer ?? "",
+    )
+  )
+    throw Error("author-cannot-approve-own-binding");
+  return rt.api.validateAdmission(path, approval, rt.inputs.prepared);
+}
+export async function buildProposal(validationPath) {
   const rt = await runtime();
   originalSource(rt);
   if (git(["status", "--porcelain"]) !== "")
     throw Error("commit-clean-evaluator-before-binding");
+  const changedProduction = git([
+    "diff",
+    "--name-only",
+    rt.inputs.sourceCommit,
+    "HEAD",
+  ])
+    .split("\n")
+    .filter(Boolean)
+    .filter((p) => !p.startsWith("acceptance/environment/"));
+  if (changedProduction.length)
+    throw Error("installed-production-source-drift");
+  if (!validationPath) throw Error("final-validation-receipt-required");
+  const validation = json(validationPath);
+  verifyFiles({
+    [validation.stoppedState.path]: validation.stoppedState.sha256,
+  });
+  if (
+    rt.api.canonical(validation.files) !== rt.api.canonical(evaluatorFiles()) ||
+    !validation.commands.length ||
+    validation.commands.some((c) => c.exitCode !== 0)
+  )
+    throw Error("stale-or-failed-final-validation");
+  verifyFiles(
+    Object.fromEntries(
+      validation.commands.map((c) => [c.log.path, c.log.sha256]),
+    ),
+  );
   const all = evaluatorFiles(),
     fixtureFiles = Object.fromEntries(
       Object.entries(all).filter(([p]) =>
@@ -130,7 +232,12 @@ export async function buildProposal() {
   );
   const ledger = preparationLedger(),
     base = rt.api.TARGET.root;
+  const preparationCoverage = completePreparations(rt, ledger);
+  const retainedEvidenceFiles = retainedEvidence(ledger);
   const evidence = [
+    validationPath,
+    validation.stoppedState.path,
+    ...validation.commands.map((c) => c.log.path),
     INPUTS,
     join(base, "handoff-2ff6cab/HANDOFF.md"),
     join(base, "handoff-2ff6cab/retained-files.json"),
@@ -188,6 +295,19 @@ export async function buildProposal() {
     protectedFiles,
     runtimeHelperFiles,
     preparationEvidenceFiles,
+    retainedEvidenceFiles,
+    preparationCoverage,
+    evaluatorValidation: file(validationPath),
+    evidenceInventoryPolicy:
+      "Retained evaluator evidence directories and referenced producer evidence descendants only; no dependency caches or whole provisioned snapshots. Separate exact target source inventory.",
+    producerReview: {
+      project: "rocky-next",
+      implementationTicket: 36,
+      reviewTicket: 37,
+      standardsComment: 242,
+      specComment: 243,
+      reviewedSourceCommit: rt.inputs.sourceCommit,
+    },
     contractApproval: {
       project: "rocky-next",
       ticket: 23,
@@ -218,6 +338,15 @@ export async function buildProposal() {
       tarballSha256: i.packageSha256,
       buildIdentity: file(join(i.packageRoot, "dist/build-identity.json")),
       driverPackage: file(driverPath),
+      sourcePackageLock: {
+        commit: i.sourceCommit,
+        path: "package-lock.json",
+        sha256: sha(
+          execFileSync("git", ["show", i.sourceCommit + ":package-lock.json"], {
+            cwd: ROOT,
+          }),
+        ),
+      },
     },
     target: {
       root: rt.api.TARGET.source,
@@ -294,4 +423,4 @@ export async function buildProposal() {
   };
 }
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  console.log(JSON.stringify(await buildProposal()));
+  console.log(JSON.stringify(await buildProposal(process.argv[2])));

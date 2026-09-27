@@ -13,7 +13,7 @@
     "descendantRequired": false,
     "observed": "evaluator-discovery-otp-2026-09-27T17-22-25-487Z",
     "loginSelector": "[data-cy=login-form-two-factor-input]",
-    "loginEvidence": "observed fresh-context TOTP login in evaluator-sanity-fresh-2fa-2026-09-27T17-51-10-465Z"
+    "loginEvidence": "observed direct editable INPUT, scrolled secret controls and fresh-context TOTP login in evaluator-sanity-fresh-2fa-2026-09-27T19-14-41-771Z"
   },
   "wizard": {
     "path": "/first-time-setup",
@@ -35,7 +35,7 @@
     "slot": "select-trigger",
     "haspopup": "listbox",
     "item": "[data-cy=select-item-SMTP]",
-    "itemEvidence": "observed SMTP item interaction in evaluator-sanity-fresh-install-2026-09-27T18-09-24-010Z; later wizard completion is separately required",
+    "itemEvidence": "observed SMTP item interaction and complete wizard in evaluator-sanity-fresh-install-2026-09-27T19-32-24-247Z",
     "observed": "evaluator-discovery-wizard-2026-09-27T17-32-50-367Z"
   }
 }

@@ -6,6 +6,7 @@ import {
   originalSource,
   sourceSnapshot,
   runtimeState,
+  repeatedIsolation,
   fixtureState,
   cleanupState,
   freshDatabase,
@@ -411,6 +412,7 @@ export async function evaluateCycle(
     }
     if (cycle.fixture === "shelly") {
       const upload = await uploadPlugin(rt, env, s);
+      record("ENV11", { phase: "upload-and-first-restart", upload });
       const instances = [],
         generations = [state.service.directory],
         starts = [state.containers[0].startedAt];
@@ -419,6 +421,31 @@ export async function evaluateCycle(
           await env.restart(s, {
             pluginMode: enabled ? "enabled" : "disabled",
           });
+        const readiness = await runtimeState(rt, env, s);
+        need(
+          !generations.includes(readiness.service.directory) &&
+            !starts.includes(readiness.containers[0].startedAt) &&
+            readiness.database.path === state.database.path &&
+            readiness.database.device === state.database.device &&
+            readiness.database.inode === state.database.inode,
+          "isolation_failed",
+          "ENV11",
+          "restart-generation-or-storage-continuity",
+        );
+        generations.push(readiness.service.directory);
+        starts.push(readiness.containers[0].startedAt);
+        const isolation = await repeatedIsolation(rt, env, s);
+        need(
+          isolation.positive.connected === true &&
+            isolation.appNegative.error === "ENETUNREACH" &&
+            isolation.appNegative.connected === false &&
+            isolation.mailNegative.error === "ENETUNREACH" &&
+            isolation.mailNegative.connected === false,
+          "isolation_failed",
+          "ENV05",
+          "restart-egress-isolation",
+        );
+        record("ENV05", isolation);
         await browse("plugin-" + instances.length, async (b) => {
           await login(env, s, b, user);
           const observed = await pluginState(env, s, b, enabled);
@@ -429,31 +456,6 @@ export async function evaluateCycle(
             "plugin-instance-reused",
           );
           instances.push(observed.status.instanceId);
-          const readiness = await runtimeState(rt, env, s);
-          need(
-            !generations.includes(readiness.service.directory) &&
-              !starts.includes(readiness.containers[0].startedAt) &&
-              readiness.database.path === state.database.path &&
-              readiness.database.device === state.database.device &&
-              readiness.database.inode === state.database.inode,
-            "isolation_failed",
-            "ENV11",
-            "restart-generation-or-storage-continuity",
-          );
-          generations.push(readiness.service.directory);
-          starts.push(readiness.containers[0].startedAt);
-          const isolation = await env.isolationProbe(s);
-          need(
-            isolation.positive.connected === true &&
-              isolation.appNegative.error === "ENETUNREACH" &&
-              isolation.appNegative.connected === false &&
-              isolation.mailNegative.error === "ENETUNREACH" &&
-              isolation.mailNegative.connected === false,
-            "isolation_failed",
-            "ENV05",
-            "restart-egress-isolation",
-          );
-          record("ENV05", isolation);
           record("ENV11", {
             upload,
             phase: instances.length,

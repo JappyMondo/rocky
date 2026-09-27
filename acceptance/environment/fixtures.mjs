@@ -291,6 +291,49 @@ export async function runtimeState(rt, env, s) {
     ),
   };
 }
+export async function repeatedIsolation(rt, env, s) {
+  // isolationProbe retains its completed Mailpit namespace container. Match the
+  // reviewed producer's documented repeated-probe lifecycle without touching an
+  // active, foreign or uncertain resource; its prior command receipts stay intact.
+  env.commands.store.assertLease(env.commands.lease);
+  const name = env.ownership.owner + "-mail-net-probe";
+  need(
+    env.ownership.containers.includes(name),
+    "isolation_failed",
+    "ENV05",
+    "missing-owned-prior-mail-probe",
+  );
+  const probe = rt.internal.assertOwned(env.ownership, "container", name);
+  const mail = rt.internal.assertOwned(env.ownership, "container", s.mailpit);
+  need(
+    probe.State.Running === false &&
+      probe.State.ExitCode === 0 &&
+      probe.HostConfig.NetworkMode === "container:" + mail.Id &&
+      probe.Image === rt.inputs.prepared.devImage,
+    "isolation_failed",
+    "ENV05",
+    "prior-mail-probe-not-completed-owned-resource",
+  );
+  const retained = {
+    id: probe.Id,
+    owner: probe.Config.Labels["rocky-next.owner"],
+    startedAt: probe.State.StartedAt,
+    finishedAt: probe.State.FinishedAt,
+    exitCode: probe.State.ExitCode,
+    networkMode: probe.HostConfig.NetworkMode,
+  };
+  env.commands.save(
+    "prior-probe-" + s.nxWorkspaceDataDirectory.split("/").at(-1),
+    retained,
+  );
+  await env.commands.mutation(
+    ["rm", probe.Id],
+    "independent-completed-probe-remove-" +
+      s.nxWorkspaceDataDirectory.split("/").at(-1),
+    3000,
+  );
+  return { previousCompletedProbe: retained, ...(await env.isolationProbe(s)) };
+}
 export async function fixtureState(rt, env, s, prior = []) {
   const admin = env.api(s);
   need(

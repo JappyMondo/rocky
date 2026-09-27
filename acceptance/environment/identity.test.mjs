@@ -26,3 +26,26 @@ test("hash binding rejects changed and missing executable inputs", () => {
   assert.throws(() => verifyFiles(files), /bound-file-drift/);
   assert.throws(() => verifyFiles({ [join(root, "absent")]: sha("original") }));
 });
+
+test("legacy retained inventories accept string and hash/size records, reject altered digest or size", async () => {
+  const { verifyExpected } = await import("./admission-evidence.mjs");
+  const bytes = Buffer.from("retained evidence");
+  assert.doesNotThrow(() => verifyExpected(bytes, sha(bytes), "legacy-string"));
+  assert.doesNotThrow(() =>
+    verifyExpected(
+      bytes,
+      { sha256: sha(bytes), bytes: bytes.length },
+      "legacy-record",
+    ),
+  );
+  for (const expected of [
+    "0".repeat(64),
+    { sha256: "0".repeat(64), bytes: bytes.length },
+    { sha256: sha(bytes), bytes: bytes.length + 1 },
+    {},
+  ])
+    assert.throws(
+      () => verifyExpected(bytes, expected, "bad"),
+      /retained-evidence-drift/,
+    );
+});
