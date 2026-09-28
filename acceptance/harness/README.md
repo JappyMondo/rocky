@@ -147,6 +147,29 @@ remain unchanged. The accepted checker changes only its exact allowed evidence
 root list; its assessment/provenance/operation semantics and H01–H10 are frozen.
 Independent source/result review is required after the stopped handoff.
 
+## Independent loaded-config repair (lease 573)
+
+SPEC-65-01 found that the launcher had moved its actual config into the runtime
+tree while the independent checker still required only the private snapshot.
+`loadedConfigLayout()` now derives the actual path from the admitted canonical
+attempt root: native-64 uses `runtime/codex-home/config.toml`; the historical
+roots use `private/codex-home/config.toml`. `checkAttempt()` supplies that derived
+layout to the verifier, requires the actual file in its verified inventory,
+binds `inputs.env.CODEX_HOME`, and compares actual bytes, snapshot bytes and
+`inputs.configSha256`. Config-after summaries are not identity authority.
+
+Static config regressions retain and execute the exact old assertion block from
+commit `8930b48`. They reproduce its acceptance of missing runtime bytes, changed
+runtime bytes with a refreshed inventory, and wrong/missing CODEX_HOME, then
+require rejection at the repaired boundary. These are explicitly config-boundary
+selftests, not claims that a full native attempt passed. Additional controls cover
+missing inventory membership, snapshot mismatch and both supported layouts.
+Relocated test artifacts live only under `.qualification/harness-native-64-repair/`;
+the actual checker always derives layout from its admitted directory itself.
+
+The historical native attempt remains failed. Lease 551 is consumed; this repair
+does not change the launcher, policy, denial criteria or authorize any native run.
+
 `manifest.json` is normative. Contract acceptance, synthetic native evidence,
 synthetic gateway evidence, real provider proof and target coding acceptance are
 separate gates. A fake Responses server cannot attest a real model or output cap.

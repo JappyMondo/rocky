@@ -1,8 +1,48 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { ROOT, sha, fileSha, inventory } from "./common.mjs";
+import { join, dirname } from "node:path";
+import { ROOT, NATIVE_EVIDENCE, sha, fileSha, inventory } from "./common.mjs";
+import { definition } from "./fixture.mjs";
+
+// Layout comes from the admitted canonical root, never from producer paths or
+// config-after-* summaries. The native-64 runtime is separate from its snapshot.
+export function loadedConfigLayout(attempt) {
+  definition(attempt);
+  const home =
+    dirname(attempt) === NATIVE_EVIDENCE
+      ? "runtime/codex-home"
+      : "private/codex-home";
+  return {
+    codeHome: join(attempt, home),
+    actual: `${home}/config.toml`,
+    snapshot: "private/codex-home/config.toml",
+  };
+}
+
+export function verifyLoadedConfig(directory, inputs, seen, layout) {
+  for (const path of [layout.snapshot, layout.actual])
+    assert(seen.has(path), `missing-loaded-config:${path}`);
+  assert.equal(
+    inputs.env?.CODEX_HOME,
+    layout.codeHome,
+    "loaded-codex-home-mismatch",
+  );
+  assert.match(
+    inputs.configSha256,
+    /^[a-f0-9]{64}$/,
+    "invalid-config-identity",
+  );
+  const snapshot = readFileSync(join(directory, layout.snapshot));
+  const actual = readFileSync(join(directory, layout.actual));
+  assert.equal(sha(snapshot), inputs.configSha256, "loaded-config-changed");
+  assert.equal(
+    sha(actual),
+    inputs.configSha256,
+    "actual-runtime-config-changed",
+  );
+  assert.deepEqual(actual, snapshot, "runtime-config-snapshot-mismatch");
+}
 
 // The reference comes from the reviewer-selected Git revision, never the bundle.
 export function trustedIdentity(commit) {

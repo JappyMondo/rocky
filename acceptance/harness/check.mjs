@@ -12,7 +12,12 @@ import {
   NATIVE_EVIDENCE,
 } from "./common.mjs";
 import { definition } from "./fixture.mjs";
-import { trustedIdentity, verifyProvenance } from "./provenance.mjs";
+import {
+  trustedIdentity,
+  verifyProvenance,
+  loadedConfigLayout,
+  verifyLoadedConfig,
+} from "./provenance.mjs";
 
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const identity = (v) =>
@@ -584,11 +589,7 @@ export function checkAttempt(directory, referenceCommit) {
     seen,
     trustedIdentity(referenceCommit),
   );
-  assert.equal(
-    fileSha(join(directory, "private/codex-home/config.toml")),
-    inputs.configSha256,
-    "loaded-config-changed",
-  );
+  verifyLoadedConfig(directory, inputs, seen, loadedConfigLayout(directory));
   assert.deepEqual(read("cleanup.json"), observations.cleanup);
   const requests = observations.httpRequests.map((ref) => {
     assert(seen.has(ref.path), "unbound-request");

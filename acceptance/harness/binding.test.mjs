@@ -19,7 +19,7 @@ test("real committed source/schema binding verifies and rejects missing/altered 
   );
   const directory = join(
     ROOT,
-    ".qualification/harness-native-64",
+    ".qualification/harness-native-64-repair",
     `binding-unit-${Date.now()}`,
   );
   for (const entry of reference.source) {
