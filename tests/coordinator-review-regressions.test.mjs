@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   fixture,
+  migratedBudgets,
   apply,
   result,
   receipt,
@@ -310,7 +311,7 @@ test("R7 observation issuance rolls back its token/invalidation/revision/event a
   sql.close();
   f.store.close();
 });
-test("R8 schema2 owned copy migrates to schema3/snapshot2 with retained old evidence; ec9a0cd reader rejects the new DB", async () => {
+test("R8 schema2 owned copy migrates to schema4/snapshot3 with retained old evidence; ec9a0cd reader rejects the new DB", async () => {
   const { copyFileSync, readFileSync } = await import("node:fs");
   const { DatabaseSync } = await import("node:sqlite");
   const { admission } = await import("./coordinator-support.mjs");
@@ -385,11 +386,11 @@ test("R8 schema2 owned copy migrates to schema3/snapshot2 with retained old evid
   copyFileSync(path, f.dir + "/migration-copy.sqlite");
   const upgraded = new Store(f.dir + "/migration-copy.sqlite", () => 1000);
   const after = upgraded.coordinatorSnapshot("run-1");
-  assert.equal(after.schema, 2);
+  assert.equal(after.schema, 3);
   assert.deepEqual(after.receipts, {});
   assert.deepEqual(after.observations, {});
   assert.equal(after.stage, "verifying");
-  assert.deepEqual(after.budgets, snapshot.budgets);
+  assert.deepEqual(after.budgets, migratedBudgets(snapshot.budgets));
   const newEvents = upgraded.events("run-1");
   assert.deepEqual(newEvents.slice(0, events.length), events);
   assert.deepEqual(newEvents.at(-1).data.previous, snapshot);
@@ -400,7 +401,7 @@ test("R8 schema2 owned copy migrates to schema3/snapshot2 with retained old evid
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(f.dir + "/migration-copy.sqlite");
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 4);
   sql.close();
   retain(f, { snapshot, after, event: newEvents.at(-1) });
 });

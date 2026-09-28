@@ -166,7 +166,7 @@ test("C10 hard capabilities fail closed at admission/dispatch; predispatch reser
   );
   s = finish(f, { outcome: "changed", head: "head-2", tokens: 101 });
   assert.equal(s.blocker.detail, "hard-token-contract-violated");
-  assert.equal(s.budgets.reportedTokens, 101);
+  assert.equal(s.budgets.knownTokens, 101);
   f.store.close();
   let now = 1200;
   const reopened = new Store(f.dir + "/state.sqlite", () => now);
@@ -333,9 +333,10 @@ test("C12 persisted long wait retains workspace and slot until quiescent; wake/d
     () => apply(reopened, lease, { type: "schedule", kind: "verify" }),
     /incompatible-versions/,
   );
+  assert.deepEqual(apply(reopened, lease, result(active)), s);
   assert.throws(
-    () => apply(reopened, lease, result(active)),
-    /stale-action-result/,
+    () => apply(reopened, lease, result(active, { tokens: 1 })),
+    /action-result-conflict/,
   );
   retain(f, s);
   reopened.close();

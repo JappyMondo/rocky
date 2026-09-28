@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import ts from "typescript";
 import {
   fixture,
+  migratedBudgets,
   admission,
   apply,
   baseline,
@@ -71,7 +72,7 @@ function upgrade(f) {
   f.store = new Store(f.dir + "/upgrade-copy.sqlite", () => 1000);
   assert.deepEqual(readFileSync(path), bytes);
   const after = f.store.coordinatorSnapshot("run-1");
-  assert.deepEqual(after.budgets, before.snapshot.budgets);
+  assert.deepEqual(after.budgets, migratedBudgets(before.snapshot.budgets));
   assert.deepEqual(after.execution, before.snapshot.execution);
   assert.deepEqual(f.store.implementationSlot(), before.slot);
   if (before.effect)
@@ -358,6 +359,6 @@ test("M6 migration revalidation cannot replenish an exhausted allowance", async 
   assert.equal(s.blocker.kind, "budget");
   assert.equal(s.execution, null);
   assert.equal(f.store.implementationSlot(), null);
-  assert.deepEqual(s.budgets, before.snapshot.budgets);
+  assert.deepEqual(s.budgets, migratedBudgets(before.snapshot.budgets));
   f.store.close();
 });

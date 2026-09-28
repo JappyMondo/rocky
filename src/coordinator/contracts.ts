@@ -2,7 +2,7 @@ import { canonical, identity } from "../store/json.js";
 import type { Versions } from "../store/index.js";
 import type { Artifact, EvidenceInputs } from "../evidence/index.js";
 
-export const COORDINATOR_SCHEMA = 2;
+export const COORDINATOR_SCHEMA = 3;
 export type Stage =
   | "admitted"
   | "baseline"
@@ -70,6 +70,18 @@ export interface Action {
   deadline: number;
   capabilityId: string | null;
 }
+/** Trusted transport evidence references, not provider/capability attestation by themselves. */
+export type TokenUsage =
+  | {
+      schema: 1;
+      status: "known";
+      tokens: number;
+      source: {
+        kind: "provider-receipt" | "local-no-model";
+        reference: string;
+      };
+    }
+  | { schema: 1; status: "unknown"; reason: string };
 export interface Budgets {
   environment: number;
   product: number;
@@ -77,7 +89,9 @@ export interface Budgets {
   review: number;
   disagreement: number;
   reservedTokens: number;
-  reportedTokens: number;
+  knownTokens: number;
+  unknownActions: number;
+  legacyReportedTokens: number | null;
   reservedElapsedMs: number;
   elapsedMs: number;
   observedAt: number;
@@ -101,7 +115,7 @@ export interface ReceiptState {
 }
 export type ReceiptKind = "baseline" | "checks" | "ci" | "review" | "approval";
 export interface RunSnapshot {
-  schema: 2;
+  schema: 3;
   runId: string;
   repository: string;
   issue: string;
@@ -121,6 +135,8 @@ export interface RunSnapshot {
   capability: HardLimitsCapability | null;
   budgets: Budgets;
   execution: Action | null;
+  executionUsage: TokenUsage | null;
+  unqualifiedResults: WorkKind[];
   receipts: Partial<Record<ReceiptKind, ReceiptState>>;
   observations: Partial<Record<ReceiptKind, Observation>>;
   signatures: string[];
@@ -146,7 +162,7 @@ export type Event =
       actionKey: string;
       inputDigest: string;
       quiescent: boolean;
-      tokens: number;
+      usage: TokenUsage;
       outcome: "changed" | "no_code" | "complete" | "failed" | "interrupted";
       head: string;
       detail: string;
@@ -342,7 +358,7 @@ export function validateEvent(
       "actionKey",
       "inputDigest",
       "quiescent",
-      "tokens",
+      "usage",
       "outcome",
       "head",
       "detail",
@@ -391,7 +407,7 @@ export function validateEvent(
     case "result":
       for (const k of ["actionKey", "inputDigest", "head", "detail"])
         text(e[k]);
-      integer(e.tokens);
+      validateUsage(e.usage);
       if (
         typeof e.quiescent !== "boolean" ||
         !["changed", "no_code", "complete", "failed", "interrupted"].includes(
@@ -463,8 +479,16 @@ export function terminal(s: RunSnapshot) {
 
 /** Corrupt or unknown durable snapshots are recovery inputs, never dispatch permission. */
 export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
+  validateSnapshotShape(value, false);
+}
+/** Only the explicit migration path may accept schema 2. */
+export function validateLegacySnapshot(value: unknown) {
+  validateSnapshotShape(value, true);
+}
+function validateSnapshotShape(value: unknown, legacy: boolean) {
   const s = object(value);
-  if (s.schema !== 2) throw new Error("incompatible-coordinator-schema");
+  if (s.schema !== (legacy ? 2 : 3))
+    throw new Error("incompatible-coordinator-schema");
   keys(s, [
     "schema",
     "runId",
@@ -486,6 +510,7 @@ export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
     "capability",
     "budgets",
     "execution",
+    ...(legacy ? [] : ["executionUsage", "unqualifiedResults"]),
     "receipts",
     "observations",
     "signatures",
@@ -535,12 +560,30 @@ export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
     "review",
     "disagreement",
     "reservedTokens",
-    "reportedTokens",
+    ...(legacy
+      ? ["reportedTokens"]
+      : ["knownTokens", "unknownActions", "legacyReportedTokens"]),
     "reservedElapsedMs",
     "elapsedMs",
     "observedAt",
   ]);
-  Object.values(b).forEach((v) => integer(v));
+  Object.entries(b).forEach(([key, v]) => {
+    if (key !== "legacyReportedTokens" || v !== null) integer(v);
+  });
+  if (!legacy) {
+    if (s.executionUsage !== null) {
+      validateUsage(s.executionUsage);
+      if (s.execution === null) throw new Error("usage-without-execution");
+    }
+    if (
+      !Array.isArray(s.unqualifiedResults) ||
+      new Set(s.unqualifiedResults).size !== s.unqualifiedResults.length
+    )
+      throw new Error("invalid-unqualified-results");
+    for (const kind of s.unqualifiedResults)
+      if (!workKinds.includes(enumString(kind)))
+        throw new Error("invalid-unqualified-results");
+  }
   if (
     Number(b.environment) > 1 ||
     Number(b.product) > 1 ||
@@ -633,4 +676,25 @@ export function evidenceBundle(s: RunSnapshot, kind: ReceiptKind): string {
       reference: s.receipts[k]?.reference ?? null,
     })),
   });
+}
+
+export function validateUsage(value: unknown): asserts value is TokenUsage {
+  const u = object(value);
+  if (u.schema !== 1) throw new Error("incompatible-usage-schema");
+  if (u.status === "unknown") {
+    keys(u, ["schema", "status", "reason"]);
+    text(u.reason);
+  } else if (u.status === "known") {
+    keys(u, ["schema", "status", "tokens", "source"]);
+    integer(u.tokens);
+    const source = object(u.source);
+    keys(source, ["kind", "reference"]);
+    if (
+      !["provider-receipt", "local-no-model"].includes(enumString(source.kind))
+    )
+      throw new Error("invalid-usage-source");
+    text(source.reference);
+    if (source.kind === "local-no-model" && u.tokens !== 0)
+      throw new Error("invalid-local-usage");
+  } else throw new Error("invalid-usage-status");
 }

@@ -28,7 +28,7 @@ export function initialSnapshot(
   ) as Admission;
   const s: RunSnapshot = {
     ...a,
-    schema: 2,
+    schema: 3,
     revision: 0,
     inputDigest: "",
     stage: "admitted",
@@ -42,12 +42,16 @@ export function initialSnapshot(
       review: 0,
       disagreement: 0,
       reservedTokens: 0,
-      reportedTokens: 0,
+      knownTokens: 0,
+      unknownActions: 0,
+      legacyReportedTokens: null,
       reservedElapsedMs: 0,
       elapsedMs: 0,
       observedAt: now,
     },
     execution: null,
+    executionUsage: null,
+    unqualifiedResults: [],
     receipts: {},
     observations: {},
     signatures: [],
@@ -75,6 +79,7 @@ function pass(s: RunSnapshot, kind: "baseline" | "checks" | "ci" | "review") {
 function ready(s: RunSnapshot) {
   if (
     !s.execution &&
+    s.unqualifiedResults.length === 0 &&
     !s.cancelled &&
     !s.blocker &&
     pass(s, "checks") &&
@@ -255,16 +260,38 @@ export function reduce(
     const a = s.execution;
     if (!a || a.key !== event.actionKey || a.inputDigest !== event.inputDigest)
       throw new Error("stale-action-result");
+    if (
+      s.executionUsage &&
+      canonical(s.executionUsage) !== canonical(event.usage)
+    )
+      throw new Error("action-usage-conflict");
+    if (
+      event.usage.status === "known" &&
+      event.usage.source.kind === "local-no-model" &&
+      isAgentWork(a.kind)
+    )
+      throw new Error("agent-usage-requires-provider-receipt");
+    s.executionUsage = event.usage;
     if (!event.quiescent) {
       block(s, "recovery", "execution-not-quiescent");
       return { snapshot: s, actions };
     }
     s.execution = null;
-    s.budgets.reportedTokens += event.tokens;
-    if (event.tokens > a.tokens) {
+    s.executionUsage = null;
+    if (event.usage.status === "known")
+      s.budgets.knownTokens += event.usage.tokens;
+    else s.budgets.unknownActions++;
+    if (event.usage.status === "known" && event.usage.tokens > a.tokens) {
       block(s, "recovery", "hard-token-contract-violated");
       return { snapshot: s, actions };
     }
+    const successful = !["failed", "interrupted"].includes(event.outcome);
+    if (
+      successful &&
+      event.usage.status === "unknown" &&
+      !s.unqualifiedResults.includes(a.kind)
+    )
+      s.unqualifiedResults.push(a.kind);
     if (s.cancelled) {
       s.stage = "cancelled";
       return { snapshot: s, actions };
@@ -292,6 +319,10 @@ export function reduce(
       );
       return { snapshot: s, actions };
     }
+    if (event.usage.status === "unknown") {
+      block(s, "recovery", "successful-result-usage-unknown");
+      return { snapshot: s, actions };
+    }
     if (
       ["implement", "repair_product", "repair_ci", "repair_review"].includes(
         a.kind,
@@ -302,6 +333,11 @@ export function reduce(
         event.outcome === "no_code" &&
         event.head === s.head
       ) {
+        qualifyResult(s, a.kind);
+        if (s.unqualifiedResults.length) {
+          block(s, "recovery", "unqualified-earlier-result");
+          return { snapshot: s, actions };
+        }
         s.wait = null;
         s.stage = "no_code";
         return { snapshot: s, actions };
@@ -313,9 +349,10 @@ export function reduce(
       s.head = event.head;
       invalidate(s);
       s.stage = "verifying";
+      qualifyResult(s, a.kind);
     } else if (event.outcome !== "complete" || event.head !== s.head) {
       block(s, "recovery", "unexpected-result");
-    }
+    } else qualifyResult(s, a.kind);
     if (s.wait && !s.blocker) {
       if (s.stage !== "waiting_external") s.wait.resume = s.stage;
       s.stage = "waiting_external";
@@ -452,4 +489,19 @@ function invalidateDependentReceipts(s: RunSnapshot, kind: string) {
     delete s.receipts.approval;
   }
   if (kind === "review") delete s.receipts.approval;
+}
+
+/** Only independent successful work in the same role supersedes an unqualified success. */
+function qualifyResult(s: RunSnapshot, kind: WorkKind) {
+  const role = (k: WorkKind) =>
+    ["implement", "repair_product", "repair_ci", "repair_review"].includes(k)
+      ? "implementation"
+      : ["review", "arbitrate"].includes(k)
+        ? "review"
+        : ["baseline", "retry_environment"].includes(k)
+          ? "baseline"
+          : k;
+  s.unqualifiedResults = s.unqualifiedResults.filter(
+    (k) => role(k) !== role(kind),
+  );
 }

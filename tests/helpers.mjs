@@ -9,7 +9,7 @@ export const versions = {
   build: "build-A",
 };
 export const root = resolve(
-  ".qualification/tests",
+  process.env.FOUNDATION_ARTIFACT_ROOT ?? ".qualification/tests",
   new Date().toISOString().replaceAll(":", "-") + "-" + process.pid,
 );
 mkdirSync(root, { recursive: true });

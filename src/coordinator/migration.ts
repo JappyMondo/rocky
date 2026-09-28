@@ -3,6 +3,7 @@ import {
   object,
   integer,
   validateSnapshot,
+  validateLegacySnapshot,
   type RunSnapshot,
   type Stage,
 } from "./contracts.js";
@@ -34,13 +35,13 @@ function revalidationStage(stage: unknown): Stage {
 export function migrateLegacySnapshot(
   value: unknown,
   authoritativeCancelled: boolean,
-): RunSnapshot {
+): unknown {
   const previous = object(value);
   if (previous.schema !== 1 || typeof previous.cancelled !== "boolean")
     throw new Error("incompatible-coordinator-migration");
   integer(previous.revision);
   const mapped = revalidationStage(previous.stage);
-  const next: RunSnapshot = {
+  const next = {
     ...JSON.parse(canonical(previous)),
     schema: 2,
     observations: {},
@@ -88,6 +89,50 @@ export function migrateLegacySnapshot(
       boundary("legacy-wait-record-missing");
     if (next.stage === "blocked" && !next.blocker)
       boundary("legacy-blocker-unavailable");
+  }
+  validateLegacySnapshot(next);
+  return next;
+}
+
+/** Schema 2 numeric reports had no usage provenance. Preserve, never promote them. */
+export function migrateUsageSnapshot(
+  value: unknown,
+  authoritativeCancelled: boolean,
+): RunSnapshot {
+  validateLegacySnapshot(value);
+  const previous = JSON.parse(canonical(value));
+  const { reportedTokens, ...budgets } = previous.budgets;
+  const next: RunSnapshot = {
+    ...previous,
+    schema: 3,
+    revision: previous.revision + 1,
+    budgets: {
+      ...budgets,
+      knownTokens: 0,
+      unknownActions: 0,
+      legacyReportedTokens: reportedTokens,
+    },
+    executionUsage: null,
+    unqualifiedResults: [],
+  };
+  next.cancelled =
+    authoritativeCancelled ||
+    next.cancelled ||
+    ["cancelled", "cancelling"].includes(next.stage);
+  if (next.cancelled) {
+    next.stage = next.execution ? "cancelling" : "cancelled";
+    next.wait = null;
+  } else if (next.execution) {
+    next.stage = "recovery_required";
+    next.blocker = {
+      kind: "compatibility",
+      detail: "legacy-execution-reconciliation-required-before-explicit-rerun",
+    };
+    if (next.wait) next.wait.resume = "recovery_required";
+  } else if (next.stage === "handoff_ready") {
+    next.stage = "verifying";
+    next.receipts = {};
+    next.observations = {};
   }
   validateSnapshot(next);
   return next;

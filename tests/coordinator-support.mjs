@@ -80,17 +80,38 @@ export function apply(
     id,
   );
 }
+export function knownUsage(tokens = 0, provider = true) {
+  return {
+    schema: 1,
+    status: "known",
+    tokens,
+    source: {
+      kind: provider ? "provider-receipt" : "local-no-model",
+      reference: "synthetic-contract-receipt-not-provider-proof",
+    },
+  };
+}
+export function migratedBudgets(b) {
+  const { reportedTokens, ...rest } = b;
+  return {
+    ...rest,
+    knownTokens: 0,
+    unknownActions: 0,
+    legacyReportedTokens: reportedTokens,
+  };
+}
 export function result(s, overrides = {}) {
+  const { tokens = 0, ...other } = overrides;
   return {
     type: "result",
     actionKey: s.execution.key,
     inputDigest: s.execution.inputDigest,
     quiescent: true,
-    tokens: 0,
+    ...(s.schema < 3 ? { tokens } : { usage: knownUsage(tokens) }),
     outcome: "complete",
     head: s.head,
     detail: "local injected transport contract",
-    ...overrides,
+    ...other,
   };
 }
 export function receipt(

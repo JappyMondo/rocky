@@ -5,7 +5,10 @@ import { canonical, identity, type Json } from "./json.js";
 import { configure } from "../config/index.js";
 import { Evidence, type Artifact } from "../evidence/index.js";
 import { initialSnapshot, reduce } from "../coordinator/reducer.js";
-import { migrateLegacySnapshot } from "../coordinator/migration.js";
+import {
+  migrateLegacySnapshot,
+  migrateUsageSnapshot,
+} from "../coordinator/migration.js";
 import { canonical as json } from "./json.js";
 import {
   validateCoordinatorAdmission,
@@ -94,7 +97,13 @@ export class Store {
       const schema = Number(
         this.#db.prepare("PRAGMA user_version").get()?.user_version,
       );
-      if (schema !== 0 && schema !== 1 && schema !== 2 && schema !== 3) {
+      if (
+        schema !== 0 &&
+        schema !== 1 &&
+        schema !== 2 &&
+        schema !== 3 &&
+        schema !== 4
+      ) {
         throw new Error("incompatible-store-schema");
       }
       this.#db
@@ -112,25 +121,25 @@ export class Store {
       CREATE TABLE IF NOT EXISTS coordinator_receipts(run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, hash TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(run_id,kind,hash));
       CREATE TABLE IF NOT EXISTS coordinator_slot(singleton INTEGER PRIMARY KEY CHECK(singleton=1), run_id TEXT NOT NULL REFERENCES runs(id), action_key TEXT NOT NULL UNIQUE REFERENCES effects(key), fence INTEGER NOT NULL, owner TEXT NOT NULL);
       `);
-      if (schema < 3) {
+      if (schema < 4) {
         for (const row of this.#db
           .prepare("SELECT run_id,data FROM coordinator_snapshots")
           .all()) {
           const previous = JSON.parse(String(row.data));
-          const next = migrateLegacySnapshot(
-            previous,
-            this.get(String(row.run_id)).cancelled,
-          );
+          const cancelled = this.get(String(row.run_id)).cancelled;
+          const intermediate =
+            schema < 3 ? migrateLegacySnapshot(previous, cancelled) : previous;
+          const next = migrateUsageSnapshot(intermediate, cancelled);
           // Legacy receipts lack attempt/bundle authority. Keep the original in append-only migration evidence.
           this.#event(String(row.run_id), "coordinator-schema-migrated", {
-            from: 1,
-            to: 2,
+            from: schema < 3 ? 1 : 2,
+            to: 3,
             previous,
           });
           this.#saveSnapshot(next);
         }
       }
-      this.#db.exec("PRAGMA user_version=3; COMMIT;");
+      this.#db.exec("PRAGMA user_version=4; COMMIT;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -829,6 +838,28 @@ export class Store {
         throw new Error("revision-conflict");
       const event = JSON.parse(String(row.payload)) as Event;
       validateEvent(event, source);
+      if (event.type === "result") {
+        const effect = this.effect(event.actionKey);
+        if (
+          effect?.runId === run.id &&
+          effect.kind === "coordinator-action" &&
+          effect.state === "confirmed"
+        ) {
+          if (json(effect.receipt) !== json(event))
+            throw new Error("action-result-conflict");
+          this.#db
+            .prepare(
+              "UPDATE coordinator_inbox SET consumed_revision=? WHERE source=? AND event_id=?",
+            )
+            .run(old.revision, source, eventId);
+          this.#event(run.id, "coordinator-result-replayed", {
+            source,
+            eventId,
+            actionKey: event.actionKey,
+          });
+          return old;
+        }
+      }
       if (event.type === "receipt") {
         this.#assertObservation(
           old,
