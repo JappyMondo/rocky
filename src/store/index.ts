@@ -40,6 +40,14 @@ import {
   freezeProviderRequest,
   type ProviderRecord,
 } from "../agents/provider-ledger.js";
+import {
+  freezeStockContract,
+  freezeStockRequest,
+  stockProgression,
+  validateStockHeaders,
+  type StockContract,
+  type StockCompletion,
+} from "../agents/stock-request.js";
 import type { CoordinatorTransport } from "../coordinator/transport.js";
 export type Versions = {
   workflow: string;
@@ -116,7 +124,8 @@ export class Store {
         schema !== 3 &&
         schema !== 4 &&
         schema !== 5 &&
-        schema !== 6
+        schema !== 6 &&
+        schema !== 7
       ) {
         throw new Error("incompatible-store-schema");
       }
@@ -128,6 +137,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
+      CREATE TABLE IF NOT EXISTS provider_stock_contracts(action_key TEXT PRIMARY KEY REFERENCES effects(key), data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS provider_stock_progressions(action_key TEXT NOT NULL REFERENCES effects(key), progression TEXT NOT NULL, request_id TEXT NOT NULL, ordinal INTEGER NOT NULL, PRIMARY KEY(action_key,progression), UNIQUE(action_key,ordinal));
       CREATE TABLE IF NOT EXISTS provider_revocations(action_key TEXT PRIMARY KEY REFERENCES effects(key), run_id TEXT NOT NULL REFERENCES runs(id));
       CREATE TABLE IF NOT EXISTS provider_requests(action_key TEXT NOT NULL REFERENCES effects(key), request_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL, PRIMARY KEY(action_key,request_id));
       CREATE TABLE IF NOT EXISTS coordinator_snapshots(run_id TEXT PRIMARY KEY REFERENCES runs(id), data TEXT NOT NULL);
@@ -155,7 +166,7 @@ export class Store {
           this.#saveSnapshot(next);
         }
       }
-      this.#db.exec("PRAGMA user_version=6; COMMIT;");
+      this.#db.exec("PRAGMA user_version=7; COMMIT;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -664,38 +675,210 @@ export class Store {
       integer(outputCap, 1);
       if (outputCap > action.tokens) throw new Error("provider-budget");
       const request = freezeProviderRequest(body);
-      if (this.providerRecord(action.key, id))
-        throw new Error("provider-reconciliation-required");
-      const records = this.providerRecords(action.key);
-      if (records.length >= 64) throw new Error("provider-attempt-limit");
-      if (
-        records.some(
-          (r) => !["completed", "incomplete", "rejected"].includes(r.state),
-        )
+      if (this.stockContract(action.key))
+        throw new Error("provider-mode-conflict");
+      return this.#insertProvider(lease, action, id, request, outputCap);
+    });
+  }
+  #insertProvider(
+    lease: Lease,
+    action: Action,
+    id: string,
+    request: import("../agents/provider-ledger.js").FrozenRequest,
+    outputCap: number,
+  ): ProviderRecord {
+    if (this.providerRecord(action.key, id))
+      throw new Error("provider-reconciliation-required");
+    const records = this.providerRecords(action.key);
+    if (records.length >= 64) throw new Error("provider-attempt-limit");
+    if (
+      records.some(
+        (r) => !["completed", "incomplete", "rejected"].includes(r.state),
       )
-        throw new Error("provider-outstanding");
-      const record: ProviderRecord = {
-        schema: 1,
-        id,
-        action: JSON.parse(json(action)),
-        lease: JSON.parse(json(lease)),
-        request,
-        outputCap,
-        state: "counting",
-        inputTokens: null,
-        chargedTokens: 0,
-        usage: null,
-        reason: null,
-      };
+    )
+      throw new Error("provider-outstanding");
+    const record: ProviderRecord = {
+      schema: 1,
+      id,
+      action: JSON.parse(json(action)),
+      lease: JSON.parse(json(lease)),
+      request,
+      outputCap,
+      state: "counting",
+      inputTokens: null,
+      chargedTokens: 0,
+      usage: null,
+      reason: null,
+    };
+    this.#db
+      .prepare(
+        "INSERT INTO provider_requests(action_key,request_id,run_id,data) VALUES(?,?,?,?)",
+      )
+      .run(action.key, id, action.runId, json(record));
+    this.#event(action.runId, "provider-transition", record);
+    return record;
+  }
+  stockContract(actionKey: string): StockContract | undefined {
+    const row = this.#db
+      .prepare("SELECT data FROM provider_stock_contracts WHERE action_key=?")
+      .get(actionKey);
+    return row ? JSON.parse(String(row.data)) : undefined;
+  }
+  registerStockContract(lease: Lease, action: Action, value: StockContract) {
+    return this.#transaction(() => {
+      this.assertProviderAction(lease, action);
+      const contract = freezeStockContract(value);
+      if (
+        contract.actionKey !== action.key ||
+        contract.inputDigest !== action.inputDigest ||
+        contract.head !== this.#snapshot(action.runId).head ||
+        contract.outputCap > action.tokens
+      )
+        throw new Error("stock-contract-binding");
+      const old = this.stockContract(action.key);
+      if (old) {
+        if (json(old) !== json(contract))
+          throw new Error("stock-contract-conflict");
+        return old;
+      }
+      if (this.providerRecords(action.key).length)
+        throw new Error("provider-mode-conflict");
       this.#db
         .prepare(
-          "INSERT INTO provider_requests(action_key,request_id,run_id,data) VALUES(?,?,?,?)",
+          "INSERT INTO provider_stock_contracts(action_key,data) VALUES(?,?)",
         )
-        .run(action.key, id, action.runId, json(record));
-      this.#event(action.runId, "provider-transition", record);
+        .run(action.key, json(contract));
+      this.#event(action.runId, "stock-contract-registered", contract);
+      return contract;
+    });
+  }
+  /** Freeze and consume semantic history in the SAME transaction as counting admission. */
+  prepareStockProvider(
+    lease: Lease,
+    action: Action,
+    body: unknown,
+    wireDigest: string,
+    headers: Record<string, unknown>,
+    assertCurrent: (
+      request: import("../agents/provider-ledger.js").FrozenRequest,
+    ) => void,
+  ) {
+    if (this.#transactionDepth)
+      throw new Error("provider-prepare-inside-transaction");
+    return this.#transaction(() => {
+      this.assertProviderAction(lease, action);
+      const contract = this.stockContract(action.key);
+      if (!contract) throw new Error("stock-contract-missing");
+      if (!/^[a-f0-9]{64}$/.test(wireDigest))
+        throw new Error("stock-wire-digest");
+      const { request, turn, input } = freezeStockRequest(body, contract);
+      validateStockHeaders(headers, contract, turn);
+      const records = this.providerRecords(action.key),
+        previous = records.at(-1);
+      const progression = stockProgression(contract, input, turn, previous);
+      if (assertCurrent(request) !== undefined)
+        throw new Error("provider-guard-must-be-synchronous");
+      this.assertProviderAction(lease, action);
+      const ordinal = records.length + 1,
+        id = `stock-${ordinal}`;
+      this.#db
+        .prepare(
+          "INSERT INTO provider_stock_progressions(action_key,progression,request_id,ordinal) VALUES(?,?,?,?)",
+        )
+        .run(action.key, progression, id, ordinal);
+      const record = this.#insertProvider(
+        lease,
+        action,
+        id,
+        request,
+        contract.outputCap,
+      );
+      record.stock = {
+        contractDigest: identity(contract),
+        ordinal,
+        turn,
+        parent: previous?.id ?? null,
+        progression,
+        wireDigest,
+        headersDigest: identity(headers),
+        response: null,
+        forwarding: "pending",
+      };
+      this.#saveProvider(record);
       return record;
     });
   }
+  finishStockProvider(
+    actionKey: string,
+    id: string,
+    outcome: Pick<ProviderRecord, "state" | "usage" | "reason">,
+    response: StockCompletion,
+  ) {
+    return this.#transaction(() => {
+      const current = this.providerRecord(actionKey, id);
+      if (!current?.stock) throw new Error("stock-request-missing");
+      if (current.stock.response) throw new Error("stock-response-replayed");
+      if (
+        this.providerRecords(actionKey).some(
+          (r) => r.stock?.response?.responseId === response.responseId,
+        )
+      )
+        throw new Error("stock-response-id-reused");
+      const previousCalls = this.providerRecords(actionKey)
+        .flatMap((r) => r.stock?.response?.items ?? [])
+        .map((v) => v.call_id)
+        .filter((v) => v !== undefined);
+      if (
+        response.items.some(
+          (v) => v.call_id !== undefined && previousCalls.includes(v.call_id),
+        )
+      )
+        throw new Error("stock-call-id-reused");
+      const record = this.finishProvider(actionKey, id, outcome);
+      record.stock!.response = response;
+      this.#saveProvider(record);
+      return record;
+    });
+  }
+  /** Commit a single forwarding attempt before client bytes. Accounting never means client consumption. */
+  forwardStockProvider<T>(
+    lease: Lease,
+    action: Action,
+    id: string,
+    assertCurrent: () => void,
+    send: () => T,
+  ): T {
+    if (this.#transactionDepth)
+      throw new Error("provider-forward-inside-transaction");
+    this.#transaction(() => {
+      const r = this.providerRecord(action.key, id);
+      if (
+        !r?.stock?.response ||
+        !["completed", "incomplete"].includes(r.state) ||
+        r.stock.forwarding !== "pending"
+      )
+        throw new Error("stock-forward-state");
+      r.stock.forwarding = "sending";
+      this.#saveProvider(r);
+    });
+    return this.#transaction(() => {
+      this.assertProviderAction(lease, action);
+      if (assertCurrent() !== undefined)
+        throw new Error("provider-guard-must-be-synchronous");
+      this.assertProviderAction(lease, action);
+      return send();
+    });
+  }
+  observeStockForward(actionKey: string, id: string) {
+    this.#transaction(() => {
+      const r = this.providerRecord(actionKey, id);
+      if (!r?.stock || r.stock.forwarding !== "sending")
+        throw new Error("stock-forward-state");
+      r.stock.forwarding = "finished";
+      this.#saveProvider(r);
+    });
+  }
+
   reserveProvider(
     lease: Lease,
     action: Action,
@@ -794,10 +977,12 @@ export class Store {
           u.input !== record.inputTokens ||
           u.output > record.outputCap ||
           u.total !== u.input + u.output ||
-          u.reasoning > u.output
+          (u.reasoning !== null && u.reasoning > u.output)
         )
           throw new Error("provider-usage-mismatch");
-        for (const n of [u.input, u.output, u.reasoning, u.total]) integer(n);
+        for (const n of [u.input, u.output, u.total]) integer(n);
+        if (u.reasoning !== null) integer(u.reasoning);
+        else if (!record.stock) throw new Error("provider-reasoning-unknown");
         if (!/^[a-f0-9]{64}$/.test(u.receipt))
           throw new Error("provider-receipt-hash");
       } else throw new Error("provider-receipt-state");

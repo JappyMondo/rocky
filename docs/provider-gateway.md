@@ -12,6 +12,10 @@ capability, not an upstream credential. Only the future trusted provider adapter
 may hold an upstream credential in memory. Never include it in request data,
 count results, observations, exceptions, or provider receipts.
 
+A separate opt-in [stock ingress contract](stock-gateway.md) adds receive-time
+admission and causal history. The exact-preapproval mode described below remains
+available. Current Store schema 7 preserves the original schema 6 ledger.
+
 ## Host admission and exact input
 
 The trusted host constructs the gateway with the exact durable `Action` and

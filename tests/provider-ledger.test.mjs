@@ -243,7 +243,7 @@ test("L04 nested dispatch/reservation cannot roll back a charge around an extern
     f.store.close();
   }
 });
-test("L05 exact schema5 source migration preserves cancellation, slot, action and reservations; old reader refuses schema6", async () => {
+test("L05 exact schema5 source migration preserves cancellation, slot, action and reservations; old reader refuses schema7", async () => {
   const f = actionFixture("schema5");
   f.store.close();
   const source = "10bda64f6d91a13826e9ec047b7f787eda0476a7";
@@ -306,7 +306,7 @@ test("L05 exact schema5 source migration preserves cancellation, slot, action an
     /incompatible-store-schema/,
   );
   const db = new DatabaseSync(`${f.dir}/upgraded.sqlite`);
-  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 6);
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 7);
   db.close();
   writeFileSync(
     `${f.dir}/migration.json`,

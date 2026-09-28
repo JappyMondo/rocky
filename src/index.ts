@@ -13,3 +13,6 @@ export * from "./attraccess/integrity.js";
 export * from "./coordinator/index.js";
 export * from "./agents/provider-ledger.js";
 export * from "./agents/provider-gateway.js";
+
+export * from "./agents/stock-request.js";
+export * from "./agents/stock-response.js";

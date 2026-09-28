@@ -8,6 +8,13 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
 import { canonical } from "../store/json.js";
 import { Store, type Lease } from "../store/index.js";
+import { readStockResponse } from "./stock-response.js";
+import {
+  strictJson,
+  stockHeaders,
+  type StockContract,
+  type StockCompletion,
+} from "./stock-request.js";
 import type { Action } from "../coordinator/contracts.js";
 import {
   exact,
@@ -58,6 +65,12 @@ export class ProviderGateway {
   #lease: Lease;
   #action: Action;
   #provider: TrustedProvider;
+  #stock:
+    | {
+        contract: StockContract;
+        assertCurrent: GatewayApproval["assertCurrent"];
+      }
+    | undefined;
   #approvals = new Map<string, Approval>();
   #token = randomBytes(32).toString("hex");
   #server: Server | null = null;
@@ -74,15 +87,31 @@ export class ProviderGateway {
     lease: Lease,
     action: Action,
     provider: TrustedProvider,
+    stock?: {
+      contract: StockContract;
+      assertCurrent: GatewayApproval["assertCurrent"];
+    },
   ) {
     this.#lease = JSON.parse(canonical(lease));
     this.#action = JSON.parse(canonical(action));
     this.#provider = provider;
     store.assertProviderAction(this.#lease, this.#action);
+    if (stock)
+      this.#stock = {
+        contract: store.registerStockContract(
+          this.#lease,
+          this.#action,
+          stock.contract,
+        ),
+        assertCurrent: stock.assertCurrent,
+      };
+    else if (store.stockContract(action.key))
+      throw new Error("provider-mode-conflict");
   }
   /** Host-only approval, never an HTTP route. New retries require a new explicitly approved identity. */
   approve(value: GatewayApproval) {
     this.#assert();
+    if (this.#stock) throw new Error("provider-mode-conflict");
     if (
       !/^[a-zA-Z0-9_-]{1,80}$/.test(value.id) ||
       this.#approvals.has(value.id) ||
@@ -117,7 +146,7 @@ export class ProviderGateway {
       throw new Error("gateway-async-authority");
   }
   /** Exactly one private IPv4 loopback listener, ephemeral port, no proxy/redirect/WebSocket routes. */
-  async listen(): Promise<{ url: string; bearer: string }> {
+  async listen(): Promise<{ url: string; baseUrl: string; bearer: string }> {
     this.#assert();
     if (this.#server) throw new Error("gateway-already-listening");
     const server = createServer(
@@ -215,6 +244,7 @@ export class ProviderGateway {
     );
     return {
       url: `http://127.0.0.1:${address.port}/v1/responses`,
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
       bearer: this.#token,
     };
   }
@@ -290,7 +320,7 @@ export class ProviderGateway {
             ![
               "host",
               "authorization",
-              "x-rocky-request-id",
+              ...(this.#stock ? stockHeaders : ["x-rocky-request-id"]),
               "content-type",
               "content-length",
               "connection",
@@ -319,9 +349,9 @@ export class ProviderGateway {
       if (token.length !== expected.length || !timingSafeEqual(token, expected))
         throw new Error("auth");
       const id = req.headers["x-rocky-request-id"];
-      const approval =
+      let approval =
         typeof id === "string" ? this.#approvals.get(id) : undefined;
-      if (!approval) throw new Error("approval");
+      if (!approval && !this.#stock) throw new Error("approval");
       for await (const chunk of req) {
         if (
           bytes + chunk.length > Number(length) ||
@@ -332,20 +362,45 @@ export class ProviderGateway {
         bytes += chunk.length;
       }
       body = Buffer.concat(chunks, bytes);
-      if (
-        !req.complete ||
-        bytes !== Number(length) ||
-        !body.equals(Buffer.from(approval.request.body, "utf8"))
-      )
-        throw new Error("body");
-      this.#authority(approval);
-      record = this.store.prepareProvider(
-        this.#lease,
-        this.#action,
-        approval.id,
-        JSON.parse(approval.request.body),
-        approval.outputCap,
-      );
+      if (!req.complete || bytes !== Number(length)) throw new Error("body");
+      if (this.#stock) {
+        const stock = this.#stock;
+        record = this.store.prepareStockProvider(
+          this.#lease,
+          this.#action,
+          strictJson(body),
+          sha256(body),
+          Object.fromEntries(
+            stockHeaders.map((name) => [name, req.headers[name]]),
+          ),
+          (request) => {
+            this.#assert();
+            return stock.assertCurrent(request);
+          },
+        );
+        approval = {
+          id: record.id,
+          request: record.request,
+          outputCap: record.outputCap,
+          assertCurrent: stock.assertCurrent,
+        };
+      } else {
+        if (
+          !approval ||
+          !body.equals(Buffer.from(approval.request.body, "utf8"))
+        )
+          throw new Error("body");
+        this.#authority(approval);
+        record = this.store.prepareProvider(
+          this.#lease,
+          this.#action,
+          approval.id,
+          JSON.parse(approval.request.body),
+          approval.outputCap,
+        );
+      }
+      const admitted = approval;
+      if (!admitted) throw new Error("approval");
       controller = new AbortController();
       this.#active.add(controller);
       const signal = controller.signal;
@@ -365,28 +420,28 @@ export class ProviderGateway {
       );
       try {
         const count = await abortable(
-          this.#provider.count(approval.request, signal),
+          this.#provider.count(admitted.request, signal),
           signal,
         );
-        const input = validateProviderCount(count, approval.request);
-        this.#authority(approval);
+        const input = validateProviderCount(count, admitted.request);
+        this.#authority(admitted);
         if (signal.aborted) throw new Error("aborted");
         record = this.store.reserveProvider(
           this.#lease,
           this.#action,
-          approval.id,
+          admitted.id,
           input,
         );
         const output = canonical({
-          ...JSON.parse(approval.request.body),
-          max_output_tokens: approval.outputCap,
+          ...JSON.parse(admitted.request.body),
+          max_output_tokens: admitted.outputCap,
         });
         const pending = this.store.dispatchProvider(
           this.#lease,
           this.#action,
-          approval.id,
+          admitted.id,
           () => {
-            this.#authority(approval);
+            this.#authority(admitted);
             if (signal.aborted) throw new Error("aborted");
           },
           () => this.#provider.send(output, signal),
@@ -397,29 +452,70 @@ export class ProviderGateway {
           response.contentType !== "text/event-stream"
         )
           throw new Error("upstream-status");
-        const parsed = await abortable(
-          readResponse(
-            response.body,
-            approval.request,
-            input,
-            approval.outputCap,
-            signal,
-          ),
+        const parsed: Awaited<ReturnType<typeof readResponse>> & {
+          response?: StockCompletion;
+        } = await abortable(
+          this.#stock
+            ? readStockResponse(
+                response.body,
+                this.#stock.contract,
+                input,
+                admitted.outputCap,
+                signal,
+              )
+            : readResponse(
+                response.body,
+                admitted.request,
+                input,
+                admitted.outputCap,
+                signal,
+              ),
           signal,
         );
-        record = this.store.finishProvider(this.#action.key, approval.id, {
+        const outcome = {
           state: parsed.state,
           usage: parsed.usage,
           reason: null,
-        });
+        };
+        if (this.#stock && parsed.response)
+          record = this.store.finishStockProvider(
+            this.#action.key,
+            admitted.id,
+            outcome,
+            parsed.response,
+          );
+        else
+          record = this.store.finishProvider(
+            this.#action.key,
+            admitted.id,
+            outcome,
+          );
         observation = parsed.state;
-        if (!res.destroyed) {
+        const forward = () => {
+          if (res.destroyed) throw new Error("client-disconnected");
           res.writeHead(200, {
             "content-type": "text/event-stream",
             connection: "close",
           });
+          if (this.#stock)
+            res.once("finish", () => {
+              try {
+                this.store.observeStockForward(this.#action.key, admitted.id);
+              } catch {
+                res.destroy();
+              }
+            });
           res.end(parsed.bytes);
-        }
+        };
+        if (this.#stock) {
+          this.store.forwardStockProvider(
+            this.#lease,
+            this.#action,
+            admitted.id,
+            () => this.#authority(admitted),
+            forward,
+          );
+        } else if (!res.destroyed) forward();
       } finally {
         clearTimeout(timer);
         controller.abort();

@@ -21,7 +21,8 @@
     "dist",
     "docs/foundation.md",
     "docs/attraccess-environment.md",
-    "docs/provider-gateway.md"
+    "docs/provider-gateway.md",
+    "docs/stock-gateway.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",

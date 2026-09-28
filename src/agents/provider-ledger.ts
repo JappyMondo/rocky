@@ -28,6 +28,7 @@ function bounded(value: unknown, max: number) {
   return value;
 }
 export type FrozenRequest = Readonly<{
+  protocol?: "stock-responses-v1";
   body: string;
   digest: string;
   model: "gpt-6-sol" | "gpt-6-astra";
@@ -144,6 +145,7 @@ export function freezeProviderRequest(value: unknown): FrozenRequest {
 }
 export type ProviderRecord = {
   schema: 1;
+  stock?: import("./stock-request.js").StockRecord;
   id: string;
   action: Action;
   lease: Lease;
@@ -162,7 +164,7 @@ export type ProviderRecord = {
   usage: {
     input: number;
     output: number;
-    reasoning: number;
+    reasoning: number | null;
     total: number;
     receipt: string;
   } | null;
