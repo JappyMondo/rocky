@@ -401,7 +401,7 @@ test("R8 schema2 owned copy migrates to schema7/snapshot3 with retained old evid
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(f.dir + "/migration-copy.sqlite");
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 7);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 8);
   sql.close();
   retain(f, { snapshot, after, event: newEvents.at(-1) });
 });

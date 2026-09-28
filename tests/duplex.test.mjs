@@ -720,7 +720,7 @@ test("D14 exact previous schema4 reader creates preserved charged/cancelled outs
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(`${f.dir}/upgraded.sqlite`);
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 7);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 8);
   sql.close();
   retain(f, {
     sourceCommit,

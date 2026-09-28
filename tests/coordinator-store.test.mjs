@@ -106,7 +106,7 @@ test("C01 schema7 fresh/copy migration retains v1 events/effects/commands; unkno
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(f.dir + "/copy.sqlite");
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 7);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 8);
   sql.exec("PRAGMA user_version=99");
   sql.close();
   assert.throws(

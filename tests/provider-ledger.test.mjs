@@ -306,7 +306,7 @@ test("L05 exact schema5 source migration preserves cancellation, slot, action an
     /incompatible-store-schema/,
   );
   const db = new DatabaseSync(`${f.dir}/upgraded.sqlite`);
-  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 7);
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 8);
   db.close();
   writeFileSync(
     `${f.dir}/migration.json`,

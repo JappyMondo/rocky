@@ -2,7 +2,8 @@ import { canonical, identity } from "../store/json.js";
 import type { Versions } from "../store/index.js";
 import type { Artifact, EvidenceInputs } from "../evidence/index.js";
 
-export const COORDINATOR_SCHEMA = 3;
+/** Snapshot3 is the unchanged strict-provider record; snapshot4 is subscription-observed-v1 only. */
+export const COORDINATOR_SCHEMA = 4;
 export type Stage =
   | "admitted"
   | "baseline"
@@ -41,6 +42,35 @@ export interface HardLimitsCapability {
   hardTokenLimit: true;
   hardElapsedLimit: true;
 }
+/** Existing strict mode: agent work requires HardLimitsCapability and provider-receipt usage. */
+export const STRICT_BUDGET_MODE = "strict-provider-v1";
+/**
+ * Harness-neutral direct subscription mode (budget semantics accepted in #88 / #89). Any directly
+ * invoked coding harness (for example claude-code or codex-exec) uses the same accounting rules.
+ */
+export const SUBSCRIPTION_BUDGET_MODE = "subscription-observed-v1";
+/**
+ * Explicit per-run accounting policy, immutable after admission. The subscription mode has no
+ * hard aggregate token limit, mid-turn cutoff or overshoot bound: its threshold is compared with
+ * harness-reported totals only before another automatic agent action is reserved.
+ */
+export type BudgetPolicy =
+  | { mode: typeof STRICT_BUDGET_MODE }
+  | { mode: typeof SUBSCRIPTION_BUDGET_MODE; reportedTokenThreshold: number };
+/**
+ * Runtime/containment qualification identity for a subscription-mode run: which harness and which
+ * independently approved harness-specific contract/binding. It carries no accounting guarantee and
+ * no capability booleans. This package ships no loader or approved binding, so production
+ * subscription agent admission remains unavailable.
+ */
+export interface ExecutionQualification {
+  schema: 1;
+  id: string;
+  harness: string;
+  contractId: string;
+  budgetMode: typeof SUBSCRIPTION_BUDGET_MODE;
+  binding: string;
+}
 export interface CoordinatorLimits {
   totalTokens: number;
   totalElapsedMs: number;
@@ -58,18 +88,24 @@ export type WorkKind =
   | "repair_review"
   | "retry_environment"
   | "arbitrate";
-export interface Action {
-  schema: 1;
+interface ActionCommon {
   key: string;
   runId: string;
   kind: WorkKind;
   inputDigest: string;
   versions: Versions;
+  /** Strict: hard per-action token ceiling. Subscription: planning charge only. */
   tokens: number;
   elapsedMs: number;
   deadline: number;
-  capabilityId: string | null;
 }
+export type Action =
+  | (ActionCommon & { schema: 1; capabilityId: string | null })
+  | (ActionCommon & {
+      schema: 2;
+      budgetMode: typeof SUBSCRIPTION_BUDGET_MODE;
+      qualificationId: string | null;
+    });
 /** Trusted transport evidence references, not provider/capability attestation by themselves. */
 export type TokenUsage =
   | {
@@ -82,6 +118,47 @@ export type TokenUsage =
       };
     }
   | { schema: 1; status: "unknown"; reason: string };
+/**
+ * Harness-neutral action-level usage reported by a directly invoked harness in subscription mode.
+ * Never provider usage and never actual consumption. `harness` names the reporting harness and
+ * `receipt` is the sha256 of the retained raw telemetry it was derived from (for example a codex
+ * exec turn.completed event, or Claude Code's final result usage). Adapters normalize native
+ * fields into subset semantics: `input` is ALL input including cache reads/writes, `cachedInput`
+ * and `cacheWriteInput` are subsets of it, `reasoningOutput` is a subset of `output`; null means
+ * the harness did not report that subset. Comparison total is input+output, subsets never added.
+ * Intermediate per-message reports are not an action total. Absent/all-zero totals must be
+ * ambiguous-zero or unknown, never a known zero.
+ */
+export type HarnessUsage =
+  | {
+      schema: 2;
+      status: "reported";
+      source: "native-harness-telemetry";
+      harness: string;
+      receipt: string;
+      components: {
+        input: number;
+        cachedInput: number | null;
+        cacheWriteInput: number | null;
+        output: number;
+        reasoningOutput: number | null;
+      };
+    }
+  | {
+      schema: 2;
+      status: "ambiguous-zero";
+      source: "native-harness-telemetry";
+      harness: string;
+      receipt: string;
+    }
+  | {
+      schema: 2;
+      status: "unknown";
+      source: "native-harness-telemetry";
+      harness: string;
+      reason: string;
+    };
+export type ActionUsage = TokenUsage | HarnessUsage;
 export interface Budgets {
   environment: number;
   product: number;
@@ -92,6 +169,10 @@ export interface Budgets {
   knownTokens: number;
   unknownActions: number;
   legacyReportedTokens: number | null;
+  /** Snapshot4 only: unclipped sum of reported input+output; never provider/actual usage. */
+  harnessReportedTokens?: number;
+  /** Snapshot4 only: settled actions whose telemetry was absent or all-zero. */
+  harnessAmbiguousZero?: number;
   reservedElapsedMs: number;
   elapsedMs: number;
   observedAt: number;
@@ -115,7 +196,7 @@ export interface ReceiptState {
 }
 export type ReceiptKind = "baseline" | "checks" | "ci" | "review" | "approval";
 export interface RunSnapshot {
-  schema: 3;
+  schema: 3 | 4;
   runId: string;
   repository: string;
   issue: string;
@@ -133,9 +214,12 @@ export interface RunSnapshot {
   startedAt: number;
   limits: CoordinatorLimits;
   capability: HardLimitsCapability | null;
+  /** Snapshot4 only. The snapshot schema itself is the immutable per-run mode. */
+  budget?: Extract<BudgetPolicy, { mode: typeof SUBSCRIPTION_BUDGET_MODE }>;
+  qualification?: ExecutionQualification | null;
   budgets: Budgets;
   execution: Action | null;
-  executionUsage: TokenUsage | null;
+  executionUsage: ActionUsage | null;
   unqualifiedResults: WorkKind[];
   receipts: Partial<Record<ReceiptKind, ReceiptState>>;
   observations: Partial<Record<ReceiptKind, Observation>>;
@@ -162,7 +246,7 @@ export type Event =
       actionKey: string;
       inputDigest: string;
       quiescent: boolean;
-      usage: TokenUsage;
+      usage: ActionUsage;
       outcome: "changed" | "no_code" | "complete" | "failed" | "interrupted";
       head: string;
       detail: string;
@@ -182,6 +266,9 @@ export interface Admission {
   checkPlan: string;
   limits: CoordinatorLimits;
   capability: HardLimitsCapability | null;
+  /** Absent means the existing strict mode; subscription mode must be requested explicitly. */
+  budget?: BudgetPolicy;
+  qualification?: ExecutionQualification | null;
 }
 export function object(value: unknown): Record<string, unknown> {
   canonical(value);
@@ -247,6 +334,48 @@ export function validateCapability(
   if (v.hardTokenLimit !== true || v.hardElapsedLimit !== true)
     throw new Error("unsupported-hard-limits");
 }
+const sha256 = /^[a-f0-9]{64}$/;
+export function validateBudgetPolicy(
+  value: unknown,
+): asserts value is BudgetPolicy {
+  const p = object(value);
+  if (p.mode === STRICT_BUDGET_MODE) keys(p, ["mode"]);
+  else if (p.mode === SUBSCRIPTION_BUDGET_MODE) {
+    keys(p, ["mode", "reportedTokenThreshold"]);
+    integer(p.reportedTokenThreshold, 1);
+  } else throw new Error("unsupported-budget-mode");
+}
+export function validateQualification(
+  value: unknown,
+): asserts value is ExecutionQualification | null {
+  if (value === null) return;
+  const q = object(value);
+  keys(q, ["schema", "id", "harness", "contractId", "budgetMode", "binding"]);
+  for (const k of ["id", "harness", "contractId"]) text(q[k]);
+  if (
+    q.schema !== 1 ||
+    q.budgetMode !== SUBSCRIPTION_BUDGET_MODE ||
+    typeof q.binding !== "string" ||
+    !sha256.test(q.binding)
+  )
+    throw new Error("invalid-execution-qualification");
+}
+/** Mode-specific authority: hard-limit capabilities never apply to subscription runs, and vice versa. */
+function validateBudgetBinding(
+  budget: unknown,
+  qualification: unknown,
+  capability: unknown,
+) {
+  validateBudgetPolicy(budget);
+  validateQualification(qualification);
+  if (budget.mode === STRICT_BUDGET_MODE && qualification !== null)
+    throw new Error("strict-mode-rejects-subscription-qualification");
+  if (budget.mode === SUBSCRIPTION_BUDGET_MODE && capability !== null)
+    throw new Error("subscription-mode-rejects-hard-limits-capability");
+}
+export function subscription(s: Pick<RunSnapshot, "schema">) {
+  return s.schema === 4;
+}
 export function validateCoordinatorAdmission(
   value: unknown,
 ): asserts value is Admission {
@@ -264,6 +393,7 @@ export function validateCoordinatorAdmission(
     "checkPlan",
     "limits",
     "capability",
+    ...["budget", "qualification"].filter((k) => Object.hasOwn(a, k)),
   ]);
   for (const k of [
     "runId",
@@ -279,6 +409,11 @@ export function validateCoordinatorAdmission(
   validateScope(a.scope);
   validateVersions(a.versions);
   validateCapability(a.capability);
+  validateBudgetBinding(
+    a.budget ?? { mode: STRICT_BUDGET_MODE },
+    a.qualification ?? null,
+    a.capability,
+  );
   const limits = object(a.limits);
   keys(limits, [
     "totalTokens",
@@ -317,7 +452,7 @@ const blockers = [
 ];
 export function validateAction(value: unknown): asserts value is Action {
   const a = object(value);
-  keys(a, [
+  const common = [
     "schema",
     "key",
     "runId",
@@ -327,16 +462,27 @@ export function validateAction(value: unknown): asserts value is Action {
     "tokens",
     "elapsedMs",
     "deadline",
-    "capabilityId",
-  ]);
-  if (a.schema !== 1 || !workKinds.includes(enumString(a.kind)))
+  ];
+  if (
+    !(a.schema === 1 || a.schema === 2) ||
+    (a.schema === 2 && a.budgetMode !== SUBSCRIPTION_BUDGET_MODE)
+  )
+    throw new Error("invalid-action");
+  keys(
+    a,
+    a.schema === 1
+      ? [...common, "capabilityId"]
+      : [...common, "budgetMode", "qualificationId"],
+  );
+  if (!workKinds.includes(enumString(a.kind)))
     throw new Error("invalid-action");
   for (const key of ["key", "runId", "inputDigest"]) text(a[key]);
   validateVersions(a.versions);
   integer(a.tokens);
   integer(a.elapsedMs, 1);
   integer(a.deadline, 1);
-  if (a.capabilityId !== null) text(a.capabilityId);
+  const authority = a.schema === 1 ? a.capabilityId : a.qualificationId;
+  if (authority !== null) text(authority);
 }
 export function validateEvent(
   value: unknown,
@@ -479,16 +625,16 @@ export function terminal(s: RunSnapshot) {
 
 /** Corrupt or unknown durable snapshots are recovery inputs, never dispatch permission. */
 export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
-  validateSnapshotShape(value, false);
+  validateSnapshotShape(value, object(value).schema === 4 ? 4 : 3);
 }
 /** Only the explicit migration path may accept schema 2. */
 export function validateLegacySnapshot(value: unknown) {
-  validateSnapshotShape(value, true);
+  validateSnapshotShape(value, 2);
 }
-function validateSnapshotShape(value: unknown, legacy: boolean) {
+function validateSnapshotShape(value: unknown, schema: 2 | 3 | 4) {
+  const legacy = schema === 2;
   const s = object(value);
-  if (s.schema !== (legacy ? 2 : 3))
-    throw new Error("incompatible-coordinator-schema");
+  if (s.schema !== schema) throw new Error("incompatible-coordinator-schema");
   keys(s, [
     "schema",
     "runId",
@@ -508,6 +654,7 @@ function validateSnapshotShape(value: unknown, legacy: boolean) {
     "startedAt",
     "limits",
     "capability",
+    ...(schema === 4 ? ["budget", "qualification"] : []),
     "budgets",
     "execution",
     ...(legacy ? [] : ["executionUsage", "unqualifiedResults"]),
@@ -529,6 +676,9 @@ function validateSnapshotShape(value: unknown, legacy: boolean) {
     checkPlan: s.checkPlan,
     limits: s.limits,
     capability: s.capability,
+    ...(schema === 4
+      ? { budget: s.budget, qualification: s.qualification }
+      : {}),
   });
   integer(s.revision);
   integer(s.startedAt);
@@ -563,6 +713,7 @@ function validateSnapshotShape(value: unknown, legacy: boolean) {
     ...(legacy
       ? ["reportedTokens"]
       : ["knownTokens", "unknownActions", "legacyReportedTokens"]),
+    ...(schema === 4 ? ["harnessReportedTokens", "harnessAmbiguousZero"] : []),
     "reservedElapsedMs",
     "elapsedMs",
     "observedAt",
@@ -570,10 +721,15 @@ function validateSnapshotShape(value: unknown, legacy: boolean) {
   Object.entries(b).forEach(([key, v]) => {
     if (key !== "legacyReportedTokens" || v !== null) integer(v);
   });
+  const mode = schema === 4 ? SUBSCRIPTION_BUDGET_MODE : STRICT_BUDGET_MODE;
+  if (schema === 4 && object(s.budget).mode !== SUBSCRIPTION_BUDGET_MODE)
+    throw new Error("invalid-snapshot-budget-mode");
   if (!legacy) {
     if (s.executionUsage !== null) {
       validateUsage(s.executionUsage);
       if (s.execution === null) throw new Error("usage-without-execution");
+      if (mode !== SUBSCRIPTION_BUDGET_MODE && s.executionUsage.schema !== 1)
+        throw new Error("incompatible-usage-schema");
     }
     if (
       !Array.isArray(s.unqualifiedResults) ||
@@ -594,7 +750,10 @@ function validateSnapshotShape(value: unknown, legacy: boolean) {
     throw new Error("invalid-snapshot-budget");
   if (s.execution !== null) {
     validateAction(s.execution);
-    if (s.execution.runId !== s.runId)
+    if (
+      s.execution.runId !== s.runId ||
+      s.execution.schema !== (mode === SUBSCRIPTION_BUDGET_MODE ? 2 : 1)
+    )
       throw new Error("invalid-snapshot-execution");
   }
   if (!Array.isArray(s.signatures)) throw new Error("invalid-signatures");
@@ -678,8 +837,9 @@ export function evidenceBundle(s: RunSnapshot, kind: ReceiptKind): string {
   });
 }
 
-export function validateUsage(value: unknown): asserts value is TokenUsage {
+export function validateUsage(value: unknown): asserts value is ActionUsage {
   const u = object(value);
+  if (u.schema === 2) return validateHarnessUsage(u);
   if (u.schema !== 1) throw new Error("incompatible-usage-schema");
   if (u.status === "unknown") {
     keys(u, ["schema", "status", "reason"]);
@@ -697,4 +857,49 @@ export function validateUsage(value: unknown): asserts value is TokenUsage {
     if (source.kind === "local-no-model" && u.tokens !== 0)
       throw new Error("invalid-local-usage");
   } else throw new Error("invalid-usage-status");
+}
+function validateHarnessUsage(u: Record<string, unknown>) {
+  const base = ["schema", "status", "source", "harness"];
+  if (u.status === "unknown") keys(u, [...base, "reason"]);
+  else if (u.status === "ambiguous-zero") keys(u, [...base, "receipt"]);
+  else if (u.status === "reported") keys(u, [...base, "receipt", "components"]);
+  else throw new Error("invalid-usage-status");
+  if (u.source !== "native-harness-telemetry")
+    throw new Error("invalid-usage-source");
+  text(u.harness);
+  if (u.status === "unknown") return text(u.reason);
+  if (typeof u.receipt !== "string" || !sha256.test(u.receipt))
+    throw new Error("invalid-usage-receipt");
+  if (u.status === "ambiguous-zero") return;
+  const c = object(u.components);
+  keys(c, [
+    "input",
+    "cachedInput",
+    "cacheWriteInput",
+    "output",
+    "reasoningOutput",
+  ]);
+  integer(c.input);
+  integer(c.output);
+  for (const k of ["cachedInput", "cacheWriteInput", "reasoningOutput"])
+    if (c[k] !== null) integer(c[k]);
+  const n = c as HarnessComponents;
+  if (
+    (n.cachedInput ?? 0) + (n.cacheWriteInput ?? 0) > n.input ||
+    (n.reasoningOutput ?? 0) > n.output
+  )
+    throw new Error("inconsistent-usage-components");
+  // All-zero terminal telemetry is the source default for absent usage, never a known zero.
+  if (n.input + n.output === 0) throw new Error("zero-usage-must-be-ambiguous");
+  integer(n.input + n.output);
+}
+type HarnessComponents = Extract<
+  HarnessUsage,
+  { status: "reported" }
+>["components"];
+/** Comparison total from the frozen contract: subsets are never added twice. */
+export function reportedTotal(
+  u: Extract<HarnessUsage, { status: "reported" }>,
+) {
+  return u.components.input + u.components.output;
 }

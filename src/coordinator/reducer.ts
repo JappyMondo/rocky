@@ -9,6 +9,10 @@ import {
   evidenceBundle,
   validateCoordinatorAdmission,
   integer,
+  subscription,
+  reportedTotal,
+  STRICT_BUDGET_MODE,
+  SUBSCRIPTION_BUDGET_MODE,
   type Admission,
   type Action,
   type Event,
@@ -23,12 +27,17 @@ export function initialSnapshot(
 ): RunSnapshot {
   validateCoordinatorAdmission(admission);
   integer(now);
-  const { previousRunId: _, ...a } = JSON.parse(
-    canonical(admission),
-  ) as Admission;
+  const {
+    previousRunId: _,
+    budget = { mode: STRICT_BUDGET_MODE },
+    qualification = null,
+    ...a
+  } = JSON.parse(canonical(admission)) as Admission;
+  const strict = budget.mode === STRICT_BUDGET_MODE;
   const s: RunSnapshot = {
     ...a,
-    schema: 3,
+    ...(budget.mode === STRICT_BUDGET_MODE ? {} : { budget, qualification }),
+    schema: strict ? 3 : 4,
     revision: 0,
     inputDigest: "",
     stage: "admitted",
@@ -45,6 +54,7 @@ export function initialSnapshot(
       knownTokens: 0,
       unknownActions: 0,
       legacyReportedTokens: null,
+      ...(strict ? {} : { harnessReportedTokens: 0, harnessAmbiguousZero: 0 }),
       reservedElapsedMs: 0,
       elapsedMs: 0,
       observedAt: now,
@@ -58,8 +68,10 @@ export function initialSnapshot(
     wait: null,
   };
   s.inputDigest = inputDigest(s);
-  if (!s.capability)
+  if (strict && !s.capability)
     block(s, "capability", "hard-token-and-elapsed-enforcement-unavailable");
+  if (!strict && !s.qualification)
+    block(s, "capability", "subscription-execution-qualification-unavailable");
   return s;
 }
 function block(s: RunSnapshot, kind: Blocker, detail: string) {
@@ -144,11 +156,27 @@ function schedule(s: RunSnapshot, kind: WorkKind, now: number): Action | null {
   )
     throw new Error("run-blocked");
   if (!permitted(s, kind)) throw new Error("invalid-stage-action");
-  if (isAgentWork(kind) && !s.capability) {
-    block(s, "capability", "hard-limits-unavailable");
-    return null;
-  }
   const b = s.budgets;
+  if (isAgentWork(kind)) {
+    if (!subscription(s) && !s.capability) {
+      block(s, "capability", "hard-limits-unavailable");
+      return null;
+    }
+    if (subscription(s) && !s.qualification) {
+      block(
+        s,
+        "capability",
+        "subscription-execution-qualification-unavailable",
+      );
+      return null;
+    }
+    // Single choke point for every automatic agent action, before any counter or charge moves.
+    const stop = usageStop(s);
+    if (stop) {
+      block(s, "budget", stop);
+      return null;
+    }
+  }
   const stop = (detail: string) => {
     block(s, "needs_engineering", detail);
     return null;
@@ -190,7 +218,13 @@ function schedule(s: RunSnapshot, kind: WorkKind, now: number): Action | null {
     Math.max(b.elapsedMs, b.reservedElapsedMs) + elapsedMs >
       s.limits.totalElapsedMs
   ) {
-    block(s, "budget", "hard-total-budget-exhausted");
+    block(
+      s,
+      "budget",
+      subscription(s)
+        ? "planning-allowance-exhausted"
+        : "hard-total-budget-exhausted",
+    );
     return null;
   }
   if (kind === "retry_environment") b.environment++;
@@ -200,8 +234,7 @@ function schedule(s: RunSnapshot, kind: WorkKind, now: number): Action | null {
   if (kind === "arbitrate") b.disagreement++;
   b.reservedTokens += tokens;
   b.reservedElapsedMs += elapsedMs;
-  const action: Action = {
-    schema: 1,
+  const common = {
     key: `coordinator/${identity([s.runId, s.revision, kind])}`,
     runId: s.runId,
     kind,
@@ -210,8 +243,19 @@ function schedule(s: RunSnapshot, kind: WorkKind, now: number): Action | null {
     tokens,
     elapsedMs,
     deadline: Math.min(now + elapsedMs, s.startedAt + s.limits.totalElapsedMs),
-    capabilityId: isAgentWork(kind) ? s.capability!.id : null,
   };
+  const action: Action = !subscription(s)
+    ? {
+        schema: 1,
+        ...common,
+        capabilityId: isAgentWork(kind) ? s.capability!.id : null,
+      }
+    : {
+        schema: 2,
+        ...common,
+        budgetMode: SUBSCRIPTION_BUDGET_MODE,
+        qualificationId: isAgentWork(kind) ? s.qualification!.id : null,
+      };
   validateAction(action);
   s.execution = action;
   s.blocker = null;
@@ -265,20 +309,33 @@ export function reduce(
       canonical(s.executionUsage) !== canonical(event.usage)
     )
       throw new Error("action-usage-conflict");
-    if (
-      event.usage.status === "known" &&
-      event.usage.source.kind === "local-no-model" &&
-      isAgentWork(a.kind)
+    const u = event.usage;
+    if (!subscription(s)) {
+      if (u.schema !== 1)
+        throw new Error("harness-usage-requires-subscription-mode");
+      if (
+        u.status === "known" &&
+        u.source.kind === "local-no-model" &&
+        isAgentWork(a.kind)
+      )
+        throw new Error("agent-usage-requires-provider-receipt");
+    } else if (isAgentWork(a.kind)) {
+      // Native telemetry is never relabelled as provider receipt or caller known-zero.
+      if (u.schema !== 2)
+        throw new Error("subscription-agent-usage-requires-harness-telemetry");
+      if (u.harness !== s.qualification?.harness)
+        throw new Error("usage-harness-mismatch");
+    } else if (
+      u.schema !== 1 ||
+      u.status !== "known" ||
+      u.source.kind !== "local-no-model"
     )
-      throw new Error("agent-usage-requires-provider-receipt");
-    s.executionUsage = event.usage;
+      throw new Error("subscription-local-usage-requires-no-model-receipt");
+    s.executionUsage = u;
     // Latch the claim before draining: later failure/interruption cannot erase an observed success.
     const successful = !["failed", "interrupted"].includes(event.outcome);
-    if (
-      successful &&
-      event.usage.status === "unknown" &&
-      !s.unqualifiedResults.includes(a.kind)
-    )
+    const unresolved = u.status === "unknown" || u.status === "ambiguous-zero";
+    if (successful && unresolved && !s.unqualifiedResults.includes(a.kind))
       s.unqualifiedResults.push(a.kind);
     if (!event.quiescent) {
       block(s, "recovery", "execution-not-quiescent");
@@ -286,10 +343,14 @@ export function reduce(
     }
     s.execution = null;
     s.executionUsage = null;
-    if (event.usage.status === "known")
-      s.budgets.knownTokens += event.usage.tokens;
-    else s.budgets.unknownActions++;
-    if (event.usage.status === "known" && event.usage.tokens > a.tokens) {
+    const b = s.budgets;
+    if (u.status === "known") b.knownTokens += u.tokens;
+    else if (u.status === "unknown") b.unknownActions++;
+    else if (u.status === "ambiguous-zero") b.harnessAmbiguousZero! += 1;
+    // Reported overrun is retained in full: never clipped to the planning charge or refunded.
+    else b.harnessReportedTokens = b.harnessReportedTokens! + reportedTotal(u);
+    integer(b.harnessReportedTokens ?? 0);
+    if (u.status === "known" && u.tokens > a.tokens) {
       block(s, "recovery", "hard-token-contract-violated");
       return { snapshot: s, actions };
     }
@@ -320,8 +381,14 @@ export function reduce(
       );
       return { snapshot: s, actions };
     }
-    if (event.usage.status === "unknown") {
-      block(s, "recovery", "successful-result-usage-unknown");
+    if (unresolved) {
+      block(
+        s,
+        "recovery",
+        u.status === "unknown"
+          ? "successful-result-usage-unknown"
+          : "successful-result-usage-ambiguous-zero",
+      );
       return { snapshot: s, actions };
     }
     if (
@@ -505,4 +572,15 @@ function qualifyResult(s: RunSnapshot, kind: WorkKind) {
   s.unqualifiedResults = s.unqualifiedResults.filter(
     (k) => role(k) !== role(kind),
   );
+}
+
+/** subscription-observed-v1: unresolved usage or a reached reported threshold stops agent work. */
+function usageStop(s: RunSnapshot): string | null {
+  if (!subscription(s)) return null;
+  const b = s.budgets;
+  if (b.unknownActions > 0 || b.harnessAmbiguousZero! > 0)
+    return "subscription-usage-unresolved";
+  if (b.harnessReportedTokens! >= s.budget!.reportedTokenThreshold)
+    return "subscription-reported-threshold-reached";
+  return null;
 }

@@ -19,6 +19,7 @@ import {
   evidenceBundle,
   type Observation,
   validateCapability,
+  validateQualification,
   text,
   integer,
   terminal,
@@ -125,7 +126,8 @@ export class Store {
         schema !== 4 &&
         schema !== 5 &&
         schema !== 6 &&
-        schema !== 7
+        schema !== 7 &&
+        schema !== 8
       ) {
         throw new Error("incompatible-store-schema");
       }
@@ -166,7 +168,19 @@ export class Store {
           this.#saveSnapshot(next);
         }
       }
-      this.#db.exec("PRAGMA user_version=7; COMMIT;");
+      // Storage 8 may hold subscription-mode snapshot4 rows, so earlier readers must refuse it.
+      // Existing snapshot3 rows are strict-mode records and are deliberately left byte-identical;
+      // anything else in an older database is corrupt and rolls the whole upgrade back.
+      if (schema !== 0 && schema < 8)
+        for (const row of this.#db
+          .prepare("SELECT data FROM coordinator_snapshots")
+          .all()) {
+          const previous = JSON.parse(String(row.data));
+          validateSnapshot(previous);
+          if (previous.schema !== 3)
+            throw new Error("incompatible-coordinator-schema");
+        }
+      this.#db.exec("PRAGMA user_version=8; COMMIT;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -1667,8 +1681,19 @@ export class Store {
       throw new Error("action-deadline-exceeded");
     validateAction(a);
     validateCapability(transport.capability);
-    if (a.capabilityId && transport.capability?.id !== a.capabilityId)
-      throw new Error("hard-limits-capability-mismatch");
+    const qualification = transport.qualification ?? null;
+    validateQualification(qualification);
+    if (a.schema === 1) {
+      if (a.capabilityId && transport.capability?.id !== a.capabilityId)
+        throw new Error("hard-limits-capability-mismatch");
+      if (qualification) throw new Error("transport-budget-mode-mismatch");
+    } else {
+      // A subscription transport cannot carry hard-limit claims into this mode.
+      if (transport.capability)
+        throw new Error("transport-budget-mode-mismatch");
+      if (a.qualificationId && json(qualification) !== json(s.qualification))
+        throw new Error("execution-qualification-mismatch");
+    }
     if (json(transport.versions) !== json(s.versions))
       throw new Error("incompatible-transport-versions");
     return a;
