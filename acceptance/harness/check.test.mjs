@@ -11,12 +11,17 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { assess, verifyInventory } from "./check.mjs";
-import { REPAIR_EVIDENCE, BINARY_SHA, sha, guard } from "./common.mjs";
+import { ROOT, REPAIR_EVIDENCE, BINARY_SHA, sha, guard } from "./common.mjs";
 import { definition } from "./fixture.mjs";
 import { prepareSyntheticRepository } from "./fixture.mjs";
 import { verifyProvenance } from "./provenance.mjs";
 import { inventory } from "./common.mjs";
 import { candidatePolicy, excludedPlatformRoots } from "./policy.mjs";
+
+const TEST_EVIDENCE = join(
+  ROOT,
+  ".qualification/harness-contract-59-identity-repair",
+);
 
 // Generated unit fixtures test interpretation only; never native evidence.
 function fixture() {
@@ -58,6 +63,30 @@ function fixture() {
       scratchAllowedSha256: sha("allowed-scratch-control"),
     },
     thread: {
+      thread: {
+        id: "thread",
+        sessionId: "thread",
+        cliVersion: "0.157.1",
+        createdAt: 1790558647,
+        updatedAt: 1790558647,
+        cwd: recipe.source,
+        ephemeral: true,
+        modelProvider: "synthetic",
+        preview: "",
+        projectId: null,
+        source: "vscode",
+        status: { type: "idle" },
+        turns: [],
+      },
+      model: "gpt-5.4",
+      approvalsReviewer: "user",
+      sandbox: {
+        type: "workspaceWrite",
+        writableRoots: [join(attempt, "scratch")],
+        networkAccess: false,
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      },
       activePermissionProfile: { id: "probe" },
       approvalPolicy: "never",
       modelProvider: "synthetic",
@@ -70,8 +99,31 @@ function fixture() {
   };
   const row = (type, value) =>
     f.journal.push({ seq: f.journal.length + 1, type, value });
-  row("ipc-send", { id: 1, method: "turn/start" });
-  row("ipc-receive", { id: 1, result: {} });
+  row("ipc-send", {
+    id: "thread-request",
+    method: "thread/start",
+    params: { cwd: recipe.source },
+  });
+  row("ipc-receive", {
+    id: "thread-request",
+    result: structuredClone(f.thread),
+  });
+  row("ipc-send", {
+    id: "turn-request",
+    method: "turn/start",
+    params: {
+      threadId: "thread",
+      input: [
+        { type: "text", text: "Run the bounded synthetic native probe." },
+      ],
+    },
+  });
+  row("ipc-receive", {
+    id: "turn-request",
+    result: {
+      turn: { id: "turn", items: [], status: "inProgress", error: null },
+    },
+  });
   for (let i = 0; i < 3; i++) {
     const id = `native-probe-${i + 1}`,
       exitCode = i ? 1 : 0;
@@ -122,7 +174,10 @@ function fixture() {
   });
   row("ipc-receive", {
     method: "turn/completed",
-    params: { threadId: "thread", turn: { id: "turn", status: "completed" } },
+    params: {
+      threadId: "thread",
+      turn: { id: "turn", status: "completed", items: [], error: null },
+    },
   });
   return f;
 }
@@ -143,7 +198,7 @@ test("consistent unit fixture establishes operations only, never provenance or c
 // Retain unchanged rejected checker from Git for genuine old-pass/new-reject
 // demonstrations. This never imports or executes the old native driver.
 guard();
-const legacyDir = join(REPAIR_EVIDENCE, "legacy");
+const legacyDir = join(TEST_EVIDENCE, "legacy");
 mkdirSync(legacyDir, { recursive: true, mode: 0o700 });
 for (const name of ["check.mjs", "common.mjs"]) {
   const bytes = execFileSync("git", [
@@ -156,7 +211,278 @@ for (const name of ["check.mjs", "common.mjs"]) {
   assert.equal(sha(readFileSync(path)), sha(bytes));
 }
 const legacy = await import(pathToFileURL(join(legacyDir, "check.mjs")));
-const regressionPath = join(REPAIR_EVIDENCE, `regressions-${Date.now()}.json`);
+const rejectedCommit = "d3d126a94a5dfc074ae31e3c5ab86e4629022b2f";
+const rejectedDir = join(TEST_EVIDENCE, "legacy-d3d126a");
+mkdirSync(rejectedDir, { recursive: true, mode: 0o700 });
+for (const name of [
+  "check.mjs",
+  "common.mjs",
+  "fixture.mjs",
+  "provenance.mjs",
+]) {
+  const bytes = execFileSync("git", [
+    "show",
+    `${rejectedCommit}:acceptance/harness/${name}`,
+  ]);
+  const path = join(rejectedDir, name);
+  if (!existsSync(path))
+    writeFileSync(path, bytes, { flag: "wx", mode: 0o400 });
+  assert.equal(sha(readFileSync(path)), sha(bytes));
+}
+const rejected = await import(pathToFileURL(join(rejectedDir, "check.mjs")));
+const identityResults = [],
+  identityResultsPath = join(
+    TEST_EVIDENCE,
+    `identity-regressions-${Date.now()}.json`,
+  );
+const resequence = (f) => f.journal.forEach((r, i) => (r.seq = i + 1));
+const startPair = (f, method) => {
+  const request = f.journal.find(
+    (r) => r.type === "ipc-send" && r.value.method === method,
+  );
+  return {
+    request,
+    response: f.journal.find(
+      (r) => r.type === "ipc-receive" && r.value.id === request.value.id,
+    ),
+  };
+};
+const invocationCases = [];
+for (const [label, value] of [
+  ["absent", undefined],
+  ["null", null],
+  ["empty", ""],
+  ["blank", "  "],
+  ["array", []],
+  ["object", {}],
+  ["number", 5],
+]) {
+  invocationCases.push([
+    `globally ${label} invocation IDs`,
+    (f) => {
+      const set = (obj, key) =>
+        value === undefined ? delete obj[key] : (obj[key] = value);
+      set(f.observations, "threadId");
+      set(f.observations, "turnId");
+      set(f.thread.thread, "id");
+      set(startPair(f, "thread/start").response.value.result.thread, "id");
+      set(startPair(f, "turn/start").request.value.params, "threadId");
+      set(startPair(f, "turn/start").response.value.result.turn, "id");
+      for (const row of f.journal.filter(
+        (r) => r.type === "ipc-receive" && r.value.method,
+      )) {
+        const p = row.value.params;
+        set(p, "threadId");
+        if (p.item) set(p, "turnId");
+        if (p.turn) set(p.turn, "id");
+      }
+    },
+  ]);
+}
+for (const [label, value] of [
+  ["absent", undefined],
+  ["null", null],
+  ["empty", ""],
+  ["object", {}],
+  ["fraction", 1.5],
+  ["boolean", false],
+]) {
+  invocationCases.push([
+    `invalid ${label} RPC correlation ID`,
+    (f) => {
+      const pair = startPair(f, "thread/start");
+      for (const row of [pair.request, pair.response]) {
+        if (value === undefined) delete row.value.id;
+        else row.value.id = value;
+      }
+    },
+  ]);
+}
+invocationCases.push(
+  [
+    "empty thread/start response",
+    (f) => {
+      startPair(f, "thread/start").response.value.result = {};
+    },
+  ],
+  [
+    "empty turn/start response",
+    (f) => {
+      startPair(f, "turn/start").response.value.result = {};
+    },
+  ],
+  [
+    "conflicting authoritative thread ID",
+    (f) => {
+      startPair(f, "thread/start").response.value.result.thread.id =
+        "other-thread";
+    },
+  ],
+  [
+    "conflicting authoritative turn ID",
+    (f) => {
+      startPair(f, "turn/start").response.value.result.turn.id = "other-turn";
+    },
+  ],
+  [
+    "turn request targets another thread",
+    (f) => {
+      startPair(f, "turn/start").request.value.params.threadId = "other-thread";
+    },
+  ],
+  [
+    "missing thread/start chain",
+    (f) => {
+      f.journal.splice(0, 2);
+      resequence(f);
+    },
+  ],
+  [
+    "missing turn/start chain",
+    (f) => {
+      f.journal.splice(2, 2);
+      resequence(f);
+    },
+  ],
+  [
+    "duplicate thread/start chain with unique RPC ID",
+    (f) => {
+      const rows = structuredClone(f.journal.slice(0, 2));
+      rows.forEach((r) => (r.value.id = "second-thread-request"));
+      f.journal.splice(2, 0, ...rows);
+      resequence(f);
+    },
+  ],
+  [
+    "duplicate turn/start chain with unique RPC ID",
+    (f) => {
+      const rows = structuredClone(f.journal.slice(2, 4));
+      rows.forEach((r) => (r.value.id = "second-turn-request"));
+      f.journal.splice(4, 0, ...rows);
+      resequence(f);
+    },
+  ],
+  [
+    "missing required thread response field",
+    (f) => {
+      delete startPair(f, "thread/start").response.value.result.thread
+        .sessionId;
+    },
+  ],
+  [
+    "malformed turn items array",
+    (f) => {
+      startPair(f, "turn/start").response.value.result.turn.items = {};
+    },
+  ],
+  [
+    "malformed turn request input",
+    (f) => {
+      startPair(f, "turn/start").request.value.params.input = null;
+    },
+  ],
+  [
+    "malformed start response status",
+    (f) => {
+      startPair(f, "turn/start").response.value.result.turn.status = "made-up";
+    },
+  ],
+  [
+    "RPC response also claims error null",
+    (f) => {
+      startPair(f, "thread/start").response.value.error = null;
+    },
+  ],
+  [
+    "missing final item ID",
+    (f) => {
+      for (const r of f.journal.filter(
+        (r) => r.value.params?.item?.type === "agentMessage",
+      ))
+        delete r.value.params.item.id;
+    },
+  ],
+);
+for (const [name, mutate] of invocationCases)
+  test(`SPEC03 invocation regression: ${name}`, () => {
+    const f = fixture();
+    mutate(f);
+    // Actual retained evidence is JSON, so repeated object values cannot borrow
+    // JavaScript reference equality across independent fields/frames.
+    const wire = JSON.parse(JSON.stringify(f));
+    const oldResult = rejected.assess(wire),
+      newResult = assess(wire);
+    identityResults.push({
+      name,
+      evidenceClass: "evaluator_selftest",
+      legacyCommit: rejectedCommit,
+      serializedEvidence: true,
+      oldResult,
+      newResult,
+    });
+    writeFileSync(
+      identityResultsPath,
+      JSON.stringify(identityResults, null, 2) + "\n",
+      { mode: 0o600 },
+    );
+    assert.equal(
+      oldResult.status,
+      [
+        "globally array invocation IDs",
+        "globally object invocation IDs",
+        "invalid object RPC correlation ID",
+      ].includes(name)
+        ? "fail"
+        : "pass",
+      `unexpected legacy result: ${oldResult.reason}`,
+    );
+    assert.equal(newResult.status, "fail");
+    assert.equal(newResult.capability, null);
+  });
+for (const [name, mutate] of [
+  [
+    "duplicate response",
+    (f) => {
+      f.journal.splice(2, 0, structuredClone(f.journal[1]));
+      resequence(f);
+    },
+  ],
+  [
+    "missing response",
+    (f) => {
+      f.journal.splice(1, 1);
+      resequence(f);
+    },
+  ],
+  [
+    "wrong response ID",
+    (f) => {
+      f.journal[1].value.id = "unknown";
+    },
+  ],
+  [
+    "duplicate request ID",
+    (f) => {
+      f.journal[2].value.id = f.journal[0].value.id;
+    },
+  ],
+])
+  test(`complete correlation chain rejects ${name}`, () => {
+    const f = fixture();
+    mutate(f);
+    assert.equal(rejected.assess(f).status, "fail");
+    assert.equal(assess(f).status, "fail");
+  });
+test("valid integer RPC IDs and actual-shaped startup responses remain accepted", () => {
+  const f = fixture();
+  for (const [index, method] of ["thread/start", "turn/start"].entries()) {
+    const pair = startPair(f, method);
+    pair.request.value.id = index;
+    pair.response.value.id = index;
+  }
+  assert.equal(assess(f).status, "pass");
+});
+const regressionPath = join(TEST_EVIDENCE, `regressions-${Date.now()}.json`);
 const regressionResults = [];
 function retainedRegression(name, oldResult, newResult) {
   regressionResults.push({
@@ -268,7 +594,7 @@ for (const [name, mutate] of reviewCases)
 
 function provenanceFixture() {
   const directory = join(
-    REPAIR_EVIDENCE,
+    TEST_EVIDENCE,
     `provenance-unit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
   mkdirSync(join(directory, "loaded-source"), { recursive: true, mode: 0o700 });
@@ -436,7 +762,7 @@ for (const [name, mutate] of provenanceCases)
     assert(error, "new checker provenance boundary must reject");
   });
 test("synthetic Git metadata resolves only to owned source without parent history or remotes", () => {
-  const source = join(REPAIR_EVIDENCE, `git-unit-${Date.now()}`, "source");
+  const source = join(TEST_EVIDENCE, `git-unit-${Date.now()}`, "source");
   const result = prepareSyntheticRepository(source);
   const env = {
     PATH: "/usr/bin:/bin",
@@ -565,7 +891,7 @@ const negatives = [
     (f) => {
       f.journal[0].value.id = 99;
     },
-    "unexpected-ipc-response-or-server-request",
+    "uncorrelated-or-duplicate-response",
   ],
   [
     "unfinished tool item before terminal",
@@ -574,7 +900,11 @@ const negatives = [
         type: "ipc-receive",
         value: {
           method: "item/started",
-          params: { item: { id: "unfinished" } },
+          params: {
+            threadId: "thread",
+            turnId: "turn",
+            item: { id: "unfinished", type: "agentMessage" },
+          },
         },
       });
       f.journal.forEach((r, i) => (r.seq = i + 1));
@@ -652,7 +982,7 @@ for (const [name, mutate, reason] of negatives)
   });
 test("inventory rejects forged/missing/duplicate/path-escaping/symlink evidence", () => {
   guard();
-  const dir = join(REPAIR_EVIDENCE, `selftest-${Date.now()}`);
+  const dir = join(TEST_EVIDENCE, `selftest-${Date.now()}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "artifact"), "original", { mode: 0o600 });
   const entry = { path: "artifact", bytes: 8, sha256: sha("original") };

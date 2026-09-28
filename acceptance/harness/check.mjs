@@ -13,6 +13,229 @@ import {
 import { definition } from "./fixture.mjs";
 import { trustedIdentity, verifyProvenance } from "./provenance.mjs";
 
+const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const identity = (v) =>
+  typeof v === "string" && v.trim().length > 0 && !/[\x00-\x1f\x7f]/.test(v);
+const rpcIdentity = (v) => identity(v) || Number.isSafeInteger(v);
+
+// Structural checks at this probe's startup boundary, based on the bound
+// 0.157.1 ThreadStartResponse/TurnStartResponse/RequestId schemas. Invocation
+// identity is stricter than the schema's unconstrained string: it cannot be blank.
+function turnShape(turn) {
+  assert(
+    object(turn) && identity(turn.id) && Array.isArray(turn.items),
+    "invalid-turn-structure",
+  );
+  assert(
+    ["inProgress", "completed", "failed", "interrupted"].includes(turn.status),
+    "invalid-turn-status",
+  );
+  for (const key of ["startedAt", "completedAt", "durationMs"])
+    if (Object.hasOwn(turn, key))
+      assert(
+        turn[key] === null || Number.isSafeInteger(turn[key]),
+        "invalid-turn-timestamp",
+      );
+}
+function threadStartShape(result) {
+  assert(
+    object(result) && object(result.thread),
+    "invalid-thread-start-structure",
+  );
+  const t = result.thread;
+  for (const key of ["id", "sessionId", "cliVersion", "modelProvider", "cwd"])
+    assert(identity(t[key]), `invalid-thread-${key}`);
+  assert(
+    isAbsolute(t.cwd) &&
+      typeof t.preview === "string" &&
+      typeof t.ephemeral === "boolean",
+    "invalid-thread-structure",
+  );
+  assert(
+    Object.hasOwn(t, "projectId") &&
+      (t.projectId === null || identity(t.projectId)),
+    "invalid-thread-project-id",
+  );
+  assert(
+    Number.isSafeInteger(t.createdAt) && Number.isSafeInteger(t.updatedAt),
+    "invalid-thread-timestamp",
+  );
+  // This finite probe creates a fresh direct thread, never a resumed/subagent one.
+  assert(
+    ["cli", "vscode", "exec", "appServer", "unknown"].includes(t.source),
+    "unsupported-thread-source",
+  );
+  assert(
+    object(t.status) && t.status.type === "idle",
+    "invalid-start-thread-status",
+  );
+  assert.deepEqual(t.turns, [], "nonempty-start-thread");
+  for (const key of ["model", "modelProvider", "cwd"])
+    assert(identity(result[key]), `invalid-thread-response-${key}`);
+  assert(
+    isAbsolute(result.cwd) && result.cwd === t.cwd,
+    "thread-response-cwd-mismatch",
+  );
+  assert.equal(
+    result.modelProvider,
+    t.modelProvider,
+    "thread-response-provider-mismatch",
+  );
+  assert.equal(result.approvalPolicy, "never", "invalid-start-approval-policy");
+  assert(
+    ["user", "auto_review", "guardian_subagent"].includes(
+      result.approvalsReviewer,
+    ),
+    "invalid-approvals-reviewer",
+  );
+  assert(
+    object(result.sandbox) &&
+      [
+        "dangerFullAccess",
+        "readOnly",
+        "externalSandbox",
+        "workspaceWrite",
+      ].includes(result.sandbox.type),
+    "invalid-start-sandbox",
+  );
+}
+function invocation(journal, thread, observations) {
+  const pending = new Map(),
+    seen = new Set(),
+    pairs = [];
+  for (const row of journal) {
+    if (!["ipc-send", "ipc-receive"].includes(row.type)) continue;
+    const m = row.value;
+    assert(object(m), "invalid-ipc-frame");
+    if (row.type === "ipc-send") {
+      if (!Object.hasOwn(m, "id")) {
+        assert(
+          m.method === "initialized" &&
+            !Object.hasOwn(m, "result") &&
+            !Object.hasOwn(m, "error"),
+          "missing-request-id",
+        );
+        continue;
+      }
+      assert(
+        rpcIdentity(m.id) && identity(m.method) && object(m.params),
+        "invalid-request-structure",
+      );
+      assert(
+        !Object.hasOwn(m, "result") && !Object.hasOwn(m, "error"),
+        "request-with-response-fields",
+      );
+      assert(!seen.has(m.id), "duplicate-request-id");
+      seen.add(m.id);
+      pending.set(m.id, row);
+    } else if (
+      Object.hasOwn(m, "id") ||
+      Object.hasOwn(m, "result") ||
+      Object.hasOwn(m, "error")
+    ) {
+      assert(
+        rpcIdentity(m.id) &&
+          !Object.hasOwn(m, "method") &&
+          Object.hasOwn(m, "result") &&
+          !Object.hasOwn(m, "error") &&
+          object(m.result),
+        "invalid-response-structure",
+      );
+      assert(pending.has(m.id), "uncorrelated-or-duplicate-response");
+      pairs.push({ request: pending.get(m.id), response: row });
+      pending.delete(m.id);
+    } else
+      assert(
+        identity(m.method) && object(m.params),
+        "invalid-notification-structure",
+      );
+  }
+  assert.equal(pending.size, 0, "unresolved-ipc-request");
+  const start = (method) => {
+    const matched = pairs.filter((p) => p.request.value.method === method);
+    assert.equal(matched.length, 1, `missing-or-duplicate-${method}`);
+    return matched[0];
+  };
+  const ts = start("thread/start"),
+    us = start("turn/start");
+  threadStartShape(ts.response.value.result);
+  const threadId = ts.response.value.result.thread.id;
+  assert.deepEqual(
+    thread,
+    ts.response.value.result,
+    "retained-thread-response-mismatch",
+  );
+  assert.equal(
+    ts.request.value.params.cwd,
+    thread.cwd,
+    "thread-start-request-cwd-mismatch",
+  );
+  assert(
+    ts.response.seq < us.request.seq,
+    "turn-request-before-thread-response",
+  );
+  const params = us.request.value.params;
+  assert(
+    identity(params.threadId) && Array.isArray(params.input),
+    "invalid-turn-start-request",
+  );
+  assert.equal(params.threadId, threadId, "turn-request-thread-mismatch");
+  turnShape(us.response.value.result.turn);
+  const turnId = us.response.value.result.turn.id;
+  assert.equal(
+    us.response.value.result.turn.status,
+    "inProgress",
+    "invalid-turn-start-status",
+  );
+  assert.deepEqual(
+    us.response.value.result.turn.items,
+    [],
+    "nonempty-start-turn",
+  );
+  assert.equal(observations.threadId, threadId, "observation-thread-mismatch");
+  assert.equal(observations.turnId, turnId, "observation-turn-mismatch");
+  for (const row of journal.filter(
+    (r) => r.type === "ipc-receive" && r.value.method,
+  )) {
+    const { method, params: p } = row.value;
+    if (Object.hasOwn(p, "threadId"))
+      assert.equal(p.threadId, threadId, "event-thread-mismatch");
+    if (Object.hasOwn(p, "turnId"))
+      assert.equal(p.turnId, turnId, "event-turn-mismatch");
+    if (method === "thread/started") {
+      assert(
+        object(p.thread) && p.thread.id === threadId,
+        "thread-start-event-mismatch",
+      );
+      assert(row.seq > ts.request.seq, "thread-event-before-request");
+    }
+    if (
+      [
+        "item/started",
+        "item/completed",
+        "turn/started",
+        "turn/completed",
+      ].includes(method)
+    ) {
+      assert.equal(p.threadId, threadId, "missing-or-wrong-event-thread");
+      assert(row.seq > us.request.seq, "lifecycle-before-turn-request");
+      if (method.startsWith("item/")) {
+        assert.equal(p.turnId, turnId, "missing-or-wrong-event-turn");
+        assert(
+          object(p.item) && identity(p.item.id) && identity(p.item.type),
+          "invalid-item-identity",
+        );
+      } else {
+        turnShape(p.turn);
+        assert.equal(p.turn.id, turnId, "turn-event-mismatch");
+        if (method === "turn/completed")
+          assert(row.seq > us.response.seq, "terminal-before-turn-response");
+      }
+    }
+  }
+  return { threadId, turnId };
+}
+
 export function verifyInventory(directory, entries) {
   assert(
     lstatSync(directory).isDirectory() &&
@@ -134,9 +357,11 @@ export function assess({
     );
     assert.equal(journal.length > 0, true);
     journal.forEach((row, i) => assert.equal(row.seq, i + 1, "journal-gap"));
+    const authority = invocation(journal, thread, observations);
     const ipc = journal.filter((r) => r.type === "ipc-receive");
     const rpcPending = new Set(),
       itemPending = new Set(),
+      itemSeen = new Set(),
       rpcSeen = new Set();
     for (const row of journal) {
       const m = row.value;
@@ -153,13 +378,16 @@ export function assess({
         );
       }
       if (m.method === "item/started") {
-        assert(!itemPending.has(m.params.item.id), "duplicate-item-start");
+        assert(!itemSeen.has(m.params.item.id), "duplicate-item-start");
+        itemSeen.add(m.params.item.id);
         itemPending.add(m.params.item.id);
       }
       if (m.method === "item/completed")
         assert(itemPending.delete(m.params.item.id), "missing-item-start");
-      if (m.method === "turn/completed")
+      if (m.method === "turn/completed") {
         assert.equal(itemPending.size, 0, "terminal-with-pending-item");
+        assert.equal(rpcPending.size, 0, "terminal-with-pending-request");
+      }
     }
     assert.equal(rpcPending.size, 0, "unresolved-ipc-request");
     assert.equal(itemPending.size, 0, "unresolved-ipc-item");
@@ -212,17 +440,17 @@ export function assess({
         );
         assert.equal(
           event.value.params.threadId,
-          observations.threadId,
+          authority.threadId,
           "native-thread-mismatch",
         );
         assert.equal(
           event.value.params.turnId,
-          observations.turnId,
+          authority.turnId,
           "native-turn-mismatch",
         );
       }
-      assert.equal(completed[i].value.params.threadId, observations.threadId);
-      assert.equal(completed[i].value.params.turnId, observations.turnId);
+      assert.equal(completed[i].value.params.threadId, authority.threadId);
+      assert.equal(completed[i].value.params.turnId, authority.turnId);
       const output = requests[i + 1].body.input.filter(
         (x) => x.type === "function_call_output" && x.call_id === call.callId,
       );
@@ -277,8 +505,8 @@ export function assess({
     const terminals = ipc.filter((r) => r.value.method === "turn/completed");
     assert.equal(terminals.length, 1, "missing-or-duplicate-terminal");
     assert(terminals[0].seq > completed[2].seq, "premature-terminal");
-    assert.equal(terminals[0].value.params.threadId, observations.threadId);
-    assert.equal(terminals[0].value.params.turn.id, observations.turnId);
+    assert.equal(terminals[0].value.params.threadId, authority.threadId);
+    assert.equal(terminals[0].value.params.turn.id, authority.turnId);
     assert.equal(terminals[0].value.params.turn.status, "completed");
     const final = ipc.filter(
       (r) =>
@@ -295,12 +523,12 @@ export function assess({
     for (const event of [finalStart[0], final[0]]) {
       assert.equal(
         event.value.params.threadId,
-        observations.threadId,
+        authority.threadId,
         "final-thread-mismatch",
       );
       assert.equal(
         event.value.params.turnId,
-        observations.turnId,
+        authority.turnId,
         "final-turn-mismatch",
       );
       assert(event.seq < terminals[0].seq, "final-after-terminal");

@@ -40,9 +40,39 @@ unit data remains explicitly selftest evidence. `binding.test.mjs` additionally
 uses real committed source objects and the 440 retained schemas through the same
 provenance verifier; run it only at clean committed source.
 
-All new artifacts go under `.qualification/harness-contract-59-repair/`. The old
+Lease 518 artifacts remain under `.qualification/harness-contract-59-repair/`. The old
 970-entry index and all old artifacts are preserved. Historical attempts lack the
 new required bindings and continue to fail; they are never upgraded retroactively.
+
+## Invocation identity repair (lease 536)
+
+Reviews 531/532 found that consistently absent IDs still compared equal and an
+empty startup response could resolve bookkeeping. The checker now requires one
+unique, ordered, correlated `thread/start` and `turn/start` request/response pair.
+It checks the required startup object/array/string/integer fields against the
+bound 0.157.1 schema shapes and this finite probe's fresh-thread subset. RPC IDs
+must be nonblank strings or safe integers; thread, turn and item IDs must be
+nonblank strings without control characters. These operational identity rules
+are deliberately stricter than the generated schema's unconstrained strings.
+
+The correlated thread response must equal retained `thread.json`; the turn
+request must name its thread. Observations and lifecycle events are checked
+against the response-derived thread/turn, never used as identity authority.
+Missing, malformed, duplicate, conflicting or unresolved startup chains fail.
+Item identities are unique across the invocation, and terminal evidence must
+follow the turn response with no pending request or item. This is a startup and
+identity boundary validator, not a general-purpose JSON Schema implementation.
+
+Current selftests write only to
+`.qualification/harness-contract-59-identity-repair/`. They load the unchanged
+rejected `d3d126a` checker and compare serialized JSON evidence, including global
+absent/null/empty/malformed IDs and missing/conflicting/duplicate startup chains.
+Already-rejected duplicate/missing responses stay rejected; they are not claimed
+as new false-pass fixes. Positive fixtures include required actual-shaped thread
+and turn response fields instead of `{}`. The old 970- and 621-entry inventories,
+candidate, native failures and all provenance evidence remain unchanged. No
+launcher/profile changes or native/server/schema/model/auth/API execution occur
+in this repair. Independent rereview remains required; no capability is issued.
 
 ## Conservative policy candidate, still locked
 

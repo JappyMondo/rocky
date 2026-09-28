@@ -3,15 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import {
-  ROOT,
-  EVIDENCE,
-  REPAIR_EVIDENCE,
-  guard,
-  inventory,
-  save,
-  sha,
-} from "./common.mjs";
+import { ROOT, EVIDENCE, guard, inventory, save, sha } from "./common.mjs";
 import { trustedIdentity, verifyProvenance } from "./provenance.mjs";
 import { verifyInventory } from "./check.mjs";
 
@@ -25,7 +17,11 @@ test("real committed source/schema binding verifies and rejects missing/altered 
     reference.source,
     "binding-selftest-requires-clean-source",
   );
-  const directory = join(REPAIR_EVIDENCE, `binding-unit-${Date.now()}`);
+  const directory = join(
+    ROOT,
+    ".qualification/harness-contract-59-identity-repair",
+    `binding-unit-${Date.now()}`,
+  );
   for (const entry of reference.source) {
     const path = join(directory, "loaded-source", entry.path);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
