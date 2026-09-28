@@ -10,7 +10,7 @@ Taskbot #53 implements local coordinator state and dispatch contracts. It does *
 
 `applyCoordinator(lease, expectedRevision, source, eventId)` starts `BEGIN IMMEDIATE`, validates fencing/versions/revision, reduces the persisted event, and atomically writes the consumed inbox marker, new snapshot, monotonically reserved budgets, global slot, existing effect outbox intent and append-only transition event. An exception rolls everything back. A retry of a consumed event returns current state without spending again. The transaction only runs synchronous local code.
 
-Coordinator snapshots cannot be changed with the older generic `transition` or `revise` APIs. Foundation cancellation still immediately revokes dispatch; the next coordinator event incorporates it. The coordinator snapshot schema is 3, separate from SQLite storage schema 5 and pinned workflow/adapter/prompt/runner/build versions. Unknown snapshot or storage versions fail closed. Version changes do not silently upgrade an active run.
+Coordinator snapshots cannot be changed with the older generic `transition` or `revise` APIs. Foundation cancellation still immediately revokes dispatch; the next coordinator event incorporates it. The coordinator snapshot schema is 3, separate from SQLite storage schema 8 and pinned workflow/adapter/prompt/runner/build versions. Unknown snapshot or storage versions fail closed. Version changes do not silently upgrade an active run.
 
 ## Schema compatibility
 

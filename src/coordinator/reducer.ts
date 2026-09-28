@@ -348,9 +348,12 @@ export function reduce(
     else if (u.status === "unknown") b.unknownActions++;
     else if (u.status === "ambiguous-zero") b.harnessAmbiguousZero! += 1;
     // Reported overrun is retained in full: never clipped to the planning charge or refunded.
-    // reportedTotal(u) is already a validated safe integer (validateHarnessUsage bounds
-    // input+output), and usageStop halts scheduling once the threshold is reached, so this
-    // accumulator cannot overflow; no separate overflow check is needed here.
+    // validateHarnessUsage bounds each report's input+output to a safe integer, and usageStop
+    // halts scheduling once the threshold is reached, so accumulation stays bounded in
+    // practice; a single enormous (still safe-integer) report could push the sum past
+    // Number.MAX_SAFE_INTEGER before the stop engages, but load/save-time validateSnapshot
+    // integer() revalidation (contracts.ts budgets pass, store #saveSnapshot) then fails
+    // closed on the anomalous value, so no separate overflow check is added here.
     else b.harnessReportedTokens = b.harnessReportedTokens! + reportedTotal(u);
     if (u.status === "known" && u.tokens > a.tokens) {
       block(s, "recovery", "hard-token-contract-violated");

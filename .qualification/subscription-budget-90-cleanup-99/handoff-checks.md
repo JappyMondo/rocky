@@ -35,3 +35,35 @@ assertions were weakened.
   scope for #99, untouched.
 
 Scratch debug file tests/zzz-sb12-debug.mjs deleted before commit.
+
+## Repair phase (#99 repair, post-review, base 01f19144)
+
+Two review findings fixed, docs/comment-only; no behavior, test or
+acceptance/** changes:
+
+1. Standards blocker: docs/coordinator.md line 13 still said "SQLite storage
+   schema 5"; corrected to "storage schema 8" (matches src/store/index.ts
+   PRAGMA user_version=8 and the 0..8 accepted range). The snapshot-schema
+   wording and the rest of the sentence were left untouched and remain
+   truthful (unknown versions fail closed; no silent upgrade).
+2. Reviewer nit: src/coordinator/reducer.ts comment (~lines 350-356) claimed
+   the harnessReportedTokens accumulator "cannot overflow". Tightened to cite
+   the real guarantees: per-report validateHarnessUsage safe-integer bounds +
+   usageStop threshold gating keep accumulation bounded in practice (a single
+   enormous safe-integer report could still push the sum past
+   Number.MAX_SAFE_INTEGER before the stop engages), and load/save-time
+   validateSnapshot integer() revalidation (contracts.ts budgets pass, store
+   #saveSnapshot) fails closed on any anomalous value.
+
+Repair validation under pinned Node v24.16.0:
+
+- repair-typecheck.log: `npm run typecheck`, exit 0.
+- repair-build.log: `npm run build` (dist refreshed; buildId
+  31f62c65...58110, sourceCommit 01f19144, sourceDirty:true as expected
+  pre-commit).
+- repair-test-full.log: `npm test` against the rebuilt dist: tests 302,
+  pass 301, fail 0, skipped 1 (same pre-existing pinned-browser skip).
+- repair-prettier.log: `npx prettier --check docs/coordinator.md
+  src/coordinator/reducer.ts`, all files conform.
+
+All prior logs retained unchanged.
