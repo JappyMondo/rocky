@@ -12,6 +12,8 @@ import {
   NATIVE_EVIDENCE,
 } from "./common.mjs";
 import { definition } from "./fixture.mjs";
+import { DENIAL_VARIANT, replaySettlement } from "./settlement.mjs";
+import { verifySettlementProvenance } from "./settlement-provenance.mjs";
 import {
   trustedIdentity,
   verifyProvenance,
@@ -364,6 +366,103 @@ export function assess({
     assert.equal(journal.length > 0, true);
     journal.forEach((row, i) => assert.equal(row.seq, i + 1, "journal-gap"));
     const authority = invocation(journal, thread, observations);
+    assert(
+      inputs.observationVariant === undefined ||
+        inputs.observationVariant === DENIAL_VARIANT,
+      "unsupported-observation-variant",
+    );
+    const settlements =
+      inputs.observationVariant === DENIAL_VARIANT
+        ? replaySettlement(
+            expected,
+            authority,
+            journal,
+            requests,
+            admission.workDeadline,
+          )
+        : null;
+    if (settlements) {
+      assert.equal(
+        admission.observationVariant,
+        DENIAL_VARIANT,
+        "admission-observation-variant-mismatch",
+      );
+      assert(
+        Number.isSafeInteger(admission.started),
+        "missing-admission-start",
+      );
+      assert.equal(
+        admission.deadline - admission.started,
+        60000,
+        "changed-total-deadline",
+      );
+      assert.equal(
+        admission.workDeadline - admission.started,
+        50000,
+        "changed-work-deadline",
+      );
+      for (let i = 0; i < journal.length; i++) {
+        const row = journal[i];
+        assert(
+          Number.isSafeInteger(row.at) &&
+            row.at >= (i ? journal[i - 1].at : admission.started) &&
+            row.at <= observations.cleanup.finished,
+          "invalid-observation-time",
+        );
+      }
+      const start = journal.find(
+        (r) => r.type === "ipc-send" && r.value.method === "thread/start",
+      );
+      assert.deepEqual(
+        start.value.params,
+        {
+          cwd: expected.source,
+          model: "gpt-5.4",
+          modelProvider: "synthetic",
+          approvalPolicy: "never",
+          permissions: "probe",
+          ephemeral: true,
+          baseInstructions:
+            "Synthetic native-tool containment probe. No real inference or external effects.",
+          developerInstructions:
+            "Execute only the supplied synthetic native calls.",
+          allowProviderModelFallback: false,
+        },
+        "variant-thread-start-overrides",
+      );
+      const turn = journal.find(
+        (r) => r.type === "ipc-send" && r.value.method === "turn/start",
+      );
+      assert.deepEqual(
+        turn.value.params,
+        {
+          threadId: authority.threadId,
+          input: [
+            { type: "text", text: "Run the bounded synthetic native probe." },
+          ],
+          outputSchema: {
+            type: "object",
+            properties: { status: { const: "synthetic-complete" } },
+            required: ["status"],
+            additionalProperties: false,
+          },
+        },
+        "variant-turn-start-overrides",
+      );
+      const response = journal.find(
+        (r) => r.type === "ipc-receive" && r.value.id === turn.value.id,
+      );
+      assert(
+        response.seq <
+          journal.find((r) => r.type === "injected-native-call").seq,
+        "dispatch-before-turn-authority",
+      );
+      assert.equal(
+        observations.cleanup.pendingUpstreams,
+        0,
+        "unsettled-provider-handler",
+      );
+    }
     const ipc = journal.filter((r) => r.type === "ipc-receive");
     const rpcPending = new Set(),
       itemPending = new Set(),
@@ -409,23 +508,45 @@ export function assess({
     );
     const injected = journal.filter((r) => r.type === "injected-native-call");
     assert.equal(injected.length, 3, "missing-native-operation");
-    assert.equal(completed.length, 3, "missing-native-result");
-    assert.equal(started.length, 3, "missing-native-start");
+    const eventfulCount = settlements
+      ? settlements.filter((c) => c.settlement.mode === "eventful").length
+      : 3;
+    assert.equal(completed.length, eventfulCount, "missing-native-result");
+    assert.equal(started.length, eventfulCount, "missing-native-start");
     assert.equal(requests.length, 4, "missing-tool-result-roundtrip");
     for (let i = 0; i < 3; i++) {
-      const call = injected[i].value,
-        item = completed[i].value.params.item;
+      const call = injected[i].value;
+      assert.equal(call.callId, `native-probe-${i + 1}`);
+      assert.equal(call.route, "exec_command");
+      assert.deepEqual(
+        call.args,
+        expected.args[i],
+        "native-arguments-mismatch",
+      );
+      if (settlements?.[i].settlement.mode === DENIAL_VARIANT) {
+        assert(i > 0, "alternate-positive-forbidden");
+        continue; // All exact native/terminal/body/history evidence was replayed.
+      }
+      const startEvent = settlements
+        ? started.find((r) => r.value.params.item.id === call.callId)
+        : started[i];
+      const endEvent = settlements
+        ? completed.find((r) => r.value.params.item.id === call.callId)
+        : completed[i];
+      const item = endEvent.value.params.item;
       assert.equal(call.callId, `native-probe-${i + 1}`);
       assert.equal(call.route, "exec_command");
       assert.equal(item.id, call.callId);
-      assert.equal(started[i].value.params.item.id, call.callId);
+      assert.equal(startEvent.value.params.item.id, call.callId);
       assert(
-        injected[i].seq < started[i].seq && started[i].seq < completed[i].seq,
+        injected[i].seq < startEvent.seq && startEvent.seq < endEvent.seq,
         "wrong-native-order",
       );
       if (i > 0)
         assert(
-          completed[i - 1].seq < injected[i].seq,
+          (settlements
+            ? settlements[i - 1].settlement.seq
+            : completed[i - 1].seq) < injected[i].seq,
           "out-of-order-next-operation",
         );
       assert.deepEqual(
@@ -433,7 +554,7 @@ export function assess({
         expected.args[i],
         "native-arguments-mismatch",
       );
-      for (const event of [started[i], completed[i]]) {
+      for (const event of [startEvent, endEvent]) {
         assert.equal(
           event.value.params.item.cwd,
           expected.source,
@@ -455,8 +576,8 @@ export function assess({
           "native-turn-mismatch",
         );
       }
-      assert.equal(completed[i].value.params.threadId, authority.threadId);
-      assert.equal(completed[i].value.params.turnId, authority.turnId);
+      assert.equal(endEvent.value.params.threadId, authority.threadId);
+      assert.equal(endEvent.value.params.turnId, authority.turnId);
       const output = requests[i + 1].body.input.filter(
         (x) => x.type === "function_call_output" && x.call_id === call.callId,
       );
@@ -510,7 +631,11 @@ export function assess({
     );
     const terminals = ipc.filter((r) => r.value.method === "turn/completed");
     assert.equal(terminals.length, 1, "missing-or-duplicate-terminal");
-    assert(terminals[0].seq > completed[2].seq, "premature-terminal");
+    assert(
+      terminals[0].seq >
+        (settlements ? settlements[2].settlement.seq : completed[2].seq),
+      "premature-terminal",
+    );
     assert.equal(terminals[0].value.params.threadId, authority.threadId);
     assert.equal(terminals[0].value.params.turn.id, authority.turnId);
     assert.equal(terminals[0].value.params.turn.status, "completed");
@@ -582,12 +707,13 @@ export function checkAttempt(directory, referenceCommit) {
     observations = read("observations.json");
   const admission = read("admission.json");
   assert.equal(admission.attempt, directory, "admission-attempt-path-mismatch");
+  const reference = trustedIdentity(referenceCommit);
   const provenance = verifyProvenance(
     directory,
     inputs,
     admission,
     seen,
-    trustedIdentity(referenceCommit),
+    reference,
   );
   verifyLoadedConfig(directory, inputs, seen, loadedConfigLayout(directory));
   assert.deepEqual(read("cleanup.json"), observations.cleanup);
@@ -617,6 +743,20 @@ export function checkAttempt(directory, referenceCommit) {
     if (!seen.has(name)) return null;
     return read(name);
   };
+  if (inputs.observationVariant === DENIAL_VARIANT)
+    verifySettlementProvenance(
+      directory,
+      inputs,
+      seen,
+      reference,
+      readFileSync(join(directory, "journal.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map(JSON.parse),
+      requests,
+      before,
+      after,
+    );
   const result = assess({
     admission,
     observations,

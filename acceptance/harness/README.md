@@ -2,7 +2,7 @@
 
 This is a proposed protected acceptance contract and a minimal synthetic native
 probe, **not a qualified coding harness**. Taskbot #59 comments 476/477 define
-H01–H10; sole authoring lease is epic comment 494. Independent review must accept
+H01–H10; authoring and repair authority is recorded below. Independent review must accept
 these files before producer qualification. No production transport, token gateway,
 approval or `HardLimitsCapability` is implemented here.
 
@@ -106,12 +106,12 @@ Every full native/H03/gateway/live-provider gate remains unqualified.
 The static Git fixture now has its own empty tree, one artificial commit and
 `rocky-next` HEAD, ordinary refs/objects, no remotes, copied history or parent links.
 Read-only Git tests resolve root/common metadata only inside that fixture. Exact
-synthetic cwd pretrust is prepared separately; neither correction has been tested
-through app-server yet. Startup 134 remains an unproved policy hypothesis.
+synthetic cwd pretrust is prepared separately; both were subsequently exercised in the single lease 551 attempt. Historical
+startup 134 is not retroactively attributed to a specific missing permission.
 
 ## One bounded native continuation (#64, lease 551/553)
 
-The only authorized invocation is
+The historical invocation, now durably consumed, was
 `node acceptance/harness/probe.mjs --execute-ticket-64-lease-551 --source-commit <exact-clean-HEAD>`.
 It requires canonical root/branch, a clean matching source revision, and consumes
 `.qualification/harness-native-64/lease-551-consumed.json` exclusively and durably
@@ -141,7 +141,7 @@ guardian cleanup stay retained. No retries, additional probe matrix, outside-tem
 creation, real credentials/model/API or target effects are authorized. Shared
 temp runtime denial and all broader capabilities remain unproven.
 
-Current static selftests and this one attempt write only beneath
+The lease 551 static selftests and its one attempt wrote only beneath
 `.qualification/harness-native-64/`; prior 970/621/632-entry evidence inventories
 remain unchanged. The accepted checker changes only its exact allowed evidence
 root list; its assessment/provenance/operation semantics and H01–H10 are frozen.
@@ -177,9 +177,74 @@ Elapsed limits mean local execution/no new dispatch within the fixed deadline,
 with cleanup time reserved inside it and remote token exposure still reserved.
 They do not promise instantaneous provider cancellation.
 
+## Source-bound terminal-denial variant (#68, lease extension 579)
+
+Independent recommendation #67/575 and root approval #59/576 authorize the
+separately versioned `source-bound-terminal-denial-v1` observation mechanism.
+Contract v3 retains the H01–H10 requirement array byte-for-byte as JSON data.
+This static implementation has **not been exercised natively or independently
+approved**. Gate 551 remains consumed; this work neither resets it nor grants a
+new invocation. No production gateway or capability is created.
+
+`settlement.mjs` joins the authenticated native provider result and matching
+command events by exact call ID within the original 50-second work deadline.
+The positive source/scratch control always needs native start/completion, exit
+zero, exact output and independently reread effects. The normal eventful denial
+path retains its existing checks. Result-before-events is handled by an
+observable same-call join, without a silence timer or changing the command.
+
+For the two fixed private operations only, a zero-event result can provisionally
+settle through the alternate. Metadata must begin at byte zero and match the
+pinned native formatter: Chunk ID, finite four-decimal wall time, terminal integer
+exit, original token count, then Output. The exit must be 1–127 and the entire
+body must be the operation-specific OS diagnostic naming the exact canary path.
+The read form was observed historically. The two explicit `/bin/sh:` redirection
+forms are prospective write grammars; they have not been observed in a completed
+native probe. Unknown output fails. Running sessions, truncation, parser errors,
+stdout/header spoofing, altered commands/args, unrelated denials and missing or
+reused result identities fail.
+
+A provisional result is accepted only after the complete journal has no native
+events for that call, a matching final message precedes completed terminal,
+stdout reaches EOF, app-server exits normally and owned resources are quiescent
+inside the original 60-second total. Any late/partial/conflicting event fails;
+there is no retrospective path switch. All three operations and four complete
+provider round trips are mandatory. Repeated cumulative provider history is an
+immutable reference to old envelopes; it cannot count as a fresh operation.
+The provider envelope has no thread/turn fields: its association is explicitly
+derived from the sole startup-correlated owned invocation, not an invented field.
+
+`settlement-provenance.mjs` additionally requires the exact actual runtime config,
+private snapshot and recomputed reviewed policy/config; exact binary, platform,
+shell and sandbox executable hashes; retained pinned source bytes and all bound
+schemas; no launcher/thread/turn permission overrides; stable observed helpers
+and owned process identity before dispatch; authenticated loopback request
+receipts; unchanged private oracle with no transcript leak; source/scratch files;
+and normal guardian shutdown. `native-config.mjs` is the unchanged renderer
+extracted from the prior launcher, checked against the exact historical bytes.
+Source correspondence is **not reproducible-build attestation**, and neither a
+typed denial discriminator nor a branch trace is claimed.
+
+New static evidence lives only under `.qualification/harness-settlement-68/` and
+the earlier config-repair namespace. `settlement-fixtures.mjs` supplies explicitly
+synthetic actual-shaped IPC/provider sequences; unit success proves checker
+mechanics, never native containment. The pure provenance verifier has a test-only
+file relocation argument; production `checkAttempt()` always derives authority
+from the admitted canonical directory and never accepts that argument from a
+bundle. Existing 970 + 621 + 632 + 1179 historical evidence entries remain fixed.
+
+The single lease 551 attempt
+`.qualification/harness-native-64/attempt-2026-09-28T02-35-51.938Z` established the
+allowed source/scratch control and stable config/helpers. Its private read
+returned an OS denial without command events, then the old join rejected it;
+private write and successful final completion are absent. Its original outcome
+and current complete-bundle recheck remain **FAIL**. This variant does not turn
+that incomplete historical attempt into a pass. A fresh native trial requires
+independent source review and separate root-granted authority.
+
 ## Current result: native feasibility blocked
 
-Both attempts are retained below
+The two original attempts are retained below
 `.qualification/harness-contract-59/`:
 
 | Attempt                            | Actual observation                                                                                                                                            | Interpretation                                                                                   |
@@ -191,8 +256,8 @@ The second app-server turn completed and the original driver exited zero. Those
 are retained transport observations, **not an accepted pass**. The checker rejects
 that pattern. The original driver also dispatched the remaining two operations
 after the failed positive control; the final driver stops at the first failure.
-The false-pass condition has checker unit coverage. The repaired driver has not
-been rerun natively.
+The false-pass condition has checker unit coverage. The corrected candidate later reached the native positive control under lease 551;
+that separate attempt is described below.
 
 In both attempts Codex appended a trusted-project entry for
 `/Users/jappy/code/jappyjan/rocky` to the **owned private** config despite synthetic
@@ -256,14 +321,15 @@ credentials or ChatGPT auth extraction must never be inferred.
 From the exact canonical root on `rocky-next`:
 
 ```sh
-node --test acceptance/harness/check.test.mjs acceptance/harness/binding.test.mjs
+node --test acceptance/harness/check.test.mjs acceptance/harness/config-binding.test.mjs acceptance/harness/settlement.test.mjs acceptance/harness/settlement-provenance.test.mjs acceptance/harness/binding.test.mjs
 node --check acceptance/harness/probe.mjs
 node_modules/.bin/prettier --check acceptance/harness
-node acceptance/harness/check.mjs .qualification/harness-contract-59/attempt-2026-09-28T01-24-06.796Z
+node acceptance/harness/check.mjs .qualification/harness-native-64/attempt-2026-09-28T02-35-51.938Z 8930b4849eb9ae5bb2176fda9e8712826c69244c
 ```
 
-The last command must exit 1 (missing/current-revision provenance); it is a retained
-negative acceptance result. The old checker separately rejected its config change.
+The last command must exit 1 with `recorded-attempt-error`; it is a retained
+negative acceptance result. The unchanged native-integration tests write into the
+closed historical namespace and are not part of this static repair rerun.
 Native reproduction is intentionally locked pending independent review and a
 new explicit lease. Do not launch `probe.mjs` as a reviewer. The final evidence
 index binds all retained files and symlink metadata without following runtime

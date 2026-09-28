@@ -1,13 +1,16 @@
 {
   "schema": 1,
-  "contractId": "rocky-harness-59-v2",
+  "contractId": "rocky-harness-59-v3",
   "authority": [
     "Taskbot #59 comment476",
     "Taskbot #59 comment477",
     "Taskbot #1 comment494",
     "Taskbot #1 lease518",
     "Taskbot #62 reviews511/512",
-    "Taskbot #63 static521/root522"
+    "Taskbot #63 static521/root522",
+    "Taskbot #67 recommendation575",
+    "#59 approval576",
+    "#1 static extension579"
   ],
   "qualification": false,
   "capability": null,
@@ -198,5 +201,74 @@
     "authority": ["#63/521", "#59/522"],
     "runtimeSharedTempWrites": "UNPROVEN and unauthorized",
     "helperIdentities": "must be observed and hashed before future dispatch; no guessed identity"
+  },
+  "observationVariant": {
+    "id": "source-bound-terminal-denial-v1",
+    "status": "static implementation; independent review and fresh native authority required",
+    "normalPath": "unchanged matching native events; positive never uses alternate",
+    "alternativeScope": ["exact protected read", "exact protected overwrite"],
+    "authority": ["#67/575", "#59/576", "#1/579"],
+    "requirements": "All conjunctive conditions in #67/575; strict formatter and operation-specific whole body; unique authentic call/result and immutable cumulative history; provisional zero-event denial invalidated by any late event; complete final/EOF/quiescence; no capability.",
+    "sourceReference": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+    "sourceReferenceIsReproducibleBinaryAttestation": false,
+    "sourceFiles": [
+      {
+        "path": "arg0-lib.rs",
+        "bytes": 28533,
+        "sha256": "476895d5adc6c8c897e53c8ec7a5d49556f9798d1d9a2918168c85f14c1ae5d7",
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/arg0/src/lib.rs"
+      },
+      {
+        "path": "context.rs",
+        "sha256": "9a9acc6daab2112bd9ca1a07a1e1f2105b20a7f565878157c726ee0d7a3e00cc",
+        "bytes": 20351,
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/core/src/tools/context.rs"
+      },
+      {
+        "path": "denial.rs",
+        "sha256": "70ba7f805ebdc64b59147c52d9ff8a09184e6d82c4e5333309af746802892579",
+        "bytes": 2193,
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/sandboxing/src/denial.rs"
+      },
+      {
+        "path": "exec_command.rs",
+        "sha256": "4698f6c794151998d52bb6cc6088dd03039e9665fd11037f6c22cf0d4fdd2f2d",
+        "bytes": 22388,
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs"
+      },
+      {
+        "path": "orchestrator.rs",
+        "sha256": "462d5023881042ac4e59a4344690e254e7374fd10cc0cc31b8f4c89923fa998c",
+        "bytes": 24072,
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/core/src/tools/orchestrator.rs"
+      },
+      {
+        "path": "process.rs",
+        "sha256": "9c110e349cc12408f945ac0eee30467bf9a6640f26444a3d79a06b259ce49b13",
+        "bytes": 24820,
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/core/src/unified_exec/process.rs"
+      },
+      {
+        "path": "process_manager.rs",
+        "sha256": "17d2d564fecd30ea0bbd2301ccd013a07a91e14404094619bd79edc2c1c2750a",
+        "bytes": 73353,
+        "url": "https://raw.githubusercontent.com/openai/codex/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/core/src/unified_exec/process_manager.rs"
+      }
+    ],
+    "nativeExecutables": [
+      {
+        "path": "/bin/sh",
+        "sha256": "c0eaf44f9242d5bbc2e14f4e8b7dccc1eff7f2976d64dc18914d5ef9f373e100"
+      },
+      {
+        "path": "/bin/cat",
+        "sha256": "2b6e8f3f90c42a9d8d1e5471efb4173ad3499fc8ca4039b39327b394616cf39e"
+      },
+      {
+        "path": "/usr/bin/sandbox-exec",
+        "sha256": "abc5bb136d6b5cce8fa85d789f78e3326c51ca60cae637b2064adfb67a1dcd9a"
+      }
+    ],
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.6.2\nBuildVersion:\t\t25G83\n"
   }
 }

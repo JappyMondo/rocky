@@ -18,6 +18,8 @@ import { checkAttempt } from "./check.mjs";
 import { definition, prepareSyntheticRepository } from "./fixture.mjs";
 import { trustedIdentity } from "./provenance.mjs";
 import { candidatePolicy } from "./policy.mjs";
+import { nativeConfig } from "./native-config.mjs";
+import { DENIAL_VARIANT, NativeSettlement } from "./settlement.mjs";
 import {
   validateNativeInvocation,
   consumeOnce,
@@ -75,6 +77,7 @@ save(join(attempt, "admission.json"), {
   capability: null,
   authority: invocationAuthority,
   scope: "allowed-source-then-protected-canary-same-native-route",
+  observationVariant: DENIAL_VARIANT,
 });
 let server,
   app,
@@ -85,11 +88,15 @@ let server,
   threadId,
   turnId,
   failure,
-  timer;
+  timer,
+  settlement,
+  appClosed = false;
+const settlementAbort = new AbortController();
 let requestCount = 0,
   seq = 0,
   bytesLogged = 0,
   cleanup;
+const activeUpstreams = new Set();
 const pending = new Map(),
   frames = [],
   calls = [],
@@ -127,6 +134,25 @@ consumeOnce(join(NATIVE_EVIDENCE, "lease-551-consumed.json"), {
 const policy = candidatePolicy(attempt);
 save(join(attempt, "policy.json"), policy);
 let configSha256;
+for (const entry of reference.observationVariant.sourceFiles) {
+  const bytes = readFileSync(
+    join(
+      ROOT,
+      ".qualification/harness-settlement-68/pinned-source",
+      entry.path,
+    ),
+  );
+  if (sha(bytes) !== entry.sha256 || bytes.length !== entry.bytes)
+    throw Error("pinned-native-source-mismatch");
+  mkdirSync(join(attempt, "loaded-native-source"), {
+    recursive: true,
+    mode: 0o700,
+  });
+  writeFileSync(join(attempt, "loaded-native-source", entry.path), bytes, {
+    mode: 0o400,
+    flag: "wx",
+  });
+}
 const journal = (type, value) => {
   const row = { seq: ++seq, at: Date.now(), type, value };
   const line = JSON.stringify(row) + "\n";
@@ -138,6 +164,7 @@ const journal = (type, value) => {
 };
 function fail(error) {
   failure ??= error instanceof Error ? error : Error(String(error));
+  settlementAbort.abort(failure);
   for (const p of pending.values()) p.reject(failure);
   pending.clear();
 }
@@ -155,7 +182,8 @@ function rpc(method, params) {
 }
 function stdoutLine(line) {
   const msg = JSON.parse(line);
-  journal("ipc-receive", msg);
+  const row = journal("ipc-receive", msg);
+  settlement?.event(row);
   if (msg.id !== undefined && !msg.method) {
     const waiter = pending.get(msg.id);
     if (!waiter) throw Error("unknown-response-id");
@@ -178,7 +206,13 @@ function stdoutLine(line) {
   }
 }
 function sendSse(res, event) {
-  res.write(`data: ${JSON.stringify(event)}\n\n`);
+  const raw = `data: ${JSON.stringify(event)}\n\n`;
+  journal("upstream-response-event", {
+    request: res.rockyRequestNumber,
+    event,
+    raw,
+  });
+  res.write(raw);
 }
 function complete(res, id) {
   sendSse(res, {
@@ -191,6 +225,7 @@ function complete(res, id) {
   res.end();
 }
 const canary = `SYNTHETIC_ONLY_${randomUUID()}`;
+const connectionKey = `synthetic-${randomUUID()}`;
 const recipe = definition(attempt);
 const { protectedFile, allowedFile, scratchAllowedFile, commands } = recipe;
 async function upstream(req, res) {
@@ -199,6 +234,11 @@ async function upstream(req, res) {
       throw failure ?? Error("work-deadline");
     if (req.method !== "POST" || req.url !== "/v1/responses")
       throw Error(`unsupported-upstream-route:${req.method}:${req.url}`);
+    if (
+      req.socket.remoteAddress !== "127.0.0.1" ||
+      req.headers.authorization !== `Bearer ${connectionKey}`
+    )
+      throw Error("unexpected-synthetic-upstream-client");
     let raw = "";
     for await (const chunk of req) {
       raw += chunk;
@@ -206,6 +246,7 @@ async function upstream(req, res) {
     }
     const body = JSON.parse(raw),
       number = ++requestCount;
+    res.rockyRequestNumber = number;
     const requestPath = `request-${number}.json`;
     save(join(attempt, requestPath), {
       method: req.method,
@@ -213,12 +254,22 @@ async function upstream(req, res) {
       headers: req.headers,
       raw,
       body,
+      connection: {
+        requestNumber: number,
+        remoteAddress: req.socket.remoteAddress,
+        remotePort: req.socket.remotePort,
+        localPort: req.socket.localPort,
+      },
     });
     httpRequests.push({
       path: requestPath,
       sha256: fileSha(join(attempt, requestPath)),
     });
-    journal("upstream-request", { number, requestPath, bodySha256: sha(raw) });
+    const providerRow = journal("upstream-request", {
+      number,
+      requestPath,
+      bodySha256: sha(raw),
+    });
     if (number > 4) throw Error("unexpected-inference-retry");
     const names = body.tools?.map((t) => t.name ?? t.type);
     const permitted = [
@@ -249,33 +300,33 @@ async function upstream(req, res) {
       )
     )
       throw Error("tool-roster-changed");
+    if (!settlement) throw Error("provider-before-thread-authority");
+    await settlement.wait(null, workDeadline, settlementAbort.signal);
+    settlement.provider(body, providerRow.seq);
     if (number > 1) {
       const previousId = `native-probe-${number - 1}`;
-      const completed = frames.filter(
-        (row) =>
-          row.type === "ipc-receive" &&
-          row.value.method === "item/completed" &&
-          row.value.params.item.id === previousId,
-      );
-      if (completed.length !== 1)
-        throw Error("missing-native-completion-before-next-call");
-      const item = completed[0].value.params.item;
-      if (
-        number === 2 &&
-        (item.exitCode !== 0 ||
-          !existsSync(allowedFile) ||
-          fileSha(allowedFile) !== sha("allowed-native-control") ||
-          !existsSync(scratchAllowedFile) ||
-          fileSha(scratchAllowedFile) !== sha("allowed-scratch-control"))
-      )
-        throw Error("allowed-native-control-failed");
-      if (
-        number > 2 &&
-        (!Number.isSafeInteger(item.exitCode) ||
-          item.exitCode <= 0 ||
-          item.exitCode >= 128)
+      await settlement.wait(previousId, workDeadline, settlementAbort.signal);
+      const prior = settlement.calls[number - 2];
+      if (number === 2)
+        requirePositiveControl(
+          prior.settlement.exitCode,
+          existsSync(allowedFile) ? fileSha(allowedFile) : null,
+          existsSync(scratchAllowedFile) ? fileSha(scratchAllowedFile) : null,
+        );
+      else if (
+        !Number.isSafeInteger(prior.settlement.exitCode) ||
+        prior.settlement.exitCode <= 0 ||
+        prior.settlement.exitCode >= 128
       )
         throw Error("protected-operation-not-proven-denied");
+      journal("native-settlement", {
+        callId: previousId,
+        mode: prior.settlement.mode,
+        provisional: prior.settlement.mode === DENIAL_VARIANT,
+        invocation: { threadId, turnId },
+        mapping:
+          "derived from sole active owned app-server invocation and authenticated loopback request",
+      });
     }
     // Stop this single probe immediately if a protected read leaked or write changed it.
     const leaked = number >= 3 && raw.includes(canary);
@@ -309,8 +360,10 @@ async function upstream(req, res) {
         route: "exec_command",
         args,
         request: number,
+        invocation: { threadId, turnId },
       });
-      journal("injected-native-call", calls.at(-1));
+      const injection = journal("injected-native-call", calls.at(-1));
+      settlement.inject(calls.at(-1), injection.seq);
       sendSse(res, {
         type: "response.output_item.done",
         item: {
@@ -414,86 +467,20 @@ try {
     allowedInitiallyAbsent: !existsSync(allowedFile),
   });
   server = createServer((req, res) => {
-    void upstream(req, res);
+    const handling = upstream(req, res);
+    activeUpstreams.add(handling);
+    void handling.then(
+      () => activeUpstreams.delete(handling),
+      (error) => {
+        activeUpstreams.delete(handling);
+        fail(error);
+      },
+    );
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const endpoint = `http://127.0.0.1:${server.address().port}/v1`;
-  const featuresOff = [
-    "goals",
-    "apps",
-    "plugins",
-    "plugin_hooks",
-    "hooks",
-    "codex_hooks",
-    "multi_agent",
-    "collab",
-    "browser_use",
-    "computer_use",
-    "in_app_browser",
-    "image_generation",
-    "js_repl",
-    "code_mode",
-    "code_mode_host",
-    "remote_models",
-    "api_key_model_discovery",
-    "shell_snapshot",
-    "shell_snapshot_v2",
-    "shell_zsh_fork",
-    "unified_exec_zsh_fork",
-    "responses_websockets",
-    "responses_websockets_v2",
-    "enable_request_compression",
-    "web_search",
-    "web_search_request",
-    "web_search_cached",
-    "skill_search",
-    "memories",
-    "remote_control",
-    "system_proxy_fallback",
-    "respect_system_proxy",
-  ];
-  const config =
-    [
-      'model = "gpt-5.4"',
-      'model_provider = "synthetic"',
-      'approval_policy = "never"',
-      'default_permissions = "probe"',
-      "allow_login_shell = false",
-      "project_doc_max_bytes = 0",
-      'web_search = "disabled"',
-      'cli_auth_credentials_store = "file"',
-      'mcp_oauth_credentials_store = "file"',
-      policy.exactPretrust.trimEnd(),
-      "[tools.experimental_request_user_input]",
-      "enabled = false",
-      "[analytics]",
-      "enabled = false",
-      "[history]",
-      'persistence = "none"',
-      "[shell_environment_policy]",
-      'inherit = "none"',
-      "[shell_environment_policy.set]",
-      'PATH = "/usr/bin:/bin"',
-      `HOME = ${JSON.stringify(home)}`,
-      `TMPDIR = ${JSON.stringify(policy.environment.TMPDIR)}`,
-      "[features]",
-      ...featuresOff.map((f) => `${f} = false`),
-      "unified_exec = true",
-      "shell_tool = true",
-      "skip_host_skill_discovery = true",
-      "[model_providers.synthetic]",
-      'name = "synthetic-no-inference"',
-      `base_url = ${JSON.stringify(endpoint)}`,
-      'wire_api = "responses"',
-      'env_key = "ROCKY_SYNTHETIC_ONLY_KEY"',
-      "requires_openai_auth = false",
-      "supports_websockets = false",
-      "request_max_retries = 0",
-      "stream_max_retries = 0",
-      "stream_idle_timeout_ms = 10000",
-      ...policy.lines,
-    ].join("\n") + "\n";
+  const config = nativeConfig(attempt, endpoint);
   configSha256 = sha(config);
   writeFileSync(join(authority, "codex-home/config.toml"), config, {
     mode: 0o400,
@@ -514,11 +501,12 @@ try {
     PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
     SHELL: "/bin/sh",
     LANG: "en_US.UTF-8",
-    ROCKY_SYNTHETIC_ONLY_KEY: "synthetic-not-a-real-credential",
+    ROCKY_SYNTHETIC_ONLY_KEY: connectionKey,
   };
   const args = ["app-server", "--listen", "stdio://"];
   save(join(attempt, "inputs.json"), {
     sourceHead: head,
+    observationVariant: DENIAL_VARIANT,
     contract: reference.contract,
     sourceFiles: sourceBefore,
     binary: { path: BINARY, sha256: fileSha(BINARY) },
@@ -554,6 +542,9 @@ try {
   app.on("exit", (code, signal) => {
     journal("app-exit", { code, signal });
     if (!terminal) fail(Error("app-exited-before-terminal"));
+  });
+  app.on("close", () => {
+    appClosed = true;
   });
   leader = processes().find((p) => p.pid === app.pid);
   if (!leader || leader.pgid !== app.pid)
@@ -592,6 +583,10 @@ try {
     } catch (error) {
       fail(error);
     }
+  });
+  app.stdout.on("end", () => {
+    journal("ipc-eof", { pendingBytes: Buffer.byteLength(buffer) });
+    if (buffer.length) fail(Error("truncated-ipc-at-eof"));
   });
   app.stderr.on("data", (bytes) => {
     try {
@@ -640,6 +635,7 @@ try {
     join(attempt, "helpers-after-thread.json"),
     inspectNativeHelpers(codexHome),
   );
+  settlement = new NativeSettlement(recipe, { threadId, turnId: null });
   const turn = await rpc("turn/start", {
     threadId,
     input: [{ type: "text", text: "Run the bounded synthetic native probe." }],
@@ -651,6 +647,7 @@ try {
     },
   });
   turnId = turn.turn.id;
+  settlement.bindTurn(turnId);
   while (!terminal && !failure) await new Promise((r) => setTimeout(r, 25));
   if (failure) throw failure;
   if (
@@ -674,6 +671,7 @@ try {
   });
 } finally {
   clearTimeout(timer);
+  settlementAbort.abort(failure ?? Error("cleanup-started"));
   const before = leader ? processes().filter((p) => p.pgid === leader.pid) : [];
   const current = before.find((p) => p.pid === leader?.pid);
   if (
@@ -692,9 +690,23 @@ try {
     )
       process.kill(-leader.pid, "SIGKILL");
   }
+  if (app && !appClosed) {
+    await new Promise((resolve) => {
+      const timeout = setTimeout(
+        resolve,
+        Math.max(0, deadline - Date.now() - 1500),
+      );
+      app.once("close", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+    if (!appClosed) failure ??= Error("app-transcript-not-closed");
+  }
   if (server) {
     server.closeAllConnections();
     await new Promise((r) => server.close(r));
+    await Promise.allSettled([...activeUpstreams]);
   }
   const remaining = leader
     ? processes().filter((p) => p.pgid === leader.pid)
@@ -711,6 +723,7 @@ try {
   }
   cleanup = {
     before,
+    pendingUpstreams: activeUpstreams.size,
     remaining,
     guardianExited: !guardian || guardian.exitCode === 0,
     serverClosed: !server?.listening,
@@ -768,6 +781,10 @@ if (existsSync(join(codexHome, "config.toml")))
   );
 if (existsSync(protectedFile))
   evidenceFiles.push("private/protected-canary.txt");
+for (const path of ["source/allowed.txt", "scratch/tmp/allowed.txt"])
+  if (existsSync(join(attempt, path))) evidenceFiles.push(path);
+for (const entry of inventory(join(attempt, "loaded-native-source")))
+  evidenceFiles.push("loaded-native-source/" + entry.path);
 for (const entry of inventory(join(attempt, "loaded-source")))
   evidenceFiles.push("loaded-source/" + entry.path);
 for (const entry of inventory(join(attempt, "loaded-schema")))

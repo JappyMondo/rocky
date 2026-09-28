@@ -87,6 +87,7 @@ export function trustedIdentity(commit) {
       schemaInventorySha256: manifest.protocolSchema.inventorySha256,
     },
     schemaCount: manifest.protocolSchema.artifactCount,
+    observationVariant: manifest.observationVariant,
   };
 }
 
