@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "kind": "contract-structural-validation",
+  "root": "/Users/jappy/.t3/worktrees/rocky/rocky-next",
+  "branch": "rocky-next",
+  "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704",
+  "modelSelection": "gpt-6-astra/high, tool-accepted per orchestrator dispatch; backend unattested",
+  "checks": [
+    {
+      "check": "three JSON documents parse with unique object keys",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "contract identity and locked qualification",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "one-to-one complete H01-H10 mapping",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "27 unique predeclared scenarios",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "all scenario requirement references resolve",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "every requirement covered",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "all scenarios contain procedure and expected oracle",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "no scenario claims executed/pass",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "native/live/target scopes blocked with reason",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "migration scenarios M01-M05 frozen",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "single direct candidate with no fallback",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "source references fully pinned",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "execution profile unresolved explicitly",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "fresh raw stdin and EOF contract",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "honest observed budget mode",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "explicit unknown and allzero ambiguity",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "current final schema rejects extra fields",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "final schema includes action/input/role binding",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "final schema reference resolves",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "historical gateway claims not inherited",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: acceptance/harness/manifest.json",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: acceptance/harness/README.md",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: acceptance/contracts/requirements.json",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: docs/rocky-next-concept.md",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: docs/rocky-next-concept.html",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: docs/architecture/first-version-decisions.md",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: src/coordinator/contracts.ts",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: src/coordinator/reducer.ts",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "baseline unchanged: src/coordinator/transport.ts",
+      "result": "pass",
+      "evidenceClass": "static"
+    },
+    {
+      "check": "no tracked baseline changes",
+      "result": "pass",
+      "evidenceClass": "static"
+    }
+  ],
+  "scenarioExecutions": 0,
+  "qualification": false,
+  "capability": null,
+  "limitations": [
+    "No production/parser/schema-engine tests or builds run",
+    "No native/auth/login/status/model/API/target/remote/service/install effects",
+    "Reference inventory checks selected fixed inputs and tracked diff; it does not rehash historical private/session artifacts",
+    "Source hashes taken from accepted #87/814; binary/runtime/live model not reattested"
+  ]
+}

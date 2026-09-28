@@ -1,0 +1,350 @@
+{
+  "schema": 1,
+  "contractId": "rocky-subscription-88-v1",
+  "status": "static",
+  "qualification": false,
+  "capability": null,
+  "nativeExecutionBlocked": true,
+  "authority": ["#88", "#1/820", "#8/804/816", "#1/806", "#87/814/815/817"],
+  "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704",
+  "historicalContract": {
+    "id": "rocky-harness-59-v3",
+    "path": "acceptance/harness/manifest.json",
+    "modified": false,
+    "inheritedPasses": [],
+    "gatewayH07H08H09": "unchanged and unqualified for their original claims"
+  },
+  "candidate": {
+    "harness": "codex",
+    "version": "0.157.1",
+    "binary": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
+    "binarySha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d",
+    "binaryIdentityProvenance": "historical harness59-v3; not reattested by #88",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sourceCommit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+    "sourceIsReproducibleBinaryAttestation": false,
+    "liveAvailability": "unknown",
+    "backendAttestation": null,
+    "laterHarnesses": ["Claude Code", "OpenCode"]
+  },
+  "launch": {
+    "shell": false,
+    "freshInvocationPerAction": true,
+    "resumeOrFork": false,
+    "argvTemplate": [
+      "exec",
+      "--json",
+      "--color",
+      "never",
+      "--skip-git-repo-check",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--strict-config",
+      "--output-schema",
+      "<immutable-final-schema-path>",
+      "--model",
+      "<exact-role-model>",
+      "--ephemeral",
+      "<zero-or-more-pairs:-c,audited-TOML-assignment>",
+      "--",
+      "-"
+    ],
+    "templateIsExecutableOrApprovedProfile": false,
+    "profile": {
+      "id": "codex-exec-subscription-ephemeral-v1",
+      "status": "blocked",
+      "overrideArtifact": null,
+      "overrideDigest": null,
+      "reason": "Exact source-valid named-permission/discovery/config overrides and native behavior require separately reviewed qualification. No guessed keys or inherited entries."
+    },
+    "requiredOverrides": [
+      "exact model_reasoning_effort",
+      "explicit approved nonsecret auth storage backend",
+      "native OpenAI provider without credential gateway",
+      "named role permissions",
+      "untrusted staged project and approved instruction discovery",
+      "private SQLite and log locations",
+      "disabled unapproved tool/discovery routes"
+    ],
+    "models": [
+      {
+        "assignment": "standard implementation",
+        "model": "gpt-6-sol",
+        "effort": "medium"
+      },
+      {
+        "assignment": "complex implementation or independent review",
+        "model": "gpt-6-astra",
+        "effort": "high"
+      }
+    ],
+    "noFallback": true,
+    "input": {
+      "kind": "one-shot raw UTF-8",
+      "maxBytesRequired": true,
+      "digestRequired": true,
+      "attemptDurableBeforeWrite": true,
+      "eofCount": 1,
+      "resendAfterAmbiguity": false,
+      "promptInArgv": false
+    },
+    "environment": "sealed positive allowlist, exact immutable bytes; no inherited API/access/workload tokens, proxies, provider overrides or ambient secrets",
+    "runtimePaths": [
+      "private HOME",
+      "private TMPDIR",
+      "private SQLite",
+      "private logs",
+      "protected host-owned artifacts"
+    ],
+    "auth": {
+      "owner": "trusted Codex parent",
+      "home": "one designated existing harness-owned CODEX_HOME; not private runtime HOME",
+      "backend": "explicit approved nonsecret file/keyring/auto selection, never inferred from credentials",
+      "accountMode": "recognized subscription classification only; unknown/API/mismatch rejects before model work",
+      "normalNativeRefresh": "allowed only within later qualified profile authority",
+      "rockyCredentialReadCopySymlinkProxy": false,
+      "rawStatusRetention": false,
+      "forcedLoginLogoutPolicy": false
+    },
+    "immutableBeforeStart": [
+      "argv",
+      "positive environment",
+      "cwd/staged tree",
+      "prompt bytes",
+      "final schema",
+      "approved visual inputs",
+      "role permissions",
+      "nonsecret instruction/discovery inventory",
+      "auth backend/mode binding",
+      "source/binary/helper/platform",
+      "run/action/lease/head/scope/build/versions",
+      "original deadline and finite limits"
+    ]
+  },
+  "protocol": {
+    "kind": "fresh codex exec JSONL; not external JSON-RPC",
+    "events": [
+      "thread.started",
+      "turn.started",
+      "item.started",
+      "item.updated",
+      "item.completed",
+      "turn.completed",
+      "turn.failed",
+      "error"
+    ],
+    "allowedItems": [
+      "agent_message",
+      "reasoning",
+      "command_execution",
+      "file_change",
+      "todo_list"
+    ],
+    "forbiddenItems": [
+      "mcp_tool_call",
+      "collab_tool_call",
+      "web_search",
+      "error",
+      "unknown item type"
+    ],
+    "successRequires": [
+      "one thread.started with nonblank thread_id",
+      "one turn.started",
+      "unique consistent item identities and valid lifecycle",
+      "all observed commands/plans settled successfully",
+      "one current structured final after tool settlement",
+      "one turn.completed after final",
+      "no errors/reroutes/failed/declined items",
+      "strict complete bounded stdout JSONL and stderr EOF",
+      "exit zero",
+      "independent owned physical quiescence",
+      "unchanged admission identity, no cancellation, original deadline"
+    ],
+    "notExposed": [
+      "turn ID",
+      "turn.error:null",
+      "JSON-RPC request IDs",
+      "pending-server-request map",
+      "continuous usage"
+    ],
+    "finalSchema": "final.schema.json",
+    "sourceVisibilityGap": "Omitted internal state needs exact source/native qualification; absence of JSONL field is not absence of activity."
+  },
+  "budget": {
+    "mode": "subscription-observed-v1",
+    "hardAggregateTokenLimit": false,
+    "numericOvershootBound": null,
+    "midTurnUsageCutoff": false,
+    "localBounds": [
+      "original run/action elapsed deadline including cleanup reserve",
+      "finite total fresh actions",
+      "finite role/repair attempts",
+      "one active invocation until proven quiescent",
+      "finite prompt/frame/item/stdout/stderr/artifact/process resource limits"
+    ],
+    "usageSource": "native-harness-telemetry",
+    "usageTiming": "turn.completed only",
+    "usageStatuses": ["reported", "unknown", "ambiguous-zero"],
+    "components": [
+      "input_tokens",
+      "cached_input_tokens",
+      "cache_write_input_tokens",
+      "output_tokens",
+      "reasoning_output_tokens"
+    ],
+    "comparisonTotal": "input_tokens + output_tokens; cached/reasoning subsets not added again; source interpretation must qualify",
+    "actualProviderConsumption": "unknown; not inferred from telemetry or planning charges",
+    "planningCharges": "separate monotonic local entitlement, no refunds from unknown or zero-default usage",
+    "automaticAgentStop": "any unresolved usage OR accumulated reported total >= configured threshold; applies to implement/review/arbitrate/all repairs",
+    "overrun": "retain full reported amount; stop further automatic agent work; never clip or call provider-receipt",
+    "allowedAfterUsageStop": [
+      "bounded local verification",
+      "bounded CI observation",
+      "owned cleanup"
+    ],
+    "attemptPolicy": {
+      "environmentRetries": 1,
+      "combinedProductCiRepairs": 2,
+      "maxProductRepairs": 1,
+      "reservedCiRepairAttempts": 1,
+      "reviewCorrections": 1,
+      "disagreements": 1,
+      "totalFreshActions": "finite positive integer frozen at admission"
+    },
+    "ciReserveLimit": "Review exhaustion cannot spend CI entitlement; uncertainty/threshold can block CI agent repair and subscription quota is never guaranteed.",
+    "legacy": "No mode defaulting, in-place promotion, capability conversion, receipt relabeling or unknown-success clearance; explicit new-run/revision boundary with fresh independent binding."
+  },
+  "requirements": [
+    {
+      "id": "S01",
+      "from": "H01",
+      "gate": "Exact identity, approved nonsecret auth/config/instructions/discovery; actual effective routes, no sterile-home claim."
+    },
+    {
+      "id": "S02",
+      "from": "H02",
+      "gate": "Native allowed controls and protected operation denial across implement/review, shell/patch/non-shell and approved visual path."
+    },
+    {
+      "id": "S03",
+      "from": "H03",
+      "gate": "Synthetic alternate filesystem and parent env/FD/process/IPC/keyring/network authority probes; unsupported required boundary blocks."
+    },
+    {
+      "id": "S04",
+      "from": "H04",
+      "gate": "Typed source-bound fresh exec stream, current final, complete lifecycle/EOF/exit and separate quiescence."
+    },
+    {
+      "id": "S05",
+      "from": "H05",
+      "gate": "Original owned deadline/cleanup including detached descendant and lost parent; uncertainty keeps capacity fenced."
+    },
+    {
+      "id": "S06",
+      "from": "H06",
+      "gate": "Durable start/input intent, synchronous fence guard, no blind resend/relaunch, stale/cancel/duplicate rejection."
+    },
+    {
+      "id": "S07",
+      "from": "H07",
+      "gate": "Exact immutable input and finite attempts/slot/elapsed/resources, zero launch after admission failure."
+    },
+    {
+      "id": "S08",
+      "from": "H08",
+      "gate": "Terminal telemetry/zero ambiguity/overrun and stop-between-actions; planning separate; CI reserve and strict legacy semantics retained."
+    },
+    {
+      "id": "S09",
+      "from": "H09",
+      "gate": "Later subscription mode and exact requested model/effort functional proof; no reroute or invented provider/backend attestation."
+    },
+    {
+      "id": "S10",
+      "from": "H10",
+      "gate": "Independently approved immutable evidence binding, trusted loader, real functional/visual gates and drift checks."
+    }
+  ],
+  "receiptRequirements": [
+    "contract/scenario hashes",
+    "independently selected revision and approval reference",
+    "runtime/config/discovery/auth-classification/role/model identities",
+    "run/action/lease/head/scope/build/version/input digests",
+    "attempt ID and evidence class",
+    "ordered injections and native observations",
+    "expected and actual result with pass/fail/blocked/unknown/unsupported",
+    "timestamps and original limits",
+    "pending operations and independent cleanup/quiescence",
+    "hashed artifact inventory and missing gaps"
+  ],
+  "gateOrder": [
+    "independent static contract review",
+    "reviewed policy migration and fake adapter evidence",
+    "separately authorized synthetic native evidence",
+    "separately authorized subscription/model proof",
+    "independent immutable capability approval",
+    "separately authorized real backend/UI and full delivery acceptance"
+  ],
+  "evidenceClasses": [
+    "static",
+    "owned-fake-cli",
+    "migration",
+    "synthetic-native",
+    "live-subscription",
+    "target-coding"
+  ],
+  "outcomes": [
+    "unexecuted",
+    "pass",
+    "fail",
+    "blocked",
+    "unknown",
+    "unsupported"
+  ],
+  "sources": [
+    {
+      "path": "codex-rs/exec/src/cli.rs",
+      "sha256": "6abb86feb8fac2a192b34a617634527d0747b6d7fa09ee4827c0dc95abbe2f75",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/exec/src/cli.rs"
+    },
+    {
+      "path": "codex-rs/exec/src/lib.rs",
+      "sha256": "a7bb98cf5d7e1a1881254c82315736be4c2aa0ecd605f5cb00ca5d9bf89a7ea5",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/exec/src/lib.rs"
+    },
+    {
+      "path": "codex-rs/exec/src/exec_events.rs",
+      "sha256": "dafa872d7e86a099e56e28a329dcb9c03db90ed768c3b88cca8c91d46dc1d0e5",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/exec/src/exec_events.rs"
+    },
+    {
+      "path": "codex-rs/exec/src/event_processor_with_jsonl_output.rs",
+      "sha256": "bc296541b385f9b4ca2c28cc638e25a8d6b1332b2cd67f5a03eaa97a3d612b19",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/exec/src/event_processor_with_jsonl_output.rs"
+    },
+    {
+      "path": "codex-rs/login/src/auth/storage.rs",
+      "sha256": "2e95a8998687e926675d41b5d941c3c3546a652c03d9680e6c7385e59bf459af",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/login/src/auth/storage.rs"
+    },
+    {
+      "path": "codex-rs/login/src/auth/manager.rs",
+      "sha256": "01cb49b1cca566dddc47def60b52848da0717c7de6a33d8b7160b6fc4cafd881",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/login/src/auth/manager.rs"
+    },
+    {
+      "path": "codex-rs/config/src/loader/mod.rs",
+      "sha256": "0e3131c8186b391ecb425620bee2a8649d10364d062eee21a15d1cbe48dbbb0d",
+      "provenance": "accepted #87/814; not a #88 runtime observation",
+      "url": "https://github.com/openai/codex/blob/36650394c5b38c2990ccf2a3457165ca3e9d9726/codex-rs/config/src/loader/mod.rs"
+    }
+  ]
+}

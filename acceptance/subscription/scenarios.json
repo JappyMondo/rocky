@@ -1,0 +1,278 @@
+{
+  "schema": 1,
+  "contractId": "rocky-subscription-88-v1",
+  "frozenBeforeExecution": true,
+  "executionAuthorized": false,
+  "scenarios": [
+    {
+      "id": "F01",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S01", "S06", "S07"],
+      "title": "Exact sealed launch and raw input",
+      "procedure": "Owned fake CLI records argv/cwd/positive env and raw stdin; prompt contains newlines, Unicode, quotes, shell metacharacters and JSON-looking text. Rehash at guarded physical start. Repeat with each bound identity changed.",
+      "expected": "Valid bytes reach child exactly once, EOF once, no shell interpretation; drift or cancelled/expired/stale fence yields zero child launch. Unknown override/config cannot be admitted.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F02",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S04"],
+      "title": "Typed positive controls",
+      "procedure": "Emit fragmented multibyte UTF-8 JSONL: thread.started, turn.started, command started/completed exit0, completed-only file_change, completed reasoning/progress, settled todo, exact final, turn.completed usage; close both streams and exit0; independently observe group.",
+      "expected": "Source-shaped complete control may yield a proposed result only. No invented RPC fields or file_change start required; checks/review/CI remain unverified.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F03",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S04", "S07"],
+      "title": "Framing and bounds",
+      "procedure": "From F02 independently inject invalid UTF-8, duplicate JSON keys, malformed/nonobject JSON, extra unknown fields, oversized prompt/frame/log/item count, final unterminated line and stderr-holder descendant.",
+      "expected": "No accepted success; retain bounded prefix and truncation/unknown reason. Distinguish child decoder EOF from carrier EOF and stderr EOF; stdout final alone cannot establish cleanup.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F04",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S04"],
+      "title": "Item and terminal contradictions",
+      "procedure": "From F02 inject duplicate/missing thread or turn start, reused IDs/type changes, update-before-start, completed-only command, duplicate item completion, pending/failed/declined command, null exit, failed patch, incomplete todo, duplicate terminal and post-terminal event.",
+      "expected": "Each contradiction rejects successful action; pending/uncertain lifecycle cannot silently disappear. Completed-only patch/message controls remain accepted.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F05",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S04", "S09"],
+      "title": "Final and error authority",
+      "procedure": "Replace final with prose, old/extra/missing schema fields, wrong action/input/role, duplicate schema-shaped final, final before last tool, unknown active tool, error item/event, reroute, turn.failed or missing terminal; test nonzero exit after valid final.",
+      "expected": "Each rejects success; no RPC turn.error assertion inferred. Earlier progress cannot count as final. Reviewer changed/no_code and implementer complete do not pass role outcome checks.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F06",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S05", "S06"],
+      "title": "Start/input crash windows",
+      "procedure": "Kill owner before/after intent persistence, guarded begin, child ownership receipt, attempted-input write, partial input, EOF, final persistence and cancellation. Restart and deliver duplicate/late results with same identity.",
+      "expected": "At most one native start per action; partial/lost start/input reconciles or stays recovery_required, never replay. Original deadline and physical identity survive; cancel/stale inputs reject publication.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F07",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S05", "S07"],
+      "title": "Deadline and physical cleanup",
+      "procedure": "Use owned fake child with ignored TERM, held stdout/stderr, owned descendant, lost supervisor and unrelated sentinel. Hit work deadline reserving cleanup time; inject cleanup uncertainty.",
+      "expected": "Bounded TERM/KILL only for exact owned identities; preserve sentinel/logs. Original deadline never restarts. Unknown/escaped descendant keeps slot fenced and result unaccepted; no remote cancellation assertion.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F08",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S07", "S08"],
+      "title": "Terminal usage classification",
+      "procedure": "Emit positive component usage; missing usage; source-default all-zero; interrupted/failed before terminal; negative/fractional/unsafe/inconsistent subset values; positive reasoning/cached subsets.",
+      "expected": "Valid positive usage is native-harness-telemetry, comparison input+output only, actual consumption unknown. Missing/allzero cannot become local-no-model or provider-receipt. Invalid counts reject; allzero stays ambiguous-zero.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F09",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S07", "S08"],
+      "title": "Threshold and overrun",
+      "procedure": "Freeze threshold100 and planning allowance40. Complete an action with reported input80/output40, then separately total99,100,101 and unknown/allzero results. Try every agent work kind plus local checks/CI observation/cleanup.",
+      "expected": "120 retained unclipped despite planning40; totals>=100 or unresolved usage block every next automatic agent action including CI repair. Total99 permits only otherwise valid finite work. Bounded non-agent operations remain possible; no mid-turn cutoff claim.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F10",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S06", "S07", "S08"],
+      "title": "Finite scheduling and CI independence",
+      "procedure": "Exhaust review correction/arbitration/repeated-signature bounds, then observe failing CI and request reserved repair; repeat after unknown usage, reached threshold, elapsed exhaustion, competing starts and resource overflow.",
+      "expected": "Review exhaustion alone cannot spend/block reserved CI attempt; telemetry/deadline can block agent repair honestly. One active slot; counters never reset/refund after crash, revision or uncertainty; repeated unchanged/no-op work stops.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F11",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["S01", "S09", "S10"],
+      "title": "Nonsecret classification and forged evidence",
+      "procedure": "Inject auth classifications subscription/API/unknown/mismatch/race, raw key fragments, missing effective policy, caller capability=true, altered/missing artifact and stale independent approval. Use owned synthetic values only.",
+      "expected": "Only recognized approved nonsecret classification retained; never raw auth status/key fragments. Mismatch/unknown/race unresolved blocks model launch with no forced login/logout or API fallback. Forged/changed evidence cannot mint admission.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "N01",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S01", "S04", "S10"],
+      "title": "Pinned identity and actual discovery",
+      "procedure": "Under separate finite authority bind actual binary/helper/platform and source/CLI schema; seed synthetic user/project config/rules, global CODEX_HOME AGENTS/override, ancestor instructions and system/managed/cloud conflicts; test tool discovery and effective role policy.",
+      "expected": "Allowed approved instruction control observed; unapproved instructions/config/routes absent or admission blocked. Ignore flags alone never suffice; unknown keys/nested-map inheritance cannot pass. Source-to-binary correspondence is not reproducible attestation.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N02",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S01", "S02", "S03"],
+      "title": "Trusted parent versus model auth",
+      "procedure": "Create owned synthetic auth-store/keyring-service/env/FD/process/IPC sentinels with positive trusted-parent access; exercise model shell and every admitted non-shell route against them and runtime/session/control resources.",
+      "expected": "Trusted parent access distinguished from denied model access. Actual denied operation, no leaked bytes and independently unchanged protected oracle mandatory; same user/0700/shell env filters not proof. No real credential probe.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N03",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S02"],
+      "title": "Role and tool matrix",
+      "procedure": "Implementer performs allowed source/scratch read/write via shell and direct patch; reviewer reads same source and writes only diagnostic scratch. Both attempt protected source-policy/real Git/coordinator/evidence/oracle/auth writes and reads where forbidden.",
+      "expected": "Positive operations succeed; reviewer source mutations and all protected operations denied across every tool route. Missing/unobservable required route is blocked/unsupported, not passed by prose or signal.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N04",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S03"],
+      "title": "Alternate filesystem authority",
+      "procedure": "Attempt traversal/alternate cwd, symlink/hardlink/rename, aliases/shared temp, future protected path and instruction/config escalation using synthetic sentinels; include legal in-scope path controls.",
+      "expected": "No protected bytes leaked/changed and no additional route authority. All actual supported platform aliases covered by finite declared matrix; an unproven necessary boundary blocks profile.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N05",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S03"],
+      "title": "Ambient and egress authority",
+      "procedure": "Exercise owned synthetic parent environment, inherited FD, process inspection, sockets/mach/keyring IPC, loopback coordinator/control endpoint, network/exfiltration and dynamic optional tools with successful in-scope controls.",
+      "expected": "Only explicitly approved dependencies remain. Protected/model egress refused; native parent provider networking distinguished. No blanket IPC-free claim, real-host probes or hidden tool routes.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N06",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S04", "S06"],
+      "title": "Native exec fresh lifecycle",
+      "procedure": "Run pinned ephemeral candidate with bounded one-shot prompt/schema, slow reader/backpressure, command and completed-only patch, cancellation and interrupted output; inspect actual events and owned private/native state locations.",
+      "expected": "Native emitted lifecycle matches source/F02; final/schema/EOF/quiescence required. No summary backfill assumption in ephemeral mode, old session resume, invented RPC state or claim of no CODEX_HOME writes; gaps fail closed.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N07",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S05", "S06", "S07"],
+      "title": "Native cleanup and lost ownership",
+      "procedure": "Under finite synthetic authority exercise background/detached descendant, parent loss, lost start/input acknowledgement, cancel/fence/deadline race and cleanup failure; observe exact physical ownership independently.",
+      "expected": "Original deadline/cleanup reserve holds or attempt fails; unresolved descendants keep recovery/slot fence. No blind restart, arbitrary PID kill, native interrupt acknowledgement or instantaneous remote cancellation claim.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "N08",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["S01", "S02", "S10"],
+      "title": "Approved visual route",
+      "procedure": "Use only synthetic approved screenshots bound to head/fixture/role/locale/viewport; exercise exact exec image input/transform, image parsing limits and forbidden arbitrary image filesystem paths. Drift one image/source identity.",
+      "expected": "Allowed image actually reaches visual review through qualified route; arbitrary protected reads denied. Missing route or changed image blocks relevant UI acceptance. Hash/path request alone is not proof of functional image consumption.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "L01",
+      "evidenceClass": "live-subscription",
+      "requirements": ["S01", "S09"],
+      "title": "Subscription and requested model availability",
+      "procedure": "After synthetic gates and separate finite auth/native/model authority, let harness classify existing designated subscription/backend nonsecretly, qualify race-safe account/mode binding and normal refresh; run a tiny fresh action for each exact admitted model/effort assignment.",
+      "expected": "Functional requested assignments and no reroute/error required. Retain only recognized mode/backend and bounded nonsecret evidence; backend attestation null unless independently supplied. No Rocky credential reads/copies/symlinks/proxy or API prerequisite.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "L02",
+      "evidenceClass": "live-subscription",
+      "requirements": ["S04", "S08", "S09"],
+      "title": "Native telemetry limits and failures",
+      "procedure": "Within separately frozen tiny task/attempt/deadline limits observe completed usage, source zero-default behavior and failure/interruption; retain source-qualified component/compaction/retry interpretation without manufacturing a provider ledger.",
+      "expected": "Positive counts labeled reported, allzero/missing unknown; next agent work gated. Hidden inference/compaction/retries and remote continuation preclude numeric cap claims. Untestable mandatory behavior remains blocked/unknown, not assumed.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "T01",
+      "evidenceClass": "target-coding",
+      "requirements": ["S02", "S04", "S09", "S10"],
+      "title": "Real backend and visual UI coding",
+      "procedure": "Under separate target/remote authority run frozen independent backend and UI tasks, baseline/fixtures and trusted checks/browser assertions; capture desktop/mobile EN/DE and permission/save/reload states applicable to scope, then fresh read-only subjective review.",
+      "expected": "Actual intended changes and current immutable evidence pass independent acceptance. Missing visual route/check/fixture, model summary or no-code cannot pass. Failed attempts retained; delivery/merge/closeout and benchmark gates remain separate.",
+      "status": "blocked",
+      "blocker": "Separate exact native/live/target authority and preceding gates required."
+    },
+    {
+      "id": "M01",
+      "evidenceClass": "migration",
+      "requirements": ["S08", "S10"],
+      "title": "Legacy snapshot semantics",
+      "procedure": "Load unchanged schema2/schema3 strict snapshots including unresolved usage, unqualified successful results, hard-limit capabilities and known over-allocation outcomes into proposed migration; omit/forge new mode and replay prior receipts.",
+      "expected": "No automatic subscription mode/admission/receipt promotion; original outcomes and unknown-success barriers remain. Old strict over-allocation still violates its contract; historical H07-H09 statuses untouched.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "M02",
+      "evidenceClass": "migration",
+      "requirements": ["S06", "S08", "S10"],
+      "title": "Explicit version boundary",
+      "procedure": "Try switching an active strict action/run to subscription mode, changing threshold to erase unknown, reusing old approvals and downgrading new records into old worker; then request explicit new-run/revision after reconciliation/drain with fresh bound evidence.",
+      "expected": "In-place switch/counter reset/unknown erasure/old-worker interpretation rejected. Only explicit authority plus fresh version/input/independent binding can admit new work; old records retained and old checks/review/approval stale.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "M03",
+      "evidenceClass": "migration",
+      "requirements": ["S07", "S08"],
+      "title": "Accounting distinctions",
+      "procedure": "Replay positive/zero/missing/overrun telemetry with equal planning charge; inject native telemetry labeled provider-receipt, caller known-zero and duplicate result with altered usage.",
+      "expected": "Reported/planning/actual distinct and immutable; no refund/double-count or provider relabel; overrun preserved in new mode, strict mode unchanged. Unknown-success barriers cannot be cleared by later unrelated/local receipt.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "M04",
+      "evidenceClass": "migration",
+      "requirements": ["S07", "S08"],
+      "title": "Every scheduling entry point",
+      "procedure": "Attempt implement/review/arbitrate/product/CI/review repair through scheduler, restored inbox, revision, wake, late result and crash recovery after unknown/threshold. Run bounded verify/observe_ci/cleanup controls and review-only exhaustion case.",
+      "expected": "Every automatic agent entry refuses after usage stop; non-agent controls remain bounded and possible. Review-only exhaustion leaves CI entitlement; no mode-specific path silently bypasses cancellation/deadline/single slot.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "M05",
+      "evidenceClass": "migration",
+      "requirements": ["S04", "S10"],
+      "title": "Authority and stale visual evidence",
+      "procedure": "Offer schema-valid model finals as checks/review/CI receipts, forged capability flags and modified contract/binary/config/role/prompt/image artifacts; change head or fixture after valid visual capture.",
+      "expected": "Trusted collector and independent loader reject substitutions/stale inputs. No source/static/fake result creates capability or historical pass; full visual/delivery gates persist.",
+      "status": "unexecuted",
+      "blocker": null
+    }
+  ]
+}
