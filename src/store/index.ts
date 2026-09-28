@@ -5,6 +5,7 @@ import { canonical, identity, type Json } from "./json.js";
 import { configure } from "../config/index.js";
 import { Evidence, type Artifact } from "../evidence/index.js";
 import { initialSnapshot, reduce } from "../coordinator/reducer.js";
+import { migrateLegacySnapshot } from "../coordinator/migration.js";
 import { canonical as json } from "./json.js";
 import {
   validateCoordinatorAdmission,
@@ -116,16 +117,10 @@ export class Store {
           .prepare("SELECT run_id,data FROM coordinator_snapshots")
           .all()) {
           const previous = JSON.parse(String(row.data));
-          if (previous.schema !== 1)
-            throw new Error("incompatible-coordinator-migration");
-          const next = {
-            ...previous,
-            schema: 2,
-            observations: {},
-            receipts: {},
-            revision: previous.revision + 1,
-          };
-          if (next.stage === "handoff_ready") next.stage = "verifying";
+          const next = migrateLegacySnapshot(
+            previous,
+            this.get(String(row.run_id)).cancelled,
+          );
           // Legacy receipts lack attempt/bundle authority. Keep the original in append-only migration evidence.
           this.#event(String(row.run_id), "coordinator-schema-migrated", {
             from: 1,
@@ -522,11 +517,17 @@ export class Store {
     return s;
   }
   #saveSnapshot(s: RunSnapshot) {
+    const run = this.get(s.runId);
+    // Run cancellation can arrive independently of the snapshot; no later save may revoke it.
+    if (run.cancelled && !s.cancelled) {
+      s.cancelled = true;
+      s.stage = s.execution ? "cancelling" : "cancelled";
+      s.wait = null;
+    }
     validateSnapshot(s);
     this.#db
       .prepare("UPDATE coordinator_snapshots SET data=? WHERE run_id=?")
       .run(json(s), s.runId);
-    const run = this.get(s.runId);
     Object.assign(run, {
       stage: s.stage,
       cancelled: s.cancelled,

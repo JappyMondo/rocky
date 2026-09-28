@@ -14,7 +14,25 @@ Coordinator snapshots cannot be changed with the older generic `transition` or `
 
 ## Schema compatibility
 
-Opening an owned storage-schema-1 or -2 database upgrades it transactionally to schema 3. Foundation records are preserved. Legacy coordinator snapshots upgrade from schema 1 to 2: their original snapshot (including old receipts) is retained in an append-only migration event, while receipts without attempt authority are removed from the current snapshot and `handoff_ready` returns to verification. Budgets, execution ownership, inbox and effect records remain intact; legacy pending receipt events cannot become valid new receipts. Ambiguous or malformed legacy snapshots fail closed instead of inventing a resume stage. SQLite 0 means a fresh database. Versions other than 0, 1, 2 and 3 are rejected. Both previous readers reject schema 3; downgrade is unsupported. Drain old processes and make an offline database backup before an operator chooses to open an existing database with this build. No retained environment database was migrated during this task. Tests construct owned v1 and v2 databases, migrate owned copies, verify preserved records and rejection by the exact previous readers (including ec9a0cd).
+Opening an owned storage-schema-1 or -2 database upgrades it transactionally to schema 3. Foundation records are preserved. Legacy coordinator snapshots upgrade from schema 1 to 2: their original snapshot (including old receipts) is retained in an append-only migration event, while receipts without attempt authority are removed from the current snapshot using the stage policy below. Budgets, execution ownership, inbox and effect records remain intact; legacy pending receipt events cannot become valid new receipts. Ambiguous legacy continuation receives a named compatibility boundary; malformed snapshot structure fails closed. SQLite 0 means a fresh database. Versions other than 0, 1, 2 and 3 are rejected. Both previous readers reject schema 3; downgrade is unsupported. Drain old processes and make an offline database backup before an operator chooses to open an existing database with this build. No retained environment database was migrated during this task. Tests construct owned v1 and v2 databases, migrate owned copies, verify preserved records and rejection by the exact previous readers (including ec9a0cd).
+
+### Legacy snapshot continuation policy
+
+Migration joins cancellation from the authoritative run row and legacy snapshot monotonically. A cancelled idle run stays `cancelled`; a cancelled run with an outstanding action stays `cancelling`. Saving any later snapshot also cannot clear authoritative cancellation. Neither migration nor cancellation releases a slot or alters the action/outbox reservation; only the existing quiescence path can settle ownership.
+
+| Legacy state without outstanding execution                           | Migrated continuation                                                          |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| admitted, baseline                                                   | admitted; reserve and run a fresh bounded baseline                             |
+| verifying, awaiting_delivery_evidence, handoff_ready                 | verifying; reserve and run fresh bounded checks                                |
+| no_code                                                              | no_code, still excluded from coding success                                    |
+| blocked, recovery_required                                           | retain the explicit blocker/recovery boundary                                  |
+| waiting_external                                                     | retain reason/wake/deadline and map the saved resume stage by this same policy |
+| cancelled, cancelling                                                | cancelled when idle; cancelling when an action remains                         |
+| implementing without its action, missing/ambiguous wait continuation | named compatibility recovery boundary                                          |
+
+Any noncancelled outstanding legacy action enters `recovery_required` with `legacy-execution-reconciliation-required-before-explicit-rerun`. Its exact execution identity, effect, slot and budgets remain unchanged. The current owner may interrupt or ingest/apply a trusted quiescence result to settle that action; the result cannot adopt code or authorize another dispatch across this boundary. Then explicitly cancel the old run and admit an authorized rerun, retaining its workspace/evidence for inspection. Migration never guesses whether an old implementation finished.
+
+Revalidation spends from the original remaining elapsed/token allowance and does not reset any retry/repair counters. If that allowance is exhausted the normal budget blocker remains the result. Saved baseline and delivery-evidence waits resume at admitted and verifying respectively, so losing legacy receipts cannot strand them in a stage whose prerequisites are missing. The legacy wait bug (`resume=waiting_external`) becomes a named recovery boundary instead of an invented next step.
 
 ## Execution capacity, waits and cancellation
 
@@ -42,8 +60,10 @@ Review tokens bind the exact baseline/checks/CI evidence bundle (both observed g
 
 ## Validation and next integration
 
-Run `npm run typecheck`, `npm run build`, then `node --test --test-concurrency=1 tests/coordinator-store.test.mjs tests/coordinator-reducer.test.mjs tests/coordinator-review-regressions.test.mjs tests/store.test.mjs tests/evidence-config.test.mjs tests/runner.test.mjs`.
+Run `npm run typecheck`, `npm run build`, then `node --test --test-concurrency=1 tests/coordinator-store.test.mjs tests/coordinator-reducer.test.mjs tests/coordinator-review-regressions.test.mjs tests/coordinator-migration.test.mjs tests/store.test.mjs tests/evidence-config.test.mjs tests/runner.test.mjs`.
 
 The coordinator tests retain uniquely named SQLite/evidence artifacts under `.qualification/coordinator-53/`. They exercise real concurrent child processes, SIGKILL while the public apply transaction holds a write lock and after commit, atomic rollback, deduplication, schema migration, rerun/fencing/capacity, dispatch uncertainty, cancellation, waits, independent repair budgets, stale evidence and hard-capability rejection. Injected transports establish only the local contract. Independent Standards and Spec reviews and later live harness/check-planner/authority/acceptance work remain required.
 
 The review repairs additionally retain `.qualification/coordinator-53-repair/` evidence. The regression suite was run against the untouched rejected ec9a0cd installed package first: all five review regression groups failed (11 reported tests including six noncoding wait subtests). The same regressions pass against the repair. Original handoff, 378 manifest entries and original package bytes remain preserved; fresh repair logs and manifests are separate.
+
+Migration repair evidence is retained separately under `.qualification/coordinator-53-migration-repair/`. Tests create databases through the exact ec9a0cd public Store API, close them, and upgrade owned copies with the candidate reader. They cover authoritative cancellation lag (idle and outstanding), the reverse stale-row cancellation fixture, every legacy stage, saved waits, owned-action reconciliation and exhausted revalidation budgets. Previously retained packages and both earlier evidence manifests remain unchanged.
