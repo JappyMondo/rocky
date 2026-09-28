@@ -68,14 +68,17 @@ process.once("message", (message) => {
           fail(error);
         }
         try {
-          store.observeDuplex(id, token, { stdoutEof: true });
+          store.observeDuplex(id, token, {
+            childStdoutEof: true,
+            ...(!failed ? { decoderComplete: true } : {}),
+          });
         } catch (error) {
           fail(error);
         }
       });
       child.stderr?.on("end", () => {
         try {
-          store.observeDuplex(id, token, { stderrEof: true });
+          store.observeDuplex(id, token, { childStderrEof: true });
         } catch (error) {
           fail(error);
         }

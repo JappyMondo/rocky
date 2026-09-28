@@ -521,6 +521,9 @@ export class Store {
                 failure: null,
                 stdoutEof: false,
                 stderrEof: false,
+                childStdoutEof: false,
+                childStderrEof: false,
+                decoderComplete: false,
               },
             }
           : {}),
@@ -706,6 +709,9 @@ export class Store {
       bytes?: number;
       stdoutEof?: true;
       stderrEof?: true;
+      childStdoutEof?: true;
+      childStderrEof?: true;
+      decoderComplete?: true;
       failure?: string;
     },
   ) {
@@ -731,6 +737,9 @@ export class Store {
       }
       d.stdoutEof ||= update.stdoutEof ?? false;
       d.stderrEof ||= update.stderrEof ?? false;
+      d.childStdoutEof ||= update.childStdoutEof ?? false;
+      d.childStderrEof ||= update.childStderrEof ?? false;
+      d.decoderComplete ||= update.decoderComplete ?? false;
       d.failure ??= update.failure ?? null;
       this.#saveDuplex(c, {
         frames: d.frames.length,
@@ -738,6 +747,9 @@ export class Store {
         failure: d.failure,
         stdoutEof: d.stdoutEof,
         stderrEof: d.stderrEof,
+        childStdoutEof: d.childStdoutEof,
+        childStderrEof: d.childStderrEof,
+        decoderComplete: d.decoderComplete,
       });
     });
   }

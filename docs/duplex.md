@@ -47,6 +47,18 @@ store. Runtime environments retain the existing minimal runner allowlist.
 `interrupt` durably revokes the invocation. It does not assert completion.
 `wait` reports local `quiescent` only after the existing supervisor observes both
 pipe EOFs and absence of the owned process group after bounded TERM/KILL cleanup.
+The persisted `stdoutEof`/`stderrEof` observations describe the supervisor's
+carrier pipes only. `childStdoutEof`/`childStderrEof` come only from the gate's
+child streams; `decoderComplete` comes only from successful decoder finalization
+after all accepted output was parsed. Missing fields on older schema-5 records
+are not completion evidence. Killing a carrier never sets the child or decoder
+fields. A physically quiescent invocation whose child streams were not finalized
+records `duplex-stream-incomplete` (unless an earlier failure already explains it)
+and cannot be transport success. This includes direct-child exit0 with a
+same-group descendant still holding stdout, even when every observed frame was
+complete. Physical quiescence can still support failed/interrupted settlement;
+it does not classify an unfinalized stream as complete.
+
 The group leader stays owned during normal cleanup. Darwin uses its documented
 `ps -g` group selection because a negative-PGID signal-zero probe can return
 EPERM even after group disappearance; only status 1 with empty stdout/stderr

@@ -203,6 +203,16 @@ try {
     }
   }
 } finally {
+  // Carrier EOF proves physical pipe closure, not that the killed gate finalized its decoder.
+  // Keep physical cleanup independently usable for failed/interrupted application settlement.
+  if (command.duplex) {
+    const d = store.command(id)?.duplex;
+    if (
+      (!d?.decoderComplete || !d.childStdoutEof || !d.childStderrEof) &&
+      !d?.failure
+    )
+      store.observeDuplex(id, token, { failure: "duplex-stream-incomplete" });
+  }
   // Cancellation/lease errors before verified cleanup must not release the command or capacity.
   if (command.duplex && !quiescent) result.outcome = "recovery-required";
   if (

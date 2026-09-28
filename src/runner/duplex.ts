@@ -34,6 +34,10 @@ export interface DuplexState extends DuplexBinding {
   failure: string | null;
   stdoutEof: boolean;
   stderrEof: boolean;
+  // Absent on earlier schema-5 records; absence is never decoder completion.
+  childStdoutEof?: boolean;
+  childStderrEof?: boolean;
+  decoderComplete?: boolean;
 }
 export function validateDuplexLimits(limits: DuplexLimits) {
   for (const key of [
