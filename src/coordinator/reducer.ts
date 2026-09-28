@@ -272,6 +272,14 @@ export function reduce(
     )
       throw new Error("agent-usage-requires-provider-receipt");
     s.executionUsage = event.usage;
+    // Latch the claim before draining: later failure/interruption cannot erase an observed success.
+    const successful = !["failed", "interrupted"].includes(event.outcome);
+    if (
+      successful &&
+      event.usage.status === "unknown" &&
+      !s.unqualifiedResults.includes(a.kind)
+    )
+      s.unqualifiedResults.push(a.kind);
     if (!event.quiescent) {
       block(s, "recovery", "execution-not-quiescent");
       return { snapshot: s, actions };
@@ -285,13 +293,6 @@ export function reduce(
       block(s, "recovery", "hard-token-contract-violated");
       return { snapshot: s, actions };
     }
-    const successful = !["failed", "interrupted"].includes(event.outcome);
-    if (
-      successful &&
-      event.usage.status === "unknown" &&
-      !s.unqualifiedResults.includes(a.kind)
-    )
-      s.unqualifiedResults.push(a.kind);
     if (s.cancelled) {
       s.stage = "cancelled";
       return { snapshot: s, actions };
