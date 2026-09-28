@@ -1,0 +1,46 @@
+✔ SB01 admission binds an explicit harness-neutral mode; no hard-limit capability, caller flag or strict/subscription mixing (5.3605ms)
+✔ SB02 reported overrun is retained unclipped; threshold stops every later agent action while local verify and CI observation continue (F09) (54.088625ms)
+✔ SB03 accumulated reported total 99 vs threshold 100 (F09 99/100/101) (55.203ms)
+✔ SB03 accumulated reported total 100 vs threshold 100 (F09 99/100/101) (55.750417ms)
+✔ SB03 accumulated reported total 101 vs threshold 100 (F09 99/100/101) (54.496917ms)
+✖ SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04) (14.243958ms)
+✔ SB05 unknown usage on a failed review blocks later CI agent repair but not CI observation; review exhaustion alone keeps CI entitlement (F10) (146.242375ms)
+✔ SB06 unknown then drain and duplicate/conflicting finals: usage immutable, never double-counted, barrier kept across restart (M03) (42.922875ms)
+✔ SB07 native telemetry cannot be relabelled: provider receipts, caller known-zero, wrong harness and malformed components reject before mutation (F08, M03) (34.893583ms)
+✔ SB08 dispatch requires the exact run qualification; hard-limit transports, stale fences, changed versions, cancel and deadline keep counting reported usage (55.619292ms)
+✔ SB09 model results cannot mint authoritative receipts and the budget mode cannot be revised in place (M02, M05) (18.634791ms)
+✔ SB10 exact accepted 572accf strict records survive the storage8 boundary unchanged; forged rows roll back; old reader refuses (M01, M02) (408.36175ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 11
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1230.006
+
+✖ failing tests:
+
+test at tests/coordinator-subscription-budget.test.mjs:274:1
+✖ SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04) (14.243958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'unqualified-head'
+  - 'head-1'
+  
+      at TestContext.<anonymous> (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:277:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'unqualified-head',
+    expected: 'head-1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+exit=1

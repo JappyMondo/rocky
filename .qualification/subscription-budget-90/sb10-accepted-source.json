@@ -1,0 +1,1732 @@
+{
+  "source": "572accff349b2f5e5f33e51445c2d6cbbb0d4493",
+  "blobs": {
+    "store/index": "c7fbc42ca7b037a16c14068ea9ee7534c6ae779b",
+    "store/json": "d1c2758c32656ea4580e35ed4ec15b094f4e021c",
+    "config/index": "e81ad4674ea787a3f645422e46e1e58518eeff72",
+    "evidence/index": "39f09124cbb6ecb551fd7de04f30844ae477f6e8",
+    "coordinator/reducer": "712a930f30f03ef0827423ea9ff9b0a46bfcf455",
+    "coordinator/contracts": "d2a8f05f3ef17085de3152378e29998b2173ea68",
+    "coordinator/migration": "4a88def663d864a871ff0b2db290ed29a5c2d77f",
+    "runner/duplex": "051a52a2f62450b7504eee8e233e39ee2e898755",
+    "runner/index": "fdbd00d60a163950a40a5302f268c89bb2e83e61",
+    "runner/process": "1355830bd87d24c638ffa53a3b106e0b178312cc",
+    "agents/provider-ledger": "a9dda6daf22734f713a42fd17d694c5f9205ef31",
+    "agents/stock-request": "5f06cd230f4caadd85c53dfc33ae95c7b0795fea",
+    "coordinator/transport": "b1e2212da53ffb90c73d88be4767d32d2080096d"
+  },
+  "before": {
+    "runs": [
+      {
+        "run": {
+          "base": "base",
+          "cancelled": false,
+          "config": {
+            "provenance": {
+              "capacity": "release:foundation-1",
+              "cleanupMs": "release:foundation-1",
+              "credentialRefs": "release:foundation-1",
+              "delivery": "operator",
+              "leaseMs": "release:foundation-1",
+              "logBytes": "release:foundation-1",
+              "workspaceRoot": "release:foundation-1"
+            },
+            "values": {
+              "capacity": 1,
+              "cleanupMs": 500,
+              "credentialRefs": {},
+              "delivery": "pr-only",
+              "leaseMs": 5000,
+              "logBytes": 1048576,
+              "workspaceRoot": "/Users/jappy/.t3/worktrees/rocky/rocky-next/.artifacts/runs"
+            }
+          },
+          "head": "head-1",
+          "id": "run-1",
+          "scope": "8e9bf50383f29b6388b799e0faa3fa93fe13e94b1d6023d9330780e8c57c630d",
+          "stage": "recovery_required",
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          }
+        },
+        "snapshot": {
+          "blocker": {
+            "detail": "successful-result-usage-unknown",
+            "kind": "recovery"
+          },
+          "budgets": {
+            "ci": 0,
+            "disagreement": 0,
+            "elapsedMs": 0,
+            "environment": 0,
+            "knownTokens": 0,
+            "legacyReportedTokens": null,
+            "observedAt": 1000,
+            "product": 0,
+            "reservedElapsedMs": 2000,
+            "reservedTokens": 100,
+            "review": 0,
+            "unknownActions": 1
+          },
+          "cancelled": false,
+          "capability": {
+            "hardElapsedLimit": true,
+            "hardTokenLimit": true,
+            "id": "injected-contract-only-hard-limits"
+          },
+          "checkPlan": "plan-1",
+          "execution": null,
+          "executionUsage": null,
+          "head": "head-1",
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "issue": "run-1",
+          "limits": {
+            "actionElapsedMs": 1000,
+            "actionTokens": 100,
+            "totalElapsedMs": 1000000,
+            "totalTokens": 10000
+          },
+          "observations": {
+            "baseline": {
+              "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+              "collectorKey": "attempt-187",
+              "generation": 1,
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "kind": "baseline",
+              "runId": "run-1",
+              "schema": 1
+            }
+          },
+          "receipts": {
+            "baseline": {
+              "diagnostics": "available",
+              "inputs": {
+                "base": "base",
+                "build": "local-test",
+                "checkPlan": "plan-1",
+                "command": "baseline",
+                "coordinatorInput": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "fixture": "synthetic",
+                "head": "head-1",
+                "scenario": "local-contract",
+                "scope": "8e9bf50383f29b6388b799e0faa3fa93fe13e94b1d6023d9330780e8c57c630d",
+                "toolchain": "node24"
+              },
+              "observation": {
+                "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+                "collectorKey": "attempt-187",
+                "generation": 1,
+                "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "kind": "baseline",
+                "runId": "run-1",
+                "schema": 1
+              },
+              "outcome": "pass",
+              "reference": {
+                "bytes": 720,
+                "sha256": "c411294ad3d262fa7c33012ead154dd9ae4a2fbf5c4b9bc9cee8bbd3afa5d383"
+              },
+              "signature": "baseline-pass"
+            }
+          },
+          "repository": "synthetic-repository",
+          "rerun": "first",
+          "revision": 6,
+          "runId": "run-1",
+          "schema": 3,
+          "scope": {
+            "acceptanceManifest": "local-contract-not-holdout",
+            "base": "base",
+            "behavior": [
+              "bounded change"
+            ],
+            "deliveryMode": "pr-only",
+            "exclusions": [],
+            "fixtureIds": [
+              "synthetic"
+            ],
+            "revision": 1,
+            "schema": 1,
+            "surfaces": [
+              "test"
+            ]
+          },
+          "signatures": [],
+          "stage": "recovery_required",
+          "startedAt": 1000,
+          "unqualifiedResults": [
+            "implement"
+          ],
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          },
+          "wait": null,
+          "workspace": "synthetic/run-1"
+        },
+        "events": [
+          {
+            "seq": 1,
+            "run_id": "run-1",
+            "kind": "coordinator-admitted",
+            "data": {
+              "blocker": null,
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 0,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "cancelled": false,
+              "capability": {
+                "hardElapsedLimit": true,
+                "hardTokenLimit": true,
+                "id": "injected-contract-only-hard-limits"
+              },
+              "checkPlan": "plan-1",
+              "execution": null,
+              "executionUsage": null,
+              "head": "head-1",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "issue": "run-1",
+              "limits": {
+                "actionElapsedMs": 1000,
+                "actionTokens": 100,
+                "totalElapsedMs": 1000000,
+                "totalTokens": 10000
+              },
+              "observations": {},
+              "receipts": {},
+              "repository": "synthetic-repository",
+              "rerun": "first",
+              "revision": 0,
+              "runId": "run-1",
+              "schema": 3,
+              "scope": {
+                "acceptanceManifest": "local-contract-not-holdout",
+                "base": "base",
+                "behavior": [
+                  "bounded change"
+                ],
+                "deliveryMode": "pr-only",
+                "exclusions": [],
+                "fixtureIds": [
+                  "synthetic"
+                ],
+                "revision": 1,
+                "schema": 1,
+                "surfaces": [
+                  "test"
+                ]
+              },
+              "signatures": [],
+              "stage": "admitted",
+              "startedAt": 1000,
+              "unqualifiedResults": [],
+              "versions": {
+                "adapter": "test-only",
+                "build": "local-test",
+                "prompt": "1",
+                "runner": "injected-contract-only",
+                "workflow": "coordinator-1"
+              },
+              "wait": null,
+              "workspace": "synthetic/run-1"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 2,
+            "run_id": "run-1",
+            "kind": "claimed",
+            "data": {
+              "fence": 1,
+              "owner": "accepted"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 3,
+            "run_id": "run-1",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-185",
+              "hash": "44b4631ae8d994686aacd5540c7b236882ad8686b03a8325b61c60d516b7f3a4",
+              "source": "scheduler"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 4,
+            "run_id": "run-1",
+            "kind": "effect-intent",
+            "data": {
+              "key": "coordinator/ef44af26c2b1f7c2d901853602d3fccb924134af28a279eeb67172d23d45eee5",
+              "payloadHash": "c136f09232d7bf32eae019b0469451d309735c94a7e952b3003c32b5a15f8895"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 5,
+            "run_id": "run-1",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [
+                "coordinator/ef44af26c2b1f7c2d901853602d3fccb924134af28a279eeb67172d23d45eee5"
+              ],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-185",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 1,
+              "source": "scheduler",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 6,
+            "run_id": "run-1",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-186",
+              "hash": "2647bd45cbee4406816aaa037d2a68d62e77554389a6972596a0ba6754ee087b",
+              "source": "transport"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 7,
+            "run_id": "run-1",
+            "kind": "coordinator-action-quiescent",
+            "data": {
+              "fence": 1,
+              "key": "coordinator/ef44af26c2b1f7c2d901853602d3fccb924134af28a279eeb67172d23d45eee5"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 8,
+            "run_id": "run-1",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-186",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 2,
+              "source": "transport",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 9,
+            "run_id": "run-1",
+            "kind": "coordinator-observation-begun",
+            "data": {
+              "observation": {
+                "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+                "collectorKey": "attempt-187",
+                "generation": 1,
+                "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "kind": "baseline",
+                "runId": "run-1",
+                "schema": 1
+              },
+              "revision": 3
+            },
+            "at": 1000
+          },
+          {
+            "seq": 10,
+            "run_id": "run-1",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "receipt-188",
+              "hash": "02f2e0df6a85dbb4b6b6b85a756aa10a63d24e4b6010b5b3e8cc094e8f9dad3a",
+              "source": "evidence"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 11,
+            "run_id": "run-1",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "receipt-188",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 4,
+              "source": "evidence",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 12,
+            "run_id": "run-1",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-189",
+              "hash": "b4d083f7fc7160177200e007106bf535058ea21a9842edd8b0445c7059b36c41",
+              "source": "scheduler"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 13,
+            "run_id": "run-1",
+            "kind": "effect-intent",
+            "data": {
+              "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896",
+              "payloadHash": "195f23b6d31040a43cfe76820a626529b2240458ec9b4288cbb3681dbc6a7875"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 14,
+            "run_id": "run-1",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [
+                "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896"
+              ],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 2000,
+                "reservedTokens": 100,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-189",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 5,
+              "source": "scheduler",
+              "stage": "implementing"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 15,
+            "run_id": "run-1",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-190",
+              "hash": "bd4d6281c3080440f376a60af52946717fcdd88edc9c8bcc059c315fbb394c43",
+              "source": "transport"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 16,
+            "run_id": "run-1",
+            "kind": "coordinator-action-quiescent",
+            "data": {
+              "fence": 1,
+              "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 17,
+            "run_id": "run-1",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 2000,
+                "reservedTokens": 100,
+                "review": 0,
+                "unknownActions": 1
+              },
+              "eventId": "event-190",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 6,
+              "source": "transport",
+              "stage": "recovery_required"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 51,
+            "run_id": "run-1",
+            "kind": "released",
+            "data": {
+              "fence": 1
+            },
+            "at": 1000
+          }
+        ]
+      },
+      {
+        "run": {
+          "base": "base",
+          "cancelled": false,
+          "config": {
+            "provenance": {
+              "capacity": "release:foundation-1",
+              "cleanupMs": "release:foundation-1",
+              "credentialRefs": "release:foundation-1",
+              "delivery": "operator",
+              "leaseMs": "release:foundation-1",
+              "logBytes": "release:foundation-1",
+              "workspaceRoot": "release:foundation-1"
+            },
+            "values": {
+              "capacity": 1,
+              "cleanupMs": 500,
+              "credentialRefs": {},
+              "delivery": "pr-only",
+              "leaseMs": 5000,
+              "logBytes": 1048576,
+              "workspaceRoot": "/Users/jappy/.t3/worktrees/rocky/rocky-next/.artifacts/runs"
+            }
+          },
+          "head": "head-1",
+          "id": "run-2",
+          "scope": "8e9bf50383f29b6388b799e0faa3fa93fe13e94b1d6023d9330780e8c57c630d",
+          "stage": "recovery_required",
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          }
+        },
+        "snapshot": {
+          "blocker": {
+            "detail": "hard-token-contract-violated",
+            "kind": "recovery"
+          },
+          "budgets": {
+            "ci": 0,
+            "disagreement": 0,
+            "elapsedMs": 0,
+            "environment": 0,
+            "knownTokens": 150,
+            "legacyReportedTokens": null,
+            "observedAt": 1000,
+            "product": 0,
+            "reservedElapsedMs": 2000,
+            "reservedTokens": 100,
+            "review": 0,
+            "unknownActions": 0
+          },
+          "cancelled": false,
+          "capability": {
+            "hardElapsedLimit": true,
+            "hardTokenLimit": true,
+            "id": "injected-contract-only-hard-limits"
+          },
+          "checkPlan": "plan-1",
+          "execution": null,
+          "executionUsage": null,
+          "head": "head-1",
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "issue": "run-2",
+          "limits": {
+            "actionElapsedMs": 1000,
+            "actionTokens": 100,
+            "totalElapsedMs": 1000000,
+            "totalTokens": 10000
+          },
+          "observations": {
+            "baseline": {
+              "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+              "collectorKey": "attempt-193",
+              "generation": 1,
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "kind": "baseline",
+              "runId": "run-2",
+              "schema": 1
+            }
+          },
+          "receipts": {
+            "baseline": {
+              "diagnostics": "available",
+              "inputs": {
+                "base": "base",
+                "build": "local-test",
+                "checkPlan": "plan-1",
+                "command": "baseline",
+                "coordinatorInput": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "fixture": "synthetic",
+                "head": "head-1",
+                "scenario": "local-contract",
+                "scope": "8e9bf50383f29b6388b799e0faa3fa93fe13e94b1d6023d9330780e8c57c630d",
+                "toolchain": "node24"
+              },
+              "observation": {
+                "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+                "collectorKey": "attempt-193",
+                "generation": 1,
+                "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "kind": "baseline",
+                "runId": "run-2",
+                "schema": 1
+              },
+              "outcome": "pass",
+              "reference": {
+                "bytes": 720,
+                "sha256": "b85ce9216b0b83f61dc9148074f08582d1318930d3091cdc46698efd20a785b1"
+              },
+              "signature": "baseline-pass"
+            }
+          },
+          "repository": "synthetic-repository",
+          "rerun": "first",
+          "revision": 6,
+          "runId": "run-2",
+          "schema": 3,
+          "scope": {
+            "acceptanceManifest": "local-contract-not-holdout",
+            "base": "base",
+            "behavior": [
+              "bounded change"
+            ],
+            "deliveryMode": "pr-only",
+            "exclusions": [],
+            "fixtureIds": [
+              "synthetic"
+            ],
+            "revision": 1,
+            "schema": 1,
+            "surfaces": [
+              "test"
+            ]
+          },
+          "signatures": [],
+          "stage": "recovery_required",
+          "startedAt": 1000,
+          "unqualifiedResults": [],
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          },
+          "wait": null,
+          "workspace": "synthetic/run-2"
+        },
+        "events": [
+          {
+            "seq": 18,
+            "run_id": "run-2",
+            "kind": "coordinator-admitted",
+            "data": {
+              "blocker": null,
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 0,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "cancelled": false,
+              "capability": {
+                "hardElapsedLimit": true,
+                "hardTokenLimit": true,
+                "id": "injected-contract-only-hard-limits"
+              },
+              "checkPlan": "plan-1",
+              "execution": null,
+              "executionUsage": null,
+              "head": "head-1",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "issue": "run-2",
+              "limits": {
+                "actionElapsedMs": 1000,
+                "actionTokens": 100,
+                "totalElapsedMs": 1000000,
+                "totalTokens": 10000
+              },
+              "observations": {},
+              "receipts": {},
+              "repository": "synthetic-repository",
+              "rerun": "first",
+              "revision": 0,
+              "runId": "run-2",
+              "schema": 3,
+              "scope": {
+                "acceptanceManifest": "local-contract-not-holdout",
+                "base": "base",
+                "behavior": [
+                  "bounded change"
+                ],
+                "deliveryMode": "pr-only",
+                "exclusions": [],
+                "fixtureIds": [
+                  "synthetic"
+                ],
+                "revision": 1,
+                "schema": 1,
+                "surfaces": [
+                  "test"
+                ]
+              },
+              "signatures": [],
+              "stage": "admitted",
+              "startedAt": 1000,
+              "unqualifiedResults": [],
+              "versions": {
+                "adapter": "test-only",
+                "build": "local-test",
+                "prompt": "1",
+                "runner": "injected-contract-only",
+                "workflow": "coordinator-1"
+              },
+              "wait": null,
+              "workspace": "synthetic/run-2"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 19,
+            "run_id": "run-2",
+            "kind": "claimed",
+            "data": {
+              "fence": 1,
+              "owner": "accepted"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 20,
+            "run_id": "run-2",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-191",
+              "hash": "6853b880b0b70faf87508cc43b19688d5d74220892a4dd45d478dbef32069c5b",
+              "source": "scheduler"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 21,
+            "run_id": "run-2",
+            "kind": "effect-intent",
+            "data": {
+              "key": "coordinator/1e5d794721cbdde0d5d0608936d59656eeded178fe32d478a35c371f54a34ad6",
+              "payloadHash": "f27eb2851b879696742a67d74297bdb3b99121dcb6735a3962627d65e61f95d8"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 22,
+            "run_id": "run-2",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [
+                "coordinator/1e5d794721cbdde0d5d0608936d59656eeded178fe32d478a35c371f54a34ad6"
+              ],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-191",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 1,
+              "source": "scheduler",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 23,
+            "run_id": "run-2",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-192",
+              "hash": "c1f6e8e97aa2903589276ed59cf6374a83d4c16793b5e2081c5ca9eb91d78bfc",
+              "source": "transport"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 24,
+            "run_id": "run-2",
+            "kind": "coordinator-action-quiescent",
+            "data": {
+              "fence": 1,
+              "key": "coordinator/1e5d794721cbdde0d5d0608936d59656eeded178fe32d478a35c371f54a34ad6"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 25,
+            "run_id": "run-2",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-192",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 2,
+              "source": "transport",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 26,
+            "run_id": "run-2",
+            "kind": "coordinator-observation-begun",
+            "data": {
+              "observation": {
+                "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+                "collectorKey": "attempt-193",
+                "generation": 1,
+                "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "kind": "baseline",
+                "runId": "run-2",
+                "schema": 1
+              },
+              "revision": 3
+            },
+            "at": 1000
+          },
+          {
+            "seq": 27,
+            "run_id": "run-2",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "receipt-194",
+              "hash": "339167492af7f18306ae36e89cc9808e824a11a9c408c8cfbb554dcfdd8625eb",
+              "source": "evidence"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 28,
+            "run_id": "run-2",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "receipt-194",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 4,
+              "source": "evidence",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 29,
+            "run_id": "run-2",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-195",
+              "hash": "5a1cb2ea31aae1b2fcffb232f3272726954a616f02bf63fddecd57c13f87ad5d",
+              "source": "scheduler"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 30,
+            "run_id": "run-2",
+            "kind": "effect-intent",
+            "data": {
+              "key": "coordinator/89403a92bbc6b6d787c0b0ebe3f9ecae469e3840c946ae7804a765462b653e13",
+              "payloadHash": "119f3740660a11fa74dfeac2252fbd83223f5556a633490c6408fde00e4afda9"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 31,
+            "run_id": "run-2",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [
+                "coordinator/89403a92bbc6b6d787c0b0ebe3f9ecae469e3840c946ae7804a765462b653e13"
+              ],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 2000,
+                "reservedTokens": 100,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-195",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 5,
+              "source": "scheduler",
+              "stage": "implementing"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 32,
+            "run_id": "run-2",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "over",
+              "hash": "5caf30f42bd67d26ebf6b6267d729a57b83cb476d57586b57420857525bf216e",
+              "source": "transport"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 33,
+            "run_id": "run-2",
+            "kind": "coordinator-action-quiescent",
+            "data": {
+              "fence": 1,
+              "key": "coordinator/89403a92bbc6b6d787c0b0ebe3f9ecae469e3840c946ae7804a765462b653e13"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 34,
+            "run_id": "run-2",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 150,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 2000,
+                "reservedTokens": 100,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "over",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 6,
+              "source": "transport",
+              "stage": "recovery_required"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 52,
+            "run_id": "run-2",
+            "kind": "released",
+            "data": {
+              "fence": 1
+            },
+            "at": 1000
+          }
+        ]
+      },
+      {
+        "run": {
+          "base": "base",
+          "cancelled": true,
+          "config": {
+            "provenance": {
+              "capacity": "release:foundation-1",
+              "cleanupMs": "release:foundation-1",
+              "credentialRefs": "release:foundation-1",
+              "delivery": "operator",
+              "leaseMs": "release:foundation-1",
+              "logBytes": "release:foundation-1",
+              "workspaceRoot": "release:foundation-1"
+            },
+            "values": {
+              "capacity": 1,
+              "cleanupMs": 500,
+              "credentialRefs": {},
+              "delivery": "pr-only",
+              "leaseMs": 5000,
+              "logBytes": 1048576,
+              "workspaceRoot": "/Users/jappy/.t3/worktrees/rocky/rocky-next/.artifacts/runs"
+            }
+          },
+          "head": "head-1",
+          "id": "run-3",
+          "scope": "8e9bf50383f29b6388b799e0faa3fa93fe13e94b1d6023d9330780e8c57c630d",
+          "stage": "implementing",
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          }
+        },
+        "snapshot": {
+          "blocker": null,
+          "budgets": {
+            "ci": 0,
+            "disagreement": 0,
+            "elapsedMs": 0,
+            "environment": 0,
+            "knownTokens": 0,
+            "legacyReportedTokens": null,
+            "observedAt": 1000,
+            "product": 0,
+            "reservedElapsedMs": 2000,
+            "reservedTokens": 100,
+            "review": 0,
+            "unknownActions": 0
+          },
+          "cancelled": false,
+          "capability": {
+            "hardElapsedLimit": true,
+            "hardTokenLimit": true,
+            "id": "injected-contract-only-hard-limits"
+          },
+          "checkPlan": "plan-1",
+          "execution": {
+            "capabilityId": "injected-contract-only-hard-limits",
+            "deadline": 2000,
+            "elapsedMs": 1000,
+            "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+            "key": "coordinator/35ee6fce2e3c452d902ec9939f25f29364e731e19a0459f918f1e0c4035d1923",
+            "kind": "implement",
+            "runId": "run-3",
+            "schema": 1,
+            "tokens": 100,
+            "versions": {
+              "adapter": "test-only",
+              "build": "local-test",
+              "prompt": "1",
+              "runner": "injected-contract-only",
+              "workflow": "coordinator-1"
+            }
+          },
+          "executionUsage": null,
+          "head": "head-1",
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "issue": "run-3",
+          "limits": {
+            "actionElapsedMs": 1000,
+            "actionTokens": 100,
+            "totalElapsedMs": 1000000,
+            "totalTokens": 10000
+          },
+          "observations": {
+            "baseline": {
+              "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+              "collectorKey": "attempt-198",
+              "generation": 1,
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "kind": "baseline",
+              "runId": "run-3",
+              "schema": 1
+            }
+          },
+          "receipts": {
+            "baseline": {
+              "diagnostics": "available",
+              "inputs": {
+                "base": "base",
+                "build": "local-test",
+                "checkPlan": "plan-1",
+                "command": "baseline",
+                "coordinatorInput": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "fixture": "synthetic",
+                "head": "head-1",
+                "scenario": "local-contract",
+                "scope": "8e9bf50383f29b6388b799e0faa3fa93fe13e94b1d6023d9330780e8c57c630d",
+                "toolchain": "node24"
+              },
+              "observation": {
+                "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+                "collectorKey": "attempt-198",
+                "generation": 1,
+                "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "kind": "baseline",
+                "runId": "run-3",
+                "schema": 1
+              },
+              "outcome": "pass",
+              "reference": {
+                "bytes": 720,
+                "sha256": "3d31bc006ae25963aa0e0cf61ed690c631f54c3a77c587e96303d22ba9f83085"
+              },
+              "signature": "baseline-pass"
+            }
+          },
+          "repository": "synthetic-repository",
+          "rerun": "first",
+          "revision": 5,
+          "runId": "run-3",
+          "schema": 3,
+          "scope": {
+            "acceptanceManifest": "local-contract-not-holdout",
+            "base": "base",
+            "behavior": [
+              "bounded change"
+            ],
+            "deliveryMode": "pr-only",
+            "exclusions": [],
+            "fixtureIds": [
+              "synthetic"
+            ],
+            "revision": 1,
+            "schema": 1,
+            "surfaces": [
+              "test"
+            ]
+          },
+          "signatures": [],
+          "stage": "implementing",
+          "startedAt": 1000,
+          "unqualifiedResults": [],
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          },
+          "wait": null,
+          "workspace": "synthetic/run-3"
+        },
+        "events": [
+          {
+            "seq": 35,
+            "run_id": "run-3",
+            "kind": "coordinator-admitted",
+            "data": {
+              "blocker": null,
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 0,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "cancelled": false,
+              "capability": {
+                "hardElapsedLimit": true,
+                "hardTokenLimit": true,
+                "id": "injected-contract-only-hard-limits"
+              },
+              "checkPlan": "plan-1",
+              "execution": null,
+              "executionUsage": null,
+              "head": "head-1",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "issue": "run-3",
+              "limits": {
+                "actionElapsedMs": 1000,
+                "actionTokens": 100,
+                "totalElapsedMs": 1000000,
+                "totalTokens": 10000
+              },
+              "observations": {},
+              "receipts": {},
+              "repository": "synthetic-repository",
+              "rerun": "first",
+              "revision": 0,
+              "runId": "run-3",
+              "schema": 3,
+              "scope": {
+                "acceptanceManifest": "local-contract-not-holdout",
+                "base": "base",
+                "behavior": [
+                  "bounded change"
+                ],
+                "deliveryMode": "pr-only",
+                "exclusions": [],
+                "fixtureIds": [
+                  "synthetic"
+                ],
+                "revision": 1,
+                "schema": 1,
+                "surfaces": [
+                  "test"
+                ]
+              },
+              "signatures": [],
+              "stage": "admitted",
+              "startedAt": 1000,
+              "unqualifiedResults": [],
+              "versions": {
+                "adapter": "test-only",
+                "build": "local-test",
+                "prompt": "1",
+                "runner": "injected-contract-only",
+                "workflow": "coordinator-1"
+              },
+              "wait": null,
+              "workspace": "synthetic/run-3"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 36,
+            "run_id": "run-3",
+            "kind": "claimed",
+            "data": {
+              "fence": 1,
+              "owner": "accepted"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 37,
+            "run_id": "run-3",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-196",
+              "hash": "48032081a83482c4714e6635a6b884b23e0436377a9b76840c358dcfa6a11b3c",
+              "source": "scheduler"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 38,
+            "run_id": "run-3",
+            "kind": "effect-intent",
+            "data": {
+              "key": "coordinator/31eab40f44c8f3363b77ae15bbd510788b6925c5dea087ccfbe75a4c314bcf6f",
+              "payloadHash": "c24a0ee323cd0ee945e244e8b5c91b70e5c8413ef265a73ad5f5ce89fa08a4b2"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 39,
+            "run_id": "run-3",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [
+                "coordinator/31eab40f44c8f3363b77ae15bbd510788b6925c5dea087ccfbe75a4c314bcf6f"
+              ],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-196",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 1,
+              "source": "scheduler",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 40,
+            "run_id": "run-3",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-197",
+              "hash": "b16095a7610ac615e9f6596834728ca5475a7c291de21e04393677f5f52cc40e",
+              "source": "transport"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 41,
+            "run_id": "run-3",
+            "kind": "coordinator-action-quiescent",
+            "data": {
+              "fence": 1,
+              "key": "coordinator/31eab40f44c8f3363b77ae15bbd510788b6925c5dea087ccfbe75a4c314bcf6f"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 42,
+            "run_id": "run-3",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-197",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 2,
+              "source": "transport",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 43,
+            "run_id": "run-3",
+            "kind": "coordinator-observation-begun",
+            "data": {
+              "observation": {
+                "bundleDigest": "8efa6534b6ce5cc1ba717d7e8a647beb86739e0d30fc4bf552e77881d52e3ddc",
+                "collectorKey": "attempt-198",
+                "generation": 1,
+                "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+                "kind": "baseline",
+                "runId": "run-3",
+                "schema": 1
+              },
+              "revision": 3
+            },
+            "at": 1000
+          },
+          {
+            "seq": 44,
+            "run_id": "run-3",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "receipt-199",
+              "hash": "342df784f03290adfc79d995d1fec8f925c09bc62dcad04af2a03491ac1bdda0",
+              "source": "evidence"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 45,
+            "run_id": "run-3",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 1000,
+                "reservedTokens": 0,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "receipt-199",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 4,
+              "source": "evidence",
+              "stage": "baseline"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 46,
+            "run_id": "run-3",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "event-200",
+              "hash": "efef51da10b184d8c3b313e3d2bf42b2148f2bb0e463ac623289b54990e59a05",
+              "source": "scheduler"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 47,
+            "run_id": "run-3",
+            "kind": "effect-intent",
+            "data": {
+              "key": "coordinator/35ee6fce2e3c452d902ec9939f25f29364e731e19a0459f918f1e0c4035d1923",
+              "payloadHash": "50cfe004c6f1cccebf02730f7a6066b42ab21537d152f9a6e2176802443db78c"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 48,
+            "run_id": "run-3",
+            "kind": "coordinator-transition",
+            "data": {
+              "actions": [
+                "coordinator/35ee6fce2e3c452d902ec9939f25f29364e731e19a0459f918f1e0c4035d1923"
+              ],
+              "budgets": {
+                "ci": 0,
+                "disagreement": 0,
+                "elapsedMs": 0,
+                "environment": 0,
+                "knownTokens": 0,
+                "legacyReportedTokens": null,
+                "observedAt": 1000,
+                "product": 0,
+                "reservedElapsedMs": 2000,
+                "reservedTokens": 100,
+                "review": 0,
+                "unknownActions": 0
+              },
+              "eventId": "event-200",
+              "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+              "revision": 5,
+              "source": "scheduler",
+              "stage": "implementing"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 49,
+            "run_id": "run-3",
+            "kind": "cancelled",
+            "data": {},
+            "at": 1000
+          },
+          {
+            "seq": 50,
+            "run_id": "run-3",
+            "kind": "coordinator-inbox",
+            "data": {
+              "eventId": "queued-drain",
+              "hash": "da8e7af8fc3b7ef784a4e59dd5094660dd4d0bee9efbcdf57b3978f8dc936b4d",
+              "source": "transport"
+            },
+            "at": 1000
+          },
+          {
+            "seq": 53,
+            "run_id": "run-3",
+            "kind": "released",
+            "data": {
+              "fence": 1
+            },
+            "at": 1000
+          }
+        ]
+      }
+    ],
+    "slot": {
+      "runId": "run-3",
+      "actionKey": "coordinator/35ee6fce2e3c452d902ec9939f25f29364e731e19a0459f918f1e0c4035d1923",
+      "fence": 1,
+      "owner": "accepted"
+    },
+    "effects": [
+      {
+        "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896",
+        "kind": "coordinator-action",
+        "payload": {
+          "capabilityId": "injected-contract-only-hard-limits",
+          "deadline": 2000,
+          "elapsedMs": 1000,
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896",
+          "kind": "implement",
+          "runId": "run-1",
+          "schema": 1,
+          "tokens": 100,
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          }
+        },
+        "payloadHash": "195f23b6d31040a43cfe76820a626529b2240458ec9b4288cbb3681dbc6a7875",
+        "receipt": {
+          "actionKey": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896",
+          "detail": "local injected transport contract",
+          "head": "x",
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "outcome": "changed",
+          "quiescent": true,
+          "type": "result",
+          "usage": {
+            "reason": "lost",
+            "schema": 1,
+            "status": "unknown"
+          }
+        },
+        "runId": "run-1",
+        "state": "confirmed"
+      },
+      {
+        "key": "coordinator/89403a92bbc6b6d787c0b0ebe3f9ecae469e3840c946ae7804a765462b653e13",
+        "kind": "coordinator-action",
+        "payload": {
+          "capabilityId": "injected-contract-only-hard-limits",
+          "deadline": 2000,
+          "elapsedMs": 1000,
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "key": "coordinator/89403a92bbc6b6d787c0b0ebe3f9ecae469e3840c946ae7804a765462b653e13",
+          "kind": "implement",
+          "runId": "run-2",
+          "schema": 1,
+          "tokens": 100,
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          }
+        },
+        "payloadHash": "119f3740660a11fa74dfeac2252fbd83223f5556a633490c6408fde00e4afda9",
+        "receipt": {
+          "actionKey": "coordinator/89403a92bbc6b6d787c0b0ebe3f9ecae469e3840c946ae7804a765462b653e13",
+          "detail": "d",
+          "head": "x",
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "outcome": "changed",
+          "quiescent": true,
+          "type": "result",
+          "usage": {
+            "schema": 1,
+            "source": {
+              "kind": "provider-receipt",
+              "reference": "synthetic-contract-receipt-not-provider-proof"
+            },
+            "status": "known",
+            "tokens": 150
+          }
+        },
+        "runId": "run-2",
+        "state": "confirmed"
+      },
+      {
+        "key": "coordinator/35ee6fce2e3c452d902ec9939f25f29364e731e19a0459f918f1e0c4035d1923",
+        "kind": "coordinator-action",
+        "payload": {
+          "capabilityId": "injected-contract-only-hard-limits",
+          "deadline": 2000,
+          "elapsedMs": 1000,
+          "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+          "key": "coordinator/35ee6fce2e3c452d902ec9939f25f29364e731e19a0459f918f1e0c4035d1923",
+          "kind": "implement",
+          "runId": "run-3",
+          "schema": 1,
+          "tokens": 100,
+          "versions": {
+            "adapter": "test-only",
+            "build": "local-test",
+            "prompt": "1",
+            "runner": "injected-contract-only",
+            "workflow": "coordinator-1"
+          }
+        },
+        "payloadHash": "50cfe004c6f1cccebf02730f7a6066b42ab21537d152f9a6e2176802443db78c",
+        "receipt": null,
+        "runId": "run-3",
+        "state": "pending"
+      }
+    ]
+  },
+  "rerun": {
+    "capability": null,
+    "checkPlan": "plan-1",
+    "head": "head-1",
+    "issue": "run-1",
+    "limits": {
+      "actionElapsedMs": 1000,
+      "actionTokens": 40,
+      "totalElapsedMs": 1000000,
+      "totalTokens": 10000
+    },
+    "repository": "synthetic-repository",
+    "rerun": "subscription",
+    "runId": "run-1b",
+    "scope": {
+      "acceptanceManifest": "local-contract-not-holdout",
+      "base": "base",
+      "behavior": [
+        "bounded change"
+      ],
+      "deliveryMode": "pr-only",
+      "exclusions": [],
+      "fixtureIds": [
+        "synthetic"
+      ],
+      "revision": 1,
+      "schema": 1,
+      "surfaces": [
+        "test"
+      ]
+    },
+    "versions": {
+      "adapter": "test-only",
+      "build": "local-test",
+      "prompt": "1",
+      "runner": "injected-contract-only",
+      "workflow": "coordinator-1"
+    },
+    "workspace": "synthetic/run-1b",
+    "budget": {
+      "mode": "subscription-observed-v1",
+      "reportedTokenThreshold": 100
+    },
+    "qualification": {
+      "binding": "f6ef268a085a9824d905577784b1d87185a32668cee3b5dad7c3d15108f7c704",
+      "budgetMode": "subscription-observed-v1",
+      "contractId": "synthetic-test-contract",
+      "harness": "synthetic-harness",
+      "id": "synthetic-unapproved-test-qualification",
+      "schema": 1
+    },
+    "schema": 4,
+    "revision": 0,
+    "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+    "stage": "admitted",
+    "blocker": null,
+    "cancelled": false,
+    "startedAt": 1000,
+    "budgets": {
+      "environment": 0,
+      "product": 0,
+      "ci": 0,
+      "review": 0,
+      "disagreement": 0,
+      "reservedTokens": 0,
+      "knownTokens": 0,
+      "unknownActions": 0,
+      "legacyReportedTokens": null,
+      "harnessReportedTokens": 0,
+      "harnessAmbiguousZero": 0,
+      "reservedElapsedMs": 0,
+      "elapsedMs": 0,
+      "observedAt": 1000
+    },
+    "execution": null,
+    "executionUsage": null,
+    "unqualifiedResults": [],
+    "receipts": {},
+    "observations": {},
+    "signatures": [],
+    "wait": null
+  }
+}

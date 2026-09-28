@@ -1,0 +1,159 @@
+{
+  "ticket": "#90",
+  "lease": "#90/855",
+  "model": "claude-opus-5-5 (substitution #1/842)",
+  "root": "/Users/jappy/.t3/worktrees/rocky/rocky-next",
+  "branch": "rocky-next",
+  "baseline": "572accff349b2f5e5f33e51445c2d6cbbb0d4493",
+  "implementationCommit": "c86c9695c48da98f34f863cac5985857734f9b50",
+  "commands": [
+    {
+      "cmd": "node scripts/build.mjs (baseline 572accf)",
+      "log": "baseline-build.log",
+      "exit": 0
+    },
+    {
+      "cmd": "npm test (baseline 572accf dist)",
+      "log": "baseline-test.log",
+      "exit": 0,
+      "result": {
+        "tests": 288,
+        "pass": 287,
+        "fail": 0,
+        "skipped": 1
+      }
+    },
+    {
+      "cmd": "npm run typecheck",
+      "log": "typecheck.log",
+      "exit": 0
+    },
+    {
+      "cmd": "npx prettier --check src docs/coordinator.md tests (repo has no lint script; Prettier 3.6.2 is the formatter)",
+      "log": "format.log",
+      "exit": 0
+    },
+    {
+      "cmd": "node scripts/build.mjs (pre-commit, dirty)",
+      "log": "build-precommit.log",
+      "exit": 0
+    },
+    {
+      "cmd": "npm test (pre-commit)",
+      "log": "full-test-precommit.log",
+      "exit": 0,
+      "result": {
+        "tests": 300,
+        "pass": 299,
+        "fail": 0,
+        "skipped": 1
+      }
+    },
+    {
+      "cmd": "node scripts/build.mjs (post-commit, clean)",
+      "log": "build-postcommit.log",
+      "exit": 0,
+      "identity": {
+        "sourceCommit": "c86c9695c48da98f34f863cac5985857734f9b50",
+        "sourceDirty": false,
+        "buildId": "26c3fef6ef7960a335078844f1ed1a66a230070bdabb83bba22e6ec60714411e"
+      }
+    },
+    {
+      "cmd": "npm test (post-commit clean build)",
+      "log": "full-test-postcommit.log",
+      "exit": 0,
+      "result": {
+        "tests": 300,
+        "pass": 299,
+        "fail": 0,
+        "skipped": 1
+      }
+    },
+    {
+      "cmd": "mutant: usageStop() returns null, COORDINATOR_TEST_MODULE=<mutated dist> node --test tests/coordinator-subscription-budget.test.mjs",
+      "log": "mutation-usage-stop-disabled.log",
+      "expected": "fail",
+      "result": {
+        "tests": 12,
+        "pass": 7,
+        "fail": 5,
+        "skipped": 0
+      }
+    },
+    {
+      "cmd": "mutant: ambiguous-zero not treated as unresolved success",
+      "log": "mutation-ambiguous-as-known.log",
+      "expected": "fail",
+      "result": {
+        "tests": 12,
+        "pass": 11,
+        "fail": 1,
+        "skipped": 0
+      }
+    }
+  ],
+  "skippedTest": "Installed pinned browser launches... (pre-existing environment skip, also skipped at baseline)",
+  "retainedFailures": [
+    "Two first-attempt mutant runs from /tmp could not resolve parse5 (module resolution, not a test result); rerun inside the repo and the first log files were overwritten. During development, 32 then 7 then 3 then 1 affected-test failures preceded the fixes: an abandoned snapshot3->4 rewrite design, expected version pins 7->8, test-harness lease and closed-DB mistakes. Their raw output is not retained."
+  ],
+  "versionPinUpdates": "Existing tests asserting PRAGMA user_version 7 updated to 8 (coordinator-store C01, review-regressions R8, duplex D14, provider-ledger L05, stock-ledger S23); no other existing assertion changed.",
+  "newTests": [
+    "SB01 admission binds an explicit harness-neutral mode; no hard-limit capability, caller flag or strict/subscription mixing",
+    "SB02 reported overrun is retained unclipped; threshold stops every later agent action while local verify and CI observation continue (F09)",
+    "SB03 accumulated reported total 99 vs threshold 100 (F09 99/100/101)",
+    "SB03 accumulated reported total 100 vs threshold 100 (F09 99/100/101)",
+    "SB03 accumulated reported total 101 vs threshold 100 (F09 99/100/101)",
+    "SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04)",
+    "SB05 unknown usage on a failed review blocks later CI agent repair but not CI observation; review exhaustion alone keeps CI entitlement (F10)",
+    "SB06 unknown then drain and duplicate/conflicting finals: usage immutable, never double-counted, barrier kept across restart (M03)",
+    "SB07 native telemetry cannot be relabelled: provider receipts, caller known-zero, wrong harness and malformed components reject before mutation (F08, M03)",
+    "SB08 dispatch requires the exact run qualification; hard-limit transports, stale fences, changed versions, cancel and deadline keep counting reported usage",
+    "SB09 model results cannot mint authoritative receipts and the budget mode cannot be revised in place (M02, M05)",
+    "SB10 exact accepted 572accf strict records survive the storage8 boundary unchanged; forged rows roll back; old reader refuses (M01, M02)"
+  ],
+  "sourceHashes": {
+    "src/coordinator/contracts.ts": "91995cf4e7aec5784172d087b72443b3bc84c9ff70866af381ad9e5e85d64a17",
+    "src/coordinator/reducer.ts": "a655ee25ffdc4a737055c0330770caac17fd1ff5d496c6dd27080efea16cd769",
+    "src/coordinator/migration.ts": "ac0600b706b3e347acb95b814e6cffeb971b471d5461134effeac309c256cf89",
+    "src/coordinator/transport.ts": "27fc34808734144e21d0917940156358864ea04c8e42c38858f57a7e4e7a5852",
+    "src/store/index.ts": "0d365da615ffd0b046f442715d88be03e001632e5f05a6bf628c0f554a45408c",
+    "tests/coordinator-subscription-budget.test.mjs": "97f50d3decae3db5aa02cf2b54d0f2daa102709722a63947c2a9ae74d65c5ed9",
+    "docs/coordinator.md": "f6a8af363d185d18d6551adbf7709ec95749300d18f2b127e48152165c347ae3"
+  },
+  "compiledHashes": {
+    "dist/coordinator/contracts.js": {
+      "sha256": "2ec54e803fcb25d66f00ca485bdad8786857b176bb842a00786b2949dc2c5584",
+      "buildIdentity": "2ec54e803fcb25d66f00ca485bdad8786857b176bb842a00786b2949dc2c5584"
+    },
+    "dist/coordinator/reducer.js": {
+      "sha256": "6723d8ca69cf506f62367c9b0ff73d181c7028ddf7243f5a0fbeaa49722cfdaa",
+      "buildIdentity": "6723d8ca69cf506f62367c9b0ff73d181c7028ddf7243f5a0fbeaa49722cfdaa"
+    },
+    "dist/coordinator/transport.js": {
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+      "buildIdentity": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    "dist/store/index.js": {
+      "sha256": "2791f2c3eb99dbe6a55b78eeed1acedd9fdf17e96ce0a5a3a7a85a958b290686",
+      "buildIdentity": "2791f2c3eb99dbe6a55b78eeed1acedd9fdf17e96ce0a5a3a7a85a958b290686"
+    },
+    "dist/index.js": {
+      "sha256": "7b43ddd28dc4558b69fbc1c8bba09364f84f8f477da8971fab1b6f74c14b650e",
+      "buildIdentity": "7b43ddd28dc4558b69fbc1c8bba09364f84f8f477da8971fab1b6f74c14b650e"
+    }
+  },
+  "acceptedContractFrozenUnchanged": {
+    "acceptance/subscription/README.md": true,
+    "acceptance/subscription/final.schema.json": true,
+    "acceptance/subscription/manifest.json": true,
+    "acceptance/subscription/scenarios.json": true,
+    "docs/architecture/subscription-harness.md": true
+  },
+  "notPerformed": [
+    "npm run smoke (package-smoke needs npm pack/install; skipped to avoid any network install)",
+    "native/auth/model/API/target/remote actions",
+    "#81 adapter"
+  ],
+  "acceptedContractDiff": "git diff 572accf..HEAD -- acceptance docs/architecture: empty"
+}

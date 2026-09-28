@@ -1,0 +1,233 @@
+✔ SB01 admission binds an explicit harness-neutral mode; no hard-limit capability, caller flag or strict/subscription mixing (5.31175ms)
+✖ SB02 reported overrun is retained unclipped; threshold stops every later agent action while local verify and CI observation continue (F09) (34.692334ms)
+✔ SB03 accumulated reported total 99 vs threshold 100 (F09 99/100/101) (55.642666ms)
+✖ SB03 accumulated reported total 100 vs threshold 100 (F09 99/100/101) (60.419375ms)
+✖ SB03 accumulated reported total 101 vs threshold 100 (F09 99/100/101) (52.684625ms)
+✖ SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04) (30.419667ms)
+✖ SB05 unknown usage on a failed review blocks later CI agent repair but not CI observation; review exhaustion alone keeps CI entitlement (F10) (40.865875ms)
+✔ SB06 unknown then drain and duplicate/conflicting finals: usage immutable, never double-counted, barrier kept across restart (M03) (39.482125ms)
+✔ SB07 native telemetry cannot be relabelled: provider receipts, caller known-zero, wrong harness and malformed components reject before mutation (F08, M03) (36.986625ms)
+✔ SB08 dispatch requires the exact run qualification; hard-limit transports, stale fences, changed versions, cancel and deadline keep counting reported usage (52.479791ms)
+✔ SB09 model results cannot mint authoritative receipts and the budget mode cannot be revised in place (M02, M05) (18.749958ms)
+✔ SB10 exact accepted 572accf strict records survive the storage8 boundary unchanged; forged rows roll back; old reader refuses (M01, M02) (408.570791ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 7
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1127.697458
+
+✖ failing tests:
+
+test at tests/coordinator-subscription-budget.test.mjs:205:1
+✖ SB02 reported overrun is retained unclipped; threshold stops every later agent action while local verify and CI observation continue (F09) (34.692334ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + {
+  +   budgetMode: 'subscription-observed-v1',
+  +   deadline: 2000,
+  +   elapsedMs: 1000,
+  +   inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba',
+  +   key: 'coordinator/eb4b3e2bf6e68142eeb087a1be4f3236e4951b29710f293b652f75263b309fef',
+  +   kind: 'review',
+  +   qualificationId: 'synthetic-unapproved-test-qualification',
+  +   runId: 'run-1',
+  +   schema: 2,
+  +   tokens: 40,
+  +   versions: {
+  +     adapter: 'test-only',
+  +     build: 'local-test',
+  +     prompt: '1',
+  +     runner: 'injected-contract-only',
+  +     workflow: 'coordinator-1'
+  +   }
+  + }
+  - null
+  
+      at blockedWithoutCharge (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:126:10)
+      at TestContext.<anonymous> (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:222:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { schema: 2, key: 'coordinator/eb4b3e2bf6e68142eeb087a1be4f3236e4951b29710f293b652f75263b309fef', runId: 'run-1', kind: 'review', inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba', versions: { adapter: 'test-only', build: 'local-test', prompt: '1', runner: 'injected-contract-only', workflow: 'coordinator-1' }, tokens: 40, elapsedMs: 1000, deadline: 2000, budgetMode: 'subscription-observed-v1', qualificationId: 'synthetic-unapproved-test-qualification' },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/coordinator-subscription-budget.test.mjs:250:3
+✖ SB03 accumulated reported total 100 vs threshold 100 (F09 99/100/101) (60.419375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + {
+  +   budgetMode: 'subscription-observed-v1',
+  +   deadline: 2000,
+  +   elapsedMs: 1000,
+  +   inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba',
+  +   key: 'coordinator/0378de160024f5b864fb64b902daab045c102294d808a01aaf68d77d26fc5215',
+  +   kind: 'repair_review',
+  +   qualificationId: 'synthetic-unapproved-test-qualification',
+  +   runId: 'run-1',
+  +   schema: 2,
+  +   tokens: 40,
+  +   versions: {
+  +     adapter: 'test-only',
+  +     build: 'local-test',
+  +     prompt: '1',
+  +     runner: 'injected-contract-only',
+  +     workflow: 'coordinator-1'
+  +   }
+  + }
+  - null
+  
+      at blockedWithoutCharge (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:126:10)
+      at TestContext.<anonymous> (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:270:7)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { schema: 2, key: 'coordinator/0378de160024f5b864fb64b902daab045c102294d808a01aaf68d77d26fc5215', runId: 'run-1', kind: 'repair_review', inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba', versions: { adapter: 'test-only', build: 'local-test', prompt: '1', runner: 'injected-contract-only', workflow: 'coordinator-1' }, tokens: 40, elapsedMs: 1000, deadline: 2000, budgetMode: 'subscription-observed-v1', qualificationId: 'synthetic-unapproved-test-qualification' },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/coordinator-subscription-budget.test.mjs:250:3
+✖ SB03 accumulated reported total 101 vs threshold 100 (F09 99/100/101) (52.684625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + {
+  +   budgetMode: 'subscription-observed-v1',
+  +   deadline: 2000,
+  +   elapsedMs: 1000,
+  +   inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba',
+  +   key: 'coordinator/0378de160024f5b864fb64b902daab045c102294d808a01aaf68d77d26fc5215',
+  +   kind: 'repair_review',
+  +   qualificationId: 'synthetic-unapproved-test-qualification',
+  +   runId: 'run-1',
+  +   schema: 2,
+  +   tokens: 40,
+  +   versions: {
+  +     adapter: 'test-only',
+  +     build: 'local-test',
+  +     prompt: '1',
+  +     runner: 'injected-contract-only',
+  +     workflow: 'coordinator-1'
+  +   }
+  + }
+  - null
+  
+      at blockedWithoutCharge (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:126:10)
+      at TestContext.<anonymous> (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:270:7)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { schema: 2, key: 'coordinator/0378de160024f5b864fb64b902daab045c102294d808a01aaf68d77d26fc5215', runId: 'run-1', kind: 'repair_review', inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba', versions: { adapter: 'test-only', build: 'local-test', prompt: '1', runner: 'injected-contract-only', workflow: 'coordinator-1' }, tokens: 40, elapsedMs: 1000, deadline: 2000, budgetMode: 'subscription-observed-v1', qualificationId: 'synthetic-unapproved-test-qualification' },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/coordinator-subscription-budget.test.mjs:274:1
+✖ SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04) (30.419667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + {
+  +   budgetMode: 'subscription-observed-v1',
+  +   deadline: 2000,
+  +   elapsedMs: 1000,
+  +   inputDigest: 'a0d6250f57d73fa87fa06f167010ed7818f08330d3058ecface894bcba2bef1e',
+  +   key: 'coordinator/53392da78447ef534686b113ec92a7a3fba002575466450f01a7e4d5b007a4a5',
+  +   kind: 'repair_product',
+  +   qualificationId: 'synthetic-unapproved-test-qualification',
+  +   runId: 'run-1',
+  +   schema: 2,
+  +   tokens: 40,
+  +   versions: {
+  +     adapter: 'test-only',
+  +     build: 'local-test',
+  +     prompt: '1',
+  +     runner: 'injected-contract-only',
+  +     workflow: 'coordinator-1'
+  +   }
+  + }
+  - null
+  
+      at blockedWithoutCharge (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:126:10)
+      at TestContext.<anonymous> (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:295:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { schema: 2, key: 'coordinator/53392da78447ef534686b113ec92a7a3fba002575466450f01a7e4d5b007a4a5', runId: 'run-1', kind: 'repair_product', inputDigest: 'a0d6250f57d73fa87fa06f167010ed7818f08330d3058ecface894bcba2bef1e', versions: { adapter: 'test-only', build: 'local-test', prompt: '1', runner: 'injected-contract-only', workflow: 'coordinator-1' }, tokens: 40, elapsedMs: 1000, deadline: 2000, budgetMode: 'subscription-observed-v1', qualificationId: 'synthetic-unapproved-test-qualification' },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/coordinator-subscription-budget.test.mjs:303:1
+✖ SB05 unknown usage on a failed review blocks later CI agent repair but not CI observation; review exhaustion alone keeps CI entitlement (F10) (40.865875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + {
+  +   budgetMode: 'subscription-observed-v1',
+  +   deadline: 2000,
+  +   elapsedMs: 1000,
+  +   inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba',
+  +   key: 'coordinator/21fbebbb3499e45df762b3dbb8766860120bc47b114ad5ac9cddaff9dc1bbd9a',
+  +   kind: 'repair_ci',
+  +   qualificationId: 'synthetic-unapproved-test-qualification',
+  +   runId: 'run-1',
+  +   schema: 2,
+  +   tokens: 40,
+  +   versions: {
+  +     adapter: 'test-only',
+  +     build: 'local-test',
+  +     prompt: '1',
+  +     runner: 'injected-contract-only',
+  +     workflow: 'coordinator-1'
+  +   }
+  + }
+  - null
+  
+      at blockedWithoutCharge (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:126:10)
+      at TestContext.<anonymous> (file:///Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:317:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:897:18)
+      at Test.postRun (node:internal/test_runner/test:1447:19)
+      at Test.run (node:internal/test_runner/test:1372:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { schema: 2, key: 'coordinator/21fbebbb3499e45df762b3dbb8766860120bc47b114ad5ac9cddaff9dc1bbd9a', runId: 'run-1', kind: 'repair_ci', inputDigest: '3c52823354a1eae901c178919e3be14bce536c8cf252f406525d7ba1bd499fba', versions: { adapter: 'test-only', build: 'local-test', prompt: '1', runner: 'injected-contract-only', workflow: 'coordinator-1' }, tokens: 40, elapsedMs: 1000, deadline: 2000, budgetMode: 'subscription-observed-v1', qualificationId: 'synthetic-unapproved-test-qualification' },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+exit=1
