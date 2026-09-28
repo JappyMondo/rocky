@@ -335,7 +335,7 @@ export class ProviderGateway {
       if (
         !req.complete ||
         bytes !== Number(length) ||
-        body.toString("utf8") !== approval.request.body
+        !body.equals(Buffer.from(approval.request.body, "utf8"))
       )
         throw new Error("body");
       this.#authority(approval);

@@ -100,7 +100,8 @@ export function freezeProviderRequest(value: unknown): FrozenRequest {
   for (const item of v.input) {
     const msg = exact(item, ["role", "content"]);
     if (
-      !["user", "developer", "assistant"].includes(String(msg.role)) ||
+      typeof msg.role !== "string" ||
+      !["user", "developer", "assistant"].includes(msg.role) ||
       !Array.isArray(msg.content) ||
       msg.content.length > 64
     )
