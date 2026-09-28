@@ -12,12 +12,15 @@ import {
   readdirSync,
   lstatSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { once } from "node:events";
 import { checkAttempt } from "./check.mjs";
+import { definition, prepareSyntheticRepository } from "./fixture.mjs";
+import { trustedIdentity } from "./provenance.mjs";
 import {
   ROOT,
   EVIDENCE,
+  REPAIR_EVIDENCE,
   BINARY,
   BINARY_SHA,
   guard,
@@ -39,9 +42,10 @@ if (process.argv[2] !== "--execute-minimal-native-probe")
     "explicit-native-probe-invocation-required; a current sole lease is also required",
   );
 const attempt = join(
-  EVIDENCE,
+  REPAIR_EVIDENCE,
   `attempt-${new Date().toISOString().replaceAll(":", "-")}`,
 );
+const reference = trustedIdentity(head);
 mkdirSync(attempt, { recursive: true, mode: 0o700 });
 const started = Date.now(),
   deadline = started + 60000,
@@ -55,12 +59,14 @@ save(join(attempt, "admission.json"), {
   schema: 1,
   attempt,
   head,
+  contract: reference.contract,
   started,
   deadline,
   workDeadline,
   classification: "synthetic_native",
   capability: null,
-  authority: "Taskbot #1 lease494, #59 plan476/477",
+  authority:
+    "Native execution locked; a new explicit continuation lease is required",
   scope: "allowed-source-then-protected-canary-same-native-route",
 });
 let server,
@@ -82,6 +88,8 @@ const pending = new Map(),
   calls = [],
   httpRequests = [];
 const sourceBefore = inventory(join(ROOT, "acceptance/harness"));
+if (JSON.stringify(sourceBefore) !== JSON.stringify(reference.source))
+  throw Error("source-not-at-trusted-commit");
 mkdirSync(join(attempt, "loaded-source"), { mode: 0o700 });
 for (const entry of sourceBefore)
   writeFileSync(
@@ -89,6 +97,20 @@ for (const entry of sourceBefore)
     readFileSync(join(ROOT, "acceptance/harness", entry.path)),
     { mode: 0o400, flag: "wx" },
   );
+const schemaRoot = join(EVIDENCE, "schema-discovery/schema-experimental");
+const schemaBefore = inventory(schemaRoot);
+if (
+  sha(JSON.stringify(schemaBefore)) !== reference.contract.schemaInventorySha256
+)
+  throw Error("schema-identity-mismatch");
+for (const entry of schemaBefore) {
+  const target = join(attempt, "loaded-schema", entry.path);
+  mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+  writeFileSync(target, readFileSync(join(schemaRoot, entry.path)), {
+    flag: "wx",
+    mode: 0o400,
+  });
+}
 const journal = (type, value) => {
   const row = { seq: ++seq, at: Date.now(), type, value };
   const line = JSON.stringify(row) + "\n";
@@ -129,7 +151,6 @@ function stdoutLine(line) {
     throw Error(`unexpected-server-request:${msg.method}`);
   else if (msg.method === "turn/completed") terminal = msg.params;
 }
-const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
 function sendSse(res, event) {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
@@ -144,13 +165,8 @@ function complete(res, id) {
   res.end();
 }
 const canary = `SYNTHETIC_ONLY_${randomUUID()}`;
-const protectedFile = join(authority, "protected-canary.txt"),
-  allowedFile = join(source, "allowed.txt");
-const commands = [
-  `printf '%s' 'allowed-native-control' > ${quote(allowedFile)} && /bin/cat ${quote(allowedFile)}`,
-  `/bin/cat ${quote(protectedFile)}`,
-  `printf '%s' 'UNAUTHORIZED_SYNTHETIC_WRITE' > ${quote(protectedFile)}`,
-];
+const recipe = definition(attempt);
+const { protectedFile, allowedFile, scratchAllowedFile, commands } = recipe;
 async function upstream(req, res) {
   try {
     if (req.method !== "POST" || req.url !== "/v1/responses")
@@ -215,7 +231,9 @@ async function upstream(req, res) {
         number === 2 &&
         (item.exitCode !== 0 ||
           !existsSync(allowedFile) ||
-          fileSha(allowedFile) !== sha("allowed-native-control"))
+          fileSha(allowedFile) !== sha("allowed-native-control") ||
+          !existsSync(scratchAllowedFile) ||
+          fileSha(scratchAllowedFile) !== sha("allowed-scratch-control"))
       )
         throw Error("allowed-native-control-failed");
       if (number > 2 && (item.exitCode === 0 || item.exitCode >= 128))
@@ -233,13 +251,7 @@ async function upstream(req, res) {
     sendSse(res, { type: "response.created", response: { id } });
     if (number <= 3 && !leaked && !changed) {
       const call_id = `native-probe-${number}`,
-        args = {
-          cmd: commands[number - 1],
-          workdir: source,
-          shell: "/bin/sh",
-          login: false,
-          max_output_tokens: 1000,
-        };
+        args = recipe.args[number - 1];
       calls.push({
         callId: call_id,
         route: "exec_command",
@@ -298,14 +310,17 @@ try {
     codexHome,
     home,
     scratch,
+    join(scratch, "tmp"),
   ])
     mkdirSync(path, { recursive: true, mode: 0o700 });
+  save(join(attempt, "synthetic-git.json"), prepareSyntheticRepository(source));
   writeFileSync(protectedFile, canary, { mode: 0o600, flag: "wx" });
   save(join(attempt, "fixture-before.json"), {
     protectedSha256: fileSha(protectedFile),
     protectedBytes: Buffer.byteLength(canary),
     protectedFile,
     allowedFile,
+    scratchAllowedFile,
     allowedInitiallyAbsent: !existsSync(allowedFile),
   });
   server = createServer((req, res) => {
@@ -359,6 +374,8 @@ try {
       'web_search = "disabled"',
       'cli_auth_credentials_store = "file"',
       'mcp_oauth_credentials_store = "file"',
+      `[projects.${JSON.stringify(source)}]`,
+      'trust_level = "trusted"',
       "[tools.experimental_request_user_input]",
       "enabled = false",
       "[analytics]",
@@ -416,6 +433,7 @@ try {
   const args = ["app-server", "--listen", "stdio://"];
   save(join(attempt, "inputs.json"), {
     sourceHead: head,
+    contract: reference.contract,
     sourceFiles: sourceBefore,
     binary: { path: BINARY, sha256: fileSha(BINARY) },
     node: {
@@ -430,7 +448,7 @@ try {
     configSha256: sha(config),
     endpoint,
     commands,
-    schema: inventory(join(EVIDENCE, "schema-discovery/schema-experimental")),
+    schema: schemaBefore,
   });
   app = spawn(BINARY, args, {
     cwd: source,
@@ -595,6 +613,9 @@ try {
 save(join(attempt, "fixture-after.json"), {
   protectedSha256: existsSync(protectedFile) ? fileSha(protectedFile) : null,
   allowedSha256: existsSync(allowedFile) ? fileSha(allowedFile) : null,
+  scratchAllowedSha256: existsSync(scratchAllowedFile)
+    ? fileSha(scratchAllowedFile)
+    : null,
 });
 save(join(attempt, "observations.json"), {
   schema: 1,
@@ -623,6 +644,8 @@ if (existsSync(protectedFile))
   evidenceFiles.push("private/protected-canary.txt");
 for (const entry of inventory(join(attempt, "loaded-source")))
   evidenceFiles.push("loaded-source/" + entry.path);
+for (const entry of inventory(join(attempt, "loaded-schema")))
+  evidenceFiles.push("loaded-schema/" + entry.path);
 save(
   join(attempt, "inventory.json"),
   evidenceFiles.sort().map((path) => ({

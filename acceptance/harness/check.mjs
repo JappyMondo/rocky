@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { readFileSync, lstatSync } from "node:fs";
 import { resolve, join, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
-import { sha, fileSha, BINARY_SHA, EVIDENCE } from "./common.mjs";
+import {
+  sha,
+  fileSha,
+  BINARY_SHA,
+  EVIDENCE,
+  REPAIR_EVIDENCE,
+} from "./common.mjs";
+import { definition } from "./fixture.mjs";
+import { trustedIdentity, verifyProvenance } from "./provenance.mjs";
 
 export function verifyInventory(directory, entries) {
   assert(
@@ -56,6 +64,28 @@ export function assess({
     reason: "incomplete-evidence",
   };
   try {
+    const expected = definition(admission.attempt);
+    assert.equal(
+      before.allowedFile,
+      expected.allowedFile,
+      "wrong-allowed-fixture-path",
+    );
+    assert.equal(
+      before.protectedFile,
+      expected.protectedFile,
+      "wrong-protected-fixture-path",
+    );
+    assert.equal(thread.cwd, expected.source, "wrong-thread-workdir");
+    assert.equal(
+      before.scratchAllowedFile,
+      expected.scratchAllowedFile,
+      "wrong-scratch-fixture-path",
+    );
+    assert.deepEqual(
+      inputs.commands,
+      expected.commands,
+      "wrong-probe-commands",
+    );
     assert.equal(admission.classification, "synthetic_native");
     assert.equal(observations.classification, "synthetic_native");
     assert.equal(observations.capability, null);
@@ -164,13 +194,33 @@ export function assess({
           completed[i - 1].seq < injected[i].seq,
           "out-of-order-next-operation",
         );
-      assert.equal(
-        call.args.cmd,
-        inputs.commands[i],
-        "command-identity-mismatch",
+      assert.deepEqual(
+        call.args,
+        expected.args[i],
+        "native-arguments-mismatch",
       );
-      assert.equal(item.cwd, thread.cwd);
-      assert(item.command.includes(call.args.cmd), "native-command-mismatch");
+      for (const event of [started[i], completed[i]]) {
+        assert.equal(
+          event.value.params.item.cwd,
+          expected.source,
+          "wrong-native-workdir",
+        );
+        assert.equal(
+          event.value.params.item.command,
+          expected.nativeCommands[i],
+          "native-command-mismatch",
+        );
+        assert.equal(
+          event.value.params.threadId,
+          observations.threadId,
+          "native-thread-mismatch",
+        );
+        assert.equal(
+          event.value.params.turnId,
+          observations.turnId,
+          "native-turn-mismatch",
+        );
+      }
       assert.equal(completed[i].value.params.threadId, observations.threadId);
       assert.equal(completed[i].value.params.turnId, observations.turnId);
       const output = requests[i + 1].body.input.filter(
@@ -191,6 +241,15 @@ export function assess({
           after.allowedSha256,
           sha("allowed-native-control"),
           "missing-allowed-file",
+        );
+        assert.equal(
+          after.scratchAllowedSha256,
+          sha("allowed-scratch-control"),
+          "missing-scratch-file",
+        );
+        assert(
+          output[0].output.includes("allowed-scratch-control"),
+          "missing-scratch-readback",
         );
       } else {
         assert(
@@ -227,23 +286,46 @@ export function assess({
         r.value.params.item.type === "agentMessage",
     );
     assert.equal(final.length, 1, "missing-final-schema");
+    const finalStart = ipc.filter(
+      (r) =>
+        r.value.method === "item/started" &&
+        r.value.params.item.id === final[0].value.params.item.id,
+    );
+    assert.equal(finalStart.length, 1, "missing-final-start");
+    for (const event of [finalStart[0], final[0]]) {
+      assert.equal(
+        event.value.params.threadId,
+        observations.threadId,
+        "final-thread-mismatch",
+      );
+      assert.equal(
+        event.value.params.turnId,
+        observations.turnId,
+        "final-turn-mismatch",
+      );
+      assert(event.seq < terminals[0].seq, "final-after-terminal");
+    }
+    assert(finalStart[0].seq < final[0].seq, "final-completion-before-start");
     assert.deepEqual(JSON.parse(final[0].value.params.item.text), {
       status: "synthetic-complete",
     });
     return {
       ...result,
       status: "pass",
-      reason: "minimal-native-feasibility-only",
+      reason: "operations-only-provenance-not-yet-checked",
     };
   } catch (error) {
     return { ...result, status: "fail", reason: error.message.split("\n")[0] };
   }
 }
-export function checkAttempt(directory) {
+export function checkAttempt(directory, referenceCommit) {
   directory = resolve(directory);
   assert(
-    directory.startsWith(EVIDENCE + "/attempt-") &&
-      !directory.slice(EVIDENCE.length + 1).includes("/"),
+    [EVIDENCE, REPAIR_EVIDENCE].some(
+      (base) =>
+        directory.startsWith(base + "/attempt-") &&
+        !directory.slice(base.length + 1).includes("/"),
+    ),
     "wrong-evidence-root",
   );
   const read = (path) =>
@@ -264,6 +346,15 @@ export function checkAttempt(directory) {
     assert(seen.has(name), `unbound-required-artifact:${name}`);
   const inputs = read("inputs.json"),
     observations = read("observations.json");
+  const admission = read("admission.json");
+  assert.equal(admission.attempt, directory, "admission-attempt-path-mismatch");
+  const provenance = verifyProvenance(
+    directory,
+    inputs,
+    admission,
+    seen,
+    trustedIdentity(referenceCommit),
+  );
   assert.equal(
     fileSha(join(directory, "private/codex-home/config.toml")),
     inputs.configSha256,
@@ -297,7 +388,7 @@ export function checkAttempt(directory) {
     return read(name);
   };
   const result = assess({
-    admission: read("admission.json"),
+    admission,
     observations,
     inputs,
     before,
@@ -315,14 +406,16 @@ export function checkAttempt(directory) {
       seen.has("private/protected-canary.txt"),
       "missing-bound-private-canary",
     );
-  return result;
+  return result.status === "pass"
+    ? { ...result, reason: "minimal-native-feasibility-only", provenance }
+    : result;
 }
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
   try {
-    const result = checkAttempt(process.argv[2]);
+    const result = checkAttempt(process.argv[2], process.argv[3]);
     console.log(JSON.stringify(result, null, 2));
     process.exitCode = result.status === "pass" ? 0 : 1;
   } catch (error) {

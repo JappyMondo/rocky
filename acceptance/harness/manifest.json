@@ -1,15 +1,18 @@
 {
   "schema": 1,
-  "contractId": "rocky-harness-59-v1",
+  "contractId": "rocky-harness-59-v2",
   "authority": [
     "Taskbot #59 comment476",
     "Taskbot #59 comment477",
-    "Taskbot #1 comment494"
+    "Taskbot #1 comment494",
+    "Taskbot #1 lease518",
+    "Taskbot #62 reviews511/512",
+    "Taskbot #63 static521/root522"
   ],
   "qualification": false,
   "capability": null,
   "nativeExecutionBlocked": true,
-  "nativeExecutionBlocker": "#61 must diagnose native positive-control exit134 and unexpected project trust/config mutation. No rerun under lease494.",
+  "nativeExecutionBlocker": "Static checker/candidate rereview and explicit root continuation required. No native rerun under lease518; startup134 and runtime boundaries remain unqualified.",
   "supportedCandidate": {
     "binary": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
     "version": "0.157.1",
@@ -36,7 +39,7 @@
     "purpose": "Native protocol and basic named-permission feasibility only",
     "route": "exec_command",
     "orderedOperations": [
-      "allowed source write and read positive control",
+      "allowed source and owned TMPDIR write/read positive control",
       "protected synthetic canary read",
       "protected synthetic canary overwrite"
     ],
@@ -181,5 +184,19 @@
     "second platform/provider",
     "real secret or unrelated host data probes"
   ],
-  "promotion": "Reviewed contract -> independently reviewed synthetic native/gateway evidence -> separately authorized live provider evidence -> immutable independent capability approval; target coding remains a separate later gate."
+  "promotion": "Reviewed contract -> independently reviewed synthetic native/gateway evidence -> separately authorized live provider evidence -> immutable independent capability approval; target coding remains a separate later gate.",
+  "protocolSchema": {
+    "binarySha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d",
+    "kind": "exact-binary-generated-experimental",
+    "artifactCount": 440,
+    "inventorySha256": "c0827f0aadfee4e31c69bfaac979d1b34779fd92bde268c66d02f6677c0d9226",
+    "generationEvidence": ".qualification/harness-contract-59/schema-discovery/generation-experimental.json"
+  },
+  "candidatePolicy": {
+    "module": "policy.mjs",
+    "status": "static-only; separate from locked launcher",
+    "authority": ["#63/521", "#59/522"],
+    "runtimeSharedTempWrites": "UNPROVEN and unauthorized",
+    "helperIdentities": "must be observed and hashed before future dispatch; no guessed identity"
+  }
 }

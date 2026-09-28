@@ -6,6 +6,79 @@ H01–H10; sole authoring lease is epic comment 494. Independent review must acc
 these files before producer qualification. No production transport, token gateway,
 approval or `HardLimitsCapability` is implemented here.
 
+## Static repair after rejected review (#62)
+
+Review findings 511/512 rejected the first checker. Lease 518 repairs all three
+without rerunning Codex or changing the old evidence:
+
+1. `fixture.mjs` derives the exact allowed source/scratch and protected canary
+   paths from the admitted attempt directory. The checker requires the complete
+   fixed commands, shell, workdir, login flag, output bound and native command
+   representation. A different denied path or command that prints a denial fails.
+2. `provenance.mjs` reads a **reviewer-selected Git revision**, independently of
+   the bundle, and derives its entire source inventory and manifest identity.
+   The checker requires that revision in admission/inputs, matching contract
+   identities, every retained source byte, and all 440 exact-binary schema files
+   matching the protected schema inventory digest. Missing, changed, duplicate or
+   extra retained source/schema bytes fail. `sourceFrozen: true` is insufficient.
+3. Final agent-message start/completion must have the same thread and turn as
+   the invocation, with both events preceding the terminal. Wrong/missing IDs or
+   a final message after completion fail.
+
+`assess()` is only the operation-sequence subcheck. It explicitly returns an
+operations-only reason; callers must use `checkAttempt()` for full artifact and
+provenance verification. The CLI defaults its trusted reference to canonical Git
+HEAD, or takes an explicit reviewer-selected commit as its third argument. The
+bundle never chooses that trusted revision. No revision is treated as independent
+approval simply because it exists in Git.
+
+The new tests load the unchanged rejected checker from commit `c13930b` into the
+new repair evidence directory. They reproduce its false passes against wrong
+targets, printed denial, missing/changed provenance, wrong-turn final messages and
+post-terminal messages, then require rejection by the repaired path. Generated
+unit data remains explicitly selftest evidence. `binding.test.mjs` additionally
+uses real committed source objects and the 440 retained schemas through the same
+provenance verifier; run it only at clean committed source.
+
+All new artifacts go under `.qualification/harness-contract-59-repair/`. The old
+970-entry index and all old artifacts are preserved. Historical attempts lack the
+new required bindings and continue to fail; they are never upgraded retroactively.
+
+## Conservative policy candidate, still locked
+
+`policy.mjs` renders the static candidate accepted in #63 comment 521 and root
+comment 522. The concrete fragment and environment are retained under
+`.qualification/harness-contract-59-repair/attempt-policy-candidate-2026-09-28/`.
+This is a policy/pretrust/environment fragment, not a live provider configuration.
+
+It includes `:minimal` read plus both exact denies and final root-and-descendant
+deny globs for every reviewed shared-temp alias, Applications and broad host
+config/database/library exclusion. It keeps writable source/scratch, read-only
+synthetic `.git`, and private authority denies. HOME and TMPDIR are owned scratch
+paths. A separate runtime CODEX_HOME helper subtree avoids pretending a read can
+override a final deny on its parent. The actual selected helper must be inventoried
+and hashed before any future dispatch; no helper identity is invented here.
+
+The pinned macOS framework/executable maps, devices including `/dev/fd`, named
+mach/syslog/shared-memory services and sandbox extensions are explicit trusted
+dependencies. Filesystem denies do not remove those IPC/extension operations.
+This is not an IPC-free or generic network-isolation claim. Static source-backed
+alias/final-deny reasoning is not runtime shared-temp write proof: **no writes
+outside the canonical tree are authorized or attempted**.
+
+The candidate is deliberately separate from the locked launcher. A later explicit
+continuation must integrate the reviewed fragment/environment and actual helper
+observations before native execution; the old launcher profile is not silently
+widened. H01 can combine exact immutable config/binary/no-override route evidence
+with actual controls; raw internal policy tracing is optional stronger evidence.
+Every full native/H03/gateway/live-provider gate remains unqualified.
+
+The static Git fixture now has its own empty tree, one artificial commit and
+`rocky-next` HEAD, ordinary refs/objects, no remotes, copied history or parent links.
+Read-only Git tests resolve root/common metadata only inside that fixture. Exact
+synthetic cwd pretrust is prepared separately; neither correction has been tested
+through app-server yet. Startup 134 remains an unproved policy hypothesis.
+
 `manifest.json` is normative. Contract acceptance, synthetic native evidence,
 synthetic gateway evidence, real provider proof and target coding acceptance are
 separate gates. A fake Responses server cannot attest a real model or output cap.
@@ -92,14 +165,15 @@ credentials or ChatGPT auth extraction must never be inferred.
 From the exact canonical root on `rocky-next`:
 
 ```sh
-node --test acceptance/harness/check.test.mjs
+node --test acceptance/harness/check.test.mjs acceptance/harness/binding.test.mjs
 node --check acceptance/harness/probe.mjs
 node_modules/.bin/prettier --check acceptance/harness
 node acceptance/harness/check.mjs .qualification/harness-contract-59/attempt-2026-09-28T01-24-06.796Z
 ```
 
-The last command must exit 1 (`loaded-config-changed`); it is a retained negative
-acceptance result. Native reproduction is intentionally locked pending #61 and a
+The last command must exit 1 (missing/current-revision provenance); it is a retained
+negative acceptance result. The old checker separately rejected its config change.
+Native reproduction is intentionally locked pending independent review and a
 new explicit lease. Do not launch `probe.mjs` as a reviewer. The final evidence
 index binds all retained files and symlink metadata without following runtime
 links. Raw synthetic Codex state/log databases are retained for diagnosis; caches

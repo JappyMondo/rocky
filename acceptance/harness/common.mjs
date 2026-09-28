@@ -13,6 +13,10 @@ import { resolve, join } from "node:path";
 
 export const ROOT = "/Users/jappy/.t3/worktrees/rocky/rocky-next";
 export const EVIDENCE = join(ROOT, ".qualification/harness-contract-59");
+export const REPAIR_EVIDENCE = join(
+  ROOT,
+  ".qualification/harness-contract-59-repair",
+);
 export const BINARY = "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex";
 export const BINARY_SHA =
   "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d";
