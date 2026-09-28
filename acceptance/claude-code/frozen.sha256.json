@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "contractId": "rocky-claude-code-95-v1",
+  "algorithm": "sha256",
+  "excludes": "this inventory itself; its digest is recorded in .qualification/claude-code-contract-95/evidence.sha256",
+  "files": [
+    {
+      "path": "acceptance/claude-code/README.md",
+      "bytes": 16371,
+      "sha256": "ba9dcd3b004d237bd58e3a3304e6b8223e549b02d806a2832460708f4abbcff4"
+    },
+    {
+      "path": "acceptance/claude-code/manifest.json",
+      "bytes": 57630,
+      "sha256": "af5574ef6bd137a6af2ae91be7a2ecb8bf16c345e565fd891ac9811a76709cd1"
+    },
+    {
+      "path": "acceptance/claude-code/scenarios.json",
+      "bytes": 26644,
+      "sha256": "e0084c7128e87385cbd6c4b006ba540c298c4a42f1ba8d3dcba5ae036f65593e"
+    },
+    {
+      "path": "docs/architecture/claude-code-harness.md",
+      "bytes": 6035,
+      "sha256": "e7aa3a3830ed239b5645347bf64a3c278366b467e96d54b0bd08fa91bb946eec"
+    }
+  ]
+}

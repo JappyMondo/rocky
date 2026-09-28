@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "contractId": "rocky-claude-code-95-v1",
+  "ticket": "#95",
+  "root": "/Users/jappy/.t3/worktrees/rocky/rocky-next",
+  "branch": "rocky-next",
+  "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
+  "kind": "static checks only; no scenario execution, no claude CLI execution, no native/auth/model/API/network effects, no credential or keychain reads, no env dumps",
+  "modelSelection": "claude-contract-95 dispatch: Opus-class work executed on this harness's model (alibaba-token-plan/qwen3.8-max); substitution recorded by root; backend attestation unavailable",
+  "qualification": false,
+  "capability": null,
+  "executionAuthorized": false,
+  "frozenBeforeExecution": true,
+  "scenarioStatusCounts": {
+    "unexecuted": 14,
+    "blocked": 10
+  },
+  "checks": [
+    {
+      "id": "C-json-manifest",
+      "check": "JSON parse with duplicate-key rejection: acceptance/claude-code/manifest.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-scenarios",
+      "check": "JSON parse with duplicate-key rejection: acceptance/claude-code/scenarios.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-frozen",
+      "check": "JSON parse with duplicate-key rejection: acceptance/claude-code/frozen.sha256.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-scn-unique",
+      "check": "scenario IDs unique",
+      "result": "pass",
+      "detail": "24 scenarios: F01-F14, N01-N06, L01-L04"
+    },
+    {
+      "id": "C-req-unique",
+      "check": "requirement IDs unique and exactly CC01-CC12",
+      "result": "pass",
+      "detail": ["CC01", "CC02", "CC03", "CC04", "CC05", "CC06", "CC07", "CC08", "CC09", "CC10", "CC11", "CC12"]
+    },
+    {
+      "id": "C-scn-req",
+      "check": "every scenario maps only to existing CC requirements and has >=1",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-req-cover",
+      "check": "every CC requirement covered by >=1 scenario",
+      "result": "pass",
+      "detail": "CC01:F01,F08,L01 CC02:F03,F08,N03,N06,L01 CC03:F01,F02,F03,N02 CC04:F02,F13,N01,N04,N06 CC05:F04,F14,N05 CC06:F05,F07,F09,N05 CC07:F05,F06,L03 CC08:F05,F06,F07,F08,F10,L01 CC09:F06,F12,N05 CC10:F11,L02 CC11:F11,L04 CC12:F01,F12,F13,F14"
+    },
+    {
+      "id": "C-status",
+      "check": "all scenarios unexecuted/blocked; none pass/executed",
+      "result": "pass",
+      "detail": {
+        "unexecuted": 14,
+        "blocked": 10
+      }
+    },
+    {
+      "id": "C-blocker",
+      "check": "every blocked scenario names a concrete blocker (native execution authority / disposable synthetic environment / explicit user authorization); unexecuted scenarios have null blocker",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-proc-exp",
+      "check": "every scenario carries a finite procedure and an expected oracle",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-flags",
+      "check": "manifest qualification=false, capability=null, executionAuthorized=false, frozenBeforeExecution=true, nativeExecutionBlocked=true; scenarios executionAuthorized=false, frozenBeforeExecution=true",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-contract-id",
+      "check": "contractId rocky-claude-code-95-v1 consistent across manifest/scenarios/frozen",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-forbidden-env",
+      "check": "forbidden env list contains every research-mandated key from #94/880 FK3",
+      "result": "pass",
+      "detail": ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BASE_URL", "ANTHROPIC_PROFILE", "CLAUDE_SECURESTORAGE_CONFIG_DIR", "CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]
+    },
+    {
+      "id": "C-frozen-rehash",
+      "check": "every frozen.sha256.json entry recomputed and matching actual bytes (size+sha256)",
+      "result": "pass",
+      "detail": [
+        {
+          "path": "acceptance/claude-code/README.md",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "acceptance/claude-code/manifest.json",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "acceptance/claude-code/scenarios.json",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "docs/architecture/claude-code-harness.md",
+          "bytesMatch": true,
+          "shaMatch": true
+        }
+      ]
+    },
+    {
+      "id": "C-citations",
+      "check": "spot-audit: every authored file carries #94 research-comment citations for harness-specific claims, plus #89/850, #90, #92/#93 references where reused by reference",
+      "result": "pass",
+      "detail": "README.md, manifest.json, scenarios.json and claude-code-harness.md each cite #94/872, #94/878, #94/879 and/or #94/880 finding ids (F1-F16, sections A-F, FK/NP/L cases, G-gates); classification sections cite #89/850(a)/(b); budget and final-schema sections cite docs/coordinator.md #90 and acceptance/subscription by sha256"
+    },
+    {
+      "id": "C-reuse-by-reference",
+      "check": "no duplication/fork of acceptance/subscription semantics: reuseByReference block present with frozen sha256 of referenced artifacts; no acceptance/subscription file modified",
+      "result": "pass",
+      "detail": ["rocky-subscription-88-v1 README 7c5b1464…c375", "final.schema.json 954dd71e…6792", "manifest.json b632eb34…de35", "docs/coordinator.md § #90"]
+    },
+    {
+      "id": "C-open-gates",
+      "check": "all 13 research open gates carried (G-KC, G-SET, G-MANAGED, G-HOME, G-RACE, G-WRITES, G-VERSION, G-INIT-VALUES, G-SIGINT, G-RETRY, G-EFFORT, G-CLAUDEMD-MANAGED, G-DEFAULT-PROMPT) plus G-MODEL; none marked closed",
+      "result": "pass",
+      "detail": "14 gates in manifest openGates; G-KC additionally flagged BLOCKING for the implementer role and echoed in gateOrder; G-RACE carried as mooted-but-unproven because shared-home mode H2 is rejected (decisions.md D-04/D-14)"
+    },
+    {
+      "id": "C-prettier",
+      "check": "npx prettier 3.6.2 --check clean on all new md/json",
+      "result": "pass",
+      "detail": "acceptance/claude-code, docs/architecture/claude-code-harness.md, .qualification/claude-code-contract-95"
+    },
+    {
+      "id": "C-git-diff-check",
+      "check": "git diff --check clean",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-owned-scope",
+      "check": "git status -uall shows only owned new paths; no tracked file modified; .qualification/claude-code-contract-95 is gitignored like prior contract dirs and force-added per repository convention",
+      "result": "pass",
+      "detail": [
+        "acceptance/claude-code/README.md",
+        "acceptance/claude-code/frozen.sha256.json",
+        "acceptance/claude-code/manifest.json",
+        "acceptance/claude-code/scenarios.json",
+        "docs/architecture/claude-code-harness.md",
+        ".qualification/claude-code-contract-95/ (force-added)"
+      ]
+    },
+    {
+      "id": "C-no-execution",
+      "check": "no claude CLI execution, no ~/.claude or keychain reads, no env dumps, no network calls, no Taskbot writes during authoring",
+      "result": "pass",
+      "detail": "Taskbot used read-only via /tmp/tb.sh get_ticket for #94, #88, #89, #95"
+    }
+  ],
+  "scenarioExecutions": 0,
+  "limitations": [
+    "No production code, parser, adapter or tests authored or run",
+    "Binary identity is cited from #94/872 F1 host measurements, not re-measured here (re-measurement is checkpoint C1 of the future producer)",
+    "All [P] items from the research record remain unproven and are encoded as open gates, not resolved",
+    "This file's own hash is not contained in itself; it is recorded in evidence.sha256 of the handoff and the commit"
+  ]
+}

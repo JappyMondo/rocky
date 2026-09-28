@@ -1,0 +1,721 @@
+{
+  "schema": 1,
+  "contractId": "rocky-claude-code-95-v1",
+  "status": "static",
+  "qualification": false,
+  "capability": null,
+  "executionAuthorized": false,
+  "frozenBeforeExecution": true,
+  "nativeExecutionBlocked": true,
+  "authority": [
+    "#95",
+    "#1/863",
+    "#94/872/878/879/880",
+    "#94/881",
+    "#88",
+    "#89/850",
+    "#90",
+    "#92/857-860",
+    "#93"
+  ],
+  "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
+  "reuseByReference": [
+    {
+      "artifact": "acceptance/subscription/README.md",
+      "contractId": "rocky-subscription-88-v1",
+      "frozenSha256": "7c5b14644f41e080c62a1b1bb8d01798738bad0132a30a0f2e583668f08bc375",
+      "reused": "Harness-neutral acceptance rules: outcome vocabulary (unexecuted/pass/fail/blocked/unknown/unsupported), denominator retention, native-test evidence rules, settled-ordinary vs unresolved vs policy/fatal classification semantics per #89/850(a)/(b)/(c) as amended by #93, usage/authority rules, binding and review rules. Not duplicated or forked here; this contract adds only Claude-Code-specific argv/env/auth/discovery/event/role/stream bindings."
+    },
+    {
+      "artifact": "acceptance/subscription/final.schema.json",
+      "contractId": "rocky-subscription-88-v1",
+      "frozenSha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
+      "reused": "The proposed-action final schema is harness-neutral and is reused by reference as the full protected schema against which result.structured_output is always re-validated by the host. This contract ships no second schema file."
+    },
+    {
+      "artifact": "docs/coordinator.md section 'Direct-harness subscription budget mode (Taskbot #90)'",
+      "contractId": "subscription-observed-v1",
+      "reused": "Budget mode subscription-observed-v1, harness-reported usage schema 2 with statuses reported/ambiguous-zero/unknown, planning charges, threshold and recovery_required stop semantics. This contract only defines the Claude Code adapter mapping onto those semantics; it does not restate or fork them."
+    },
+    {
+      "artifact": "acceptance/subscription/manifest.json launch.input and immutableBeforeStart",
+      "contractId": "rocky-subscription-88-v1",
+      "frozenSha256": "b632eb34b89f205eb9abf658958afeab91db2f4b29499bc7dc8ddd7bd5b8de35",
+      "reused": "Accepted duplex semantics: durable attempted-before-IO intent, write-once, single EOF, no resend after ambiguity, immutable-before-start bundle. Claude-Code-specific evidence-of-consumption (system/init) is added below; the durable-intent semantics themselves are referenced, not forked."
+    }
+  ],
+  "candidate": {
+    "harness": "claude-code",
+    "version": "2.1.283",
+    "binary": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "binarySha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "binaryBytes": 225036032,
+    "buildTime": "2026-09-25T00:44:42Z",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "binaryKind": "native Bun single-file Mach-O; the only inspectable 'source' is the embedded minified bundle (strings/minified-JS readings). Bundle strings are not runtime proof and not a reproducible build (source: #94/872 F1 [B])",
+    "binaryIdentityProvenance": "#94/872 F1, host-measured sha256/size/VERSION/BUILD_TIME; never taken from `claude --version`",
+    "spawnPathRule": "Always spawn the absolute versioned path. The ~/.local/bin/claude symlink moves on auto-update, so it is never a spawn target; the hash is re-measured at admission checkpoint C1 and a missing or changed binary makes the profile unavailable, never substituted (source: #94/872 F1; #94/880 G-VERSION)",
+    "forbiddenAlternateBinaries": [
+      {
+        "path": "/opt/homebrew/bin/claude (Caskroom/claude-code/2.1.236/claude)",
+        "sha256": "6bc4ba992d2786cbf0237c4453ca53c1fdf0c3b3d83ffa0025c0d8190ed27848",
+        "reason": "predates --permission-prompts (2.1.259+) and AGENTS.md reading (2.1.277+); must never be used (source: #94/872 F1)"
+      },
+      {
+        "path": "/Users/jappy/.local/share/claude/versions/2.1.233 and versions/2.1.238",
+        "reason": "other installed versions; not the pinned candidate (source: #94/872 F1)"
+      },
+      {
+        "path": "/Users/jappy/.local/bin/claude",
+        "reason": "symlink that moves on auto-update (source: #94/872 F1)"
+      }
+    ],
+    "changelogCorroboration": "GitHub anthropics/claude-code main CHANGELOG.md top entry '## 2.1.283' (source: #94/872 Sources)",
+    "sourceIsReproducibleBinaryAttestation": false,
+    "liveAvailability": "unknown",
+    "backendAttestation": null,
+    "laterHarnesses": ["OpenCode"]
+  },
+  "launch": {
+    "shell": false,
+    "freshInvocationPerAction": true,
+    "resumeOrFork": false,
+    "spawn": "absolute versioned binary path, detached process group, stdio pipe x3; implementer cwd=SRC, reviewer cwd=SRC (source: #94/878 section A)",
+    "argvSerialization": "Commander variadic options (--tools, --allowedTools, --disallowedTools, --add-dir, --mcp-config) swallow following args, so EVERY option is exactly one argv element in --opt=value form; a would-be positional after --tools must never become a tool (source: #94/878 section A [B option defs]; #94/880 FK2)",
+    "argvTemplate": [
+      "-p",
+      "--output-format=stream-json",
+      "--verbose",
+      "--input-format=text",
+      "--no-session-persistence",
+      "--setting-sources=",
+      "--settings=<INP/settings.json>",
+      "--strict-mcp-config",
+      "--disable-slash-commands",
+      "--permission-mode=dontAsk",
+      "--permission-prompts=none",
+      "--model=<exact-role-model>",
+      "--effort=<exact-role-effort>",
+      "--max-turns=<N-from-config>",
+      "--tools=<role-tool-list>",
+      "--allowedTools=<role-tool-list>",
+      "--disallowedTools=<fixed-deny-list>",
+      "--json-schema=<canonical-minified-request-schema-json>",
+      "--append-system-prompt-file=<INP/instructions.md>"
+    ],
+    "argvTemplateNotes": [
+      "No positional prompt; the prompt comes on stdin (source: #94/878 section A).",
+      "--verbose is mandatory: with -p, stream-json without --verbose exits 1 with 'Error: When using --print, --output-format=stream-json requires --verbose' (source: #94/879 F14 [B]).",
+      "--setting-sources= is present as an EMPTY value; the empty string yields [] and an unknown value is an error (source: #94/872 F6 [B]).",
+      "Reviewer role additionally passes --restricted; that it composes with explicit --tools/--setting-sources= is an open probe (source: #94/878 section A [D; P]; #94/880 G-INIT-VALUES).",
+      "The default Anthropic system prompt is NOT replaced: --system-prompt/--system-prompt-file stay on the never-pass list and only --append-system-prompt-file is used, so the default prompt is bound solely by the version pin (source: #94/878 section A; #94/880 G-DEFAULT-PROMPT; decision D-06)."
+    ],
+    "templateIsExecutableOrApprovedProfile": false,
+    "profile": {
+      "id": "claude-code-p-subscription-dedicated-v1",
+      "status": "blocked",
+      "overrideArtifact": null,
+      "overrideDigest": null,
+      "reason": "Source/doc-valid template from #94 research only. Blocking gate G-KC (model-reachable keychain credential for the shell-bearing implementer), G-SET (silently ignored invalid settings), G-MANAGED, G-HOME, G-INIT-VALUES and the exact role model table remain open; native and live evidence require separately granted authority. No guessed keys or inherited entries."
+    },
+    "roleProfiles": {
+      "implementer": {
+        "tools": ["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
+        "allowedTools": "same list as --tools",
+        "cwd": "SRC",
+        "notes": "SRC write through Edit/Write inside cwd; Bash sandboxed with writes to cwd=SRC and SCR only, no network. Gate G-KC applies because Bash may reach the subscription keychain item through the Seatbelt-allowed SecurityServer/securityd.xpc mach services (source: #94/878 section D; #94/872 F5)."
+      },
+      "reviewer": {
+        "tools": ["Read", "Glob", "Grep"],
+        "allowedTools": "same list as --tools",
+        "restricted": true,
+        "cwd": "SRC",
+        "notes": "No shell, which removes the G-KC path from the reviewer. Edit/Write absent from --tools so any file write is impossible by tool absence [P roster]; confined to cwd by blockReadsOutsideWorkingDirectories and --restricted. A reviewer --add-dir is never granted; --add-dir dirs are sandbox-writable so a read-only-source-plus-scratch design via --add-dir is NOT source-valid (source: #94/878 section D)."
+      },
+      "bothRoles": "no MCP, hooks, plugins, skills, subagents, web, memory, background tasks or instruction files except the approved append prompt plus the unavoidable version-bound Claude Code default system prompt (source: #94/878 section D)"
+    },
+    "disallowedTools": [
+      "Agent",
+      "Workflow",
+      "Skill",
+      "WebFetch",
+      "WebSearch",
+      "Monitor",
+      "PowerShell",
+      "NotebookEdit",
+      "Task*",
+      "Cron*",
+      "EnterWorktree",
+      "ExitWorktree",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "AskUserQuestion",
+      "SendMessage",
+      "ListAgents",
+      "SendUserFile",
+      "PushNotification",
+      "RemoteTrigger",
+      "ScheduleWakeup",
+      "Artifact",
+      "ShareOnboardingGuide",
+      "SendFeedback",
+      "LSP",
+      "ToolSearch",
+      "WaitForMcpServers",
+      "ListMcpResourcesTool",
+      "ReadMcpResourceTool",
+      "mcp__*"
+    ],
+    "disallowedToolsProvenance": "source: #94/878 section A [D tools-reference names]",
+    "neverPassFlags": [
+      "--bare",
+      "--safe-mode (unverified interaction with Rocky settings semantics; excluded)",
+      "--dangerously-skip-permissions",
+      "--allow-dangerously-skip-permissions",
+      "--permission-mode=bypassPermissions|auto|acceptEdits|plan",
+      "--permission-prompt-tool",
+      "--mcp-config",
+      "--plugin-dir",
+      "--plugin-dir-no-mcp",
+      "--plugin-url",
+      "--agents",
+      "--agent",
+      "--add-dir (not needed; the reviewer must never get one)",
+      "--continue",
+      "--resume",
+      "--fork-session",
+      "--session-id",
+      "--from-pr",
+      "--teleport",
+      "--cloud",
+      "--remote",
+      "--environment",
+      "--sdk-url",
+      "--bg",
+      "-w",
+      "--worktree",
+      "--tmux",
+      "--ide",
+      "--chrome",
+      "--fallback-model",
+      "--betas",
+      "--max-budget-usd (a client estimate, not a subscription control)",
+      "--include-partial-messages",
+      "--include-hook-events",
+      "--forward-subagent-text",
+      "--replay-user-messages",
+      "--await-* flags",
+      "--managed-settings",
+      "--project-config-root",
+      "--system-prompt",
+      "--system-prompt-file",
+      "--client-data-url",
+      "--file",
+      "--advisor",
+      "--brief",
+      "--channels",
+      "-d",
+      "--debug",
+      "--debug-file",
+      "--effort values outside the approved table"
+    ],
+    "neverPassFlagsProvenance": "source: #94/878 section A 'Never pass' list",
+    "models": {
+      "status": "open-gate G-MODEL",
+      "rule": "Model and effort come ONLY from an approved role table frozen in run config; the producer validates --effort against low|medium|high|xhigh|max because an unknown value only prints a stderr warning and silently uses the default. init does not echo effort, so effort is requested-only. The served model ID is read from result.modelUsage keys and assistant.message.model, never assumed (source: #94/878 F11, section A).",
+      "researchExample": "claude-opus-5-5/high for complex implementation or independent review (source: #94/878 section A, which requests the exact full model ID from #95/#90 role tables; research did not pin one)",
+      "noFallback": "--fallback-model and the fallbackModel setting reroute silently and are forbidden; managed availableModels can constrain --model and is an inventory item; a modelUsage key different from the requested model is fatal (source: #94/878 F11; #94/879 FATAL class)"
+    },
+    "input": {
+      "kind": "one-shot raw UTF-8 on stdin; no prompt in argv",
+      "maxBytes": "<= min(config, 10 MB); over the cap the run errors with a nonzero exit",
+      "digestRequired": true,
+      "attemptDurableBeforeWrite": true,
+      "eofCount": 1,
+      "resendAfterAmbiguity": false,
+      "rejectBeforeSpawn": [
+        "BOM",
+        "invalid UTF-8",
+        "empty input ('Input must be provided...' exit 1)",
+        "whitespace-only input (exit 1)",
+        "over-limit input"
+      ],
+      "consumptionEvidence": "Prompt consumption is evidenced only by system/init: the empty/whitespace checks run before init is emitted, so init means the prompt was accepted [P]. If the child exits before reading (EPIPE or silent buffering), the attempt stays attempted-unknown: no init, no resend, no success (source: #94/878 F12, section E; #94/880 FK4). Durable attempted-before-IO intent, write-once and single-EOF semantics are reused by reference from the accepted subscription duplex contract (acceptance/subscription/manifest.json launch.input; #92 F9 analogue).",
+      "inputFormatNote": "--input-format stream-json would need stdin open for the whole session and is not used; --input-format=text is pinned (source: #94/878 F12)."
+    },
+    "environment": {
+      "policy": "sealed POSITIVE allowlist, exact immutable bytes, nothing inherited; ordered [key,value] list equal to the approved bundle (source: #94/878 section C)",
+      "allowlist": {
+        "HOME": "<PH> fresh per-action parent home (dedicated mode H1; canonical realpath, 0700)",
+        "CLAUDE_CONFIG_DIR": "<CFG> dedicated Rocky config dir; REQUIRED in dedicated mode and FORBIDDEN in shared mode; even the literal ~/.claude path selects a different keychain entry, so the user's existing login is not found under a Rocky CFG (source: #94/872 F4)",
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "LANG": "en_US.UTF-8",
+        "TMPDIR": "<PT>",
+        "CLAUDE_CODE_TMPDIR": "<PT> (source: #94/878 section C [D])",
+        "fixedSwitches": [
+          "DISABLE_AUTOUPDATER=1",
+          "DISABLE_UPDATES=1",
+          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+          "DISABLE_TELEMETRY=1",
+          "DISABLE_ERROR_REPORTING=1",
+          "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+          "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
+          "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1",
+          "CLAUDE_CODE_DISABLE_POLICY_SKILLS=1",
+          "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1",
+          "CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1",
+          "CLAUDE_CODE_SKIP_PROMPT_HISTORY=1",
+          "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1",
+          "CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1"
+        ],
+        "conditional": "SHELL=/bin/zsh, USER or LOGNAME only if a native probe shows they are needed; USER affects the keychain account name, so its value must be the real login name (source: #94/878 section C [B wk()]; #94/880 G-HOME)"
+      },
+      "forbiddenEnvironmentExplicit": [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_PROFILE",
+        "ANTHROPIC_FEDERATION_RULE_ID",
+        "ANTHROPIC_ORGANIZATION_ID",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+        "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+        "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
+        "CLAUDE_CODE_USE_MANTLE",
+        "CLAUDE_CODE_USE_GATEWAY",
+        "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
+        "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+        "CLAUDE_CODE_GATEWAY_TOKEN",
+        "CLAUDE_CODE_GATEWAY_TOKEN_FILE_DESCRIPTOR",
+        "CLAUDE_CODE_SESSION_ACCESS_TOKEN",
+        "CLAUDE_CODE_HOST_AUTH_ENV_VAR",
+        "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+        "CLAUDE_CODE_CUSTOM_OAUTH_URL",
+        "CLAUDE_CODE_CLIENT_DATA_URL",
+        "CLAUDE_CODE_MANAGED_SETTINGS_PATH",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        "CLAUDE_CODE_SIMPLE",
+        "CLAUDE_CODE_SAFE_MODE",
+        "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
+        "CLAUDE_CODE_RESUME_INTERRUPTED_TURN",
+        "CLAUDE_CODE_PROJECT_DIR_NAME",
+        "ANTHROPIC_IDENTITY_TOKEN",
+        "ANTHROPIC_IDENTITY_TOKEN_FILE"
+      ],
+      "forbiddenEnvironmentFamilies": [
+        "every ANTHROPIC_*",
+        "CLAUDE_CODE_USE_*",
+        "CLAUDE_CODE_OAUTH_*",
+        "CLAUDE_CODE_API_*",
+        "CLAUDE_CODE_*TOKEN*",
+        "CLAUDE_CODE_*_FILE_DESCRIPTOR",
+        "CLAUDE_CODE_HOST_AUTH_*",
+        "CLAUDE_CODE_MAX_RETRIES / CLAUDE_CODE_RETRY_WATCHDOG (unless explicitly configured)",
+        "*_PROXY / NO_PROXY",
+        "NODE_EXTRA_CA_CERTS",
+        "SSL_*",
+        "AWS_* / GOOGLE_* / VERTEX_* / AZURE_*",
+        "GH_* / GITHUB_*",
+        "GIT_*",
+        "SSH_AUTH_SOCK",
+        "OPENAI_* / CODEX_*",
+        "MCP_*",
+        "OTEL_*"
+      ],
+      "forbiddenRationale": "In -p, ANTHROPIC_API_KEY is ALWAYS used when present, with no approval, and it plus ANTHROPIC_AUTH_TOKEN, provider switches, apiKeyHelper, profiles/federation and ANTHROPIC_BASE_URL outrank subscription OAuth, so any of them leaking into the child silently switches billing away from the subscription. CLAUDE_CODE_SIMPLE=1/--bare is strictly ANTHROPIC_API_KEY-or-apiKeyHelper auth and is incompatible with subscription; CLAUDE_CODE_OAUTH_TOKEN would mean Rocky holds a token. CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is forbidden because it disables sandbox auto-allow. Regression-asserted always-absent (source: #94/872 F2/F3; #94/878 section C; #94/880 FK3)."
+    },
+    "settings": {
+      "path": "<INP>/settings.json, 0400, <= 2 MiB, canonical JSON, sha256-bound",
+      "role": "the ONLY settings source besides unavoidable managed layers; passed via --settings with --setting-sources= empty so user/project/local layers are excluded (source: #94/878 section B)",
+      "template": {
+        "disableAllHooks": true,
+        "autoMemoryEnabled": false,
+        "disableClaudeAiConnectors": true,
+        "enableAllProjectMcpServers": false,
+        "permissions": {
+          "defaultMode": "dontAsk",
+          "disableBypassPermissionsMode": "disable",
+          "blockReadsOutsideWorkingDirectories": true,
+          "additionalDirectories": [],
+          "allow": [],
+          "deny": [
+            "Read(//<CFG>/**)",
+            "Edit(//<CFG>/**)",
+            "Read(//<PH>/**)",
+            "Read(//<PT>/**)",
+            "Read(//<INP>/**)",
+            "Read(//Users/<user>/.claude/**)",
+            "Read(//Users/<user>/.claude.json)",
+            "Read(//Users/<user>/.config/anthropic/**)",
+            "Read(//Users/<user>/Library/Keychains/**)",
+            "+ host denyRoots"
+          ]
+        },
+        "sandbox": {
+          "enabled": true,
+          "failIfUnavailable": true,
+          "allowUnsandboxedCommands": false,
+          "autoAllowBashIfSandboxed": true,
+          "excludedCommands": [],
+          "filesystem": {
+            "allowWrite": ["<SCR>"],
+            "denyRead": [
+              "<CFG>",
+              "<PH>",
+              "<PT>",
+              "<INP>",
+              "~/.claude",
+              "~/.claude.json",
+              "~/.config/anthropic",
+              "~/Library/Keychains",
+              "/Library/Keychains",
+              "+ host denyRoots"
+            ],
+            "denyWrite": ["+ host denyRoots"]
+          },
+          "credentials": {
+            "files": [{ "path": "<CFG>", "mode": "deny" }]
+          },
+          "network": {
+            "allowedDomains": [],
+            "strictAllowlist": true
+          }
+        }
+      },
+      "templateProvenance": "source: #94/878 section B [D keys unless noted]",
+      "prohibitedKeysRejectedByProducer": [
+        "env",
+        "apiKeyHelper",
+        "any *Helper key (awsAuthRefresh, otelHeadersHelper, ...)",
+        "hooks",
+        "enabledPlugins",
+        "extraKnownMarketplaces",
+        "mcpServers",
+        "allowedMcpServers",
+        "forceLogin*",
+        "model* / availableModels / modelOverrides",
+        "fallbackModel",
+        "sandbox.filesystem.disabled",
+        "allowAppleEvents",
+        "allowUnixSockets",
+        "enableWeakerNestedSandbox",
+        "network.tlsTerminate",
+        "permissions.allow entries beyond the role table",
+        "pluginConfigs",
+        "statusLine",
+        "outputStyle"
+      ],
+      "silentIgnoreWarning": "In -p, settings files that fail validation are SILENTLY IGNORED, so an invalid Rocky --settings file could silently disable the sandbox; the settings bytes are canonical, round-trip parsed with duplicate-key rejection and hash-bound before spawn, and gate G-SET requires a native proof plus a per-run positive-control strategy before the profile is admissible (source: #94/872 F6; #94/880 G-SET, NP4).",
+      "unresolvedSandboxScope": "sandbox.network scope conflicts across docs ('User or managed' vs 'user, managed, or CLI --settings') and stays [P] until probed (source: #94/878 F9 sandbox bullets)."
+    },
+    "discovery": {
+      "settingsLayers": "Precedence managed > CLI --settings > local > project > user; deny beats allow across all layers. --setting-sources takes a comma list of user,project,local and the empty value yields []; exclusion drops each layer's settings.json, CLAUDE.md/rules, skills/commands/agents, local md, sandbox.filesystem entries and project/local credentials (source: #94/872 F6).",
+      "notControlledBySettingSources": [
+        "endpoint managed policy (/Library/Application Support/ClaudeCode/{managed-settings.json, managed-settings.d/*.json, managed-mcp.json, CLAUDE.md}, MDM domain com.anthropic.claudecode)",
+        "server-managed settings (fetched for Team/Enterprise OAuth or direct API key, cached at <configDir>/remote-settings.json)",
+        "--managed-settings and CLAUDE_CODE_MANAGED_SETTINGS_PATH",
+        "~/.claude.json",
+        "auto memory",
+        "claude.ai connectors",
+        "user-level sandbox.credentials deny entries"
+      ],
+      "managedPolicy": "Managed layers cannot be disabled and a managed env block can select a provider, so ANY present managed/MDM/server-managed cache in the discovery inventory makes the profile unavailable until separately reviewed; the inventory is rehashed each run and drift makes the result unknown (source: #94/872 F6; #94/879 producer contract 1; #94/880 G-MANAGED, FK8).",
+      "instructionSources": "managed CLAUDE.md (cannot be excluded); ~/.claude/CLAUDE.md and rules; project CLAUDE.md, .claude/CLAUDE.md and .claude/rules for cwd and every ancestor; CLAUDE.local.md; AGENTS.md (2.1.277+); @imports up to 4 hops; subdirectory CLAUDE.md/AGENTS.md on demand; auto memory <configDir>/projects/<proj>/memory/MEMORY.md is loaded AND writable by the model even under managed-only (source: #94/872 F7).",
+      "instructionControls": "--setting-sources= empty; CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 (covers user, project and auto memory; managed unclear, gate G-CLAUDEMD-MANAGED); CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 plus autoMemoryEnabled:false; and a staged tree with no CLAUDE*.md, AGENTS.md or .claude in the tree or ANY ancestor (source: #94/872 F7).",
+      "otherRoutes": {
+        "hooks": "--settings disableAllHooks:true; managed hooks and allowManagedHooksOnly are inventory items (source: #94/872 F8)",
+        "skills": "--disable-slash-commands ('Disable all skills' [B]), CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1, CLAUDE_CODE_DISABLE_POLICY_SKILLS=1, Skill omitted from --tools and denied (source: #94/872 F8)",
+        "subagents": "Agent/Workflow omitted from --tools and denied; CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1 [D only] (source: #94/872 F8)",
+        "mcp": "--strict-mcp-config with no --mcp-config removes all MCP including claude.ai connectors, which otherwise load automatically with a claude.ai login; disableClaudeAiConnectors:true added; a managed-mcp.json applies regardless and is an inventory item (source: #94/872 F8)",
+        "plugins": "come from settings layers and --plugin-dir, both excluded (source: #94/872 F8)",
+        "backgroundTasks": "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1; without it -p waits up to 10 minutes for background subagents and kills background shells 5 s after the result (source: #94/872 F8)"
+      }
+    },
+    "auth": {
+      "mode": "subscription OAuth from the pinned candidate's own /login is the ONLY auth; no separate API credential, token proxy or gateway (source: #94/872 F2 precedence list, F3)",
+      "owner": "trusted Claude Code parent; Rocky never reads, copies, symlinks or proxies credentials or tokens",
+      "home": "dedicated mode H1 only: HOME=<PH> with CLAUDE_CONFIG_DIR=<CFG>, a Rocky-dedicated config dir in which the user once runs an interactive /login. This gets its own keychain entry 'Claude Code-credentials-<sha8(CFG)>' and its own refresh, and shares no user settings, CLAUDE.md, skills, plugins or MCP. Shared mode H2 is rejected by this contract because of gate G-RACE (source: #94/872 F4; #94/878 section C; decision D-04).",
+      "credentialStorage": "macOS login-keychain generic password, service 'Claude Code' + OAUTH_FILE_SUFFIX + '-credentials' (suffixed by config dir hash when CLAUDE_CONFIG_DIR is set); account $USER validated against ^[a-zA-Z0-9._-]+$; fallback file <configDir>/.credentials.json (0600) when the keychain rejects the write. Rocky derives the service name only as a nonsecret identifier and makes NO keychain call (source: #94/872 F4 [D+B]).",
+      "incompatibleAuthModes": "--bare / CLAUDE_CODE_SIMPLE=1 (strictly ANTHROPIC_API_KEY-or-apiKeyHelper, OAuth and keychain never read) and CLAUDE_CODE_OAUTH_TOKEN (Rocky would hold a token) are rejected before spawn (source: #94/872 F3).",
+      "postHocNonsecretSignals": "init.apiKeySource must be 'none' and every result.modelUsage[*].provider must be 'firstParty'. 'none' does NOT distinguish subscription OAuth from a bearer token or a profile, so the sealed environment and settings, not this signal, carry the exclusivity proof (source: #94/872 F2 signals).",
+      "rockyCredentialReadCopySymlinkProxy": false,
+      "rawStatusRetention": false,
+      "forcedLoginLogoutPolicy": false,
+      "blockingGateGKC": "The Seatbelt profile for sandboxed Bash allows mach-lookup of com.apple.SecurityServer and com.apple.securityd.xpc, the sandbox default read scope is the whole disk with no built-in credential deny list, and Bash deny rules are bypassable by path/sh -c/scripts, so a model-run `security find-generic-password -w -s 'Claude Code-credentials...'` MAY return the subscription OAuth tokens without a prompt. Unproven either way [P]. The implementer profile (shell-bearing) is BLOCKED until one of: a native synthetic proof of denial (NP3/F-keychain scenario), a Rocky-specific macOS user account, or explicit residual-risk acceptance by the user. The reviewer (no shell) avoids this path (source: #94/872 F5; #94/880 G-KC, NP3; #94/881 open user decision)."
+    },
+    "runtimePaths": {
+      "rule": "RUN is a fresh per-action root (canonical realpath, 0700, no .git/CLAUDE*.md/AGENTS.md/.claude in RUN or any ancestor); SRC=RUN/stage/source, SCR=RUN/scratch, PH=RUN/parent/home, PT=RUN/parent/tmp, INP=RUN/inputs (0400 files), CFG=designated dedicated config dir [H]. Paths are absolute, NFC, contain no control chars or glob metachars and no ','. All grants pairwise non-overlapping, none inside configDir, configDir not inside any grant (source: #94/878 Placeholders, producer contract 1).",
+      "persistentWritesNote": "--no-session-persistence stops transcripts but the CLI still writes <configDir>/.claude.json and possibly caches, plugin data and file-history; CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 stops file-history. What exactly is written despite the flag is open gate G-WRITES, inventoried before/after on the synthetic dir (source: #94/878 F13; #94/880 G-WRITES)."
+    },
+    "immutableBeforeStart": [
+      "argv bytes (one --opt=value element per option)",
+      "positive sealed environment list",
+      "settings.json bytes",
+      "cwd/staged tree and ancestor instruction-file absence",
+      "prompt bytes and digest",
+      "request schema canonical bytes",
+      "append-system-prompt file bytes",
+      "role/model/effort table binding",
+      "binary path + host-measured sha256",
+      "discovery inventory hashes (managed/MDM/server-managed/configDir/staged tree)",
+      "authHome mode binding (dedicated configDir)",
+      "run/action/lease/head/scope/build/version identities",
+      "original deadline and finite limits"
+    ]
+  },
+  "protocol": {
+    "kind": "fresh claude -p stream-json: newline-delimited JSON objects on stdout; --verbose mandatory with -p stream-json; not external JSON-RPC (source: #94/879 F14)",
+    "messageUnionIsOpen": "The documented SDKMessage union is OPEN (36 members); the interpreter requires a reviewed allowlist and an unknown message type/subtype not on it rejects (source: #94/879 F14; classification UNRESOLVED).",
+    "events": [
+      "system/init",
+      "assistant",
+      "user (tool_result blocks {tool_use_id, content, is_error} and tool_use_result)",
+      "system/permission_denied {tool_name, tool_use_id, decision_reason_type(rule|mode|classifier|asyncAgent), decision_reason, message} (best-effort; skips the PreToolUse-hook path)",
+      "system/api_retry {attempt, max_retries, retry_delay_ms, error_status, error}",
+      "result"
+    ],
+    "observedButNotAdmittedByDefault": [
+      "system/informational",
+      "system/compact_boundary",
+      "system/status",
+      "system/hook_* (hooks disabled)",
+      "system/task_* (background tasks disabled)",
+      "rate_limit_event",
+      "auth_status",
+      "stream_event (partials; --include-partial-messages never passed)",
+      "prompt_suggestion"
+    ],
+    "initFields": "session_id, apiKeySource, claude_code_version, cwd, tools[], mcp_servers[], model, permissionMode, slash_commands, skills, plugins, plugin_errors?, capabilities? (source: #94/879 F14). Exact expected tools/skills/slash_commands/mcp_servers values under this profile, including whether StructuredOutput appears in tools, are open gate G-INIT-VALUES [P] (source: #94/880).",
+    "assistantFrames": "message = BetaMessage {id, model, content[text|thinking|tool_use{id,name,input}], stop_reason, usage}, parent_tool_use_id, error? (authentication_failed|oauth_org_not_allowed|account_on_hold|billing_error|rate_limit|overloaded|invalid_request|model_not_found|server_error|max_output_tokens|cloud_credential_error|unknown), aborted?. One API response can produce several assistant frames sharing message.id (source: #94/879 F14).",
+    "resultFields": "subtype success|error_max_turns|error_during_execution|error_max_budget_usd|error_max_structured_output_retries; is_error INDEPENDENT of subtype (success may carry is_error:true with api_error_status); num_turns, duration_ms, duration_api_ms, total_cost_usd (client ESTIMATE), usage (main loop only), modelUsage{model:{inputTokens, outputTokens(includes thinking), thinkingTokens?, cacheReadInputTokens, cacheCreationInputTokens, webSearchRequests, costUSD, contextWindow, maxOutputTokens, canonicalModel?, provider?, costBasis?}} (includes subagents, compaction and internal calls), permission_denials[{tool_name, tool_use_id, tool_input}] (the AUTHORITATIVE denial record), structured_output?, stop_reason, terminal_reason? (completed|max_turns|tool_deferred|aborted_streaming|aborted_tools|hook_stopped|stop_hook_prevented|background_requested|blocking_limit|rapid_refill_breaker|prompt_too_long|image_error|model_error|api_error|malformed_tool_use_exhausted|budget_exhausted|structured_output_retry_exhausted|tool_deferred_unavailable|turn_setup_failed), errors[], startup_failure_reason?, result_index?, origin?, queued_turn_count? (absent on crash/fatal-startup results, which may carry zeroed totals). More than one result can occur (task-notification follow-ups); a result_index gap means a lost result (source: #94/879 F15).",
+    "structuredOutput": "--json-schema takes an INLINE canonical minified JSON string, not a path; an invalid schema exits with an error; 'format' is annotation-only; an 'unsatisfiable' schema only WARNS to the debug log. It is implemented as a synthetic tool named StructuredOutput appearing as a tool_use/tool_result pair; the value arrives in result.structured_output; failure subtype is error_max_structured_output_retries; success WITHOUT structured_output is possible and must be treated as failure. The host ALWAYS re-validates result.structured_output against the full protected schema (acceptance/subscription/final.schema.json by reference) and against action/input/role; the flag is a request, not evidence (source: #94/878 F10, section F).",
+    "successRequires": [
+      "exactly one system/init first (after no startup events other than known ones), with session_id nonblank, claude_code_version=='2.1.283', cwd==SRC, apiKeySource=='none', mcp_servers==[], plugins==[], skills/slash_commands within the approved (expected empty) set [P exact values, G-INIT-VALUES], tools == the exact role roster (+StructuredOutput where proven), permissionMode=='dontAsk' (source: #94/879 COMPLETE)",
+      "every assistant tool_use id unique with exactly one later user tool_result carrying the same tool_use_id",
+      "exactly one result: subtype 'success', is_error false, terminal_reason 'completed' if present, structured_output present and valid against the FULL protected schema and bound to action/input/role",
+      "permission_denials empty AND no system/permission_denied event",
+      "no assistant.error, no aborted:true, no stream frames after result",
+      "every modelUsage key == the requested model ID and every provider == 'firstParty'",
+      "complete bounded stdout AND stderr EOF, exit 0 and independent owned physical quiescence, recorded separately",
+      "unchanged admission identity, no cancellation, original fence/deadline"
+    ],
+    "exitCodes": "After the stream, exit = 1 iff the LAST result has is_error:true or the transport closed permanently, otherwise 0 — INCLUDING exit 0 when NO result was emitted in stream-json mode; argument/validation errors print stderr and exit 1; SIGTERM exits 143, kills the running Bash process tree, and leaves the turn unfinished with NO result; SIGINT 'ends the turn' but its exact frames/exit are unobserved [P, G-SIGINT]; known startup refusals emit an error_during_execution result with startup_failure_reason only when CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1, otherwise stderr plus nonzero exit. Exit code alone is therefore NEVER success evidence (source: #94/879 F16 [B]).",
+    "cancellation": "SIGTERM the owned process group only: exit 143 with no result classifies unknown; detached descendants are killed; EOFs and quiescence are recorded separately; a late result after cancel is ignored; NO interrupt acknowledgement is ever claimed. Cancellation is SIGTERM-only until G-SIGINT is closed by native observation (source: #94/879 producer contract 4 Cancel; #94/880 FK7, G-SIGINT).",
+    "apiRetryDecision": "system/api_retry records retried attempts and is not fatal by itself; a run that retries and later completes the full COMPLETE conjunction is ACCEPTED and the retry events are recorded in evidence. This is the #95 decision requested by research (recommendation adopted). A model fallback without --fallback-model remains detectable only through modelUsage keys and stays fatal when observed (source: #94/879 F16 note; #94/880 G-RETRY; decision D-05).",
+    "finalSchema": "acceptance/subscription/final.schema.json (reused by reference; sha256 954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792)",
+    "sourceVisibilityGap": "The effective sandbox state is NOT observable in the stream; prompt consumption is evidenced only by system/init; effort is not echoed. Absence of a stream field is not absence of activity: these gaps bind to qualification plus inventory (G-SET, G-INIT-VALUES, G-EFFORT) (source: #94/879 runtime metadata sources 5).",
+    "successMeaning": "Protocol-qualified current proposal only; never authoritative checks/review/CI, head adoption or delivery acceptance (reused by reference from acceptance/subscription/README.md 'Usage and authority').",
+    "toolOutcomeClasses": {
+      "settledOrdinaryFailure": "A tool_result with is_error:true whose tool_use_id is NOT in result.permission_denials and has no system/permission_denied event is a settled ordinary failure and does not alone reject a later correctly bound proposal: e.g. a nonzero Bash test run, or an Edit old_string mismatch followed by a later corrected Edit with a distinct tool_use_id. Seatbelt violations surface here as ordinary Bash output naming the denied path/host; per #89/850(a) they stay ordinary for protocol purposes and containment rests on the independent protected-state oracle and native qualification, never relabelling. Preserve exact status/output/history (source: #94/879 SETTLED ORDINARY FAILURE; #89/850(a)).",
+      "unresolvedOrUnknown": "A tool_use without a tool_result; a duplicate or orphan tool_result; no result or more than one result; a result_index gap; SIGTERM/143 or any signal; result subtype != success; success with is_error:true; success without structured_output; aborted assistant; malformed/partial/oversized frame; invalid UTF-8; duplicate JSON keys; an unknown message type/subtype off the reviewed allowlist. All reject a successful proposal; never relabel as ordinary failure (source: #94/879 UNRESOLVED/UNKNOWN).",
+      "policyOrFatal": "POLICY: any result.permission_denials entry or system/permission_denied event (rule/mode/classifier/prompt-less deny), any tool_use for a tool outside the roster, any denied or declined StructuredOutput. permission_denials is the SOURCE-DEFINED denial form for this harness, answering #89/850(b). FATAL: startup error, auth error (assistant.error authentication_failed/oauth_org_not_allowed/billing_error/account_on_hold), model_not_found, apiKeySource != 'none', provider != firstParty, a modelUsage key != the requested model (fallback), a changed claude_code_version. All reject; no model assertion can erase them (source: #94/879 POLICY and FATAL; #94/880 FK5(h); #89/850(b)).",
+      "classificationAuthority": "Source-bound observed stream outcomes, not model prose; a failed tool_result alone is not an action-failure verdict (reused by reference from acceptance/subscription/manifest.json protocol.toolOutcomeClasses.classificationAuthority; #89/850).",
+      "mandatoryChecks": "An unresolved mandatory host-check failure or blocking finding prevents delivery until independently resolved for current inputs; a proposal or later successful diagnostic is not that receipt (reused by reference)."
+    },
+    "informationalOnly": [
+      "todo/plan task state: mirrors the amended subscription rule (#93) — plan/todo state is informational, never evidence, and no plan/todo-complete predicate is a success barrier; planned-work verification rests on the observed stream history, the staged diff and independent host checks",
+      "total_cost_usd: a client ESTIMATE, never a provider receipt or budget control",
+      "num_turns, duration_ms, duration_api_ms: informational telemetry",
+      "--effort: requested-only, not echoed by init (G-EFFORT)",
+      "--max-budget-usd is never passed: a client estimate, not a subscription control"
+    ]
+  },
+  "budget": {
+    "mode": "subscription-observed-v1 (BY REFERENCE)",
+    "reference": "docs/coordinator.md section 'Direct-harness subscription budget mode (Taskbot #90)' and acceptance/subscription/manifest.json budget block. Thresholds, planning charges, stop-between-actions, recovery_required for a successful action with unresolved usage, CI-reserve independence and overrun retention are NOT restated here and are not forked; this contract only defines the Claude Code adapter mapping.",
+    "usageSource": "result.modelUsage from the single terminal result; per-message assistant usage and result.usage (main loop only) are NOT the action total",
+    "adapterMapping": {
+      "reported": "sum modelUsage per model of inputTokens + outputTokens; cacheReadInputTokens/cacheCreationInputTokens and thinkingTokens are subsets or separate components and are NEVER added twice; outputTokens already includes thinking. Every modelUsage key must equal the requested model and every provider must be firstParty, else the run is fatal before usage mapping (source: #94/879 usage note).",
+      "ambiguous-zero": "all-zero modelUsage totals or absent modelUsage on an otherwise complete run",
+      "unknown": "interrupted/truncated telemetry, a zeroed crash or fatal-startup result, SIGTERM with no result, or any unresolved lifecycle; a claimed success with unresolved usage keeps the existing unknown-success barrier and does not adopt a head (coordinator.md #90 semantics, by reference)",
+      "localNoModel": "local (non-agent) actions report local-no-model zero per the referenced mode; a Claude Code launch is never a local action"
+    },
+    "totalCostUsd": "client estimate only; NEVER a provider receipt, never merged into budgets.harnessReportedTokens",
+    "hardAggregateTokenLimit": false,
+    "numericOvershootBound": null,
+    "midTurnUsageCutoff": false,
+    "usageStatuses": ["reported", "ambiguous-zero", "unknown"]
+  },
+  "requirements": [
+    {
+      "id": "CC01",
+      "reusesConcept": "S01/S10 (acceptance/subscription/manifest.json requirements, by reference)",
+      "gate": "Pinned Claude Code 2.1.283 build identity: absolute versioned binary path, host-measured sha256/size/buildTime, rehash at guarded start C1; the ~/.local/bin symlink, Homebrew 2.1.236, other installed versions and any hash mismatch are rejected; a missing binary makes the profile unavailable, never substituted; bundle strings are not reproducible-build attestation (source: #94/872 F1; #94/880 G-VERSION)."
+    },
+    {
+      "id": "CC02",
+      "reusesConcept": "S01/S03 (by reference)",
+      "gate": "Subscription OAuth is the only auth and Rocky never reads/copies/symlinks/proxies credentials: dedicated CLAUDE_CONFIG_DIR isolation (mode H1), sealed positive env allowlist, regression-asserted forbidden env (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, provider switches, token/FD/gateway/profile/managed-path vars, CLAUDE_CODE_SIMPLE), no --bare/apiKeyHelper/settings-env route, post-run init.apiKeySource=='none' and provider=='firstParty' as nonsecret signals only; blocking gate G-KC (model-reachable keychain) keeps the shell-bearing implementer profile blocked until synthetic proof, a dedicated macOS account, or explicit user residual-risk acceptance (source: #94/872 F2-F5; #94/878 section C; #94/880 G-KC/G-HOME/G-RACE)."
+    },
+    {
+      "id": "CC03",
+      "reusesConcept": "S01/S02 (by reference)",
+      "gate": "Exact headless argv: every option one --opt=value element (variadic-swallow safe), the pinned flag order, --permission-mode=dontAsk with --permission-prompts=none, role tool rosters (implementer Bash/Read/Edit/Write/Glob/Grep; reviewer Read/Glob/Grep plus --restricted and no --add-dir), the fixed disallowedTools deny list, and pre-spawn rejection of every never-pass flag and off-table model/effort (source: #94/878 sections A/D; #94/878 F9)."
+    },
+    {
+      "id": "CC04",
+      "reusesConcept": "S01/S03 (by reference)",
+      "gate": "Discovery sealing: --setting-sources= empty, Rocky-owned canonical --settings with allowlisted keys only and producer rejection of prohibited keys (env, apiKeyHelper, *Helper, hooks, mcpServers, model*, fallbackModel, plugins...), hooks/skills/plugins/subagents/MCP/auto-memory/claude.ai-connectors/background-tasks off via the pinned controls, staged tree and every ancestor free of CLAUDE*.md/AGENTS.md/.claude/.mcp.json, managed/MDM/server-managed layers inventoried by hash with any presence refusing the profile, and post-run inventory rehash where drift makes the result unknown; the silently-ignored-invalid-settings behavior stays gated by G-SET (source: #94/872 F6-F8; #94/879 producer contract; #94/880 FK8/NP1/NP4, G-MANAGED/G-SET/G-CLAUDEMD-MANAGED)."
+    },
+    {
+      "id": "CC05",
+      "reusesConcept": "S06/S07 and the accepted duplex/attempted-before-IO semantics (by reference; not forked)",
+      "gate": "Exact immutable prompt bytes written once then a single EOF, <= min(config, 10 MB); BOM/invalid-UTF-8/empty/whitespace-only/over-limit rejected before spawn; durable attempted-before-IO intent with no resend after ambiguity; consumption evidenced only by system/init; a child that exits before reading leaves the attempt attempted-unknown (source: #94/878 F12, section E; #94/880 FK4)."
+    },
+    {
+      "id": "CC06",
+      "reusesConcept": "S04 (by reference)",
+      "gate": "Bounded strict NDJSON stream contract: incremental strict UTF-8, complete newline-delimited objects, finite byte/frame/line limits, duplicate-key rejection; exactly one system/init first with the identity conjunction; unique tool_use ids each with exactly one later matching tool_result; exactly one result with no result_index gap; frames after result, unknown types/subtypes off the reviewed allowlist, partial last lines, oversize and invalid encoding all reject; bounded raw capture precedes strict decoding (source: #94/879 F14/F15, COMPLETE and UNRESOLVED classes)."
+    },
+    {
+      "id": "CC07",
+      "reusesConcept": "S04 (by reference); final schema reused from acceptance/subscription/final.schema.json",
+      "gate": "Structured final: inline canonical-minified --json-schema request implemented as the synthetic StructuredOutput tool_use/tool_result pair; result.structured_output REQUIRED for success — success without it is failure; error_max_structured_output_retries rejects; the host always re-validates against the full protected schema and action/input/role binding; the schema flag is a request, never evidence (source: #94/878 F10, section F)."
+    },
+    {
+      "id": "CC08",
+      "reusesConcept": "S04/S09 and #89/850 classification semantics (by reference)",
+      "gate": "Outcome classification exactly as bound in protocol.toolOutcomeClasses: COMPLETE conjunction for a protocol-successful proposal; settled ordinary tool failures (is_error tool_result absent from permission_denials, including sandbox denials surfacing as ordinary Bash output) do not alone reject a later correctly bound proposal; result.permission_denials is the authoritative source-defined denial record (answering #89/850(b) for this harness) and any denial, off-roster tool_use or declined StructuredOutput rejects; unresolved lifecycles reject; auth/provider/model-fallback/version-drift observations are fatal (source: #94/879 classes; #89/850(a)/(b))."
+    },
+    {
+      "id": "CC09",
+      "reusesConcept": "S05/S06 (by reference)",
+      "gate": "Exit codes and cancellation: exit code alone is never success evidence (exit 0 with no result happens; exit 1 tracks only last-result is_error or permanent transport closure); SIGTERM to the owned group exits 143 with no result and classifies unknown; no interrupt acknowledgement is ever claimed; stdout EOF, stderr EOF, exit and independent owned physical quiescence are recorded separately; a late result after cancel is ignored; SIGINT behavior is unobserved and cancellation is SIGTERM-only until G-SIGINT closes (source: #94/879 F16, producer contract 4; #94/880 FK7, G-SIGINT)."
+    },
+    {
+      "id": "CC10",
+      "reusesConcept": "S08 and docs/coordinator.md #90 subscription-observed-v1 usage schema 2 (by reference; not forked)",
+      "gate": "Usage mapping: only result.modelUsage feeds the harness-reported total (inputTokens+outputTokens per model; cache read/creation and thinking subsets never double-counted); positive valid numbers are reported, never established actual consumption; all-zero or absent telemetry is ambiguous-zero; interrupted/truncated/zeroed-crash telemetry is unknown; total_cost_usd and num_turns are informational and never receipts; threshold/stop/recovery semantics are exactly the referenced #90 mode (source: #94/879 usage note; #94/880 FK6)."
+    },
+    {
+      "id": "CC11",
+      "reusesConcept": "S04/S08/S10 and the #93-amended todo/plan rule (by reference)",
+      "gate": "Informational-only surfaces: todo/plan task state is never evidence and no plan-complete predicate is a success barrier (mirrors the amended subscription contract); effort is requested-only and not echoed; the served model comes from modelUsage/assistant.message.model; the model's final is a proposal that can never establish head adoption, host checks, CI, review or delivery authority (source: #94/878 F11; #94/879 runtime metadata sources; acceptance/subscription/README.md as amended by #93)."
+    },
+    {
+      "id": "CC12",
+      "reusesConcept": "S06/S07/S10 (by reference)",
+      "gate": "Producer lifecycle and binding: checkpoints C0 (prepare/render/bundleDigest) through C5 (exit/signal, both EOFs, group quiescence, post-run inventory and configDir-children rehash) mirroring the accepted #92 C0-C5 shape; durable start intent before spawn; at most one spawn per action; admission rechecks lease/fence/deadline, binary hash and inventory inside the guarded start; prohibited combinations rejected before spawn; one-byte drift between C0 and C1 yields zero spawn; drift during the run makes the result unknown (source: #94/879 producer contract 1-5; #94/880 FK1/FK8)."
+    }
+  ],
+  "receiptRequirements": [
+    "contract/scenario hashes and this frozen.sha256.json digest",
+    "independently selected revision and approval reference",
+    "host-measured binary path/sha256/size/buildTime at C0 and rehash at C1",
+    "bundleDigest over argv/env/settings/schema/append-prompt/paths/identities",
+    "authHome mode binding (dedicated configDir; nonsecret service-name derivation only)",
+    "discovery inventory hashes pre-run and post-run (managed/MDM/server-managed caches, configDir children names, staged tree and ancestors)",
+    "init identity fields: session_id, apiKeySource, claude_code_version, cwd, tools, mcp_servers, model, permissionMode, skills/plugins/slash_commands",
+    "ordered raw stream evidence with bounded capture, frame counts and truncation reasons",
+    "result subtype/is_error/terminal_reason/permission_denials/modelUsage/structured_output and result_index continuity",
+    "attempt ID and evidence class; every rejection retains its observed frames",
+    "exit code/signal, stdout EOF, stderr EOF and independent quiescence recorded separately",
+    "usage mapping outcome (reported/ambiguous-zero/unknown) with the raw modelUsage retained and its sha256 receipt",
+    "timestamps, original deadline and finite limits",
+    "hashed artifact inventory and missing gaps"
+  ],
+  "gateOrder": [
+    "independent static contract review (this artifact)",
+    "user decision on gate G-KC (keychain reachability) for the shell-bearing implementer",
+    "reviewed adapter/policy work with owned fake-CLI evidence (F01-F14)",
+    "separately authorized synthetic native evidence in a disposable environment (N01-N06)",
+    "separately authorized live-subscription proof with explicit user authorization (L01-L04)",
+    "independent immutable capability approval binding this contract hash",
+    "production admission under docs/coordinator.md #90 subscription-observed-v1"
+  ],
+  "evidenceClasses": [
+    "static",
+    "owned-fake-cli",
+    "synthetic-native",
+    "live-subscription"
+  ],
+  "outcomes": [
+    "unexecuted",
+    "pass",
+    "fail",
+    "blocked",
+    "unknown",
+    "unsupported"
+  ],
+  "openGates": [
+    {
+      "id": "G-KC",
+      "severity": "BLOCKING for the implementer role",
+      "gate": "Seatbelt allows SecurityServer/securityd.xpc mach-lookup, sandbox default reads cover the whole disk with no credential deny list, and Bash deny rules are bypassable, so a model shell may read the subscription OAuth keychain item without a prompt. No static proof either way. Closure options: native synthetic proof of denial (N03), a Rocky-specific macOS user account, or explicit user residual-risk acceptance. The reviewer role (no shell) avoids it (source: #94/872 F5; #94/880)."
+    },
+    {
+      "id": "G-SET",
+      "gate": "-p silently ignores settings files that fail validation and the effective sandbox state is unobservable in the stream; needs NP4 proof plus a per-run positive-control strategy or accepted qualification binding (source: #94/872 F6; #94/880)."
+    },
+    {
+      "id": "G-MANAGED",
+      "gate": "Server-managed settings for Team/Enterprise OAuth are fetched remotely and cannot be disabled or inspected nonsecretly; account plan unknown (Pro/Max => not fetched [D]); endpoint managed absent at research time (names-only check) and re-inventoried each run (source: #94/880)."
+    },
+    {
+      "id": "G-HOME",
+      "gate": "Keychain search-list resolution when HOME != real home (H1), dedicated-config /login UX, refresh behavior, and whether USER must match; synthetic-only closure (source: #94/880)."
+    },
+    {
+      "id": "G-RACE",
+      "gate": "Shared-home mode H2 would make the user's interactive sessions and Rocky share one keychain entry, refresh, ~/.claude.json and ~/.claude writes, with residual refresh-token rotation races unproven either way. This contract REJECTS H2 (decision D-04, dedicated mode H1 only), which avoids most of the race; the gate is carried because the residual is unproven and any future H2 profile must close it first (source: #94/880)."
+    },
+    {
+      "id": "G-WRITES",
+      "gate": "What the CLI writes into configDir despite --no-session-persistence (.claude.json, caches, statsig/growthbook, plugin cache, debug) and during auth refresh; inventory before/after on the synthetic dir (source: #94/878 F13; #94/880)."
+    },
+    {
+      "id": "G-VERSION",
+      "gate": "The pinned binary was installed by auto-update on the research day; the user's own sessions may auto-update and prune older version files; Rocky's runs set DISABLE_AUTOUPDATER/DISABLE_UPDATES but cannot stop the user's. C1 rehash plus missing-binary => unavailable; bundle strings != reproducible build (source: #94/880)."
+    },
+    {
+      "id": "G-INIT-VALUES",
+      "gate": "Exact init tools/skills/slash_commands/mcp_servers values under this profile, including whether StructuredOutput appears in tools and whether --restricted composes with explicit --tools, are [P] (source: #94/880)."
+    },
+    {
+      "id": "G-SIGINT",
+      "gate": "SIGINT frames and exit code unobserved; cancellation is SIGTERM-only, which is honest unknown (source: #94/880)."
+    },
+    {
+      "id": "G-RETRY",
+      "gate": "api_retry-then-success acceptance is decided (D-05: accepted, recorded), but whether a model fallback without --fallback-model can occur (managed/server-side) stays open; detection is via modelUsage keys (source: #94/880)."
+    },
+    {
+      "id": "G-EFFORT",
+      "gate": "Effort is not echoed, so it is requested-only; whether effort is actually applied needs the L04 policy decision (source: #94/880)."
+    },
+    {
+      "id": "G-CLAUDEMD-MANAGED",
+      "gate": "Whether CLAUDE_CODE_DISABLE_CLAUDE_MDS suppresses a managed CLAUDE.md is undocumented; irrelevant while managed is absent; inventoried (source: #94/880)."
+    },
+    {
+      "id": "G-DEFAULT-PROMPT",
+      "gate": "Anthropic's default system prompt is version-bound and not hashable by Rocky except through the version pin; replacement via --system-prompt(-file) was considered and rejected (decision D-06) (source: #94/880)."
+    },
+    {
+      "id": "G-MODEL",
+      "gate": "Research requested the exact full model IDs for the role table from #95/#90 and recorded only an example (claude-opus-5-5/high); the approved role table must be frozen in run config before admission, and the served ID always comes from modelUsage/assistant.message.model (source: #94/878 section A)."
+    }
+  ],
+  "sources": [
+    {
+      "kind": "research-record",
+      "ref": "Taskbot #94 comments 872 (PART 1/4: F1-F8), 878 (PART 2/4: F9-F13 + launch bundle template), 879 (PART 3/4: F14-F16, classification binding, producer contract), 880 (PART 4/4: FK1-FK8, NP1-NP5, L-a..L-d, open gates); root accept comment 881",
+      "note": "Every harness-specific claim in this contract cites these comment ids. Their own underlying sources, as recorded there: [D] official docs code.claude.com/docs/en/{authentication, headless, cli-reference, settings, settings-reference, managed-settings, server-managed-settings, memory, permissions, sandboxing, env-vars, tools-reference, agent-sdk/typescript, agent-sdk/claude-code-features, agent-sdk/structured-outputs} fetched 2026-09-28; [B] read-only strings/minified-JS inspection of the pinned binary sha256 d8cb1e5c...d21e; GitHub anthropics/claude-code main CHANGELOG.md top entry 2.1.283; [P] items are unproven and stay open gates."
+    },
+    {
+      "kind": "repo",
+      "ref": "acceptance/subscription/** and docs/architecture/subscription-harness.md at 717fb0a3893c7d5604b324b6e958988abca7c6bd (includes the #93 amendment)",
+      "note": "Structural template and harness-neutral semantics reused by reference."
+    },
+    {
+      "kind": "repo",
+      "ref": "docs/coordinator.md section 'Direct-harness subscription budget mode (Taskbot #90)'",
+      "note": "subscription-observed-v1 usage schema 2 semantics reused by reference."
+    }
+  ]
+}
