@@ -36,6 +36,10 @@ import {
   type DuplexBinding,
   type DuplexSend,
 } from "../runner/duplex.js";
+import {
+  freezeProviderRequest,
+  type ProviderRecord,
+} from "../agents/provider-ledger.js";
 import type { CoordinatorTransport } from "../coordinator/transport.js";
 export type Versions = {
   workflow: string;
@@ -111,7 +115,8 @@ export class Store {
         schema !== 2 &&
         schema !== 3 &&
         schema !== 4 &&
-        schema !== 5
+        schema !== 5 &&
+        schema !== 6
       ) {
         throw new Error("incompatible-store-schema");
       }
@@ -123,6 +128,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
+      CREATE TABLE IF NOT EXISTS provider_revocations(action_key TEXT PRIMARY KEY REFERENCES effects(key), run_id TEXT NOT NULL REFERENCES runs(id));
+      CREATE TABLE IF NOT EXISTS provider_requests(action_key TEXT NOT NULL REFERENCES effects(key), request_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL, PRIMARY KEY(action_key,request_id));
       CREATE TABLE IF NOT EXISTS coordinator_snapshots(run_id TEXT PRIMARY KEY REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS coordinator_issues(repository TEXT NOT NULL, issue TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), PRIMARY KEY(repository,issue));
       CREATE TABLE IF NOT EXISTS coordinator_reruns(repository TEXT NOT NULL, issue TEXT NOT NULL, rerun TEXT NOT NULL, run_id TEXT NOT NULL UNIQUE REFERENCES runs(id), PRIMARY KEY(repository,issue,rerun));
@@ -148,7 +155,7 @@ export class Store {
           this.#saveSnapshot(next);
         }
       }
-      this.#db.exec("PRAGMA user_version=5; COMMIT;");
+      this.#db.exec("PRAGMA user_version=6; COMMIT;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -582,6 +589,245 @@ export class Store {
     const effect = this.effect(action.key);
     if (effect?.state !== "sending" || json(effect.payload) !== json(action))
       throw new Error("duplex-action-not-sending");
+  }
+  /** Neutral name for the same exact action/fence/cancellation/dispatch guard. */
+  assertProviderAction(lease: Lease, action: Action) {
+    this.assertDuplexAction(lease, action);
+    if (
+      this.#db
+        .prepare(
+          "SELECT action_key FROM provider_revocations WHERE action_key=?",
+        )
+        .get(action.key)
+    )
+      throw new Error("provider-action-revoked");
+  }
+  /** Revocation is monotonic and remains effective after restart; this does not claim remote cancellation. */
+  revokeProviderAction(action: Action) {
+    this.#transaction(() => {
+      const effect = this.effect(action.key);
+      if (
+        !effect ||
+        effect.runId !== action.runId ||
+        json(effect.payload) !== json(action)
+      )
+        throw new Error("provider-action-mismatch");
+      const result = this.#db
+        .prepare(
+          "INSERT OR IGNORE INTO provider_revocations(action_key,run_id) VALUES(?,?)",
+        )
+        .run(action.key, action.runId);
+      if (result.changes)
+        this.#event(action.runId, "provider-revoked", {
+          actionKey: action.key,
+        });
+    });
+  }
+  providerRecords(actionKey: string): ProviderRecord[] {
+    return this.#db
+      .prepare(
+        "SELECT data FROM provider_requests WHERE action_key=? ORDER BY rowid",
+      )
+      .all(actionKey)
+      .map((row) => JSON.parse(String(row.data)) as ProviderRecord);
+  }
+  providerRecord(actionKey: string, id: string): ProviderRecord | undefined {
+    const row = this.#db
+      .prepare(
+        "SELECT data FROM provider_requests WHERE action_key=? AND request_id=?",
+      )
+      .get(actionKey, id);
+    return row ? (JSON.parse(String(row.data)) as ProviderRecord) : undefined;
+  }
+  #saveProvider(record: ProviderRecord) {
+    this.#db
+      .prepare(
+        "UPDATE provider_requests SET data=? WHERE action_key=? AND request_id=?",
+      )
+      .run(json(record), record.action.key, record.id);
+    this.#event(record.action.runId, "provider-transition", record);
+  }
+  /** Counting itself has a durable identity; duplicate/ambiguous starts never invoke it again. */
+  prepareProvider(
+    lease: Lease,
+    action: Action,
+    id: string,
+    body: unknown,
+    outputCap: number,
+  ): ProviderRecord {
+    if (this.#transactionDepth)
+      throw new Error("provider-prepare-inside-transaction");
+    return this.#transaction(() => {
+      this.assertProviderAction(lease, action);
+      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id))
+        throw new Error("provider-request-id");
+      integer(outputCap, 1);
+      if (outputCap > action.tokens) throw new Error("provider-budget");
+      const request = freezeProviderRequest(body);
+      if (this.providerRecord(action.key, id))
+        throw new Error("provider-reconciliation-required");
+      const records = this.providerRecords(action.key);
+      if (records.length >= 64) throw new Error("provider-attempt-limit");
+      if (
+        records.some(
+          (r) => !["completed", "incomplete", "rejected"].includes(r.state),
+        )
+      )
+        throw new Error("provider-outstanding");
+      const record: ProviderRecord = {
+        schema: 1,
+        id,
+        action: JSON.parse(json(action)),
+        lease: JSON.parse(json(lease)),
+        request,
+        outputCap,
+        state: "counting",
+        inputTokens: null,
+        chargedTokens: 0,
+        usage: null,
+        reason: null,
+      };
+      this.#db
+        .prepare(
+          "INSERT INTO provider_requests(action_key,request_id,run_id,data) VALUES(?,?,?,?)",
+        )
+        .run(action.key, id, action.runId, json(record));
+      this.#event(action.runId, "provider-transition", record);
+      return record;
+    });
+  }
+  reserveProvider(
+    lease: Lease,
+    action: Action,
+    id: string,
+    inputTokens: number,
+  ) {
+    if (this.#transactionDepth)
+      throw new Error("provider-reserve-inside-transaction");
+    return this.#transaction(() => {
+      this.assertProviderAction(lease, action);
+      integer(inputTokens);
+      const record = this.providerRecord(action.key, id);
+      if (
+        !record ||
+        record.state !== "counting" ||
+        json(record.lease) !== json(lease) ||
+        json(record.action) !== json(action)
+      )
+        throw new Error("provider-reservation-state");
+      const charged = inputTokens + record.outputCap;
+      integer(charged, 1);
+      const prior = this.providerRecords(action.key).reduce(
+        (sum, r) => sum + r.chargedTokens,
+        0,
+      );
+      if (charged > action.tokens - prior) throw new Error("provider-budget");
+      record.inputTokens = inputTokens;
+      record.chargedTokens = charged;
+      record.state = "reserved";
+      this.#saveProvider(record);
+      return record;
+    });
+  }
+  /** Commit attempt BEFORE I/O, then synchronously initiate under the same write lock as cancellation/fencing.
+   * A callback must initiate immediately and never await a preflight. An ambiguous callback is never retried.
+   */
+  dispatchProvider<T>(
+    lease: Lease,
+    action: Action,
+    id: string,
+    assertCurrent: () => void,
+    send: (record: ProviderRecord) => T,
+  ): T {
+    if (this.#transactionDepth)
+      throw new Error("provider-send-inside-transaction");
+    this.#transaction(() => {
+      const record = this.providerRecord(action.key, id);
+      if (
+        !record ||
+        record.state !== "reserved" ||
+        json(record.lease) !== json(lease) ||
+        json(record.action) !== json(action)
+      )
+        throw new Error("provider-send-state");
+      record.state = "sending";
+      this.#saveProvider(record);
+    });
+    return this.#transaction(() => {
+      this.assertProviderAction(lease, action);
+      const current = assertCurrent();
+      if (current !== undefined)
+        throw new Error("provider-guard-must-be-synchronous");
+      this.assertProviderAction(lease, action);
+      return send(this.providerRecord(action.key, id)!);
+    });
+  }
+  /** Observation may outlive lease/cancellation; it never authorizes a new side effect or refunds a charge. */
+  finishProvider(
+    actionKey: string,
+    id: string,
+    outcome: Pick<ProviderRecord, "state" | "usage" | "reason">,
+  ) {
+    return this.#transaction(() => {
+      const record = this.providerRecord(actionKey, id);
+      if (!record) throw new Error("provider-not-found");
+      if (
+        json({
+          state: record.state,
+          usage: record.usage,
+          reason: record.reason,
+        }) === json(outcome)
+      )
+        return record;
+      if (!["counting", "reserved", "sending"].includes(record.state))
+        throw new Error("provider-receipt-conflict");
+      if (outcome.state === "rejected") {
+        if (record.state === "sending" || outcome.usage !== null)
+          throw new Error("provider-receipt-state");
+      } else if (outcome.state === "unknown") {
+        if (outcome.usage !== null) throw new Error("provider-unknown-usage");
+      } else if (["completed", "incomplete"].includes(outcome.state)) {
+        const u = outcome.usage;
+        if (
+          record.state !== "sending" ||
+          !u ||
+          u.input !== record.inputTokens ||
+          u.output > record.outputCap ||
+          u.total !== u.input + u.output ||
+          u.reasoning > u.output
+        )
+          throw new Error("provider-usage-mismatch");
+        for (const n of [u.input, u.output, u.reasoning, u.total]) integer(n);
+        if (!/^[a-f0-9]{64}$/.test(u.receipt))
+          throw new Error("provider-receipt-hash");
+      } else throw new Error("provider-receipt-state");
+      if (outcome.reason !== null && !/^[a-z-]{1,80}$/.test(outcome.reason))
+        throw new Error("provider-reason");
+      Object.assign(record, outcome);
+      this.#saveProvider(record);
+      return record;
+    });
+  }
+  /** Bounded, credential-free ingress observation, never raw Authorization or attacker text. */
+  observeProvider(
+    runId: string,
+    observation: {
+      method: string;
+      route: string;
+      bytes: number;
+      digest: string;
+      outcome: string;
+    },
+  ) {
+    integer(observation.bytes);
+    if (
+      !/^[a-f0-9]{64}$/.test(observation.digest) ||
+      ![observation.method, observation.route, observation.outcome].every((v) =>
+        /^[a-z-]{1,80}$/.test(v),
+      )
+    )
+      throw new Error("provider-observation");
+    this.#event(runId, "provider-ingress", observation);
   }
   assertDuplexStart(id: string, token: string) {
     const c = this.#duplex(id, token);

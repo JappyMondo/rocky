@@ -654,7 +654,7 @@ test("D13 nested savepoint rollback is isolated but outer rollback undoes every 
   }
 });
 
-test("D14 exact previous schema4 reader creates preserved charged/cancelled outstanding records; refuses duplex schema5", async () => {
+test("D14 exact previous schema4 reader creates preserved charged/cancelled outstanding records; refuses current schema6", async () => {
   const { DatabaseSync } = await import("node:sqlite");
   const ts = (await import("typescript")).default;
   const f = fixture("duplex-schema4", Date.now);
@@ -720,7 +720,7 @@ test("D14 exact previous schema4 reader creates preserved charged/cancelled outs
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(`${f.dir}/upgraded.sqlite`);
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 5);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 6);
   sql.close();
   retain(f, {
     sourceCommit,

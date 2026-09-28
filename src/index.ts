@@ -11,3 +11,5 @@ export * from "./runner/browser.js";
 export * from "./attraccess/integrity.js";
 
 export * from "./coordinator/index.js";
+export * from "./agents/provider-ledger.js";
+export * from "./agents/provider-gateway.js";

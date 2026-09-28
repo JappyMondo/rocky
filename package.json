@@ -20,7 +20,8 @@
   "files": [
     "dist",
     "docs/foundation.md",
-    "docs/attraccess-environment.md"
+    "docs/attraccess-environment.md",
+    "docs/provider-gateway.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
