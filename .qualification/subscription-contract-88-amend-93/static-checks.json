@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "contractId": "rocky-subscription-88-v1",
+  "amendmentOf": "572accff349b2f5e5f33e51445c2d6cbbb0d4493",
+  "ticket": "#93",
+  "source": "#92 comments 857-860 (pinned codex 0.157.1 @36650394); #89 comment 850(a)/(b)/(c)",
+  "kind": "static checks only; no scenario execution, tests, builds, native/auth/model/API/network effects",
+  "qualification": false,
+  "capability": null,
+  "scenarioStatusCounts": {
+    "unexecuted": 18,
+    "blocked": 11
+  },
+  "checks": [
+    {
+      "id": "C-json-manifest",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/manifest.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-scenarios",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/scenarios.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-final-schema",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/final.schema.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-frozen",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/frozen.sha256.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-frozen-rehash",
+      "check": "every frozen.sha256.json entry matches actual bytes (size+sha256)",
+      "result": "pass",
+      "detail": [
+        {
+          "path": "acceptance/subscription/README.md",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "acceptance/subscription/final.schema.json",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "acceptance/subscription/manifest.json",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "acceptance/subscription/scenarios.json",
+          "bytesMatch": true,
+          "shaMatch": true
+        },
+        {
+          "path": "docs/architecture/subscription-harness.md",
+          "bytesMatch": true,
+          "shaMatch": true
+        }
+      ]
+    },
+    {
+      "id": "C-schema-untouched",
+      "check": "final.schema.json byte-identical to 572accf",
+      "result": "pass",
+      "detail": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792"
+    },
+    {
+      "id": "C-prior-archive",
+      "check": "archived prior-572accf bytes match the accepted 572accf frozen inventory",
+      "result": "pass",
+      "detail": [
+        {
+          "path": "acceptance/subscription/README.md",
+          "archived": true,
+          "matchesOldFrozen": true
+        },
+        {
+          "path": "acceptance/subscription/final.schema.json",
+          "archived": false,
+          "note": "unmodified; not archived by design (ticket: archive prior bytes of modified files)"
+        },
+        {
+          "path": "acceptance/subscription/manifest.json",
+          "archived": true,
+          "matchesOldFrozen": true
+        },
+        {
+          "path": "acceptance/subscription/scenarios.json",
+          "archived": true,
+          "matchesOldFrozen": true
+        },
+        {
+          "path": "docs/architecture/subscription-harness.md",
+          "archived": true,
+          "matchesOldFrozen": true
+        }
+      ]
+    },
+    {
+      "id": "C-scn-unique",
+      "check": "scenario IDs unique",
+      "result": "pass",
+      "detail": "29 scenarios"
+    },
+    {
+      "id": "C-req-set",
+      "check": "manifest requirements exactly S01-S10",
+      "result": "pass",
+      "detail": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10"
+      ]
+    },
+    {
+      "id": "C-scn-req",
+      "check": "every scenario maps only to existing S-requirements and has >=1",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-req-cover",
+      "check": "every S-requirement covered by >=1 scenario",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-status",
+      "check": "all scenarios unexecuted/blocked; none pass/executed",
+      "result": "pass",
+      "detail": {
+        "unexecuted": 18,
+        "blocked": 11
+      }
+    },
+    {
+      "id": "C-blocker",
+      "check": "blocked scenarios name blocker; unexecuted have null blocker",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-flags",
+      "check": "manifest qualification=false, capability=null, nativeExecutionBlocked=true; scenarios executionAuthorized=false, frozenBeforeExecution=true",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-contract-id",
+      "check": "contractId unchanged rocky-subscription-88-v1 across manifest/scenarios/frozen",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-todo-predicate-removed",
+      "check": "no residual \"every task complete\"/\"every plan complete\" success predicate",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-citations",
+      "check": "every amended file carries #92/#89 source citations",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-owned-scope",
+      "check": "only owned paths changed (git status -uall)",
+      "result": "pass",
+      "detail": [
+        "acceptance/subscription/README.md",
+        "acceptance/subscription/frozen.sha256.json",
+        "acceptance/subscription/manifest.json",
+        "acceptance/subscription/scenarios.json",
+        "docs/architecture/subscription-harness.md"
+      ]
+    },
+    {
+      "id": "C-evidence-preserved",
+      "check": "all pre-existing .qualification evidence untouched",
+      "result": "pass",
+      "detail": []
+    }
+  ]
+}

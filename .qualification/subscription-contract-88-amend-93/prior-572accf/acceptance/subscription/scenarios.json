@@ -10,7 +10,7 @@
       "requirements": ["S01", "S06", "S07"],
       "title": "Exact sealed launch and raw input",
       "procedure": "Owned fake CLI records argv/cwd/positive env and raw stdin; prompt contains newlines, Unicode, quotes, shell metacharacters and JSON-looking text. Rehash at guarded physical start. Repeat with each bound identity changed.",
-      "expected": "Valid bytes reach child exactly once, EOF once, no shell interpretation; drift or cancelled/expired/stale fence yields zero child launch. Unknown override/config cannot be admitted. Every -c value must round-trip a real TOML parser with structural equality before admission; a value that would silently degrade to a raw string is rejected pre-spawn (source: #92 F1/F3, codex 0.157.1 @36650394).",
+      "expected": "Valid bytes reach child exactly once, EOF once, no shell interpretation; drift or cancelled/expired/stale fence yields zero child launch. Unknown override/config cannot be admitted.",
       "status": "unexecuted",
       "blocker": null
     },
@@ -39,7 +39,7 @@
       "evidenceClass": "owned-fake-cli",
       "requirements": ["S04"],
       "title": "Item and terminal contradictions",
-      "procedure": "From F02 inject duplicate/missing thread or turn start, reused IDs/type changes, update-before-start, completed-only command, duplicate item completion, pending/unknown/malformed settlement, actual policy/authority denial or declined command, null exit, started todo_list left unresolved without completion (no ephemeral backfill), duplicate terminal and post-terminal event. A completed todo_list's task state is informational only — exec synthesizes todo completion at turn end regardless of steps done — and is not an injection or rejection class (source: #92 F10, codex 0.157.1 @36650394). Ordinary settled command/patch failures are paired positive controls F12/F13.",
+      "procedure": "From F02 inject duplicate/missing thread or turn start, reused IDs/type changes, update-before-start, completed-only command, duplicate item completion, pending/unknown/malformed settlement, actual policy/authority denial or declined command, null exit, incomplete todo, duplicate terminal and post-terminal event. Ordinary settled command/patch failures are paired positive controls F12/F13.",
       "expected": "Each listed protocol/policy contradiction rejects a successful proposal; pending/uncertain lifecycle cannot silently disappear. Completed-only patch/message controls remain accepted. A fully observed ordinary failed item alone is not a protocol/action-failure verdict; its evidence stays retained.",
       "status": "unexecuted",
       "blocker": null
@@ -60,7 +60,7 @@
       "requirements": ["S05", "S06"],
       "title": "Start/input crash windows",
       "procedure": "Kill owner before/after intent persistence, guarded begin, child ownership receipt, attempted-input write, partial input, EOF, final persistence and cancellation. Restart and deliver duplicate/late results with same identity.",
-      "expected": "At most one native start per action; partial/lost start/input reconciles or stays recovery_required, never replay. Prompt consumption is evidenced only by a subsequent thread.started; a pipe-buffered write without it stays attempted-unknown with no resend (source: #92 F9, codex 0.157.1 @36650394). Original deadline and physical identity survive; cancel/stale inputs reject publication.",
+      "expected": "At most one native start per action; partial/lost start/input reconciles or stays recovery_required, never replay. Original deadline and physical identity survive; cancel/stale inputs reject publication.",
       "status": "unexecuted",
       "blocker": null
     },
@@ -129,7 +129,7 @@
       "evidenceClass": "owned-fake-cli",
       "requirements": ["S04", "S10"],
       "title": "Recoverable patch mismatch then corrected proposal",
-      "procedure": "Within one fresh action emit a completed-only file_change with ordinary context-mismatch failure, then a distinct-ID corrected patch with observed completed status and current changed final after all tools settle; complete valid usage/terminal/CLI exit0/EOF/cleanup. Pair with a patch denial expressed only through a denial form the pinned 0.157.1 source actually emits for file_change — otherwise route it through error/turn.failed/declined or defer it to N03, never an invented status (source: #89/850(b)) — plus missing patch settlement, fatal turn/error/reroute and nonzero CLI exit; retain all original patch records.",
+      "procedure": "Within one fresh action emit a completed-only file_change with ordinary context-mismatch failure, then a distinct-ID corrected patch with observed completed status and current changed final after all tools settle; complete valid usage/terminal/CLI exit0/EOF/cleanup. Pair with a patch denied by actual authority policy, missing patch settlement, fatal turn/error/reroute and nonzero CLI exit; retain all original patch records.",
       "expected": "The fully observed ordinary patch failure may precede an accepted current proposal; failed and corrected item histories both remain immutable. Trusted current-input checks still decide behavior and delivery. Actual denial, ambiguous/pending operation, fatal/error/reroute or nonzero CLI exit cannot be healed by the later patch/final.",
       "status": "unexecuted",
       "blocker": null
@@ -140,7 +140,7 @@
       "requirements": ["S01", "S04", "S10"],
       "title": "Pinned identity and actual discovery",
       "procedure": "Under separate finite authority bind actual binary/helper/platform and source/CLI schema; seed synthetic user/project config/rules, global CODEX_HOME AGENTS/override, ancestor instructions and system/managed/cloud conflicts; test tool discovery and effective role policy.",
-      "expected": "Allowed approved instruction control observed; unapproved instructions/config/routes absent or admission blocked. Ignore flags alone never suffice; unknown keys/nested-map inheritance cannot pass. Shared CODEX_HOME config.toml and approved global instruction bytes rehash unchanged post-run; trust persistence into the shared home is prevented by the explicit untrusted override and a projectless staged tree (source: #92 F5/F6, codex 0.157.1 @36650394). Source-to-binary correspondence is not reproducible attestation.",
+      "expected": "Allowed approved instruction control observed; unapproved instructions/config/routes absent or admission blocked. Ignore flags alone never suffice; unknown keys/nested-map inheritance cannot pass. Source-to-binary correspondence is not reproducible attestation.",
       "status": "blocked",
       "blocker": "Separate exact native/live/target authority and preceding gates required."
     },

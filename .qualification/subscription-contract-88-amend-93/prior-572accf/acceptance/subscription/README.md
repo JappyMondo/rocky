@@ -55,11 +55,7 @@ remain. No-code outcomes still do not count as coding success.
 
 Bind an invocation before writing the bounded immutable UTF-8 prompt once, then
 close stdin once. Persist attempted-write before I/O; partial/uncertain write never
-permits resend. Prompt consumption is evidenced only by a subsequent
-`thread.started`: the pinned source reads stdin before the thread starts, and an
-early config error can exit without reading, so a write that disappears into a
-pipe buffer proves nothing (source: #92 F9, codex 0.157.1 @36650394). Do not
-JSON-stringify plaintext through `DuplexRunner.send`.
+permits resend. Do not JSON-stringify plaintext through `DuplexRunner.send`.
 Record bounded raw stdout/stderr separately before interpretation. Decode UTF-8
 incrementally and strictly, require complete newline-delimited JSON objects and
 explicit finite byte/frame/item limits. Overflow, invalid encoding, duplicate JSON
@@ -72,56 +68,36 @@ map exists here. Reject reused/conflicting item IDs, type changes, duplicate sta
 or completions, updates without the required start, events after terminal and
 unsupported active tool kinds. Commands need started → completed with non-pending
 status and integer exit code. `file_change` is completed-only; do not invent a
-required start. Messages/reasoning can be completed-only. A started `todo_list`
-must settle like any other started item, but its task state is informational
-only, never evidence: the pinned exec synthesizes todo completion at the end of
-every turn regardless of the steps actually performed, so a "complete" todo
-proves nothing about the work done (source: #92 F10, codex 0.157.1 @36650394,
-event_processor_with_jsonl_output.rs:514-523). No plan/todo-complete predicate
-is a success barrier; planned-work verification rests on the observed item
-history, the staged diff and independent host checks. Fully observed ordinary
-diagnostic/tool failures are settled outcomes, not automatically failed actions:
-a regression may exit nonzero before repair, or a patch may fail on context and
-be corrected later. Retain their exact status, exit code where applicable,
-bounded output and item history. A later correctly bound proposal may still
-qualify as a protocol-successful proposal once all remaining stream, fence,
-usage, EOF and cleanup criteria hold. It does not erase any failure or establish
-verified coding success.
+required start. Messages/reasoning can be completed-only. A started todo list must
+settle with every task complete. Fully observed ordinary diagnostic/tool failures
+are settled outcomes, not automatically failed actions: a regression may exit
+nonzero before repair, or a patch may fail on context and be corrected later.
+Retain their exact status, exit code where applicable, bounded output and item
+history. A later correctly bound proposal may still qualify as a protocol-successful
+proposal once all remaining stream, fence, usage, EOF and cleanup criteria hold. It
+does not erase any failure or establish verified coding success.
 
 Keep ordinary settled outcomes separate from unresolved/unknown/malformed work
 and actual policy/authority denial, declined operation, reroute or fatal harness/
 turn failure. These latter classes still reject a successful proposal. Determine
 the distinction from source-bound observations, never the model's claim that a
 denial was harmless; missing or ambiguous settlement cannot count as ordinary
-failure. At runtime only source-defined signals reject: a declined status, an
-error item/event or `turn.failed`. A sandbox denial that surfaces as an ordinary
-settled nonzero result is treated as an ordinary settled failure for protocol
-purposes; the adapter is not asked to detect it in-band. Item status alone never
-proves containment: for that class, containment rests on the independent
-protected-state oracle and the N02–N05 native qualification, not relabelling
-(source: #89/850(a)). Qualification denial probes remain operation evidence, not
-successful coding actions. Fresh trusted current-input checks and independent
-review decide acceptance: an unresolved mandatory host-check failure or blocking
-finding still prevents delivery, regardless of a later model final or successful
-diagnostic.
+failure. Item status alone never proves containment: a sandbox denial surfacing
+as an ordinary nonzero result is judged by the independent protected-state oracle
+and native qualification, not relabelled. Qualification denial probes remain
+operation evidence, not successful coding actions. Fresh trusted current-input checks and independent review decide
+acceptance: an unresolved mandatory host-check failure or blocking finding still
+prevents delivery, regardless of a later model final or successful diagnostic.
 
 The last completed `agent_message` must parse as exactly `final.schema.json`, match
-the host's action/input/role, and follow every settled tool; plan/todo task state
-is informational and cannot corroborate a final (source: #92 F10). Earlier progress
+the host's action/input/role, and follow every settled tool/plan. Earlier progress
 messages cannot supply a final; multiple schema-shaped finals fail. `--output-schema`
 does not remove host validation. Implementers may propose `changed`, `no_code` or
 `failed`; reviewers may propose `complete` or `failed`. The host checks the actual
 staged diff and evidence independently; `failed` never qualifies a successful action.
 An `error` event/item, reroute, `turn.failed`,
 missing final, unresolved observed item, nonzero CLI exit or stream truncation rejects
-success. In the pinned source the error-item class is broader than fatal failures:
-config warnings, deprecation notices, model reroutes and "event stream lagged;
-dropped N events" all surface as `item.completed{type:"error"}`, and every Error
-notification — including `will_retry` reconnects — surfaces as a top-level `error`
-event; all of them reject fail-closed, so a flaky network yields honest false
-negatives (source: #92 F10, codex 0.157.1 @36650394). An interrupted turn emits
-no terminal event and exits 1: classify interrupted/unknown, never success
-(source: #92 F10). Complete stdout **and** stderr EOF, CLI exit zero and independent owned
+success. Complete stdout **and** stderr EOF, CLI exit zero and independent owned
 physical quiescence are additional conjuncts. Cancellation or stale identity wins
 over a late final. Omitted internal RPC visibility requires source/native proof;
 no absence is inferred merely because JSONL does not expose it.
@@ -169,11 +145,7 @@ lease/head/scope/build/version identities, ordered observations, outcome, pendin
 items, deadline/cleanup and every artifact hash. The tested binary is compared to
 the pinned candidate anew; a source commit or historical hash is not runtime or
 reproducible-build attestation. Backend model attestation is a separate nullable
-field, never synthesized from the requested model. Receipts must also retain a
-post-run rehash of the approved discovery inventory and of the shared CODEX_HOME
-`config.toml`; drift during a run makes the result stale/unknown, because the
-pinned source both persists project trust into that file and may re-read global
-instructions per turn (source: #92 F5/F6, codex 0.157.1 @36650394).
+field, never synthesized from the requested model.
 
 Only a trusted loader may resolve an independently approved immutable binding;
 the approval references its hash and exact supported budget mode. Revalidate at
@@ -183,21 +155,8 @@ The contract author and production author cannot supply independent approval.
 static checks only. No executable launcher or qualification checker ships here.
 
 Repair lease #1/837 (transferred by #88/843 under #1/842) addresses STD/SPEC89-01
-with F12/F13 positive proposal controls and F04's retained protocol/policy
-barriers (source: #89/850(c)). Exact rejected revision `60a0233` and its original
-inventories are archived under
+with F12/F13 positive proposal controls and F04's unchanged protocol/policy barriers. Exact rejected revision `60a0233`
+and its original inventories are archived under
 `.qualification/subscription-contract-88-repair/rejected/`; original
 `.qualification/subscription-contract-88/` evidence remains unchanged. Re-freezing
 this static contract does not execute or pass any scenario.
-
-Amendment #93 (sole mutation lease) corrects the disproved todo-complete
-predicate — the pinned exec marks the plan/todo list complete at the end of every
-turn regardless of steps actually done — and records the #92/857–860 pinned
-source findings (codex 0.157.1 @36650394) for `-c` parsing/merge semantics,
-forbidden launch inputs, trust persistence, stdin ordering and the error-item
-surface, plus the #89/850(a)/(b)/(c) non-blocking suggestions. It weakens no
-other barrier. Prior `572accf` bytes of every amended file are archived under
-`.qualification/subscription-contract-88-amend-93/prior-572accf/` with hashes and
-an amendments log; all scenarios remain unexecuted/blocked and
-`qualification=false`, `capability=null` are unchanged. Re-freezing this static
-contract does not execute or pass any scenario.

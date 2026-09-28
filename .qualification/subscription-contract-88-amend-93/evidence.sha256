@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "contractId": "rocky-subscription-88-v1",
+  "ticket": "#93",
+  "algorithm": "sha256",
+  "note": "Prior bytes are git show 572accf:<path> (identical to pre-amendment HEAD 234818e for these paths; git diff 572accf..234818e is empty for them). Archived copies live under prior-572accf/. acceptance/subscription/final.schema.json was NOT modified and is not archived here; its 572accf hash 954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792 is retained in the re-frozen frozen.sha256.json.",
+  "files": [
+    {
+      "path": "acceptance/subscription/README.md",
+      "prior572accf": {
+        "bytes": 13447,
+        "sha256": "ade57301741f66982d8f937275b9485d3bd19905b26e9ef4bff5c540b9d2ce5a"
+      },
+      "archivedCopy": {
+        "path": ".qualification/subscription-contract-88-amend-93/prior-572accf/acceptance/subscription/README.md",
+        "bytes": 13447,
+        "sha256": "ade57301741f66982d8f937275b9485d3bd19905b26e9ef4bff5c540b9d2ce5a",
+        "matchesPrior": true
+      },
+      "amended": {
+        "bytes": 16332,
+        "sha256": "7c5b14644f41e080c62a1b1bb8d01798738bad0132a30a0f2e583668f08bc375"
+      }
+    },
+    {
+      "path": "acceptance/subscription/manifest.json",
+      "prior572accf": {
+        "bytes": 14845,
+        "sha256": "94349a043814b739c946cc944d00e45ae8613a0552a110b9185c21f7530584b5"
+      },
+      "archivedCopy": {
+        "path": ".qualification/subscription-contract-88-amend-93/prior-572accf/acceptance/subscription/manifest.json",
+        "bytes": 14845,
+        "sha256": "94349a043814b739c946cc944d00e45ae8613a0552a110b9185c21f7530584b5",
+        "matchesPrior": true
+      },
+      "amended": {
+        "bytes": 19028,
+        "sha256": "b632eb34b89f205eb9abf658958afeab91db2f4b29499bc7dc8ddd7bd5b8de35"
+      }
+    },
+    {
+      "path": "acceptance/subscription/scenarios.json",
+      "prior572accf": {
+        "bytes": 22377,
+        "sha256": "d6ac1ee038a39f50000ffcb6a593479e1aa56949b888e33cf86602d365457cf7"
+      },
+      "archivedCopy": {
+        "path": ".qualification/subscription-contract-88-amend-93/prior-572accf/acceptance/subscription/scenarios.json",
+        "bytes": 22377,
+        "sha256": "d6ac1ee038a39f50000ffcb6a593479e1aa56949b888e33cf86602d365457cf7",
+        "matchesPrior": true
+      },
+      "amended": {
+        "bytes": 23514,
+        "sha256": "e0e79ca9019cde5b3a2862ef3ab2b3b598e0dd45287671842206d72277d7bd60"
+      }
+    },
+    {
+      "path": "acceptance/subscription/frozen.sha256.json",
+      "prior572accf": {
+        "bytes": 1054,
+        "sha256": "62550aa2bd375343670a45e49bfd2fffd42077f3a94dad3993f63a7ef4152996"
+      },
+      "archivedCopy": {
+        "path": ".qualification/subscription-contract-88-amend-93/prior-572accf/acceptance/subscription/frozen.sha256.json",
+        "bytes": 1054,
+        "sha256": "62550aa2bd375343670a45e49bfd2fffd42077f3a94dad3993f63a7ef4152996",
+        "matchesPrior": true
+      },
+      "amended": {
+        "bytes": 1054,
+        "sha256": "c8da6408e4cb009fd9b35bcb84f6cca43360f1c32060d92854bbdfcc7628898e"
+      }
+    },
+    {
+      "path": "docs/architecture/subscription-harness.md",
+      "prior572accf": {
+        "bytes": 6279,
+        "sha256": "95e439745ebcf5093bde9895c2431722a3efc05d7c5c2005230fde5a8d1ad732"
+      },
+      "archivedCopy": {
+        "path": ".qualification/subscription-contract-88-amend-93/prior-572accf/docs/architecture/subscription-harness.md",
+        "bytes": 6279,
+        "sha256": "95e439745ebcf5093bde9895c2431722a3efc05d7c5c2005230fde5a8d1ad732",
+        "matchesPrior": true
+      },
+      "amended": {
+        "bytes": 7432,
+        "sha256": "bf014d8af8df2398e2b265bd8ffd353f68963656c606de853712a448d68fd7e2"
+      }
+    }
+  ]
+}

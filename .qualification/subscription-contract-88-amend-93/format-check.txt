@@ -1,0 +1,12 @@
+# format checks for #93 amendment (static only; final regenerated state)
+$ npx prettier --check (repo prettier 3.6.2) on touched + new files:
+Checking formatting...
+All matched files use Prettier code style!
+prettier exit=0
+$ npx prettier --parser json --check .qualification/subscription-contract-88-amend-93/evidence.sha256:
+Checking formatting...
+All matched files use Prettier code style!
+prettier exit=0
+$ git diff --check:
+clean (no whitespace errors)
+git-diff-check exit=0

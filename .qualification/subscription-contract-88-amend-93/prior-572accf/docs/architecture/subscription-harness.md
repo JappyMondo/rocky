@@ -15,12 +15,6 @@ at physical spawn. A crash around input/start/final/cancel is reconciled without
 blind replay. There is no standalone app-server handshake, gateway listener or
 late thread/turn binding in this route. The harness-neutral seam is immutable
 invocation → observed result/usage/quiescence; other harnesses are deferred.
-The typed interpreter treats the pinned source's error surface fail-closed:
-config warnings, deprecation notices, reroutes and event-stream lag drops
-arrive as error items and `will_retry` reconnects as error events, an
-interrupted turn has no terminal event and exits 1, and todo/plan task state is
-informational because exec synthesizes todo completion at every turn end
-(source: #92 F10, codex 0.157.1 @36650394).
 
 The trusted CLI parent may access and normally refresh one designated existing
 harness-owned subscription store. Rocky does not read, copy, symlink or proxy
@@ -29,12 +23,7 @@ required because ignoring user config may remove the storage setting. Preserve
 login: do not apply forced-login settings that can log out incompatible shared auth.
 An incompatible/unknown mode stops before model work with no API fallback. Later
 qualification must close account/mode races without retaining identity secrets or
-raw status output. Native auth refresh may write the shared store. Trust
-persistence is a second write route: `thread/start` with a writable cwd and no
-`trust_level` persists `projects.<root>.trust_level = "trusted"` into the shared
-CODEX_HOME `config.toml`, so the profile must carry an explicit untrusted
-override for the canonical staged root and post-run must verify the shared
-`config.toml` bytes are unchanged (source: #92 F5, codex 0.157.1 @36650394).
+raw status output. Native auth refresh may write the shared store.
 
 Private runtime HOME/TMP, SQLite/log/artifact paths are distinct from shared
 CODEX_HOME; no sterile-home claim. Ephemeral session mode avoids session persistence
@@ -101,9 +90,3 @@ Source basis: accepted #87/814/815 pins official Codex source
 supports the subscription route, not current account/model availability. The source
 correspondence, installed candidate identity and live runtime/backend attestation
 are deliberately separate claims.
-
-Amendment #93 corrected the disproved todo-complete predicate and recorded the
-#92/857–860 pinned-source findings (codex 0.157.1 @36650394) in this note and
-the contract; the prior `572accf` bytes are archived under
-`.qualification/subscription-contract-88-amend-93/prior-572accf/`. The amendment
-grants no execution and passes no scenario.

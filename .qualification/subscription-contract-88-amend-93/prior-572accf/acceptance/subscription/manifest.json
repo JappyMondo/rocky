@@ -13,9 +13,7 @@
     "#87/814/815/817",
     "#89/833/834/835",
     "#1/837/842",
-    "#88/843",
-    "#92/857/858/859/860",
-    "#93"
+    "#88/843"
   ],
   "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704",
   "historicalContract": {
@@ -78,17 +76,6 @@
       "private SQLite and log locations",
       "disabled unapproved tool/discovery routes"
     ],
-    "configOverrides": {
-      "serialization": "Each -c is exactly one argv element key=value. Every value must round-trip a real TOML parser with structural equality before admission: the pinned source splits the key on every '.' without quoting and a value that fails TOML parsing SILENTLY degrades to a raw string, so path-keyed maps are only admissible as inline-table values under dot-free top-level keys (source: #92 F1, codex 0.157.1 @36650394).",
-      "mergeSemantics": "Tables deep-merge and CLI overrides sit above user/project layers but below thread-config, legacy managed_config and macOS MDM layers; no override can erase inherited map entries such as mcp_servers, hooks, permission profiles or projects. Only a fail-closed discovery inventory (empty/approved before admission) works; no map-erasure semantics may be assumed (source: #92 F2).",
-      "strictValidation": "--strict-config also validates -c overrides: unknown configuration fields or feature keys are rejected with an explicit error (source: #92 F3).",
-      "userLayerScope": "--ignore-user-config replaces only the user config.toml layer; the CODEX_HOME skill roots and packaged defaults (credentials store 'file', project_doc_max_bytes, history save-all) still apply beneath, so ignore flags alone never establish absence (source: #92 F4)."
-    },
-    "forbiddenLaunchInputs": [
-      "--sandbox/-s or sandbox_mode together with named default_permissions: any CLI sandbox override forces legacy syntax and silently drops the named-permission profile; the combination is rejected by source (source: #92 F7, codex 0.157.1 @36650394)",
-      "forced_login_method / forced_chatgpt_workspace_id anywhere in overrides: a mismatch triggers logout of the shared auth (source: #92 F8; consistent with auth.forcedLoginLogoutPolicy=false)",
-      "auth-bearing environment keys (CODEX_API_KEY, OPENAI_API_KEY, CODEX_ACCESS_TOKEN, refresh/revoke URL overrides, client-id/base-URL overrides): load_auth honours them and in-process exec enables CODEX_API_KEY, so the positive environment allowlist must exclude them (source: #92 F8)"
-    ],
     "models": [
       {
         "assignment": "standard implementation",
@@ -109,8 +96,7 @@
       "attemptDurableBeforeWrite": true,
       "eofCount": 1,
       "resendAfterAmbiguity": false,
-      "promptInArgv": false,
-      "consumptionEvidence": "Prompt consumption is evidenced only by a subsequent thread.started: the pinned source reads stdin fully before thread start, and an early config error exits without reading (a write may still succeed into the pipe buffer) (source: #92 F9, codex 0.157.1 @36650394)"
+      "promptInArgv": false
     },
     "environment": "sealed positive allowlist, exact immutable bytes; no inherited API/access/workload tokens, proxies, provider overrides or ambient secrets",
     "runtimePaths": [
@@ -128,8 +114,7 @@
       "normalNativeRefresh": "allowed only within later qualified profile authority",
       "rockyCredentialReadCopySymlinkProxy": false,
       "rawStatusRetention": false,
-      "forcedLoginLogoutPolicy": false,
-      "trustPersistence": "thread/start with a requested writable cwd and no trust_level persists projects.<git-root-or-cwd>.trust_level='trusted' into the shared CODEX_HOME config.toml; with a shared store this mutates the user's real config. The profile must prevent it with an explicit untrusted override for the canonical staged root (trust_level Some => no persistence) and a projectless staged tree, and post-run must verify the shared config.toml bytes are unchanged (source: #92 F5, codex 0.157.1 @36650394)"
+      "forcedLoginLogoutPolicy": false
     },
     "immutableBeforeStart": [
       "argv",
@@ -176,7 +161,7 @@
       "one thread.started with nonblank thread_id",
       "one turn.started",
       "unique consistent item identities and valid lifecycle",
-      "all observed items settled with truthful terminal outcomes; a started todo_list must settle, but its task state is informational only — the pinned exec synthesizes todo completion at the end of every turn regardless of steps actually done, so plan state is never evidence of work performed (source: #92 F10, codex 0.157.1 @36650394, event_processor_with_jsonl_output.rs:514-523)",
+      "all observed tools settled with truthful terminal outcomes; every plan complete",
       "one current structured final after tool settlement",
       "one turn.completed after final",
       "no errors/reroutes/policy or authority denials/declined operations",
@@ -199,7 +184,6 @@
       "settledOrdinaryFailure": "A fully observed nonzero diagnostic command or recoverable patch failure does not alone reject a later correctly bound proposal. Preserve exact status/exit/output/item history; all other protocol/fence/usage/EOF/cleanup predicates still apply.",
       "unresolvedOrUnknown": "Pending, ambiguous, missing, malformed or contradictory settlement rejects a successful proposal; never relabel it ordinary failure.",
       "policyOrFatal": "Actual policy/authority denial, declined operation, reroute, error/turn.failed or fatal harness failure rejects a successful proposal; no model assertion can erase it.",
-      "errorItemSurface": "In the pinned source the error class is broader than fatal failures: ConfigWarning, Warning, DeprecationNotice, model reroute and 'event stream lagged; dropped N events' surface as item.completed{type:error}, and every Error notification including will_retry reconnects surfaces as a top-level error event; all reject fail-closed, so flaky network yields honest false negatives. An interrupted turn emits no terminal event and exits 1: interrupted/unknown, never success. With --ephemeral there is no thread/read backfill, so started items missing at turn end stay unresolved and reject (source: #92 F10, codex 0.157.1 @36650394).",
       "classificationAuthority": "Source-bound observed outcomes, not model prose; a failed item status alone is not an action-failure verdict.",
       "mandatoryChecks": "An unresolved mandatory host-check failure or blocking finding prevents delivery until independently resolved for current inputs; a proposal or later successful diagnostic is not that receipt."
     }
@@ -310,8 +294,7 @@
     "expected and actual result with pass/fail/blocked/unknown/unsupported",
     "timestamps and original limits",
     "pending operations and independent cleanup/quiescence",
-    "hashed artifact inventory and missing gaps",
-    "post-run rehash of the approved discovery inventory (global CODEX_HOME AGENTS files, system/managed layers) and of the shared CODEX_HOME config.toml; any drift during the run makes the result stale/unknown (source: #92 F5/F6, codex 0.157.1 @36650394)"
+    "hashed artifact inventory and missing gaps"
   ],
   "gateOrder": [
     "independent static contract review",
