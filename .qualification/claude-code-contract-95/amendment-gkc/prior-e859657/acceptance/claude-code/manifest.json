@@ -117,14 +117,14 @@
       "status": "blocked",
       "overrideArtifact": null,
       "overrideDigest": null,
-      "reason": "Source/doc-valid template from #94 research only. G-KC (model-reachable keychain credential for the shell-bearing implementer) is DECIDED: risk accepted by the user 2026-09-28 (#95/883, #1/884) and carried as an explicit user-accepted limitation (decision D-15), so this profile no longer waits on it. G-SET (silently ignored invalid settings), G-MANAGED, G-HOME, G-INIT-VALUES and the exact role model table remain open; native and live evidence require separately granted authority. No guessed keys or inherited entries."
+      "reason": "Source/doc-valid template from #94 research only. Blocking gate G-KC (model-reachable keychain credential for the shell-bearing implementer), G-SET (silently ignored invalid settings), G-MANAGED, G-HOME, G-INIT-VALUES and the exact role model table remain open; native and live evidence require separately granted authority. No guessed keys or inherited entries."
     },
     "roleProfiles": {
       "implementer": {
         "tools": ["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
         "allowedTools": "same list as --tools",
         "cwd": "SRC",
-        "notes": "SRC write through Edit/Write inside cwd; Bash sandboxed with writes to cwd=SRC and SCR only, no network. The G-KC keychain exposure applies to this role — Bash may reach the subscription keychain item through the Seatbelt-allowed SecurityServer/securityd.xpc mach services — and is carried as an explicit user-accepted limitation (risk accepted 2026-09-28, #95/883, #1/884; decision D-15), not as a contained path (source: #94/878 section D; #94/872 F5)."
+        "notes": "SRC write through Edit/Write inside cwd; Bash sandboxed with writes to cwd=SRC and SCR only, no network. Gate G-KC applies because Bash may reach the subscription keychain item through the Seatbelt-allowed SecurityServer/securityd.xpc mach services (source: #94/878 section D; #94/872 F5)."
       },
       "reviewer": {
         "tools": ["Read", "Glob", "Grep"],
@@ -446,7 +446,7 @@
       "rockyCredentialReadCopySymlinkProxy": false,
       "rawStatusRetention": false,
       "forcedLoginLogoutPolicy": false,
-      "acceptedLimitationGKC": "USER-ACCEPTED LIMITATION, risk ACCEPTED by the user 2026-09-28 (#95/883, mirrored #1/884). Exposure fact: the Seatbelt profile for sandboxed Bash allows mach-lookup of com.apple.SecurityServer and com.apple.securityd.xpc, the sandbox default read scope is the whole disk with no built-in credential deny list, and Bash deny rules are bypassable by path/sh -c/scripts, so a model-run `security find-generic-password -w -s 'Claude Code-credentials...'` MAY return the subscription OAuth tokens without a prompt; unproven either way [P]. This is recorded as an explicit, user-accepted visible limitation for the final report — NOT a qualified containment claim; the contract makes no claim that the sandbox denies this path. Accepted-decision terms (#95/883): no separate macOS user account; no sandbox-denial probe required before proceeding (scenario N03 stays available as OPTIONAL defense-in-depth evidence, never a blocking prerequisite); ALL other protections in this section remain required (Rocky never reads/copies/symlinks/proxies credentials, sealed env allowlist, forbidden API envs, --setting-sources= empty, Rocky-owned --settings, dedicated CLAUDE_CONFIG_DIR with one-time user /login, init.apiKeySource/provider post-checks, reviewer role gets no shell); revisit if the deployment moves to a shared/multi-user host. Consequence: the implementer profile no longer waits on G-KC; it remains blocked by its OTHER honest gates (G-SET, G-MANAGED, G-HOME, G-INIT-VALUES, G-MODEL) and separately granted native/live authority (source: #94/872 F5; #94/880 G-KC, NP3; decision D-15; review #96 B-01)."
+      "blockingGateGKC": "The Seatbelt profile for sandboxed Bash allows mach-lookup of com.apple.SecurityServer and com.apple.securityd.xpc, the sandbox default read scope is the whole disk with no built-in credential deny list, and Bash deny rules are bypassable by path/sh -c/scripts, so a model-run `security find-generic-password -w -s 'Claude Code-credentials...'` MAY return the subscription OAuth tokens without a prompt. Unproven either way [P]. The implementer profile (shell-bearing) is BLOCKED until one of: a native synthetic proof of denial (NP3/F-keychain scenario), a Rocky-specific macOS user account, or explicit residual-risk acceptance by the user. The reviewer (no shell) avoids this path (source: #94/872 F5; #94/880 G-KC, NP3; #94/881 open user decision)."
     },
     "runtimePaths": {
       "rule": "RUN is a fresh per-action root (canonical realpath, 0700, no .git/CLAUDE*.md/AGENTS.md/.claude in RUN or any ancestor); SRC=RUN/stage/source, SCR=RUN/scratch, PH=RUN/parent/home, PT=RUN/parent/tmp, INP=RUN/inputs (0400 files), CFG=designated dedicated config dir [H]. Paths are absolute, NFC, contain no control chars or glob metachars and no ','. All grants pairwise non-overlapping, none inside configDir, configDir not inside any grant (source: #94/878 Placeholders, producer contract 1).",
@@ -550,7 +550,7 @@
     {
       "id": "CC02",
       "reusesConcept": "S01/S03 (by reference)",
-      "gate": "Subscription OAuth is the only auth and Rocky never reads/copies/symlinks/proxies credentials: dedicated CLAUDE_CONFIG_DIR isolation (mode H1), sealed positive env allowlist, regression-asserted forbidden env (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, provider switches, token/FD/gateway/profile/managed-path vars, CLAUDE_CODE_SIMPLE), no --bare/apiKeyHelper/settings-env route, post-run init.apiKeySource=='none' and provider=='firstParty' as nonsecret signals only — every one of these protections remains REQUIRED. Gate G-KC (model-reachable keychain) is decided: the user ACCEPTED the residual risk 2026-09-28 (#95/883, mirrored #1/884), recorded as an explicit user-accepted visible limitation, not a qualified containment claim; no separate macOS user, no probe required before proceeding (N03 is OPTIONAL defense-in-depth), revisit on a shared/multi-user host; the shell-bearing implementer profile no longer waits on G-KC and remains blocked only by its other honest gates (G-SET, G-MANAGED, G-HOME, G-INIT-VALUES, G-MODEL) and separately granted native/live authority (decision D-15) (source: #94/872 F2-F5; #94/878 section C; #94/880 G-KC/G-HOME/G-RACE)."
+      "gate": "Subscription OAuth is the only auth and Rocky never reads/copies/symlinks/proxies credentials: dedicated CLAUDE_CONFIG_DIR isolation (mode H1), sealed positive env allowlist, regression-asserted forbidden env (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, provider switches, token/FD/gateway/profile/managed-path vars, CLAUDE_CODE_SIMPLE), no --bare/apiKeyHelper/settings-env route, post-run init.apiKeySource=='none' and provider=='firstParty' as nonsecret signals only; blocking gate G-KC (model-reachable keychain) keeps the shell-bearing implementer profile blocked until synthetic proof, a dedicated macOS account, or explicit user residual-risk acceptance (source: #94/872 F2-F5; #94/878 section C; #94/880 G-KC/G-HOME/G-RACE)."
     },
     {
       "id": "CC03",
@@ -621,7 +621,7 @@
   ],
   "gateOrder": [
     "independent static contract review (this artifact)",
-    "user decision on gate G-KC (keychain reachability) for the shell-bearing implementer — SATISFIED: decision recorded 2026-09-28, risk accepted by the user (#95/883, #1/884), carried as an explicit user-accepted limitation (decision D-15); this step is no longer awaited",
+    "user decision on gate G-KC (keychain reachability) for the shell-bearing implementer",
     "reviewed adapter/policy work with owned fake-CLI evidence (F01-F14)",
     "separately authorized synthetic native evidence in a disposable environment (N01-N06)",
     "separately authorized live-subscription proof with explicit user authorization (L01-L04)",
@@ -645,8 +645,8 @@
   "openGates": [
     {
       "id": "G-KC",
-      "severity": "DECIDED — user-accepted limitation (no longer blocking; implementer still blocked by its other honest gates)",
-      "gate": "The user decision on G-KC is recorded: risk ACCEPTED by the user 2026-09-28 (#95/883, mirrored #1/884; decision D-15 per review #96 B-01). Seatbelt allows SecurityServer/securityd.xpc mach-lookup, sandbox default reads cover the whole disk with no credential deny list, and Bash deny rules are bypassable, so a model shell may read the subscription OAuth keychain item without a prompt; no static proof either way, and this residual stays carried as an explicit user-accepted visible limitation for the final report, NOT a qualified containment claim. Accepted terms: no separate macOS user account; no probe required before proceeding — N03 remains OPTIONAL defense-in-depth evidence, never a blocking prerequisite; all other protections remain required; revisit if the deployment moves to a shared/multi-user host. Consequence: the implementer profile no longer waits on G-KC; it remains blocked by its OTHER honest gates (G-SET, G-MANAGED, G-HOME, G-INIT-VALUES, G-MODEL) and separately granted native/live authority. The reviewer role (no shell) avoids the path entirely (source: #94/872 F5; #94/880)."
+      "severity": "BLOCKING for the implementer role",
+      "gate": "Seatbelt allows SecurityServer/securityd.xpc mach-lookup, sandbox default reads cover the whole disk with no credential deny list, and Bash deny rules are bypassable, so a model shell may read the subscription OAuth keychain item without a prompt. No static proof either way. Closure options: native synthetic proof of denial (N03), a Rocky-specific macOS user account, or explicit user residual-risk acceptance. The reviewer role (no shell) avoids it (source: #94/872 F5; #94/880)."
     },
     {
       "id": "G-SET",

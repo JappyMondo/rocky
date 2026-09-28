@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "contractId": "rocky-claude-code-95-v1",
+  "ticket": "#95",
+  "algorithm": "sha256",
+  "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
+  "note": "Hashes of every file authored by #95. This inventory excludes itself; its digest is reported in the handoff. frozen.sha256.json additionally binds the four contract files for loaders.",
+  "qualification": false,
+  "capability": null,
+  "files": [
+    {
+      "path": "acceptance/claude-code/README.md",
+      "bytes": 16371,
+      "sha256": "ba9dcd3b004d237bd58e3a3304e6b8223e549b02d806a2832460708f4abbcff4"
+    },
+    {
+      "path": "acceptance/claude-code/manifest.json",
+      "bytes": 57630,
+      "sha256": "af5574ef6bd137a6af2ae91be7a2ecb8bf16c345e565fd891ac9811a76709cd1"
+    },
+    {
+      "path": "acceptance/claude-code/scenarios.json",
+      "bytes": 26644,
+      "sha256": "e0084c7128e87385cbd6c4b006ba540c298c4a42f1ba8d3dcba5ae036f65593e"
+    },
+    {
+      "path": "acceptance/claude-code/frozen.sha256.json",
+      "bytes": 912,
+      "sha256": "97e26720c8d0f559ad36fea075a98b9a68995c3860fa8cd80eaf40a344408369"
+    },
+    {
+      "path": "docs/architecture/claude-code-harness.md",
+      "bytes": 6035,
+      "sha256": "e7aa3a3830ed239b5645347bf64a3c278366b467e96d54b0bd08fa91bb946eec"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95/inputs.md",
+      "bytes": 4058,
+      "sha256": "0f2b70790fc6427625f43ebc6d499d6210befe1458edc326ba870d5396707e8b"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95/decisions.md",
+      "bytes": 10905,
+      "sha256": "70b7ac343db65693da42cc0029d639e6544fa4feb534b78485010cdc051d7f24"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95/static-checks.json",
+      "bytes": 7961,
+      "sha256": "7dedc7a05787512f80d8e0a7b7ebbf4a80e6114c11e6b4944cfbe850db92a3d4"
+    }
+  ]
+}

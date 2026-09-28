@@ -93,27 +93,16 @@ switches billing off the subscription. Therefore:
   sealed environment — not the signal — carries the exclusivity proof (source:
   #94/872 F2/F4).
 
-**G-KC — user-accepted limitation**: the Seatbelt profile for sandboxed Bash
-allows mach-lookup of `com.apple.SecurityServer`/`securityd.xpc`, the sandbox
-default read scope is the whole disk with no credential deny list, and Bash
-deny rules are bypassable by path/`sh -c`/scripts, so a model-run
+**Blocking gate G-KC**: the Seatbelt profile for sandboxed Bash allows
+mach-lookup of `com.apple.SecurityServer`/`securityd.xpc`, the sandbox default
+read scope is the whole disk with no credential deny list, and Bash deny rules
+are bypassable by path/`sh -c`/scripts, so a model-run
 `security find-generic-password -w` **may** return the subscription OAuth
 tokens without a prompt; research proved neither direction (source: #94/872
-F5; #94/880 G-KC/NP3). The user **accepted this risk on 2026-09-28** (#95/883,
-mirrored #1/884), and this contract records it as an **explicit, user-accepted
-visible limitation** for the final report — **not** a qualified containment
-claim. Per the recorded decision: no separate macOS user account; no
-sandbox-denial probe is required before proceeding — scenario N03 remains
-available as **optional** defense-in-depth evidence, never a blocking
-prerequisite; every other protection in this section (dedicated
-`CLAUDE_CONFIG_DIR` with one-time user `/login`, sealed environment, forbidden
-API envs, Rocky never reading/copying/proxying credentials, discovery pinning,
-no shell for the reviewer) **remains required**; and the decision is revisited
-if the deployment moves to a shared/multi-user host. Consequence: the
-shell-bearing implementer profile no longer waits on G-KC; it remains blocked
-by its other honest gates (G-SET, G-MANAGED, G-INIT-VALUES, G-MODEL) and
-separately granted native/live authority. The reviewer role has no shell and
-avoids this path entirely.
+F5; #94/880 G-KC/NP3). The shell-bearing implementer profile stays **blocked**
+until scenario N03 passes on synthetic sentinels, a Rocky-specific macOS
+account is provisioned, or the user explicitly accepts the residual risk. The
+reviewer role has no shell and avoids this path.
 
 ## Argv, roles and discovery sealing
 
@@ -252,17 +241,13 @@ authoritative check, review, CI, approval, head adoption or delivery receipt
 
 ## Open gates
 
-G-KC (decision recorded: risk accepted by the user 2026-09-28, #95/883 and
-#1/884, carried as an explicit user-accepted limitation; N03 optional
-defense-in-depth), G-SET, G-MANAGED, G-HOME, G-RACE (mooted for this contract
-by the rejection of shared-home mode, carried unproven), G-WRITES, G-VERSION,
-G-INIT-VALUES, G-SIGINT, G-RETRY (api_retry half decided, D-05), G-EFFORT,
+G-KC (blocking, implementer), G-SET, G-MANAGED, G-HOME, G-RACE (mooted for
+this contract by the rejection of shared-home mode, carried unproven),
+G-WRITES, G-VERSION, G-INIT-VALUES, G-SIGINT, G-RETRY, G-EFFORT,
 G-CLAUDEMD-MANAGED, G-DEFAULT-PROMPT and G-MODEL are listed with sources in
-`manifest.json` `openGates`. None is closed by this contract — the decided
-halves of G-KC (D-15) and G-RETRY (D-05) are recorded decisions whose unproven
-residuals stay carried; each remaining gate maps to the scenario that can close
-it. Research left these unresolved and they are encoded as honest gates, not
-guesses.
+`manifest.json` `openGates`. None is closed by this contract; each maps to the
+scenario that can close it. Research left these unresolved and they are encoded
+as honest gates, not guesses.
 
 ## Binding and review
 

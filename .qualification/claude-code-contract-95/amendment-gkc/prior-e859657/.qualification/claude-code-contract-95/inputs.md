@@ -8,17 +8,7 @@ Taskbot was used read-only through `/tmp/tb.sh` `get_ticket`.
 ## Taskbot reads (all succeeded)
 
 - Ticket #95 (own ticket): body re-read and matched against the dispatch
-  instructions. **Honest correction (G-KC amendment, review #96 B-01):** the
-  original authoring phase read the #95 **body only** and did not read its
-  comments, so it missed comment 883 — the user's G-KC risk acceptance posted
-  ~12h before the freeze — and recorded G-KC as an open/pending user decision
-  (root cause per #96/909). The amendment phase read #95 in full: comment 883
-  (governing user decision) and 876 (carry-forward from #91 on trusted-loader
-  qualification and cache-token mapping — not G-KC-relevant, no amendment
-  consequence), plus dispatch/handoff comments 903/904/911; and #1 comment
-  884 (the mirror of the G-KC decision), and #96 comments 908/909 (review
-  dispatch and root aggregation defining B-01 and S-01/S-02/S-03). All reads
-  read-only via `/tmp/tb.sh` `get_ticket`; no Taskbot writes.
+  instructions.
 - Ticket #94 in full: body plus all 6 comments —
   - 872 (claude-code-research-opus) PART 1/4: identity/sources, F1–F8
     (version pin, auth precedence, --bare incompatibility, macOS keychain
@@ -78,5 +68,4 @@ Taskbot was used read-only through `/tmp/tb.sh` `get_ticket`.
 - The `claude` binary itself (research already recorded its identity; this
   contract cites #94/872 F1 rather than re-measuring).
 - Ticket #1 comment 863 (research itself could not read it; this contract
-  relies on #94/#95 citing it, same as the research record did; still unread
-  after the G-KC amendment, which read only #1 comment 884).
+  relies on #94/#95 citing it, same as the research record did).

@@ -4,7 +4,7 @@
   "ticket": "#95",
   "algorithm": "sha256",
   "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
-  "note": "Hashes of every file authored by #95. This inventory excludes itself; its digest is reported in the handoff. frozen.sha256.json additionally binds the four contract files for loaders.",
+  "note": "Hashes of every file authored by #95. This inventory excludes itself; its digest is reported in the handoff. frozen.sha256.json additionally binds the four contract files for loaders. The files array above is PRESERVED UNCHANGED as the record of the original #95 authoring bytes (identical to the e859657 pre-amendment bytes); its entries are historical and no longer match the amended working-tree bytes. The amendmentGKC section below records prior+amended bytes for every file touched by the G-KC amendment.",
   "qualification": false,
   "capability": null,
   "files": [
@@ -48,5 +48,162 @@
       "bytes": 7961,
       "sha256": "7dedc7a05787512f80d8e0a7b7ebbf4a80e6114c11e6b4944cfbe850db92a3d4"
     }
-  ]
+  ],
+  "amendmentGKC": {
+    "ticket": "#95 bounded amendment per review #96 root aggregation comment 909, finding B-01; repair dispatch #95/911; decision D-15",
+    "amendmentBaseline": "e85965762ac74cc5f7a351428955a3ec7e6beb01",
+    "algorithm": "sha256",
+    "note": "Prior bytes are git show e859657:<path>, archived verbatim under prior-e859657/ (see archivedCopy.path) and verified byte-identical. This file's own amended bytes cannot be listed here (self-reference); its digest is reported in the handoff and bound by the commit. frozen.sha256.json was re-frozen for the four contract files; acceptance/subscription/final.schema.json and everything outside the owned scope are untouched.",
+    "files": [
+      {
+        "path": "acceptance/claude-code/README.md",
+        "priorE859657": {
+          "bytes": 16371,
+          "sha256": "ba9dcd3b004d237bd58e3a3304e6b8223e549b02d806a2832460708f4abbcff4"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/acceptance/claude-code/README.md",
+          "bytes": 16371,
+          "sha256": "ba9dcd3b004d237bd58e3a3304e6b8223e549b02d806a2832460708f4abbcff4",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 17482,
+          "sha256": "c145897f1805d9a7d4e4f93ddaefd36b8541a2ea227c8f6d7bfcdd237b2aca92"
+        }
+      },
+      {
+        "path": "acceptance/claude-code/manifest.json",
+        "priorE859657": {
+          "bytes": 57630,
+          "sha256": "af5574ef6bd137a6af2ae91be7a2ecb8bf16c345e565fd891ac9811a76709cd1"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/acceptance/claude-code/manifest.json",
+          "bytes": 57630,
+          "sha256": "af5574ef6bd137a6af2ae91be7a2ecb8bf16c345e565fd891ac9811a76709cd1",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 60144,
+          "sha256": "b124b059c98ac202fd731d84b1b9e24b8189dd523ea90ffa9e6bd680d28bc2f4"
+        }
+      },
+      {
+        "path": "acceptance/claude-code/scenarios.json",
+        "priorE859657": {
+          "bytes": 26644,
+          "sha256": "e0084c7128e87385cbd6c4b006ba540c298c4a42f1ba8d3dcba5ae036f65593e"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/acceptance/claude-code/scenarios.json",
+          "bytes": 26644,
+          "sha256": "e0084c7128e87385cbd6c4b006ba540c298c4a42f1ba8d3dcba5ae036f65593e",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 27009,
+          "sha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
+        }
+      },
+      {
+        "path": "acceptance/claude-code/frozen.sha256.json",
+        "priorE859657": {
+          "bytes": 912,
+          "sha256": "97e26720c8d0f559ad36fea075a98b9a68995c3860fa8cd80eaf40a344408369"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/acceptance/claude-code/frozen.sha256.json",
+          "bytes": 912,
+          "sha256": "97e26720c8d0f559ad36fea075a98b9a68995c3860fa8cd80eaf40a344408369",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 912,
+          "sha256": "08e3b3b8ce75cf71cea770aa5598df47c0d555504f5837a6d464559c1d13f2bd"
+        }
+      },
+      {
+        "path": "docs/architecture/claude-code-harness.md",
+        "priorE859657": {
+          "bytes": 6035,
+          "sha256": "e7aa3a3830ed239b5645347bf64a3c278366b467e96d54b0bd08fa91bb946eec"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/docs/architecture/claude-code-harness.md",
+          "bytes": 6035,
+          "sha256": "e7aa3a3830ed239b5645347bf64a3c278366b467e96d54b0bd08fa91bb946eec",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 6423,
+          "sha256": "98c3cce586e6cef22d9a3daed06e4da6dd520f5b908e452b23d521bd39c69296"
+        }
+      },
+      {
+        "path": ".qualification/claude-code-contract-95/inputs.md",
+        "priorE859657": {
+          "bytes": 4058,
+          "sha256": "0f2b70790fc6427625f43ebc6d499d6210befe1458edc326ba870d5396707e8b"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/.qualification/claude-code-contract-95/inputs.md",
+          "bytes": 4058,
+          "sha256": "0f2b70790fc6427625f43ebc6d499d6210befe1458edc326ba870d5396707e8b",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 4947,
+          "sha256": "3bdff1c362c3bd0ca39ddb4606769c3cf6369beb33534b8c95ffdae3f2dd6e02"
+        }
+      },
+      {
+        "path": ".qualification/claude-code-contract-95/decisions.md",
+        "priorE859657": {
+          "bytes": 10905,
+          "sha256": "70b7ac343db65693da42cc0029d639e6544fa4feb534b78485010cdc051d7f24"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/.qualification/claude-code-contract-95/decisions.md",
+          "bytes": 10905,
+          "sha256": "70b7ac343db65693da42cc0029d639e6544fa4feb534b78485010cdc051d7f24",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 13862,
+          "sha256": "9945dcf0f232ee1915342bac7d6b5309ef3abb00f0cfd15b976ccec4f28e9800"
+        }
+      },
+      {
+        "path": ".qualification/claude-code-contract-95/static-checks.json",
+        "priorE859657": {
+          "bytes": 7961,
+          "sha256": "7dedc7a05787512f80d8e0a7b7ebbf4a80e6114c11e6b4944cfbe850db92a3d4"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/.qualification/claude-code-contract-95/static-checks.json",
+          "bytes": 7961,
+          "sha256": "7dedc7a05787512f80d8e0a7b7ebbf4a80e6114c11e6b4944cfbe850db92a3d4",
+          "matchesPrior": true
+        },
+        "amended": {
+          "bytes": 10982,
+          "sha256": "d0d1e3661c4f31b11e8e388e1f7e54da526e94681565e88cbcd5c8058f5e0261"
+        }
+      },
+      {
+        "path": ".qualification/claude-code-contract-95/evidence.sha256",
+        "priorE859657": {
+          "bytes": 1850,
+          "sha256": "6e5b1dd1a27f163c5f29ac7e698a7beed1d47f158d748a266fcc0e1c7389baa5"
+        },
+        "archivedCopy": {
+          "path": ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/.qualification/claude-code-contract-95/evidence.sha256",
+          "bytes": 1850,
+          "sha256": "6e5b1dd1a27f163c5f29ac7e698a7beed1d47f158d748a266fcc0e1c7389baa5",
+          "matchesPrior": true
+        }
+      }
+    ]
+  }
 }

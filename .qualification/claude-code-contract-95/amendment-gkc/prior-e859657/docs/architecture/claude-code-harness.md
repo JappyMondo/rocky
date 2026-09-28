@@ -32,14 +32,10 @@ and settings `env`/`apiKeyHelper` routes are closed by `--setting-sources=`
 plus a Rocky-owned allowlisted `--settings` file (source: #94/872 F2; #94/878
 §B/§C). `init.apiKeySource=="none"` and `modelUsage.provider=="firstParty"`
 are retained as nonsecret post-hoc signals only. The model-reachable keychain
-risk (Seatbelt allows SecurityServer/securityd mach lookups) is gate G-KC,
-**decided**: the user accepted the risk on 2026-09-28 (#95/883, #1/884), so the
-contract records it as an explicit, user-accepted visible limitation — not a
-qualified containment claim. No separate macOS user and no probe are required
-before proceeding; synthetic proof N03 remains optional defense-in-depth
-evidence; all other protections above remain required; the decision is
-revisited if the deployment moves to a shared/multi-user host (source:
-#94/872 F5; #94/880; decision D-15).
+risk (Seatbelt allows SecurityServer/securityd mach lookups) is blocking gate
+G-KC for the shell-bearing implementer until synthetic proof N03, a dedicated
+macOS account, or explicit user residual-risk acceptance (source: #94/872 F5;
+#94/880).
 
 Instruction discovery is sealed, not merely ignored: no user/project/local
 settings layers, no CLAUDE.md/AGENTS.md/.claude in the staged tree or any
@@ -82,8 +78,7 @@ qualification binding `{ schema: 1, id, harness: "claude-code", contractId:
 sha256 }` — a null qualification blocks agent work, and this package ships no
 loader and no approved binding (source: docs/coordinator.md § #90).
 
-Sequence: independent static contract review of #95 → user decision on G-KC
-(satisfied — recorded 2026-09-28: risk accepted, #95/883, #1/884) →
+Sequence: independent static contract review of #95 → user decision on G-KC →
 adapter work with owned fake-CLI evidence (F01–F14) → separately authorized
 synthetic-native qualification in a disposable environment (N01–N06) →
 separately authorized live-subscription proof with explicit user authorization

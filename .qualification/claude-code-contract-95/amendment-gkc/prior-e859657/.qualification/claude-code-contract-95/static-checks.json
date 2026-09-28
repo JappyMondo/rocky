@@ -7,15 +7,6 @@
   "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
   "kind": "static checks only; no scenario execution, no claude CLI execution, no native/auth/model/API/network effects, no credential or keychain reads, no env dumps",
   "modelSelection": "claude-contract-95 dispatch: Opus-class work executed on this harness's model (alibaba-token-plan/qwen3.8-max); substitution recorded by root; backend attestation unavailable",
-  "amendment": {
-    "id": "gkc-amendment",
-    "authority": "#95 repair dispatch comment 911 (sole mutation lease, cc95-gkc-amend) per review #96 root aggregation comment 909, finding B-01 only",
-    "amendmentBaseline": "e85965762ac74cc5f7a351428955a3ec7e6beb01",
-    "modelSelection": "repair agent cc95-gkc-amend on OpenCode harness model alibaba-token-plan/qwen3.8-max (routing #865 assigns claude-opus-5-5; substitution per #99/885 precedent)",
-    "addedChecks": ["C-decided-gates (review #96 recommendation S-01)"],
-    "reRunChecks": "every check below was re-executed against the amended bytes; results re-recorded in place",
-    "unchanged": "scenario counts/statuses (14 unexecuted + 10 blocked; N03 stays blocked, reframed optional per S-02), qualification=false, capability=null, executionAuthorized=false, frozenBeforeExecution=true, nativeExecutionBlocked=true; no other requirement/scenario/gate text reopened"
-  },
   "qualification": false,
   "capability": null,
   "executionAuthorized": false,
@@ -137,7 +128,7 @@
       "id": "C-citations",
       "check": "spot-audit: every authored file carries #94 research-comment citations for harness-specific claims, plus #89/850, #90, #92/#93 references where reused by reference",
       "result": "pass",
-      "detail": "README.md, manifest.json, scenarios.json and claude-code-harness.md each cite #94/872, #94/878, #94/879 and/or #94/880 finding ids (F1-F16, sections A-F, FK/NP/L cases, G-gates); classification sections cite #89/850(a)/(b); budget and final-schema sections cite docs/coordinator.md #90 and acceptance/subscription by sha256; every amended G-KC site cites the user decision #95/883 + #1/884 with date 2026-09-28, and decisions.md D-15 cites review #96 B-01/S-01/S-02/S-03"
+      "detail": "README.md, manifest.json, scenarios.json and claude-code-harness.md each cite #94/872, #94/878, #94/879 and/or #94/880 finding ids (F1-F16, sections A-F, FK/NP/L cases, G-gates); classification sections cite #89/850(a)/(b); budget and final-schema sections cite docs/coordinator.md #90 and acceptance/subscription by sha256"
     },
     {
       "id": "C-reuse-by-reference",
@@ -149,13 +140,13 @@
       "id": "C-open-gates",
       "check": "all 13 research open gates carried (G-KC, G-SET, G-MANAGED, G-HOME, G-RACE, G-WRITES, G-VERSION, G-INIT-VALUES, G-SIGINT, G-RETRY, G-EFFORT, G-CLAUDEMD-MANAGED, G-DEFAULT-PROMPT) plus G-MODEL; none marked closed",
       "result": "pass",
-      "detail": "14 gates in manifest openGates; G-KC carried-decided (user accepted the risk 2026-09-28, #95/883 + #1/884; D-15, review #96 S-03 wording pattern; unproven reachability residual carried as an explicit user-accepted limitation, N03 optional per S-02) and gateOrder step 2 marked SATISFIED; G-RETRY carried with its decided api_retry half (D-05); G-RACE carried as mooted-but-unproven because shared-home mode H2 is rejected (decisions.md D-04/D-14)"
+      "detail": "14 gates in manifest openGates; G-KC additionally flagged BLOCKING for the implementer role and echoed in gateOrder; G-RACE carried as mooted-but-unproven because shared-home mode H2 is rejected (decisions.md D-04/D-14)"
     },
     {
       "id": "C-prettier",
       "check": "npx prettier 3.6.2 --check clean on all new md/json",
       "result": "pass",
-      "detail": "acceptance/claude-code, docs/architecture/claude-code-harness.md, .qualification/claude-code-contract-95; re-run in the G-KC amendment on every touched file"
+      "detail": "acceptance/claude-code, docs/architecture/claude-code-harness.md, .qualification/claude-code-contract-95"
     },
     {
       "id": "C-git-diff-check",
@@ -165,7 +156,7 @@
     },
     {
       "id": "C-owned-scope",
-      "check": "git status -uall shows only owned paths (authoring: only new owned files; G-KC amendment: only modifications/additions inside acceptance/claude-code/**, docs/architecture/claude-code-harness.md and .qualification/claude-code-contract-95/**); no file outside the owned scope touched",
+      "check": "git status -uall shows only owned new paths; no tracked file modified; .qualification/claude-code-contract-95 is gitignored like prior contract dirs and force-added per repository convention",
       "result": "pass",
       "detail": [
         "acceptance/claude-code/README.md",
@@ -173,21 +164,14 @@
         "acceptance/claude-code/manifest.json",
         "acceptance/claude-code/scenarios.json",
         "docs/architecture/claude-code-harness.md",
-        ".qualification/claude-code-contract-95/ (inputs.md, decisions.md, static-checks.json, evidence.sha256)",
-        ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/ (new: archived prior bytes of every touched file)"
+        ".qualification/claude-code-contract-95/ (force-added)"
       ]
     },
     {
       "id": "C-no-execution",
-      "check": "no claude CLI execution, no ~/.claude or keychain reads, no env dumps, no network calls, no Taskbot writes during authoring or amendment",
+      "check": "no claude CLI execution, no ~/.claude or keychain reads, no env dumps, no network calls, no Taskbot writes during authoring",
       "result": "pass",
-      "detail": "Taskbot used read-only via /tmp/tb.sh get_ticket for #94, #88, #89, #95; amendment phase additionally read #95 in full (incl. comment 883), #1 (comment 884) and #96 (comments 908/909); no writes"
-    },
-    {
-      "id": "C-decided-gates",
-      "check": "recorded user decisions reflected in gate states (added per review #96 recommendation S-01, finding B-01): no contract text may describe an already-decided gate as pending or future. Case-insensitive grep of acceptance/claude-code/** and docs/architecture/claude-code-harness.md for 'pending user decision', 'open user decision', 'awaiting/awaits user decision', 'BLOCKED until', 'stays/blocked until', 'until one of', 'residual-risk acceptance by the user' returns zero matches; every G-KC site (manifest auth.acceptedLimitationGKC, launch.profile.reason, roleProfiles.implementer.notes, CC02, gateOrder[1], openGates G-KC; scenarios N03 expected+blocker; README G-KC paragraph + Open gates section; docs/architecture G-KC sentence + sequence) records the decision with date 2026-09-28 and citations #95/883 + #1/884",
-      "result": "pass",
-      "detail": "grep run at amendment time on the amended bytes: zero pending/future-tense matches; the only remaining G-KC 'blocked' wording refers to the implementer profile's OTHER honest gates and to N03's native-authority blocker, both genuine; re-run instruction: any future recorded user decision must be reflected in gate states before freeze"
+      "detail": "Taskbot used read-only via /tmp/tb.sh get_ticket for #94, #88, #89, #95"
     }
   ],
   "scenarioExecutions": 0,

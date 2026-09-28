@@ -137,14 +137,8 @@ item H-03 below).
   run-config input bound by sha256; only its inline canonical-minified form and
   the host re-validation duty are specified (source: #94/878 §F).
 - **No native/live execution, no capability, no approval.** All 24 scenarios
-  are unexecuted or blocked. At authoring time G-KC was flagged blocking for
-  the implementer role and echoed in `gateOrder` as an awaited user decision,
-  matching the open-user-decision framing of root comment #94/881 — but that
-  framing was already stale: the user had recorded the G-KC acceptance
-  (#95/883, #1/884) ~12h before the freeze, and the authoring phase read the
-  #95 body only, missing it. Corrected by the D-15 amendment (review #96
-  B-01); nothing else in this bullet changed — the scenarios remain
-  unexecuted/blocked and no execution authority exists.
+  are unexecuted or blocked; G-KC is flagged blocking for the implementer role
+  and echoed in `gateOrder` as a user decision, matching root comment 881.
 - **Sandbox network scope** stays `[P]`: the docs conflict on whether
   `sandbox.network` is honored from CLI `--settings` ("User or managed" vs
   "user, managed, or CLI --settings"), so the manifest records the conflict
@@ -158,52 +152,14 @@ item H-03 below).
 
 All 13 gates from research PART 4 §C plus G-MODEL (14 total) are carried into
 `manifest.json` `openGates` with citations, each mapped to the scenario that can
-close it: G-KC → user decision RECORDED 2026-09-28 (risk accepted, #95/883,
-#1/884; carried-decided per D-15, N03 now optional defense-in-depth), G-SET →
-N04, G-MANAGED →
+close it: G-KC → N03 (blocking, implementer), G-SET → N04, G-MANAGED →
 inventory + refuse, G-HOME/G-WRITES/G-RACE → N06 (G-RACE is additionally
 mooted for this contract by D-04's rejection of shared mode H2, and is carried
 because the residual refresh-rotation race is unproven), G-VERSION → F01 + C1
 rehash, G-INIT-VALUES → N02/L03, G-SIGINT → N05, G-RETRY → F10 (decided part) +
 modelUsage fatal, G-EFFORT → L04, G-CLAUDEMD-MANAGED → inventory,
-G-DEFAULT-PROMPT → D-06, G-MODEL → run config freeze. None is closed by the
-research itself (source: #94/880 §C "none closed by this research"); the
-decided halves of G-RETRY (D-05) and G-KC (D-15, user decision recorded) are
-carried-decided with their unproven residuals intact.
-
-## D-15 G-KC amendment (review #96 B-01)
-
-Independent review of the frozen contract (#96, root aggregation comment 909,
-range 717fb0a..e859657) produced one blocking finding, **B-01**: the contract
-recorded G-KC as an open/pending user decision in its ~7 G-KC sites although
-the user had **accepted** the keychain-exposure risk on 2026-09-28
-(**#95/883**, mirrored **#1/884**) ~12h before the freeze. Root cause: the
-authoring phase (and dispatch comment 903) read the #95 body only and missed
-comment 883; the error direction was fail-safe (over-blocking, no authority
-granted). This bounded #93-style amendment records the decision at every G-KC
-site under the sole repair lease, adopting the reviewer recommendations:
-**S-01** — new static check `C-decided-gates` ("recorded user decisions
-reflected in gate states": no contract text describes an already-decided gate
-as pending); **S-02** — N03 becomes OPTIONAL defense-in-depth evidence for the
-final report's limitation section, never a blocking prerequisite (it stays
-blocked on native authority regardless); **S-03** — G-KC uses the house
-carried-decided wording pattern (like G-RETRY's decided half): decision +
-date + citation + consequence. Recorded terms per #95/883: explicit
-user-accepted visible limitation, NOT a qualified containment claim; no
-separate macOS user; no probe required before proceeding; ALL other
-protections remain required; revisit if the deployment moves to a
-shared/multi-user host. Consequence: the implementer profile no longer waits
-on G-KC and remains blocked only by its other honest gates (G-SET, G-MANAGED,
-G-HOME, G-INIT-VALUES, G-MODEL) and separately granted native/live authority;
-nothing else was unblocked. Scenario counts/statuses unchanged (14 unexecuted
-+ 10 blocked); `qualification=false`, `capability=null`,
-`executionAuthorized=false`, `frozenBeforeExecution=true` all unchanged; prior
-e859657 bytes archived under
-`.qualification/claude-code-contract-95/amendment-gkc/prior-e859657/`;
-`frozen.sha256.json` re-frozen for the four contract files. The other ~95% of
-the contract was explicitly NOT reopened (review verdict: all other items at
-accept quality; D-04/D-05/D-06 confirmed, reviewer-admission gating by N02
-confirmed, G-MODEL-before-admission confirmed).
+G-DEFAULT-PROMPT → D-06, G-MODEL → run config freeze. None is closed here
+(source: #94/880 §C "none closed by this research").
 
 ## Honesty list: claims not groundable in #94
 
