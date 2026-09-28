@@ -12,7 +12,7 @@ import { Store, type ProcessIdentity } from "../store/index.js";
 import type { Json } from "../store/json.js";
 import type { CommandSpec, CommandResult } from "./index.js";
 import { Evidence } from "../evidence/index.js";
-import { identify, signalGroup, delay } from "./process.js";
+import { identify, signalGroup, groupAbsent, delay } from "./process.js";
 const [db, id, token] = process.argv.slice(2);
 if (!db || !id || !token) throw new Error("invalid-supervisor-arguments");
 const store = new Store(db);
@@ -40,6 +40,8 @@ let result: CommandResult = {
 };
 let finished = false,
   stopping = false;
+let pipesEof = 0;
+let quiescent = false;
 const capture = (fd: number, isOut: boolean) => (data: Buffer) => {
   const used = isOut ? outBytes : errBytes;
   const chunk = data.subarray(0, Math.max(0, spec.logBytes - used));
@@ -53,6 +55,11 @@ const capture = (fd: number, isOut: boolean) => (data: Buffer) => {
   } else {
     errBytes += chunk.length;
     errTruncated ||= chunk.length < data.length;
+  }
+  if (command.duplex && chunk.length < data.length) {
+    store.observeDuplex(id, token, { failure: "duplex-log-limit" });
+    result.outcome = "failed";
+    finished = true;
   }
 };
 try {
@@ -70,17 +77,39 @@ try {
     },
   );
   gate.stdout?.on("data", capture(out, true));
+  gate.stdout?.on("end", () => {
+    pipesEof++;
+    if (command.duplex) store.observeDuplex(id, token, { stdoutEof: true });
+  });
+  gate.stderr?.on("end", () => {
+    pipesEof++;
+    if (command.duplex) store.observeDuplex(id, token, { stderrEof: true });
+  });
   gate.stderr?.on("data", capture(err, false));
   gate.on("error", () => {
     finished = true;
   });
   gate.on("message", (message: unknown) => {
-    if (stopping) return;
+    if (stopping || (command.duplex && finished)) return;
     const m = message as {
       exitCode: number | null;
       signal: string | null;
       error?: string;
+      duplexFailure?: string;
     };
+    if (m.duplexFailure) {
+      result.outcome =
+        m.duplexFailure === "cancelled" ||
+        m.duplexFailure === "duplex-input-closed"
+          ? "cancelled"
+          : m.duplexFailure === "stale-lease"
+            ? "lease-lost"
+            : m.duplexFailure === "action-deadline-exceeded"
+              ? "timeout"
+              : "failed";
+      finished = true;
+      return;
+    }
     result.exitCode = m.exitCode;
     result.signal = m.signal;
     result.outcome =
@@ -106,9 +135,25 @@ try {
   while (!finished) {
     try {
       store.assertLease(command.lease);
+      if (command.duplex) {
+        store.assertDuplexAction(command.lease, command.duplex.action);
+        const d = store.command(id)?.duplex;
+        if (d?.revoked) {
+          result.outcome = "cancelled";
+          break;
+        }
+        if (d?.failure) {
+          result.outcome = "failed";
+          break;
+        }
+      }
     } catch (error) {
       result.outcome =
-        (error as Error).message === "cancelled" ? "cancelled" : "lease-lost";
+        (error as Error).message === "cancelled"
+          ? "cancelled"
+          : (error as Error).message === "action-deadline-exceeded"
+            ? "timeout"
+            : "lease-lost";
       break;
     }
     if (Date.now() >= deadline) {
@@ -119,13 +164,31 @@ try {
   }
   stopping = true;
   if (group) {
-    signalGroup(group, "SIGTERM");
+    if (!command.duplex || !groupAbsent(group)) signalGroup(group, "SIGTERM");
     await delay(spec.cleanupMs);
-    signalGroup(group, "SIGKILL");
+    if (!command.duplex || !groupAbsent(group)) signalGroup(group, "SIGKILL");
   }
-  await delay(30);
+  if (command.duplex) {
+    const cleanupDeadline = Date.now() + Math.max(1000, spec.cleanupMs);
+    while (Date.now() < cleanupDeadline) {
+      const d = store.command(id)?.duplex;
+      if (
+        group &&
+        groupAbsent(group) &&
+        pipesEof === 2 &&
+        d?.stdoutEof &&
+        d.stderrEof
+      ) {
+        quiescent = true;
+        break;
+      }
+      await delay(20);
+    }
+    if (!quiescent) result.outcome = "recovery-required";
+  } else await delay(30);
 } catch (error) {
   const message = error instanceof Error ? error.message : "";
+  if (command.duplex) result.cleanupError = message;
   result.outcome =
     message === "cancelled"
       ? "cancelled"
@@ -140,6 +203,14 @@ try {
     }
   }
 } finally {
+  // Cancellation/lease errors before verified cleanup must not release the command or capacity.
+  if (command.duplex && !quiescent) result.outcome = "recovery-required";
+  if (
+    command.duplex &&
+    store.command(id)?.duplex?.failure &&
+    result.outcome === "success"
+  )
+    result.outcome = "failed";
   fsyncSync(out);
   fsyncSync(err);
   closeSync(out);

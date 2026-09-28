@@ -311,7 +311,7 @@ test("R7 observation issuance rolls back its token/invalidation/revision/event a
   sql.close();
   f.store.close();
 });
-test("R8 schema2 owned copy migrates to schema4/snapshot3 with retained old evidence; ec9a0cd reader rejects the new DB", async () => {
+test("R8 schema2 owned copy migrates to schema5/snapshot3 with retained old evidence; ec9a0cd reader rejects the new DB", async () => {
   const { copyFileSync, readFileSync } = await import("node:fs");
   const { DatabaseSync } = await import("node:sqlite");
   const { admission } = await import("./coordinator-support.mjs");
@@ -401,7 +401,7 @@ test("R8 schema2 owned copy migrates to schema4/snapshot3 with retained old evid
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(f.dir + "/migration-copy.sqlite");
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 5);
   sql.close();
   retain(f, { snapshot, after, event: newEvents.at(-1) });
 });

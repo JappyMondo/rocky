@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Store, type Lease, type CommandRecord } from "../store/index.js";
 import { canonical, type Json } from "../store/json.js";
 import type { Artifact } from "../evidence/index.js";
+import type { DuplexBinding } from "./duplex.js";
 import { delay, matches } from "./process.js";
 export interface CommandSpec {
   file: string;
@@ -30,6 +31,7 @@ export interface CommandResult {
   stderr: string;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
+  cleanupError?: string;
   stdoutArtifact?: Artifact;
   stderrArtifact?: Artifact;
 }
@@ -52,7 +54,7 @@ function validate(spec: CommandSpec) {
 }
 export class CommandRunner {
   constructor(readonly store: Store) {}
-  start(lease: Lease, spec: CommandSpec): string {
+  start(lease: Lease, spec: CommandSpec, binding?: DuplexBinding): string {
     validate(spec);
     this.store.assertLease(lease);
     const id = randomUUID();
@@ -63,7 +65,13 @@ export class CommandRunner {
       outputDir: resolve(spec.outputDir, id),
     };
     mkdirSync(normalized.outputDir, { recursive: true, mode: 0o700 });
-    this.store.reserveCommand(lease, id, token, normalized as unknown as Json);
+    this.store.reserveCommand(
+      lease,
+      id,
+      token,
+      normalized as unknown as Json,
+      binding,
+    );
     try {
       this.store.guardedStart(lease, () => {
         const child = spawn(
@@ -139,3 +147,5 @@ export class CommandRunner {
     return this.store.command(id)!;
   }
 }
+
+export * from "./duplex.js";

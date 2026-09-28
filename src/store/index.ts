@@ -30,6 +30,12 @@ import {
   type ReceiptState,
   type Action,
 } from "../coordinator/contracts.js";
+import {
+  validateDuplexLimits,
+  type DuplexState,
+  type DuplexBinding,
+  type DuplexSend,
+} from "../runner/duplex.js";
 import type { CoordinatorTransport } from "../coordinator/transport.js";
 export type Versions = {
   workflow: string;
@@ -74,11 +80,13 @@ export type CommandRecord = {
   supervisor: ProcessIdentity | null;
   group: ProcessIdentity | null;
   result: Json | null;
+  duplex?: DuplexState;
 };
 export type ProcessIdentity = { pid: number; fingerprint: string };
 export class Store {
   readonly path: string;
   #db: DatabaseSync;
+  #transactionDepth = 0;
   constructor(
     path: string,
     readonly clock: () => number = Date.now,
@@ -102,7 +110,8 @@ export class Store {
         schema !== 1 &&
         schema !== 2 &&
         schema !== 3 &&
-        schema !== 4
+        schema !== 4 &&
+        schema !== 5
       ) {
         throw new Error("incompatible-store-schema");
       }
@@ -139,7 +148,7 @@ export class Store {
           this.#saveSnapshot(next);
         }
       }
-      this.#db.exec("PRAGMA user_version=4; COMMIT;");
+      this.#db.exec("PRAGMA user_version=5; COMMIT;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -149,14 +158,21 @@ export class Store {
     this.#db.close();
   }
   #transaction<T>(body: () => T): T {
-    this.#db.exec("BEGIN IMMEDIATE");
+    const nested = this.#transactionDepth > 0;
+    const point = `rocky_${this.#transactionDepth}`;
+    this.#db.exec(nested ? `SAVEPOINT ${point}` : "BEGIN IMMEDIATE");
+    this.#transactionDepth++;
     try {
       const result = body();
-      this.#db.exec("COMMIT");
+      this.#db.exec(nested ? `RELEASE ${point}` : "COMMIT");
       return result;
     } catch (error) {
-      this.#db.exec("ROLLBACK");
+      this.#db.exec(
+        nested ? `ROLLBACK TO ${point}; RELEASE ${point}` : "ROLLBACK",
+      );
       throw error;
+    } finally {
+      this.#transactionDepth--;
     }
   }
   #event(id: string, kind: string, data: unknown) {
@@ -464,11 +480,23 @@ export class Store {
       .all(runId)
       .map((r) => JSON.parse(String(r.data)) as CommandRecord);
   }
-  reserveCommand(lease: Lease, id: string, token: string, spec: Json) {
+  reserveCommand(
+    lease: Lease,
+    id: string,
+    token: string,
+    spec: Json,
+    binding?: DuplexBinding,
+  ) {
     this.#transaction(() => {
       this.#guard(lease);
       if (this.commands(lease.runId).some((c) => c.state !== "finished"))
         throw new Error("command-recovery-required");
+      if (binding) {
+        validateDuplexLimits(binding.limits);
+        this.assertDuplexAction(lease, binding.action);
+        if (this.duplexInvocation(binding.action.key))
+          throw new Error("duplex-invocation-conflict");
+      }
       const record: CommandRecord = {
         id,
         runId: lease.runId,
@@ -480,6 +508,22 @@ export class Store {
         supervisor: null,
         group: null,
         result: null,
+        ...(binding
+          ? {
+              duplex: {
+                schema: 1 as const,
+                ...binding,
+                sends: [],
+                frames: [],
+                inputBytes: 0,
+                outputBytes: 0,
+                revoked: false,
+                failure: null,
+                stdoutEof: false,
+                stderrEof: false,
+              },
+            }
+          : {}),
       };
       this.#db
         .prepare("INSERT INTO commands(id,run_id,data) VALUES(?,?,?)")
@@ -505,6 +549,206 @@ export class Store {
         .prepare("UPDATE commands SET data=? WHERE id=?")
         .run(canonical(c), id);
       this.#event(c.runId, "command-observed", { id, ...update });
+    });
+  }
+  /** Checks the exact durable action and slot; never substitutes a transport capability claim. */
+  assertDuplexAction(lease: Lease, action: Action) {
+    this.#guard(lease);
+    validateAction(action);
+    const s = this.#snapshot(lease.runId),
+      slot = this.implementationSlot();
+    if (
+      action.runId !== lease.runId ||
+      json(s.execution) !== json(action) ||
+      action.inputDigest !== s.inputDigest ||
+      s.cancelled ||
+      s.blocker ||
+      s.wait
+    )
+      throw new Error("action-no-longer-dispatchable");
+    if (
+      !slot ||
+      slot.runId !== lease.runId ||
+      slot.actionKey !== action.key ||
+      slot.fence !== lease.fence ||
+      slot.owner !== lease.owner
+    )
+      throw new Error("stale-slot-fence");
+    if (Math.max(this.clock(), s.budgets.observedAt) >= action.deadline)
+      throw new Error("action-deadline-exceeded");
+    const effect = this.effect(action.key);
+    if (effect?.state !== "sending" || json(effect.payload) !== json(action))
+      throw new Error("duplex-action-not-sending");
+  }
+  assertDuplexStart(id: string, token: string) {
+    const c = this.#duplex(id, token);
+    this.assertDuplexAction(c.lease, c.duplex.action);
+    if (c.duplex.revoked || c.duplex.failure)
+      throw new Error("duplex-input-closed");
+  }
+  duplexInvocation(key: string): CommandRecord | undefined {
+    const rows = this.#db.prepare("SELECT data FROM commands").all();
+    return rows
+      .map((r) => JSON.parse(String(r.data)) as CommandRecord)
+      .find((c) => c.duplex?.action.key === key);
+  }
+  #duplex(id: string, token: string) {
+    const c = this.command(id);
+    if (!c?.duplex || c.token !== token)
+      throw new Error("duplex-capability-invalid");
+    if (c.state === "finished" || c.state === "recovery-required")
+      throw new Error("duplex-not-running");
+    return c as CommandRecord & { duplex: DuplexState };
+  }
+  #saveDuplex(c: CommandRecord, observation: Json) {
+    this.#db
+      .prepare("UPDATE commands SET data=? WHERE id=?")
+      .run(canonical(c), c.id);
+    this.#event(c.runId, "duplex-observed", { id: c.id, observation });
+  }
+  queueDuplex(
+    lease: Lease,
+    id: string,
+    key: string,
+    frame: Json,
+    end = false,
+  ): DuplexSend {
+    return this.#transaction(() => {
+      const record = this.command(id);
+      if (!record?.duplex || record.runId !== lease.runId)
+        throw new Error("duplex-not-found");
+      if (!key || key.length > 256) throw new Error("invalid-duplex-send-key");
+      const wire = end ? "" : canonical(frame) + "\n";
+      const old = record.duplex.sends.find((s) => s.key === key);
+      if (old) {
+        if (old.wire !== wire || old.end !== end)
+          throw new Error("duplex-send-conflict");
+        return old; // Observation only, including after cancellation/restart. Never resend.
+      }
+      const c = this.#duplex(id, record.token),
+        d = c.duplex;
+      this.assertDuplexAction(lease, d.action);
+      if (json(c.lease) !== json(lease)) throw new Error("stale-duplex-fence");
+      if (d.revoked || d.failure || d.sends.some((s) => s.end))
+        throw new Error("duplex-input-closed");
+      const bytes = Buffer.byteLength(wire);
+      if (
+        bytes > d.limits.frameBytes ||
+        d.inputBytes + bytes > d.limits.inputBytes ||
+        d.sends.length >= d.limits.inputFrames
+      )
+        throw new Error("duplex-input-limit");
+      const send: DuplexSend = { key, wire, end, state: "queued" };
+      d.sends.push(send);
+      d.inputBytes += bytes;
+      this.#saveDuplex(c, { send: key, state: "queued", bytes });
+      return send;
+    });
+  }
+  /** Commit ambiguity BEFORE any pipe write. A writing row is never eligible again. */
+  claimDuplexSend(id: string, token: string): DuplexSend | undefined {
+    return this.#transaction(() => {
+      const c = this.#duplex(id, token),
+        d = c.duplex;
+      this.assertDuplexAction(c.lease, d.action);
+      if (d.revoked || d.failure) throw new Error("duplex-input-closed");
+      if (d.sends.some((s) => s.state === "writing"))
+        throw new Error("duplex-send-unknown");
+      const send = d.sends.find((s) => s.state === "queued");
+      if (!send) return;
+      send.state = "writing";
+      this.#saveDuplex(c, { send: send.key, state: "writing" });
+      return send;
+    });
+  }
+  /** Initiate exactly one previously reserved write while holding the same fence/cancel transaction. */
+  writeDuplex(
+    id: string,
+    token: string,
+    key: string,
+    write: (send: DuplexSend) => void,
+  ) {
+    // This commit must precede the OS side effect. A failed final guard consumes the attempt too.
+    if (this.#transactionDepth)
+      throw new Error("duplex-write-inside-transaction");
+    this.#transaction(() => {
+      const c = this.#duplex(id, token),
+        send = c.duplex.sends.find((s) => s.key === key);
+      if (!send || send.state !== "writing" || send.attempted)
+        throw new Error("duplex-send-unknown");
+      send.attempted = true;
+      this.#saveDuplex(c, { send: key, state: "attempted" });
+    });
+    return this.#transaction(() => {
+      const c = this.#duplex(id, token),
+        d = c.duplex;
+      this.assertDuplexAction(c.lease, d.action);
+      if (d.revoked || d.failure) throw new Error("duplex-input-closed");
+      const send = d.sends.find((s) => s.key === key)!;
+      write(send);
+    });
+  }
+  finishDuplexSend(id: string, token: string, key: string) {
+    this.#transaction(() => {
+      const c = this.#duplex(id, token),
+        send = c.duplex.sends.find((s) => s.key === key);
+      if (!send || send.state !== "writing" || !send.attempted)
+        throw new Error("duplex-send-not-reserved");
+      send.state = "written";
+      this.#saveDuplex(c, { send: key, state: "written" });
+    });
+  }
+  observeDuplex(
+    id: string,
+    token: string,
+    update: {
+      frame?: Json;
+      bytes?: number;
+      stdoutEof?: true;
+      stderrEof?: true;
+      failure?: string;
+    },
+  ) {
+    this.#transaction(() => {
+      const c = this.#duplex(id, token),
+        d = c.duplex;
+      if (update.bytes !== undefined) {
+        if (!Number.isSafeInteger(update.bytes) || update.bytes < 0)
+          throw new Error("invalid-duplex-bytes");
+        d.outputBytes += update.bytes;
+        if (d.outputBytes > d.limits.outputBytes) {
+          d.outputBytes = d.limits.outputBytes;
+          d.failure ??= "duplex-output-limit";
+        }
+      }
+      if (Object.hasOwn(update, "frame") && !d.failure) {
+        if (
+          d.frames.length >= d.limits.outputFrames ||
+          Buffer.byteLength(canonical(update.frame)) + 1 > d.limits.frameBytes
+        )
+          d.failure = "duplex-output-limit";
+        else d.frames.push(update.frame!);
+      }
+      d.stdoutEof ||= update.stdoutEof ?? false;
+      d.stderrEof ||= update.stderrEof ?? false;
+      d.failure ??= update.failure ?? null;
+      this.#saveDuplex(c, {
+        frames: d.frames.length,
+        outputBytes: d.outputBytes,
+        failure: d.failure,
+        stdoutEof: d.stdoutEof,
+        stderrEof: d.stderrEof,
+      });
+    });
+  }
+  revokeDuplex(lease: Lease, key: string) {
+    this.#transaction(() => {
+      this.#guard(lease, true);
+      const c = this.duplexInvocation(key);
+      if (!c?.duplex || c.runId !== lease.runId)
+        throw new Error("duplex-not-found");
+      c.duplex.revoked = true;
+      this.#saveDuplex(c, { revoked: true });
     });
   }
   #legacyOnly(runId: string) {
