@@ -3,13 +3,13 @@ import { resolve, join, basename, dirname } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
-import { EVIDENCE, REPAIR_EVIDENCE } from "./common.mjs";
+import { EVIDENCE, REPAIR_EVIDENCE, NATIVE_EVIDENCE } from "./common.mjs";
 
 // Independently specified probe recipe; untrusted inputs.commands is not policy.
 export function definition(attempt) {
   assert.equal(resolve(attempt), attempt, "noncanonical-attempt");
   assert(
-    [EVIDENCE, REPAIR_EVIDENCE].includes(dirname(attempt)),
+    [EVIDENCE, REPAIR_EVIDENCE, NATIVE_EVIDENCE].includes(dirname(attempt)),
     "wrong-attempt-parent",
   );
   assert(

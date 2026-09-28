@@ -9,6 +9,7 @@ import {
   BINARY_SHA,
   EVIDENCE,
   REPAIR_EVIDENCE,
+  NATIVE_EVIDENCE,
 } from "./common.mjs";
 import { definition } from "./fixture.mjs";
 import { trustedIdentity, verifyProvenance } from "./provenance.mjs";
@@ -549,7 +550,7 @@ export function assess({
 export function checkAttempt(directory, referenceCommit) {
   directory = resolve(directory);
   assert(
-    [EVIDENCE, REPAIR_EVIDENCE].some(
+    [EVIDENCE, REPAIR_EVIDENCE, NATIVE_EVIDENCE].some(
       (base) =>
         directory.startsWith(base + "/attempt-") &&
         !directory.slice(base.length + 1).includes("/"),

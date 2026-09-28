@@ -18,10 +18,7 @@ import { verifyProvenance } from "./provenance.mjs";
 import { inventory } from "./common.mjs";
 import { candidatePolicy, excludedPlatformRoots } from "./policy.mjs";
 
-const TEST_EVIDENCE = join(
-  ROOT,
-  ".qualification/harness-contract-59-identity-repair",
-);
+const TEST_EVIDENCE = join(ROOT, ".qualification/harness-native-64");
 
 // Generated unit fixtures test interpretation only; never native evidence.
 function fixture() {

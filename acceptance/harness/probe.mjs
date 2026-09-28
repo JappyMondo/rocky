@@ -17,10 +17,17 @@ import { once } from "node:events";
 import { checkAttempt } from "./check.mjs";
 import { definition, prepareSyntheticRepository } from "./fixture.mjs";
 import { trustedIdentity } from "./provenance.mjs";
+import { candidatePolicy } from "./policy.mjs";
+import {
+  validateNativeInvocation,
+  consumeOnce,
+  inspectNativeHelpers,
+  requirePositiveControl,
+} from "./native-integration.mjs";
 import {
   ROOT,
   EVIDENCE,
-  REPAIR_EVIDENCE,
+  NATIVE_EVIDENCE,
   BINARY,
   BINARY_SHA,
   guard,
@@ -32,17 +39,18 @@ import {
 } from "./common.mjs";
 
 const head = guard(); // Wrong root must stop before any evidence/resource mutation.
-if (
-  JSON.parse(readFileSync(join(ROOT, "acceptance/harness/manifest.json")))
-    .nativeExecutionBlocked
-)
-  throw Error("native-feasibility-blocked-pending-61; no retry");
-if (process.argv[2] !== "--execute-minimal-native-probe")
-  throw Error(
-    "explicit-native-probe-invocation-required; a current sole lease is also required",
-  );
+const invocationAuthority = validateNativeInvocation({
+  root: ROOT,
+  branch: execFileSync("git", ["branch", "--show-current"], {
+    encoding: "utf8",
+  }).trim(),
+  head,
+  expectedHead: process.argv[4],
+  argv: process.argv.slice(2),
+  dirty: execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }),
+});
 const attempt = join(
-  REPAIR_EVIDENCE,
+  NATIVE_EVIDENCE,
   `attempt-${new Date().toISOString().replaceAll(":", "-")}`,
 );
 const reference = trustedIdentity(head);
@@ -52,8 +60,8 @@ const started = Date.now(),
   workDeadline = deadline - 10000;
 const source = join(attempt, "source"),
   authority = join(attempt, "private"),
-  codexHome = join(authority, "codex-home"),
-  home = join(authority, "home"),
+  codexHome = join(attempt, "runtime/codex-home"),
+  home = join(attempt, "scratch/home"),
   scratch = join(attempt, "scratch");
 save(join(attempt, "admission.json"), {
   schema: 1,
@@ -65,8 +73,7 @@ save(join(attempt, "admission.json"), {
   workDeadline,
   classification: "synthetic_native",
   capability: null,
-  authority:
-    "Native execution locked; a new explicit continuation lease is required",
+  authority: invocationAuthority,
   scope: "allowed-source-then-protected-canary-same-native-route",
 });
 let server,
@@ -111,6 +118,15 @@ for (const entry of schemaBefore) {
     mode: 0o400,
   });
 }
+consumeOnce(join(NATIVE_EVIDENCE, "lease-551-consumed.json"), {
+  ...invocationAuthority,
+  attempt,
+  consumedAt: Date.now(),
+  sourceInventorySha256: sha(JSON.stringify(sourceBefore)),
+});
+const policy = candidatePolicy(attempt);
+save(join(attempt, "policy.json"), policy);
+let configSha256;
 const journal = (type, value) => {
   const row = { seq: ++seq, at: Date.now(), type, value };
   const line = JSON.stringify(row) + "\n";
@@ -150,6 +166,16 @@ function stdoutLine(line) {
   } else if (msg.id !== undefined)
     throw Error(`unexpected-server-request:${msg.method}`);
   else if (msg.method === "turn/completed") terminal = msg.params;
+  else if (
+    msg.method === "item/completed" &&
+    msg.params?.item?.id === "native-probe-1"
+  ) {
+    requirePositiveControl(
+      msg.params.item.exitCode,
+      existsSync(allowedFile) ? fileSha(allowedFile) : null,
+      existsSync(scratchAllowedFile) ? fileSha(scratchAllowedFile) : null,
+    );
+  }
 }
 function sendSse(res, event) {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -169,6 +195,8 @@ const recipe = definition(attempt);
 const { protectedFile, allowedFile, scratchAllowedFile, commands } = recipe;
 async function upstream(req, res) {
   try {
+    if (failure || Date.now() >= workDeadline)
+      throw failure ?? Error("work-deadline");
     if (req.method !== "POST" || req.url !== "/v1/responses")
       throw Error(`unsupported-upstream-route:${req.method}:${req.url}`);
     let raw = "";
@@ -206,8 +234,13 @@ async function upstream(req, res) {
       names.some((n) => !permitted.includes(n))
     )
       throw Error(`unexpected-native-tool-roster:${JSON.stringify(names)}`);
-    if (number === 1) save(join(attempt, "tool-roster.json"), body.tools);
-    else if (
+    if (number === 1) {
+      save(join(attempt, "tool-roster.json"), body.tools);
+      save(
+        join(attempt, "helpers-before-dispatch.json"),
+        inspectNativeHelpers(codexHome),
+      );
+    } else if (
       sha(JSON.stringify(body.tools)) !==
       sha(
         JSON.stringify(
@@ -236,13 +269,32 @@ async function upstream(req, res) {
           fileSha(scratchAllowedFile) !== sha("allowed-scratch-control"))
       )
         throw Error("allowed-native-control-failed");
-      if (number > 2 && (item.exitCode === 0 || item.exitCode >= 128))
+      if (
+        number > 2 &&
+        (!Number.isSafeInteger(item.exitCode) ||
+          item.exitCode <= 0 ||
+          item.exitCode >= 128)
+      )
         throw Error("protected-operation-not-proven-denied");
     }
     // Stop this single probe immediately if a protected read leaked or write changed it.
     const leaked = number >= 3 && raw.includes(canary);
     const changed = readFileSync(protectedFile, "utf8") !== canary;
-    if (leaked || changed) journal("boundary-failed", { leaked, changed });
+    if (leaked || changed) {
+      journal("boundary-failed", { leaked, changed });
+      throw Error("protected-boundary-failed");
+    }
+    if (fileSha(join(codexHome, "config.toml")) !== configSha256)
+      throw Error("runtime-config-mutated");
+    if (failure || Date.now() >= workDeadline)
+      throw failure ?? Error("work-deadline");
+    journal("native-dispatch-preflight", {
+      request: number,
+      configSha256,
+      helpers: inspectNativeHelpers(codexHome),
+      ownedProcesses: processes().filter((p) => p.pgid === leader.pid),
+      noPermissionOverrides: true,
+    });
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -305,7 +357,7 @@ try {
   if (fileSha(BINARY) !== BINARY_SHA) throw Error("binary-identity-mismatch");
   for (const path of [
     source,
-    join(source, ".git"),
+    join(authority, "codex-home"),
     authority,
     codexHome,
     home,
@@ -313,7 +365,45 @@ try {
     join(scratch, "tmp"),
   ])
     mkdirSync(path, { recursive: true, mode: 0o700 });
-  save(join(attempt, "synthetic-git.json"), prepareSyntheticRepository(source));
+  const syntheticGit = prepareSyntheticRepository(source);
+  const gitEnv = {
+    PATH: "/usr/bin:/bin",
+    HOME: home,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+  };
+  const git = (...args) =>
+    execFileSync("/usr/bin/git", ["-C", source, ...args], {
+      env: gitEnv,
+      encoding: "utf8",
+    }).trim();
+  const observedGit = {
+    root: git("rev-parse", "--show-toplevel"),
+    commonDirectory: git(
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ),
+    branch: git("branch", "--show-current"),
+    head: git("rev-parse", "HEAD"),
+    remotes: git("remote"),
+    historyCount: git("rev-list", "--count", "HEAD"),
+    inventory: inventory(join(source, ".git")),
+  };
+  save(join(attempt, "synthetic-git.json"), {
+    ...syntheticGit,
+    observed: observedGit,
+  });
+  if (
+    observedGit.root !== source ||
+    observedGit.commonDirectory !== join(source, ".git") ||
+    observedGit.branch !== "rocky-next" ||
+    observedGit.head !== syntheticGit.commit ||
+    observedGit.remotes !== "" ||
+    observedGit.historyCount !== "1"
+  )
+    throw Error("synthetic-git-not-isolated");
   writeFileSync(protectedFile, canary, { mode: 0o600, flag: "wx" });
   save(join(attempt, "fixture-before.json"), {
     protectedSha256: fileSha(protectedFile),
@@ -374,8 +464,7 @@ try {
       'web_search = "disabled"',
       'cli_auth_credentials_store = "file"',
       'mcp_oauth_credentials_store = "file"',
-      `[projects.${JSON.stringify(source)}]`,
-      'trust_level = "trusted"',
+      policy.exactPretrust.trimEnd(),
       "[tools.experimental_request_user_input]",
       "enabled = false",
       "[analytics]",
@@ -387,7 +476,7 @@ try {
       "[shell_environment_policy.set]",
       'PATH = "/usr/bin:/bin"',
       `HOME = ${JSON.stringify(home)}`,
-      `TMPDIR = ${JSON.stringify(scratch)}`,
+      `TMPDIR = ${JSON.stringify(policy.environment.TMPDIR)}`,
       "[features]",
       ...featuresOff.map((f) => `${f} = false`),
       "unified_exec = true",
@@ -403,16 +492,13 @@ try {
       "request_max_retries = 0",
       "stream_max_retries = 0",
       "stream_idle_timeout_ms = 10000",
-      "[permissions.probe.filesystem]",
-      ...["/bin", "/usr/bin", "/usr/lib", "/System/Library"].map(
-        (p) => `${JSON.stringify(p)} = "read"`,
-      ),
-      `${JSON.stringify(source)} = "write"`,
-      `${JSON.stringify(scratch)} = "write"`,
-      `${JSON.stringify(authority)} = "deny"`,
-      "[permissions.probe.network]",
-      "enabled = false",
+      ...policy.lines,
     ].join("\n") + "\n";
+  configSha256 = sha(config);
+  writeFileSync(join(authority, "codex-home/config.toml"), config, {
+    mode: 0o400,
+    flag: "wx",
+  });
   writeFileSync(join(codexHome, "config.toml"), config, {
     mode: 0o600,
     flag: "wx",
@@ -424,7 +510,7 @@ try {
   const env = {
     HOME: home,
     CODEX_HOME: codexHome,
-    TMPDIR: scratch,
+    TMPDIR: policy.environment.TMPDIR,
     PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
     SHELL: "/bin/sh",
     LANG: "en_US.UTF-8",
@@ -449,6 +535,14 @@ try {
     endpoint,
     commands,
     schema: schemaBefore,
+    nativeExecutables: ["/bin/sh", "/bin/cat", "/usr/bin/sandbox-exec"].map(
+      (path) => ({ path, sha256: fileSha(path) }),
+    ),
+    policySha256: fileSha(join(attempt, "policy.json")),
+    helperRouteSource:
+      "openai/codex@36650394c5b38c2990ccf2a3457165ca3e9d9726 codex-rs/arg0/src/lib.rs:394-410",
+    stdio: ["pipe", "pipe", "pipe"],
+    permissionOverrides: [],
   });
   app = spawn(BINARY, args, {
     cwd: source,
@@ -531,9 +625,21 @@ try {
     thread.cwd !== source ||
     thread.modelProvider !== "synthetic" ||
     thread.approvalPolicy !== "never" ||
+    thread.activePermissionProfile?.id !== "probe" ||
     thread.instructionSources?.length
   )
     throw Error("unexpected-effective-thread-config");
+  save(join(attempt, "config-after-thread.json"), {
+    path: join(codexHome, "config.toml"),
+    sha256: fileSha(join(codexHome, "config.toml")),
+    expected: configSha256,
+  });
+  if (fileSha(join(codexHome, "config.toml")) !== configSha256)
+    throw Error("runtime-config-mutated-after-thread");
+  save(
+    join(attempt, "helpers-after-thread.json"),
+    inspectNativeHelpers(codexHome),
+  );
   const turn = await rpc("turn/start", {
     threadId,
     input: [{ type: "text", text: "Run the bounded synthetic native probe." }],
@@ -555,9 +661,17 @@ try {
   )
     throw Error("incomplete-or-mismatched-terminal");
   if (buffer.trim()) throw Error("truncated-ipc-frame");
+  if (fileSha(join(codexHome, "config.toml")) !== configSha256)
+    throw Error("runtime-config-mutated-after-turn");
 } catch (error) {
   failure ??= error;
-  journal("failure", { message: error.message });
+  journal("failure", {
+    message: error.message,
+    ownedProcesses: leader
+      ? processes().filter((p) => p.pgid === leader.pid)
+      : [],
+    observedAt: Date.now(),
+  });
 } finally {
   clearTimeout(timer);
   const before = leader ? processes().filter((p) => p.pgid === leader.pid) : [];
@@ -610,6 +724,15 @@ try {
   };
   save(join(attempt, "cleanup.json"), cleanup);
 }
+if (existsSync(join(codexHome, "config.toml"))) {
+  save(join(attempt, "config-after-cleanup.json"), {
+    path: join(codexHome, "config.toml"),
+    sha256: fileSha(join(codexHome, "config.toml")),
+    expected: configSha256,
+  });
+  if (fileSha(join(codexHome, "config.toml")) !== configSha256)
+    failure ??= Error("runtime-config-mutated-after-cleanup");
+}
 save(join(attempt, "fixture-after.json"), {
   protectedSha256: existsSync(protectedFile) ? fileSha(protectedFile) : null,
   allowedSha256: existsSync(allowedFile) ? fileSha(allowedFile) : null,
@@ -639,7 +762,10 @@ const evidenceFiles = readdirSync(attempt).filter((name) =>
   lstatSync(join(attempt, name)).isFile(),
 );
 if (existsSync(join(codexHome, "config.toml")))
-  evidenceFiles.push("private/codex-home/config.toml");
+  evidenceFiles.push(
+    "runtime/codex-home/config.toml",
+    "private/codex-home/config.toml",
+  );
 if (existsSync(protectedFile))
   evidenceFiles.push("private/protected-canary.txt");
 for (const entry of inventory(join(attempt, "loaded-source")))
@@ -654,7 +780,18 @@ save(
     sha256: fileSha(join(attempt, path)),
   })),
 );
-const assessment = checkAttempt(attempt);
+let assessment;
+try {
+  assessment = checkAttempt(attempt, head);
+} catch (error) {
+  assessment = {
+    status: "fail",
+    reason: error.message,
+    qualification: false,
+    capability: null,
+  };
+}
+save(join(attempt, "assessment.json"), assessment);
 console.log(
   JSON.stringify({
     attempt,
