@@ -481,6 +481,39 @@ export function replaySettlement(
       "emitted-call-order-mismatch",
     );
   }
+  // The sole IPC final must be caused by the fourth emitted message, after
+  // every operation's settlement receipt. Do not require the independent SSE
+  // response.completed frame to precede IPC final delivery.
+  const emittedFinal = responseFrames.find(
+    (r) =>
+      r.value.request === 4 &&
+      r.value.event.type === "response.output_item.done",
+  );
+  const lastReceipt = Math.max(...receipts.values());
+  assert(
+    emittedFinal.seq > lastReceipt,
+    "emitted-final-before-settlement-receipts",
+  );
+  const finalItems = journal.filter(
+    (r) =>
+      r.type === "ipc-receive" &&
+      ["item/started", "item/completed"].includes(r.value.method) &&
+      r.value.params?.item?.type === "agentMessage",
+  );
+  assert.equal(finalItems.length, 2, "missing-or-ambiguous-final-pair");
+  for (const row of finalItems)
+    assert(
+      row.seq > emittedFinal.seq && row.seq > lastReceipt,
+      "final-before-emitted-final-or-settlement",
+    );
+  const completedFinal = finalItems.find(
+    (r) => r.value.method === "item/completed",
+  );
+  assert.equal(
+    completedFinal?.value.params.item.text,
+    emittedFinal.value.event.item.content[0].text,
+    "final-text-not-emitted-message",
+  );
   const eof = journal.filter((r) => r.type === "ipc-eof");
   assert.equal(eof.length, 1, "missing-or-duplicate-ipc-eof");
   assert.equal(eof[0].value.pendingBytes, 0, "truncated-ipc-at-eof");

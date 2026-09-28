@@ -20,7 +20,7 @@ import { settlementFixture, refresh } from "./settlement-fixtures.mjs";
 guard();
 const root = join(
   ROOT,
-  ".qualification/harness-settlement-68",
+  ".qualification/harness-settlement-68-repair",
   `provenance-selftest-${Date.now()}`,
 );
 mkdirSync(root, { recursive: true, mode: 0o700 });

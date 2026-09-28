@@ -19,7 +19,7 @@ import {
 guard();
 const dir = join(
   ROOT,
-  ".qualification/harness-settlement-68",
+  ".qualification/harness-settlement-68-repair",
   `selftest-${Date.now()}`,
 );
 mkdirSync(dir, { recursive: true, mode: 0o700 });

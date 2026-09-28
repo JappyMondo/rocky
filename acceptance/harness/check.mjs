@@ -38,12 +38,30 @@ function turnShape(turn) {
     ["inProgress", "completed", "failed", "interrupted"].includes(turn.status),
     "invalid-turn-status",
   );
+  // A successful finite probe must not contain contradictory typed failure.
+  // Missing error is not explicit evidence of a successful start/terminal.
+  assert.equal(turn.error, null, "non-null-or-missing-turn-error");
   for (const key of ["startedAt", "completedAt", "durationMs"])
     if (Object.hasOwn(turn, key))
       assert(
         turn[key] === null || Number.isSafeInteger(turn[key]),
         "invalid-turn-timestamp",
       );
+}
+function threadStatusShape(status) {
+  assert(object(status), "invalid-thread-status");
+  assert(
+    ["notLoaded", "idle", "active"].includes(status.type),
+    "failed-or-unsupported-thread-status",
+  );
+  if (status.type === "active")
+    assert(
+      Array.isArray(status.activeFlags) &&
+        status.activeFlags.every((flag) =>
+          ["waitingOnApproval", "waitingOnUserInput"].includes(flag),
+        ),
+      "invalid-active-thread-flags",
+    );
 }
 function threadStartShape(result) {
   assert(
@@ -77,6 +95,7 @@ function threadStartShape(result) {
     object(t.status) && t.status.type === "idle",
     "invalid-start-thread-status",
   );
+  threadStatusShape(t.status);
   assert.deepEqual(t.turns, [], "nonempty-start-thread");
   for (const key of ["model", "modelProvider", "cwd"])
     assert(identity(result[key]), `invalid-thread-response-${key}`);
@@ -206,6 +225,11 @@ function invocation(journal, thread, observations) {
     (r) => r.type === "ipc-receive" && r.value.method,
   )) {
     const { method, params: p } = row.value;
+    assert.notEqual(method, "error", "contradictory-error-notification");
+    if (method === "thread/status/changed") {
+      assert.equal(p.threadId, threadId, "missing-or-wrong-status-thread");
+      threadStatusShape(p.status);
+    }
     if (Object.hasOwn(p, "threadId"))
       assert.equal(p.threadId, threadId, "event-thread-mismatch");
     if (Object.hasOwn(p, "turnId"))
@@ -216,6 +240,8 @@ function invocation(journal, thread, observations) {
         "thread-start-event-mismatch",
       );
       assert(row.seq > ts.request.seq, "thread-event-before-request");
+      threadStatusShape(p.thread.status);
+      assert.deepEqual(p.thread.turns, [], "nonempty-start-thread-event");
     }
     if (
       [
@@ -236,8 +262,20 @@ function invocation(journal, thread, observations) {
       } else {
         turnShape(p.turn);
         assert.equal(p.turn.id, turnId, "turn-event-mismatch");
-        if (method === "turn/completed")
+        if (method === "turn/started")
+          assert.equal(
+            p.turn.status,
+            "inProgress",
+            "invalid-started-turn-status",
+          );
+        if (method === "turn/completed") {
+          assert.equal(
+            p.turn.status,
+            "completed",
+            "unsuccessful-terminal-turn",
+          );
           assert(row.seq > us.response.seq, "terminal-before-turn-response");
+        }
       }
     }
   }
@@ -468,6 +506,7 @@ export function assess({
       itemPending = new Set(),
       itemSeen = new Set(),
       rpcSeen = new Set();
+    let terminalSeen = false;
     for (const row of journal) {
       const m = row.value;
       if (row.type === "ipc-send" && m.id !== undefined) {
@@ -476,6 +515,13 @@ export function assess({
         rpcPending.add(m.id);
       }
       if (row.type !== "ipc-receive") continue;
+      if (
+        m.method === "thread/started" ||
+        m.method === "turn/started" ||
+        m.method === "turn/completed" ||
+        m.method?.startsWith("item/")
+      )
+        assert(!terminalSeen, "post-terminal-lifecycle");
       if (m.id !== undefined) {
         assert(
           !m.method && rpcPending.delete(m.id) && !m.error,
@@ -490,6 +536,7 @@ export function assess({
       if (m.method === "item/completed")
         assert(itemPending.delete(m.params.item.id), "missing-item-start");
       if (m.method === "turn/completed") {
+        terminalSeen = true;
         assert.equal(itemPending.size, 0, "terminal-with-pending-item");
         assert.equal(rpcPending.size, 0, "terminal-with-pending-request");
       }
@@ -665,6 +712,11 @@ export function assess({
       assert(event.seq < terminals[0].seq, "final-after-terminal");
     }
     assert(finalStart[0].seq < final[0].seq, "final-completion-before-start");
+    if (!settlements)
+      assert(
+        finalStart[0].seq > completed.at(-1).seq,
+        "final-before-native-completion",
+      );
     assert.deepEqual(JSON.parse(final[0].value.params.item.text), {
       status: "synthetic-complete",
     });

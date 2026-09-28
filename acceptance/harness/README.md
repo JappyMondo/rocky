@@ -242,6 +242,47 @@ and current complete-bundle recheck remain **FAIL**. This variant does not turn
 that incomplete historical attempt into a pass. A fresh native trial requires
 independent source review and separate root-granted authority.
 
+## Completion repair after review 590/591 (lease 596)
+
+SPEC65-01 remains fixed. SPEC65-02/03 exposed contradictory success transcripts
+that the previous checker accepted. The repair is confined to completion and
+its typed error/lifecycle conditions; policy, native commands, limits and the
+consumed execution gate are unchanged.
+
+The start response, started-turn notification and successful terminal now
+require an explicitly null `turn.error`. This is stricter than the generated
+schema's optional field and matches retained pinned-native start/completed
+frames. Started turns must be `inProgress`; the terminal must be `completed`.
+Typed `thread/status/changed` and thread-start status evidence must use a valid
+non-error state; `systemError` and `error` notifications contradict successful
+acceptance anywhere in the complete transcript. Fresh thread-start evidence
+cannot contain failed or other historical turns.
+
+Both final IPC item events must follow **every settlement receipt and the fourth
+emitted final message**, whose text must match the completed IPC message. The
+separate SSE `response.completed` frame need not precede the IPC final pair;
+that independent channel ordering is preserved. Item activity, thread-start or
+turn-start/completion after terminal is rejected even when late items would
+empty the pending set again. Benign status/usage notifications can still arrive
+after terminal and before EOF.
+
+`completion.test.mjs` snapshots all unchanged `f90eee32` harness source directly
+from Git and runs its actual `assess()` against the same serialized mutated
+fixtures as the repaired checker. Twenty old-pass/new-reject cases cover typed
+errors, early final/emission ordering and post-terminal lifecycle. Four positive
+variants preserve eventful/alternate result ordering, startup notifications
+before their RPC responses, final IPC before SSE completion, and late benign
+notifications. Three already-rejected cases stay rejected and are not presented
+as new fixes. This is full operation assessment with actual-shaped synthetic
+transcripts, not native execution or complete artifact qualification.
+
+All current static tests write only to
+`.qualification/harness-settlement-68-repair/`. The prior 8,585 evidence entries
+and six indices remain immutable; old source/schema inputs are read only. Run
+committed-source binding checks only from a clean revision. The historical 8930
+full bundle remains failed, and independent #65 rereview is required. Gate551
+remains consumed; no fresh execution authority is implemented.
+
 ## Current result: native feasibility blocked
 
 The two original attempts are retained below
@@ -321,7 +362,7 @@ credentials or ChatGPT auth extraction must never be inferred.
 From the exact canonical root on `rocky-next`:
 
 ```sh
-node --test acceptance/harness/check.test.mjs acceptance/harness/config-binding.test.mjs acceptance/harness/settlement.test.mjs acceptance/harness/settlement-provenance.test.mjs acceptance/harness/binding.test.mjs
+node --test acceptance/harness/check.test.mjs acceptance/harness/config-binding.test.mjs acceptance/harness/settlement.test.mjs acceptance/harness/settlement-provenance.test.mjs acceptance/harness/completion.test.mjs acceptance/harness/binding.test.mjs
 node --check acceptance/harness/probe.mjs
 node_modules/.bin/prettier --check acceptance/harness
 node acceptance/harness/check.mjs .qualification/harness-native-64/attempt-2026-09-28T02-35-51.938Z 8930b4849eb9ae5bb2176fda9e8712826c69244c

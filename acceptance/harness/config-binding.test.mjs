@@ -19,7 +19,7 @@ import { verifyInventory } from "./check.mjs";
 guard();
 const unit = join(
   ROOT,
-  ".qualification/harness-native-64-repair",
+  ".qualification/harness-settlement-68-repair",
   `config-selftest-${Date.now()}`,
 );
 mkdirSync(unit, { recursive: true, mode: 0o700 });
