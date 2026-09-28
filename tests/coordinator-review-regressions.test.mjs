@@ -311,7 +311,7 @@ test("R7 observation issuance rolls back its token/invalidation/revision/event a
   sql.close();
   f.store.close();
 });
-test("R8 schema2 owned copy migrates to schema7/snapshot3 with retained old evidence; ec9a0cd reader rejects the new DB", async () => {
+test("R8 schema2 owned copy migrates to schema8/snapshot3 with retained old evidence; ec9a0cd reader rejects the new DB", async () => {
   const { copyFileSync, readFileSync } = await import("node:fs");
   const { DatabaseSync } = await import("node:sqlite");
   const { admission } = await import("./coordinator-support.mjs");

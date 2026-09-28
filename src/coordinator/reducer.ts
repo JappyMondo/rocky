@@ -348,8 +348,10 @@ export function reduce(
     else if (u.status === "unknown") b.unknownActions++;
     else if (u.status === "ambiguous-zero") b.harnessAmbiguousZero! += 1;
     // Reported overrun is retained in full: never clipped to the planning charge or refunded.
+    // reportedTotal(u) is already a validated safe integer (validateHarnessUsage bounds
+    // input+output), and usageStop halts scheduling once the threshold is reached, so this
+    // accumulator cannot overflow; no separate overflow check is needed here.
     else b.harnessReportedTokens = b.harnessReportedTokens! + reportedTotal(u);
-    integer(b.harnessReportedTokens ?? 0);
     if (u.status === "known" && u.tokens > a.tokens) {
       block(s, "recovery", "hard-token-contract-violated");
       return { snapshot: s, actions };

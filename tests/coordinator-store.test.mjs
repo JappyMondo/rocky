@@ -36,7 +36,7 @@ async function race(mode, path, ids) {
   return messages;
 }
 
-test("C01 schema7 fresh/copy migration retains v1 events/effects/commands; unknown versions reject", async () => {
+test("C01 schema8 fresh/copy migration retains v1 events/effects/commands; unknown versions reject", async () => {
   const f = fixture("C01");
   f.store.close();
   const db = new DatabaseSync(f.dir + "/v1.sqlite");

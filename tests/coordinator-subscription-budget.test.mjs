@@ -826,6 +826,101 @@ test("SB10 exact accepted 572accf strict records survive the storage8 boundary u
     ),
   );
 });
+
+test("SB11 a successful result with unresolved usage stops the run as recovery_required and refuses every schedule call, including verify and observe_ci, until an explicit revise (F08)", () => {
+  const f = subscriptionFixture("SB11");
+  const s = implement(f, unknown, "unqualified-head-2");
+  assert.equal(s.head, "head-1");
+  assert.equal(s.stage, "recovery_required");
+  assert.equal(s.blocker.detail, "successful-result-usage-unknown");
+  assert.deepEqual(s.unqualifiedResults, ["implement"]);
+  // recovery_required is a hard top-level gate in schedule(): both verify and observe_ci would
+  // otherwise be rejected with invalid-stage-action for their own stage reasons, but while
+  // recovery_required holds, every schedule call fails closed with the same run-not-dispatchable
+  // error instead, per docs/coordinator.md's successful-claim-with-unresolved-usage caveat.
+  assert.throws(() => schedule(f, "verify"), /run-not-dispatchable/);
+  assert.throws(() => schedule(f, "observe_ci"), /run-not-dispatchable/);
+  reopen(f);
+  assert.throws(() => schedule(f, "verify"), /run-not-dispatchable/);
+  const revised = apply(f.store, f.lease, {
+    type: "revise",
+    head: s.head,
+    scope: { ...s.scope, revision: 2 },
+    checkPlan: s.checkPlan,
+  });
+  assert.equal(revised.stage, "verifying");
+  assert.equal(revised.blocker, null);
+  // The hard gate is gone once revised; observe_ci is now refused for the ordinary stage reason.
+  assert.throws(() => schedule(f, "observe_ci"), /invalid-stage-action/);
+  const verified = verify(f, "pass");
+  assert.equal(verified.stage, "awaiting_delivery_evidence");
+  reopen(f);
+  assert.deepEqual(snap(f), verified);
+  f.store.close();
+});
+test("SB12 dispatch qualification check is keyed on the agent-work kind, not the row's qualificationId: a tampered/missing id on an agent action is still refused", async () => {
+  const f = subscriptionFixture("SB12");
+  baseline(f);
+  const scheduled = schedule(f, "implement");
+  assert.equal(scheduled.execution.schema, 2);
+  assert.equal(scheduled.execution.qualificationId, qualification.id);
+  const key = scheduled.execution.key;
+  const path = f.store.path;
+  const lease = f.lease;
+  f.store.close();
+  // Simulate a tampered/corrupted row: the agent-work action's own qualificationId is cleared, as
+  // if forged or lost, while the run's authoritative qualification is untouched. This bypasses no
+  // application code path; it directly edits the persisted snapshot the way corruption or a forged
+  // write would.
+  const raw = new DatabaseSync(path);
+  const row = raw
+    .prepare("SELECT data FROM coordinator_snapshots WHERE run_id='run-1'")
+    .get();
+  const tampered = JSON.parse(String(row.data));
+  assert.equal(tampered.execution.qualificationId, qualification.id);
+  tampered.execution.qualificationId = null;
+  raw
+    .prepare("UPDATE coordinator_snapshots SET data=? WHERE run_id='run-1'")
+    .run(JSON.stringify(tampered));
+  raw.close();
+  const store2 = new Store(path, () => 1000);
+  const tamperedSnapshot = store2.coordinatorSnapshot("run-1");
+  assert.equal(tamperedSnapshot.execution.qualificationId, null);
+  assert.deepEqual(tamperedSnapshot.qualification, qualification);
+  const transport = (over = {}) => ({
+    versions,
+    capability: null,
+    qualification: null,
+    begin() {
+      return new Promise(() => {});
+    },
+    interrupt() {},
+    ...over,
+  });
+  // Before this hardening, a falsy row qualificationId skipped the match check entirely, so a
+  // missing or wrong transport qualification would have been let through for agent work. Keying
+  // the check on isAgentWork(a.kind) instead means it is enforced regardless of the row's own
+  // (possibly tampered) qualificationId.
+  await assert.rejects(
+    () => store2.dispatchCoordinator(lease, key, transport()),
+    /execution-qualification-mismatch/,
+  );
+  await assert.rejects(
+    () =>
+      store2.dispatchCoordinator(
+        lease,
+        key,
+        transport({
+          qualification: {
+            ...qualification,
+            binding: sha("forged-for-tampered-row"),
+          },
+        }),
+      ),
+    /execution-qualification-mismatch/,
+  );
+  store2.close();
+});
 function snapshot(store, id) {
   return store.coordinatorSnapshot(id);
 }

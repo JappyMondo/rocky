@@ -1,0 +1,98 @@
+TAP version 13
+# Subtest: SB01 admission binds an explicit harness-neutral mode; no hard-limit capability, caller flag or strict/subscription mixing
+ok 1 - SB01 admission binds an explicit harness-neutral mode; no hard-limit capability, caller flag or strict/subscription mixing
+  ---
+  duration_ms: 6.038708
+  type: 'test'
+  ...
+# Subtest: SB02 reported overrun is retained unclipped; threshold stops every later agent action while local verify and CI observation continue (F09)
+ok 2 - SB02 reported overrun is retained unclipped; threshold stops every later agent action while local verify and CI observation continue (F09)
+  ---
+  duration_ms: 59.814625
+  type: 'test'
+  ...
+# Subtest: SB03 accumulated reported total 99 vs threshold 100 (F09 99/100/101)
+ok 3 - SB03 accumulated reported total 99 vs threshold 100 (F09 99/100/101)
+  ---
+  duration_ms: 53.929209
+  type: 'test'
+  ...
+# Subtest: SB03 accumulated reported total 100 vs threshold 100 (F09 99/100/101)
+ok 4 - SB03 accumulated reported total 100 vs threshold 100 (F09 99/100/101)
+  ---
+  duration_ms: 47.999958
+  type: 'test'
+  ...
+# Subtest: SB03 accumulated reported total 101 vs threshold 100 (F09 99/100/101)
+ok 5 - SB03 accumulated reported total 101 vs threshold 100 (F09 99/100/101)
+  ---
+  duration_ms: 56.810708
+  type: 'test'
+  ...
+# Subtest: SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04)
+ok 6 - SB04 ambiguous all-zero success is never known zero: head not adopted, barrier survives revision/reopen, agent repair stops, local work continues (F08, M04)
+  ---
+  duration_ms: 30.952875
+  type: 'test'
+  ...
+# Subtest: SB05 unknown usage on a failed review blocks later CI agent repair but not CI observation; review exhaustion alone keeps CI entitlement (F10)
+ok 7 - SB05 unknown usage on a failed review blocks later CI agent repair but not CI observation; review exhaustion alone keeps CI entitlement (F10)
+  ---
+  duration_ms: 130.825458
+  type: 'test'
+  ...
+# Subtest: SB06 unknown then drain and duplicate/conflicting finals: usage immutable, never double-counted, barrier kept across restart (M03)
+ok 8 - SB06 unknown then drain and duplicate/conflicting finals: usage immutable, never double-counted, barrier kept across restart (M03)
+  ---
+  duration_ms: 35.384667
+  type: 'test'
+  ...
+# Subtest: SB07 native telemetry cannot be relabelled: provider receipts, caller known-zero, wrong harness and malformed components reject before mutation (F08, M03)
+ok 9 - SB07 native telemetry cannot be relabelled: provider receipts, caller known-zero, wrong harness and malformed components reject before mutation (F08, M03)
+  ---
+  duration_ms: 33.223916
+  type: 'test'
+  ...
+# Subtest: SB08 dispatch requires the exact run qualification; hard-limit transports, stale fences, changed versions, cancel and deadline keep counting reported usage
+ok 10 - SB08 dispatch requires the exact run qualification; hard-limit transports, stale fences, changed versions, cancel and deadline keep counting reported usage
+  ---
+  duration_ms: 47.88475
+  type: 'test'
+  ...
+# Subtest: SB09 model results cannot mint authoritative receipts and the budget mode cannot be revised in place (M02, M05)
+ok 11 - SB09 model results cannot mint authoritative receipts and the budget mode cannot be revised in place (M02, M05)
+  ---
+  duration_ms: 15.465292
+  type: 'test'
+  ...
+# Subtest: SB10 exact accepted 572accf strict records survive the storage8 boundary unchanged; forged rows roll back; old reader refuses (M01, M02)
+ok 12 - SB10 exact accepted 572accf strict records survive the storage8 boundary unchanged; forged rows roll back; old reader refuses (M01, M02)
+  ---
+  duration_ms: 473.058834
+  type: 'test'
+  ...
+# Subtest: SB11 a successful result with unresolved usage stops the run as recovery_required and refuses every schedule call, including verify and observe_ci, until an explicit revise (F08)
+ok 13 - SB11 a successful result with unresolved usage stops the run as recovery_required and refuses every schedule call, including verify and observe_ci, until an explicit revise (F08)
+  ---
+  duration_ms: 29.254792
+  type: 'test'
+  ...
+# Subtest: SB12 dispatch qualification check is keyed on the agent-work kind, not the row's qualificationId: a tampered/missing id on an agent action is still refused
+not ok 14 - SB12 dispatch qualification check is keyed on the agent-work kind, not the row's qualificationId: a tampered/missing id on an agent action is still refused
+  ---
+  duration_ms: 60003.900625
+  type: 'test'
+  location: '/Users/jappy/.t3/worktrees/rocky/rocky-next/tests/coordinator-subscription-budget.test.mjs:861:1'
+  failureType: 'testTimeoutFailure'
+  error: 'test timed out after 60000ms'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 13
+# fail 0
+# cancelled 1
+# skipped 0
+# todo 0
+# duration_ms 61407.101666

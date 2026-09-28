@@ -1,0 +1,22 @@
+Checking formatting...
+[warn] acceptance/contracts/foundation-scenarios.json
+[warn] acceptance/contracts/requirements.json
+[warn] acceptance/environment/manifest.json
+[warn] acceptance/foundation-independent-fault-worker.mjs
+[warn] acceptance/foundation-independent-faults.test.mjs
+[warn] acceptance/foundation-independent-worker.mjs
+[warn] acceptance/foundation-independent.test.mjs
+[warn] docs/architecture/first-version-decisions.md
+[warn] docs/research/rocky-audit-2026-09-27.md
+[warn] docs/research/software-factory-patterns-2026-09-27.md
+[error] docs/rocky-next-concept.html: SyntaxError: Unexpected closing tag "td". It may happen when the tag has already been closed by another tag. For more info see https://www.w3.org/TR/html5/syntax.html#closing-elements-that-have-implied-end-tags (959:42)
+[error]   957 | </tr>
+[error]   958 | <tr>
+[error] > 959 | <td>init; upgrade; trigger <name> <issue></td>
+[error]       |                                          ^^^^^
+[error]   960 | <td>Explicit stubs in current commands.ts; manual triggering exists through local API/MCP instead</td>
+[error]   961 | </tr>
+[error]   962 | </tbody></table></div>
+[warn] docs/rocky-next-concept.md
+Error occurred when checking code style in the above file.
+EXIT:2

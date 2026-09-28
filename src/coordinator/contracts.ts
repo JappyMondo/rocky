@@ -2,8 +2,6 @@ import { canonical, identity } from "../store/json.js";
 import type { Versions } from "../store/index.js";
 import type { Artifact, EvidenceInputs } from "../evidence/index.js";
 
-/** Snapshot3 is the unchanged strict-provider record; snapshot4 is subscription-observed-v1 only. */
-export const COORDINATOR_SCHEMA = 4;
 export type Stage =
   | "admitted"
   | "baseline"

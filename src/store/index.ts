@@ -20,6 +20,7 @@ import {
   type Observation,
   validateCapability,
   validateQualification,
+  isAgentWork,
   text,
   integer,
   terminal,
@@ -1691,7 +1692,9 @@ export class Store {
       // A subscription transport cannot carry hard-limit claims into this mode.
       if (transport.capability)
         throw new Error("transport-budget-mode-mismatch");
-      if (a.qualificationId && json(qualification) !== json(s.qualification))
+      // Keyed on the action kind, not the row's qualificationId: a tampered/missing id on an
+      // agent-work action must not bypass the exact-match requirement.
+      if (isAgentWork(a.kind) && json(qualification) !== json(s.qualification))
         throw new Error("execution-qualification-mismatch");
     }
     if (json(transport.versions) !== json(s.versions))
