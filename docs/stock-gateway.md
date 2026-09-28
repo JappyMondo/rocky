@@ -94,7 +94,12 @@ The observed compatibility lifecycle is `response.created`, ordered
 function calls and assistant text messages are supported; custom string calls
 and narrow assistant added/text-delta/done cases are explicitly source-only.
 Added messages must finish with matching ID/content/deltas. Provider response
-and call IDs cannot be reused across the durable action history. Terminal output,
+and call IDs cannot be reused across the durable action history. Before completion,
+the Store also rejects newly returned item IDs already bound in the current input
+(including native-added IDs) or any prior provider output. Repeated immutable
+cumulative input references remain valid; they do not authorize a new output to
+reuse an identity. A collision leaves full charges and unknown usage, with no
+provider bytes forwarded or subsequent progression. Terminal output,
 when supplied, must exactly match retained done items. Only
 `max_output_tokens` incomplete details are supported; incomplete is never success.
 

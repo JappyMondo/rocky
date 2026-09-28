@@ -824,8 +824,25 @@ export class Store {
         )
       )
         throw new Error("stock-response-id-reused");
-      const previousCalls = this.providerRecords(actionKey)
-        .flatMap((r) => r.stock?.response?.items ?? [])
+      // Repeated cumulative input references are legitimate. Newly returned output
+      // identities must be fresh against both native-bound input and provider history.
+      const priorItems = this.providerRecords(actionKey).flatMap(
+        (r) => r.stock?.response?.items ?? [],
+      );
+      const inputItems = JSON.parse(current.request.body).input as {
+        id?: Json;
+      }[];
+      const boundItemIds = new Set(
+        [...inputItems, ...priorItems]
+          .map((item) => item.id)
+          .filter((itemId) => itemId !== undefined),
+      );
+      for (const item of response.items) {
+        if (item.id === undefined) continue;
+        if (boundItemIds.has(item.id)) throw new Error("stock-item-id-reused");
+        boundItemIds.add(item.id);
+      }
+      const previousCalls = priorItems
         .map((v) => v.call_id)
         .filter((v) => v !== undefined);
       if (
