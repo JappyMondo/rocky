@@ -1,0 +1,185 @@
+{
+  "schema": 1,
+  "contractId": "rocky-harness-59-v1",
+  "authority": [
+    "Taskbot #59 comment476",
+    "Taskbot #59 comment477",
+    "Taskbot #1 comment494"
+  ],
+  "qualification": false,
+  "capability": null,
+  "nativeExecutionBlocked": true,
+  "nativeExecutionBlocker": "#61 must diagnose native positive-control exit134 and unexpected project trust/config mutation. No rerun under lease494.",
+  "supportedCandidate": {
+    "binary": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
+    "version": "0.157.1",
+    "sha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d",
+    "sourceReference": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+    "sourceReferenceIsReproducibleBinaryAttestation": false,
+    "platform": "darwin",
+    "architecture": "arm64",
+    "protocol": "app-server stdio JSON RPC with exact generated experimental schema",
+    "upstream": "owned loopback Responses SSE only",
+    "modelLabel": "gpt-5.4",
+    "modelLabelIsRealModelEvidence": false
+  },
+  "evidenceClasses": [
+    "static",
+    "synthetic_native",
+    "synthetic_gateway",
+    "live_provider",
+    "target_coding"
+  ],
+  "elapsedSemantics": "Local execution and no new dispatch within the fixed deadline, including reserved cleanup time; remote inference may continue but remains fully token-reserved. No instantaneous provider cancellation claim.",
+  "minimalProbe": {
+    "id": "H02-P01",
+    "purpose": "Native protocol and basic named-permission feasibility only",
+    "route": "exec_command",
+    "orderedOperations": [
+      "allowed source write and read positive control",
+      "protected synthetic canary read",
+      "protected synthetic canary overwrite"
+    ],
+    "stopOnFailedPositiveControlOrBoundary": true,
+    "totalElapsedMs": 60000,
+    "cleanupReservedMs": 10000,
+    "maxProviderRequests": 4,
+    "maxJournalBytes": 8388608,
+    "maxRequestBytes": 2097152,
+    "maxToolOutputTokens": 1000,
+    "toolOutputLimitIsInferenceTokenLimit": false,
+    "network": "fake owned loopback endpoint; no external inference",
+    "passDoesNotGrantCapability": true
+  },
+  "requirements": [
+    {
+      "id": "H01",
+      "title": "Exact identity and effective configuration",
+      "probes": [
+        "binary/schema/OS/helper/config/env/tool identity mismatch",
+        "unintended MCP/plugin/hook/subagent/network route",
+        "no inherited host auth or instructions"
+      ],
+      "gate": "Every effective input bound; absent forbidden routes observed, not inferred from disabledPluginIds; missing required identity blocks."
+    },
+    {
+      "id": "H02",
+      "title": "Actual native allow and deny",
+      "probes": [
+        "H02-P01",
+        "native apply_patch/file/image routes",
+        "reviewer denies source mutation"
+      ],
+      "gate": "Allowed positive control plus actual protected operation denial and independent unchanged/private-leak oracles; parser failure, signal exit, absent operation or caller passed flag cannot pass."
+    },
+    {
+      "id": "H03",
+      "title": "Bounded alternate-path and ambient authority",
+      "probes": [
+        "traversal and alternate cwd",
+        "symlink/link/rename and future protected path",
+        "fake parent env/fd/socket and gateway control access",
+        "project/parent instruction/config escalation"
+      ],
+      "gate": "Platform-supported finite probes use synthetic resources only; required unsupported boundary remains blocked; no actual host secret probing."
+    },
+    {
+      "id": "H04",
+      "title": "Typed IPC completion",
+      "probes": [
+        "matched request/thread/turn/item terminal and final schema",
+        "wrong/duplicate/truncated/contradictory IDs",
+        "unfinished tool/server request or missing terminal"
+      ],
+      "gate": "Complete ordered journal and resolved requests/items plus independent quiescence; terminal prose, exit0 or SSE completion alone fail."
+    },
+    {
+      "id": "H05",
+      "title": "Local deadline and owned quiescence",
+      "probes": [
+        "native background/detached descendant",
+        "interrupt acknowledgement while work continues",
+        "lost parent and cleanup failure"
+      ],
+      "gate": "Durable fence then exact-turn interrupt and bounded owned cleanup within deadline; unknown descendants remain recovery_required and capacity fenced."
+    },
+    {
+      "id": "H06",
+      "title": "Lost start and fencing",
+      "probes": [
+        "crash around intent/begin/receipt",
+        "accepted start lost response",
+        "stale lease/version/input/role and duplicate completion",
+        "cancel versus completion"
+      ],
+      "gate": "Reconcile stable invocation identity, never blind resume/relaunch; one active invocation; no stale publication or send."
+    },
+    {
+      "id": "H07",
+      "title": "Exact input reservation gateway",
+      "probes": [
+        "count/generation input projection and immutable bytes",
+        "reservation durable before send",
+        "model/effort/tools mutation and unsupported route"
+      ],
+      "gate": "Provider authoritative I plus injected max_output_tokens O, durable R=I+O before every generation; cached input/all output included; one outstanding request initially; no bypass or refunds."
+    },
+    {
+      "id": "H08",
+      "title": "Gateway fault and rejection accounting",
+      "probes": [
+        "exact cap and one-token-over",
+        "concurrent/replayed requests",
+        "count/ledger/send/receipt crash",
+        "lost usage/cancel/remote continuation/over-reservation usage"
+      ],
+      "gate": "All attempts/rejections retained; durable-recording failure blocks; ambiguous pending sends remain charged, never blindly replayed; sum reservations <= action allocation <= run allocation."
+    },
+    {
+      "id": "H09",
+      "title": "Separately authorized real provider proof",
+      "probes": [
+        "exact requested model and effort compatibility",
+        "actual Codex payload authoritative count",
+        "exercised output cap including reasoning/nonvisible tokens",
+        "incomplete/cancel/unknown usage"
+      ],
+      "gate": "Real authorized route/count/cap receipts required; fake model metadata or usage cannot mint capability. Access is currently absent in inspected references (#8 comment488)."
+    },
+    {
+      "id": "H10",
+      "title": "Independent admission authority",
+      "probes": [
+        "forged capability ID or producer boolean",
+        "changed contract/runtime/config/tool/model identities",
+        "missing/altered evidence and approval",
+        "per-action/send revalidation"
+      ],
+      "gate": "Only trusted loader resolves independently approved immutable binding; approval separately references its hash. This contract/checker grants no capability and has no producer implementation authority."
+    }
+  ],
+  "receiptFields": [
+    "schema",
+    "probeId",
+    "attemptId",
+    "evidenceClass",
+    "contract/runtime identity digest",
+    "action/lease/input identity",
+    "ordered injection and observation references",
+    "expected/actual result",
+    "pass|fail|blocked|unknown",
+    "timestamps",
+    "pending operations",
+    "cleanup/quiescence",
+    "hashed artifact inventory"
+  ],
+  "scopeExclusions": [
+    "production transport or gateway implementation",
+    "live provider credential/model/API calls",
+    "target coding qualification",
+    "general harness registry",
+    "second platform/provider",
+    "real secret or unrelated host data probes"
+  ],
+  "promotion": "Reviewed contract -> independently reviewed synthetic native/gateway evidence -> separately authorized live provider evidence -> immutable independent capability approval; target coding remains a separate later gate."
+}
