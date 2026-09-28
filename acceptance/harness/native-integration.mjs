@@ -1,5 +1,5 @@
-// Ticket 64 / epic lease 551, clarified in 553. This is execution authority
-// for one synthetic attempt, never acceptance approval or a capability.
+// Ticket 64: preserve consumed execution identity 551/553. Identity 613 is
+// STATIC preparation only; separate root execution authority is still required.
 import assert from "node:assert/strict";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
   openSync,
   closeSync,
   fsyncSync,
+  writeFileSync,
 } from "node:fs";
 import {
   ROOT,
@@ -17,7 +18,6 @@ import {
   BINARY,
   BINARY_SHA,
   fileSha,
-  save,
   sha,
 } from "./common.mjs";
 
@@ -34,15 +34,28 @@ export function validateNativeInvocation({
   assert.match(expectedHead, /^[a-f0-9]{40}$/, "missing-source-revision");
   assert.equal(head, expectedHead, "native-source-revision-mismatch");
   assert.equal(dirty, "", "native-source-not-clean");
+  const lease =
+    argv?.[0] === "--execute-ticket-64-lease-551"
+      ? 551
+      : argv?.[0] === "--execute-ticket-64-lease-613"
+        ? 613
+        : null;
+  assert(lease, "unknown-native-authority");
   assert.deepEqual(
     argv,
-    ["--execute-ticket-64-lease-551", "--source-commit", expectedHead],
+    [`--execute-ticket-64-lease-${lease}`, "--source-commit", expectedHead],
     "wrong-native-authority",
   );
   return {
     ticket: 64,
-    lease: 551,
-    clarification: 553,
+    lease,
+    ...(lease === 551
+      ? { clarification: 553 }
+      : {
+          preparationOnly: true,
+          requiresSeparateRootExecutionLease: true,
+          cleanupReserveMs: 10000,
+        }),
     sourceCommit: head,
     root,
     branch,
@@ -53,23 +66,52 @@ export function validateNativeInvocation({
   };
 }
 
-export function consumeOnce(path, receipt) {
+export function nativeGatePath(authority) {
+  assert([551, 613].includes(authority?.lease), "unknown-native-gate");
+  const expected = validateNativeInvocation({
+    root: authority.root,
+    branch: authority.branch,
+    head: authority.sourceCommit,
+    expectedHead: authority.sourceCommit,
+    argv: [
+      `--execute-ticket-64-lease-${authority.lease}`,
+      "--source-commit",
+      authority.sourceCommit,
+    ],
+    dirty: "",
+  });
+  assert.deepEqual(authority, expected, "native-gate-authority-mismatch");
+  return join(NATIVE_EVIDENCE, `lease-${authority.lease}-consumed.json`);
+}
+
+// The optional IO adapter is for static tests that map logical native paths to
+// owned disposable storage. The launcher uses only the real default IO below.
+const gateIO = { lstatSync, openSync, writeFileSync, fsyncSync, closeSync };
+
+export function consumeOnce(path, receipt, io = gateIO) {
   assert.equal(resolve(path), path, "noncanonical-gate-path");
   assert(path.startsWith(NATIVE_EVIDENCE + "/"), "wrong-gate-root");
   let parent = dirname(path);
   while (parent.startsWith(NATIVE_EVIDENCE)) {
     assert(
-      lstatSync(parent).isDirectory() && !lstatSync(parent).isSymbolicLink(),
+      io.lstatSync(parent).isDirectory() &&
+        !io.lstatSync(parent).isSymbolicLink(),
       "gate-parent-symlink",
     );
     parent = dirname(parent);
   }
-  save(path, receipt); // O_EXCL + file fsync; no reuse, even after failed admission.
-  const fd = openSync(dirname(path), "r");
+  const file = io.openSync(path, "wx", 0o600); // O_EXCL: partial failures consume it too.
   try {
-    fsyncSync(fd);
+    io.writeFileSync(file, JSON.stringify(receipt, null, 2) + "\n");
+    io.fsyncSync(file);
   } finally {
-    closeSync(fd);
+    io.closeSync(file);
+  }
+  const fd = io.openSync(dirname(path), "r");
+  try {
+    io.fsyncSync(fd);
+  } finally {
+    io.closeSync(fd);
   }
 }
 

@@ -23,6 +23,7 @@ import { DENIAL_VARIANT, NativeSettlement } from "./settlement.mjs";
 import {
   validateNativeInvocation,
   consumeOnce,
+  nativeGatePath,
   inspectNativeHelpers,
   requirePositiveControl,
 } from "./native-integration.mjs";
@@ -125,7 +126,7 @@ for (const entry of schemaBefore) {
     mode: 0o400,
   });
 }
-consumeOnce(join(NATIVE_EVIDENCE, "lease-551-consumed.json"), {
+consumeOnce(nativeGatePath(invocationAuthority), {
   ...invocationAuthority,
   attempt,
   consumedAt: Date.now(),
