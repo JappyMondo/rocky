@@ -3,6 +3,27 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { canonical, identity, type Json } from "./json.js";
 import { configure } from "../config/index.js";
+import { Evidence, type Artifact } from "../evidence/index.js";
+import { initialSnapshot, reduce } from "../coordinator/reducer.js";
+import { canonical as json } from "./json.js";
+import {
+  validateCoordinatorAdmission,
+  validateEvent,
+  validateAction,
+  validateSnapshot,
+  validateCapability,
+  text,
+  integer,
+  terminal,
+  type Admission,
+  type RunSnapshot,
+  type Event,
+  type InboxSource,
+  type ReceiptKind,
+  type ReceiptState,
+  type Action,
+} from "../coordinator/contracts.js";
+import type { CoordinatorTransport } from "../coordinator/transport.js";
 export type Versions = {
   workflow: string;
   adapter: string;
@@ -69,17 +90,24 @@ export class Store {
       const schema = Number(
         this.#db.prepare("PRAGMA user_version").get()?.user_version,
       );
-      if (schema !== 0 && schema !== 1) {
+      if (schema !== 0 && schema !== 1 && schema !== 2) {
         throw new Error("incompatible-store-schema");
       }
       this.#db
-        .exec(`PRAGMA user_version=1; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
+        .exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, data TEXT NOT NULL, owner TEXT, fence INTEGER NOT NULL DEFAULT 0, expires INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS effects(key TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
-      CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;`);
+      CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append-only'); END;
+      CREATE TABLE IF NOT EXISTS coordinator_snapshots(run_id TEXT PRIMARY KEY REFERENCES runs(id), data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS coordinator_issues(repository TEXT NOT NULL, issue TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), PRIMARY KEY(repository,issue));
+      CREATE TABLE IF NOT EXISTS coordinator_reruns(repository TEXT NOT NULL, issue TEXT NOT NULL, rerun TEXT NOT NULL, run_id TEXT NOT NULL UNIQUE REFERENCES runs(id), PRIMARY KEY(repository,issue,rerun));
+      CREATE TABLE IF NOT EXISTS coordinator_inbox(source TEXT NOT NULL, event_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), payload TEXT NOT NULL, payload_hash TEXT NOT NULL, consumed_revision INTEGER, PRIMARY KEY(source,event_id));
+      CREATE TABLE IF NOT EXISTS coordinator_receipts(run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, hash TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(run_id,kind,hash));
+      CREATE TABLE IF NOT EXISTS coordinator_slot(singleton INTEGER PRIMARY KEY CHECK(singleton=1), run_id TEXT NOT NULL REFERENCES runs(id), action_key TEXT NOT NULL UNIQUE REFERENCES effects(key), fence INTEGER NOT NULL, owner TEXT NOT NULL);
+      PRAGMA user_version=2; COMMIT;`);
     } catch (error) {
       this.#db.close();
       throw error;
@@ -250,6 +278,7 @@ export class Store {
     if (!stage) throw new Error("stage-required");
     this.#transaction(() => {
       const run = this.#guard(lease);
+      this.#legacyOnly(run.id);
       run.stage = stage;
       this.#save(run);
       this.#event(run.id, "transition", { stage });
@@ -259,6 +288,7 @@ export class Store {
   revise(lease: Lease, inputs: { head: string; base: string; scope: string }) {
     this.#transaction(() => {
       const run = this.#guard(lease);
+      this.#legacyOnly(run.id);
       for (const value of Object.values(inputs))
         if (!value) throw new Error("missing-identity");
       Object.assign(run, inputs);
@@ -314,6 +344,8 @@ export class Store {
     this.#transaction(() => {
       this.#guard(lease);
       const e = this.#ownedEffect(lease, key);
+      if (e.kind === "coordinator-action")
+        throw new Error("coordinator-dispatch-required");
       if (e.state !== "pending") throw new Error("reconciliation-required");
       e.state = "sending";
       this.#saveEffect(e);
@@ -441,6 +473,378 @@ export class Store {
         .prepare("UPDATE commands SET data=? WHERE id=?")
         .run(canonical(c), id);
       this.#event(c.runId, "command-observed", { id, ...update });
+    });
+  }
+  #legacyOnly(runId: string) {
+    if (this.coordinatorSnapshot(runId))
+      throw new Error("coordinator-transaction-required");
+  }
+  coordinatorSnapshot(runId: string): RunSnapshot | undefined {
+    const row = this.#db
+      .prepare("SELECT data FROM coordinator_snapshots WHERE run_id=?")
+      .get(runId);
+    if (!row) return undefined;
+    const s = JSON.parse(String(row.data)) as RunSnapshot;
+    validateSnapshot(s);
+    return s;
+  }
+  #snapshot(runId: string) {
+    const s = this.coordinatorSnapshot(runId);
+    if (!s) throw new Error("coordinator-run-not-found");
+    return s;
+  }
+  #saveSnapshot(s: RunSnapshot) {
+    validateSnapshot(s);
+    this.#db
+      .prepare("UPDATE coordinator_snapshots SET data=? WHERE run_id=?")
+      .run(json(s), s.runId);
+    const run = this.get(s.runId);
+    Object.assign(run, {
+      stage: s.stage,
+      cancelled: s.cancelled,
+      head: s.head,
+      base: s.scope.base,
+      scope: identity(s.scope),
+    });
+    this.#save(run);
+  }
+  /** Admission and issue/rerun ownership share the same database transaction. */
+  admitCoordinator(admission: Admission): RunSnapshot {
+    validateCoordinatorAdmission(admission);
+    return this.#transaction(() => {
+      const previous = this.#db
+        .prepare(
+          "SELECT run_id FROM coordinator_issues WHERE repository=? AND issue=?",
+        )
+        .get(admission.repository, admission.issue);
+      if (previous) {
+        if (admission.previousRunId !== previous.run_id)
+          throw new Error("issue-already-owned-explicit-rerun-required");
+        const old = this.#snapshot(String(previous.run_id));
+        if (
+          !terminal(old) ||
+          old.execution ||
+          this.implementationSlot()?.runId === old.runId ||
+          this.commands(old.runId).some((c) => c.state !== "finished")
+        )
+          throw new Error("previous-run-not-quiescent-terminal");
+      } else if (admission.previousRunId !== null)
+        throw new Error("previous-run-not-found");
+      const s = initialSnapshot(admission, this.clock());
+      const run: Run = {
+        id: s.runId,
+        head: s.head,
+        base: s.scope.base,
+        scope: identity(s.scope),
+        versions: s.versions,
+        stage: s.stage,
+        cancelled: false,
+        config: configure({ delivery: s.scope.deliveryMode }),
+      };
+      this.#db
+        .prepare("INSERT INTO runs(id,data) VALUES(?,?)")
+        .run(run.id, json(run));
+      this.#db
+        .prepare("INSERT INTO coordinator_snapshots(run_id,data) VALUES(?,?)")
+        .run(run.id, json(s));
+      this.#db
+        .prepare(
+          "INSERT INTO coordinator_reruns(repository,issue,rerun,run_id) VALUES(?,?,?,?)",
+        )
+        .run(s.repository, s.issue, s.rerun, s.runId);
+      this.#db
+        .prepare(
+          "INSERT INTO coordinator_issues(repository,issue,run_id) VALUES(?,?,?) ON CONFLICT(repository,issue) DO UPDATE SET run_id=excluded.run_id",
+        )
+        .run(s.repository, s.issue, s.runId);
+      this.#event(run.id, "coordinator-admitted", s);
+      return s;
+    });
+  }
+  #ingest(runId: string, source: InboxSource, eventId: string, event: Event) {
+    text(eventId);
+    validateEvent(event, source);
+    this.#snapshot(runId);
+    const hash = identity({ runId, event });
+    const prior = this.#db
+      .prepare(
+        "SELECT payload_hash,consumed_revision FROM coordinator_inbox WHERE source=? AND event_id=?",
+      )
+      .get(source, eventId);
+    if (prior) {
+      if (prior.payload_hash !== hash)
+        throw new Error("inbox-payload-conflict");
+      return {
+        duplicate: true,
+        consumedRevision:
+          prior.consumed_revision === null
+            ? null
+            : Number(prior.consumed_revision),
+      };
+    }
+    this.#db
+      .prepare(
+        "INSERT INTO coordinator_inbox(source,event_id,run_id,payload,payload_hash) VALUES(?,?,?,?,?)",
+      )
+      .run(source, eventId, runId, json(event), hash);
+    this.#event(runId, "coordinator-inbox", { source, eventId, hash });
+    return { duplicate: false, consumedRevision: null };
+  }
+  /** These are trusted host entrypoints, never exposed as agent tools. Receipt authority has its own path. */
+  ingestCoordinator(
+    runId: string,
+    source: Exclude<InboxSource, "evidence">,
+    eventId: string,
+    event: Exclude<Event, { type: "receipt" }>,
+  ) {
+    if ((source as string) === "evidence")
+      throw new Error("receipt-registration-required");
+    return this.#transaction(() => this.#ingest(runId, source, eventId, event));
+  }
+  /** Trusted checker/CI/reviewer integration only. Content-addressing proves integrity, not producer identity. */
+  registerCoordinatorReceipt(
+    lease: Lease,
+    eventId: string,
+    kind: ReceiptKind,
+    evidence: Evidence,
+    reference: Artifact,
+  ) {
+    return this.#transaction(() => {
+      this.#guard(lease);
+      const s = this.#snapshot(lease.runId);
+      const receipt = JSON.parse(evidence.read(reference).toString());
+      const i = receipt.inputs;
+      if (
+        !i ||
+        i.head !== s.head ||
+        i.base !== s.scope.base ||
+        i.scope !== identity(s.scope) ||
+        i.build !== s.versions.build ||
+        i.checkPlan !== s.checkPlan ||
+        i.coordinatorInput !== s.inputDigest
+      )
+        throw new Error("stale-evidence");
+      const checked = evidence.validate(reference, i);
+      if (
+        !checked.receipt ||
+        !["pass", "fail", "blocked"].includes(checked.reason) ||
+        receipt.kind !== kind
+      )
+        throw new Error("invalid-authoritative-receipt");
+      // Signature/diagnostic metadata belongs to the hashed receipt, never to an agent's event envelope.
+      const state: ReceiptState = {
+        reference,
+        inputs: i,
+        outcome: receipt.outcome,
+        signature: receipt.signature,
+        diagnostics: receipt.diagnostics,
+      };
+      const event: Event = { type: "receipt", kind, receipt: state };
+      validateEvent(event, "evidence");
+      this.#db
+        .prepare(
+          "INSERT OR IGNORE INTO coordinator_receipts(run_id,kind,hash,data) VALUES(?,?,?,?)",
+        )
+        .run(s.runId, kind, reference.sha256, json(state));
+      return this.#ingest(s.runId, "evidence", eventId, event);
+    });
+  }
+  implementationSlot(): {
+    runId: string;
+    actionKey: string;
+    fence: number;
+    owner: string;
+  } | null {
+    const r = this.#db
+      .prepare("SELECT * FROM coordinator_slot WHERE singleton=1")
+      .get();
+    return r
+      ? {
+          runId: String(r.run_id),
+          actionKey: String(r.action_key),
+          fence: Number(r.fence),
+          owner: String(r.owner),
+        }
+      : null;
+  }
+  /** All state, budget, inbox-consumption, slot and effect intent changes commit together. */
+  applyCoordinator(
+    lease: Lease,
+    expectedRevision: number,
+    source: InboxSource,
+    eventId: string,
+  ): RunSnapshot {
+    integer(expectedRevision);
+    return this.#transaction(() => {
+      const run = this.#guard(lease, true);
+      const old = this.#snapshot(run.id);
+      const issueOwner = this.#db
+        .prepare(
+          "SELECT run_id FROM coordinator_issues WHERE repository=? AND issue=?",
+        )
+        .get(old.repository, old.issue);
+      if (issueOwner?.run_id !== run.id)
+        throw new Error("issue-ownership-superseded");
+      if (json(old.versions) !== json(lease.versions))
+        throw new Error("incompatible-versions");
+      const row = this.#db
+        .prepare(
+          "SELECT * FROM coordinator_inbox WHERE source=? AND event_id=? AND run_id=?",
+        )
+        .get(source, eventId, run.id);
+      if (!row) throw new Error("inbox-event-not-found");
+      if (row.consumed_revision !== null) return old;
+      if (old.revision !== expectedRevision)
+        throw new Error("revision-conflict");
+      const event = JSON.parse(String(row.payload)) as Event;
+      validateEvent(event, source);
+      if (event.type === "receipt") {
+        const trusted = this.#db
+          .prepare(
+            "SELECT data FROM coordinator_receipts WHERE run_id=? AND kind=? AND hash=?",
+          )
+          .get(run.id, event.kind, event.receipt.reference.sha256);
+        if (!trusted || trusted.data !== json(event.receipt))
+          throw new Error("unregistered-receipt");
+      }
+      if (run.cancelled && !old.cancelled) {
+        old.cancelled = true;
+        old.stage = old.execution ? "cancelling" : "cancelled";
+      }
+      const { snapshot: next, actions } = reduce(old, event, this.clock());
+      if (old.execution && !next.execution) {
+        if (this.commands(run.id).some((c) => c.state !== "finished"))
+          throw new Error("owned-commands-unquiesced");
+        const slot = this.implementationSlot();
+        if (
+          !slot ||
+          slot.runId !== run.id ||
+          slot.actionKey !== old.execution.key
+        )
+          throw new Error("slot-ownership-conflict");
+        // A new run owner can reconcile the old action, but cannot restart it under a new fence.
+        this.#db
+          .prepare("DELETE FROM coordinator_slot WHERE singleton=1")
+          .run();
+        const effect = this.#ownedEffect(lease, old.execution.key);
+        effect.state = "confirmed";
+        effect.receipt = JSON.parse(json(event));
+        this.#saveEffect(effect);
+        this.#event(run.id, "coordinator-action-quiescent", {
+          key: old.execution.key,
+          fence: lease.fence,
+        });
+      }
+      for (const action of actions) {
+        if (this.implementationSlot())
+          throw new Error("implementation-capacity-busy");
+        if (this.commands(run.id).some((c) => c.state !== "finished"))
+          throw new Error("owned-commands-unquiesced");
+        this.#intent(run.id, {
+          key: action.key,
+          kind: "coordinator-action",
+          payload: JSON.parse(json(action)),
+        });
+        this.#db
+          .prepare(
+            "INSERT INTO coordinator_slot(singleton,run_id,action_key,fence,owner) VALUES(1,?,?,?,?)",
+          )
+          .run(run.id, action.key, lease.fence, lease.owner);
+      }
+      this.#saveSnapshot(next);
+      this.#db
+        .prepare(
+          "UPDATE coordinator_inbox SET consumed_revision=? WHERE source=? AND event_id=?",
+        )
+        .run(next.revision, source, eventId);
+      this.#event(run.id, "coordinator-transition", {
+        source,
+        eventId,
+        revision: next.revision,
+        inputDigest: next.inputDigest,
+        actions: actions.map((a) => a.key),
+        budgets: next.budgets,
+        stage: next.stage,
+      });
+      return next;
+    });
+  }
+  #dispatchable(lease: Lease, key: string, transport: CoordinatorTransport) {
+    this.#guard(lease);
+    const s = this.#snapshot(lease.runId),
+      slot = this.implementationSlot();
+    const a = s.execution;
+    if (
+      !a ||
+      a.key !== key ||
+      a.inputDigest !== s.inputDigest ||
+      s.cancelled ||
+      s.blocker ||
+      s.wait
+    )
+      throw new Error("action-no-longer-dispatchable");
+    if (
+      !slot ||
+      slot.runId !== lease.runId ||
+      slot.actionKey !== key ||
+      slot.fence !== lease.fence ||
+      slot.owner !== lease.owner
+    )
+      throw new Error("stale-slot-fence");
+    if (this.clock() >= a.deadline) throw new Error("action-deadline-exceeded");
+    validateAction(a);
+    validateCapability(transport.capability);
+    if (a.capabilityId && transport.capability?.id !== a.capabilityId)
+      throw new Error("hard-limits-capability-mismatch");
+    if (json(transport.versions) !== json(s.versions))
+      throw new Error("incompatible-transport-versions");
+    return a;
+  }
+  /** No blind retry after sending. A lost response leaves the slot occupied for explicit reconciliation. */
+  async dispatchCoordinator(
+    lease: Lease,
+    key: string,
+    transport: CoordinatorTransport,
+  ) {
+    this.#transaction(() => {
+      this.#dispatchable(lease, key, transport);
+      const effect = this.#ownedEffect(lease, key);
+      if (effect.state !== "pending")
+        throw new Error("reconciliation-required");
+      effect.state = "sending";
+      this.#saveEffect(effect);
+      this.#event(lease.runId, "coordinator-action-sending", { key });
+    });
+    // Initiation must be synchronous inside this gate; the promise represents subsequent observation.
+    const pending = this.guardedStart(lease, () =>
+      transport.begin(this.#dispatchable(lease, key, transport)),
+    );
+    const result = await pending;
+    validateEvent(result, "transport");
+    if (result.type !== "result" || result.actionKey !== key)
+      throw new Error("transport-result-mismatch");
+    // Ingestion survives lease expiry and cancellation; applying still requires the current lease/revision.
+    return this.ingestCoordinator(
+      lease.runId,
+      "transport",
+      `result/${key}`,
+      result,
+    );
+  }
+  /** Interrupt acknowledgements are not quiescence. Completion arrives through the result inbox. */
+  interruptCoordinator(lease: Lease, transport: CoordinatorTransport) {
+    return this.#transaction(() => {
+      this.#guard(lease, true);
+      const s = this.#snapshot(lease.runId);
+      if (!s.execution) return;
+      if (!s.cancelled && !this.get(s.runId).cancelled && !s.wait && !s.blocker)
+        throw new Error("interruption-not-requested");
+      if (json(transport.versions) !== json(s.versions))
+        throw new Error("incompatible-transport-versions");
+      this.#event(s.runId, "coordinator-interrupt-request", {
+        key: s.execution.key,
+      });
+      return transport.interrupt(s.execution);
     });
   }
 }

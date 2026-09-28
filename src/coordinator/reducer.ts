@@ -1,0 +1,412 @@
+import { canonical, identity } from "../store/json.js";
+import {
+  inputDigest,
+  isAgentWork,
+  terminal,
+  validateAction,
+  validateSnapshot,
+  validateCoordinatorAdmission,
+  integer,
+  type Admission,
+  type Action,
+  type Event,
+  type RunSnapshot,
+  type WorkKind,
+  type Blocker,
+} from "./contracts.js";
+
+export function initialSnapshot(
+  admission: Admission,
+  now: number,
+): RunSnapshot {
+  validateCoordinatorAdmission(admission);
+  integer(now);
+  const { previousRunId: _, ...a } = JSON.parse(
+    canonical(admission),
+  ) as Admission;
+  const s: RunSnapshot = {
+    ...a,
+    schema: 1,
+    revision: 0,
+    inputDigest: "",
+    stage: "admitted",
+    blocker: null,
+    cancelled: false,
+    startedAt: now,
+    budgets: {
+      environment: 0,
+      product: 0,
+      ci: 0,
+      review: 0,
+      disagreement: 0,
+      reservedTokens: 0,
+      reportedTokens: 0,
+      reservedElapsedMs: 0,
+      elapsedMs: 0,
+      observedAt: now,
+    },
+    execution: null,
+    receipts: {},
+    signatures: [],
+    wait: null,
+  };
+  s.inputDigest = inputDigest(s);
+  if (!s.capability)
+    block(s, "capability", "hard-token-and-elapsed-enforcement-unavailable");
+  return s;
+}
+function block(s: RunSnapshot, kind: Blocker, detail: string) {
+  s.blocker = { kind, detail };
+  s.stage =
+    kind === "recovery" || kind === "compatibility"
+      ? "recovery_required"
+      : "blocked";
+}
+function invalidate(s: RunSnapshot) {
+  s.receipts = {};
+  s.inputDigest = inputDigest(s);
+}
+function pass(s: RunSnapshot, kind: "baseline" | "checks" | "ci" | "review") {
+  return s.receipts[kind]?.outcome === "pass";
+}
+function ready(s: RunSnapshot) {
+  if (
+    !s.execution &&
+    !s.cancelled &&
+    !s.blocker &&
+    pass(s, "checks") &&
+    pass(s, "ci") &&
+    pass(s, "review")
+  )
+    s.stage = "handoff_ready";
+}
+function permitted(s: RunSnapshot, kind: WorkKind) {
+  switch (kind) {
+    case "baseline":
+      return s.stage === "admitted";
+    case "implement":
+      return s.stage === "baseline" && pass(s, "baseline");
+    case "verify":
+      return s.stage === "verifying";
+    case "observe_ci":
+      return (
+        ["awaiting_delivery_evidence", "handoff_ready", "blocked"].includes(
+          s.stage,
+        ) && pass(s, "checks")
+      );
+    case "review":
+      return (
+        s.stage === "awaiting_delivery_evidence" &&
+        pass(s, "checks") &&
+        !s.receipts.review
+      );
+    case "repair_product":
+      return s.receipts.checks?.outcome === "fail";
+    case "repair_ci":
+      return s.receipts.ci?.outcome === "fail";
+    case "repair_review":
+      return s.receipts.review?.outcome === "fail";
+    case "retry_environment":
+      return s.blocker?.kind === "environment";
+    case "arbitrate":
+      return s.receipts.review?.outcome === "fail";
+  }
+}
+function schedule(s: RunSnapshot, kind: WorkKind, now: number): Action | null {
+  if (s.execution) throw new Error("execution-unquiesced");
+  if (
+    s.cancelled ||
+    [
+      "cancelled",
+      "cancelling",
+      "no_code",
+      "recovery_required",
+      "waiting_external",
+    ].includes(s.stage)
+  )
+    throw new Error("run-not-dispatchable");
+  // Review exhaustion may block subjective work, but must not stop CI observation or its independent repair.
+  if (
+    s.blocker &&
+    !(kind === "retry_environment" && s.blocker.kind === "environment") &&
+    !(
+      ["observe_ci", "repair_ci"].includes(kind) &&
+      ["needs_engineering", "budget"].includes(s.blocker.kind)
+    )
+  )
+    throw new Error("run-blocked");
+  if (!permitted(s, kind)) throw new Error("invalid-stage-action");
+  if (isAgentWork(kind) && !s.capability) {
+    block(s, "capability", "hard-limits-unavailable");
+    return null;
+  }
+  const b = s.budgets;
+  const stop = (detail: string) => {
+    block(s, "needs_engineering", detail);
+    return null;
+  };
+  if (kind === "retry_environment" && b.environment >= 1) {
+    block(s, "environment", "environment-retry-exhausted");
+    return null;
+  }
+  if (kind === "repair_product" && (b.product >= 1 || b.product + b.ci >= 2))
+    return stop("shared-product-repair-exhausted-ci-reserved");
+  if (kind === "repair_ci" && b.product + b.ci >= 2)
+    return stop("ci-repair-exhausted");
+  if (kind === "repair_review" && b.review >= 1)
+    return stop("review-correction-exhausted");
+  if (kind === "arbitrate" && b.disagreement >= 1)
+    return stop("disagreement-exhausted");
+  const receipt =
+    kind === "repair_ci"
+      ? s.receipts.ci
+      : kind === "repair_product"
+        ? s.receipts.checks
+        : ["repair_review", "arbitrate"].includes(kind)
+          ? s.receipts.review
+          : null;
+  if (receipt) {
+    const sig = identity({
+      kind,
+      input: s.inputDigest,
+      signature: receipt.signature,
+      evidence: receipt.reference,
+    });
+    if (s.signatures.includes(sig)) return stop("repeated-unchanged-failure");
+    s.signatures.push(sig);
+  }
+  const tokens = isAgentWork(kind) ? s.limits.actionTokens : 0;
+  const elapsedMs = s.limits.actionElapsedMs;
+  if (
+    b.reservedTokens + tokens > s.limits.totalTokens ||
+    Math.max(b.elapsedMs, b.reservedElapsedMs) + elapsedMs >
+      s.limits.totalElapsedMs
+  ) {
+    block(s, "budget", "hard-total-budget-exhausted");
+    return null;
+  }
+  if (kind === "retry_environment") b.environment++;
+  if (kind === "repair_product") b.product++;
+  if (kind === "repair_ci") b.ci++;
+  if (kind === "repair_review") b.review++;
+  if (kind === "arbitrate") b.disagreement++;
+  b.reservedTokens += tokens;
+  b.reservedElapsedMs += elapsedMs;
+  const action: Action = {
+    schema: 1,
+    key: `coordinator/${identity([s.runId, s.revision, kind])}`,
+    runId: s.runId,
+    kind,
+    inputDigest: s.inputDigest,
+    versions: s.versions,
+    tokens,
+    elapsedMs,
+    deadline: Math.min(now + elapsedMs, s.startedAt + s.limits.totalElapsedMs),
+    capabilityId: isAgentWork(kind) ? s.capability!.id : null,
+  };
+  validateAction(action);
+  s.execution = action;
+  s.blocker = null;
+  if (
+    ["implement", "repair_product", "repair_ci", "repair_review"].includes(kind)
+  )
+    s.stage = "implementing";
+  else if (kind === "baseline" || kind === "retry_environment")
+    s.stage = "baseline";
+  return action;
+}
+/** Pure decision function. Store validates source/event and supplies its own time and fenced snapshot. */
+export function reduce(
+  snapshot: RunSnapshot,
+  event: Event,
+  now: number,
+): { snapshot: RunSnapshot; actions: Action[] } {
+  validateSnapshot(snapshot);
+  integer(now);
+  const s = JSON.parse(canonical(snapshot)) as RunSnapshot;
+  s.revision++;
+  s.budgets.observedAt = Math.max(s.budgets.observedAt, now);
+  s.budgets.elapsedMs = Math.max(
+    s.budgets.elapsedMs,
+    s.budgets.observedAt - s.startedAt,
+  );
+  const actions: Action[] = [];
+  // Cancellation and quiescence observations remain legal after deadline/version incompatibility.
+  if (event.type === "cancel") {
+    s.cancelled = true;
+    s.wait = null;
+    s.stage = s.execution ? "cancelling" : "cancelled";
+    return { snapshot: s, actions };
+  }
+  if (event.type === "result") {
+    const a = s.execution;
+    if (!a || a.key !== event.actionKey || a.inputDigest !== event.inputDigest)
+      throw new Error("stale-action-result");
+    if (!event.quiescent) {
+      block(s, "recovery", "execution-not-quiescent");
+      return { snapshot: s, actions };
+    }
+    s.execution = null;
+    s.budgets.reportedTokens += event.tokens;
+    if (event.tokens > a.tokens) {
+      block(s, "recovery", "hard-token-contract-violated");
+      return { snapshot: s, actions };
+    }
+    if (s.cancelled) {
+      s.stage = "cancelled";
+      return { snapshot: s, actions };
+    }
+    if (s.blocker?.kind === "compatibility") return { snapshot: s, actions };
+    if (a.inputDigest !== s.inputDigest) {
+      block(s, "recovery", "result-inputs-superseded");
+      return { snapshot: s, actions };
+    }
+    if (s.budgets.observedAt > a.deadline) {
+      block(s, "budget", "action-deadline-exceeded");
+      return { snapshot: s, actions };
+    }
+    if (event.outcome === "interrupted") {
+      block(s, "recovery", event.detail);
+      return { snapshot: s, actions };
+    }
+    if (event.outcome === "failed") {
+      block(
+        s,
+        ["baseline", "retry_environment"].includes(a.kind)
+          ? "environment"
+          : "needs_engineering",
+        event.detail,
+      );
+      return { snapshot: s, actions };
+    }
+    if (
+      ["implement", "repair_product", "repair_ci", "repair_review"].includes(
+        a.kind,
+      )
+    ) {
+      if (
+        a.kind === "implement" &&
+        event.outcome === "no_code" &&
+        event.head === s.head
+      ) {
+        s.wait = null;
+        s.stage = "no_code";
+        return { snapshot: s, actions };
+      }
+      if (event.outcome !== "changed" || event.head === s.head) {
+        block(s, "needs_engineering", "no-op-repair-or-implementation");
+        return { snapshot: s, actions };
+      }
+      s.head = event.head;
+      invalidate(s);
+      s.stage = "verifying";
+    } else if (event.outcome !== "complete" || event.head !== s.head) {
+      block(s, "recovery", "unexpected-result");
+    }
+    if (s.wait && !s.blocker) {
+      s.wait.resume = s.stage;
+      s.stage = "waiting_external";
+    } else ready(s);
+    return { snapshot: s, actions };
+  }
+  if (s.cancelled) throw new Error("cancelled");
+  if (s.stage === "no_code" && !["tick", "incompatible"].includes(event.type))
+    throw new Error("run-not-dispatchable");
+  if (event.type === "incompatible") {
+    block(s, "compatibility", event.detail);
+    return { snapshot: s, actions };
+  }
+  if (event.type === "tick") {
+    if (
+      s.blocker?.kind !== "compatibility" &&
+      s.budgets.elapsedMs >= s.limits.totalElapsedMs
+    )
+      block(s, "budget", "total-elapsed-exhausted");
+    return { snapshot: s, actions };
+  }
+  if (s.blocker?.kind === "compatibility")
+    throw new Error("incompatible-versions");
+  if (event.type === "revise") {
+    if (
+      event.scope.revision < s.scope.revision ||
+      (event.scope.revision === s.scope.revision &&
+        canonical(event.scope) !== canonical(s.scope))
+    )
+      throw new Error("scope-revision-required");
+    s.head = event.head;
+    s.scope = event.scope;
+    s.checkPlan = event.checkPlan;
+    invalidate(s);
+    s.wait = null;
+    if (s.execution) block(s, "recovery", "inputs-changed-during-execution");
+    else {
+      s.stage = "verifying";
+      s.blocker = null;
+    }
+    return { snapshot: s, actions };
+  }
+  if (event.type === "block") {
+    block(s, event.kind, event.detail);
+    return { snapshot: s, actions };
+  }
+  if (event.type === "wait") {
+    if (terminal(s)) throw new Error("invalid-wait-stage");
+    if (event.wakeAt < now || event.deadline <= now)
+      throw new Error("invalid-wait-deadline");
+    s.wait = {
+      reason: event.reason,
+      wakeAt: event.wakeAt,
+      deadline: event.deadline,
+      resume: s.stage,
+    };
+    s.stage = "waiting_external";
+    return { snapshot: s, actions };
+  }
+  if (event.type === "wake") {
+    if (!s.wait || s.execution) throw new Error("wait-not-quiescent");
+    if (now < s.wait.wakeAt) throw new Error("wake-not-due");
+    if (now >= s.wait.deadline) {
+      block(s, "access", "external-wait-deadline");
+      s.wait = null;
+    } else {
+      s.stage = s.wait.resume;
+      s.wait = null;
+    }
+    return { snapshot: s, actions };
+  }
+  if (event.type === "receipt") {
+    const i = event.receipt.inputs;
+    if (
+      i.head !== s.head ||
+      i.base !== s.scope.base ||
+      i.scope !== identity(s.scope) ||
+      i.build !== s.versions.build ||
+      i.checkPlan !== s.checkPlan ||
+      i.coordinatorInput !== s.inputDigest
+    )
+      throw new Error("stale-evidence");
+    s.receipts[event.kind] = event.receipt;
+    if (["baseline", "checks", "ci"].includes(event.kind)) {
+      delete s.receipts.review;
+      delete s.receipts.approval;
+    }
+    if (event.kind === "review") delete s.receipts.approval;
+    if (event.kind === "baseline") {
+      s.stage = "baseline";
+      if (event.receipt.outcome !== "pass")
+        block(s, "environment", "baseline-prerequisite-failed");
+    }
+    if (event.kind === "checks")
+      s.stage =
+        event.receipt.outcome === "pass"
+          ? "awaiting_delivery_evidence"
+          : "verifying";
+    if (["ci", "review"].includes(event.kind) && s.stage === "handoff_ready")
+      s.stage = "awaiting_delivery_evidence";
+    ready(s);
+    return { snapshot: s, actions };
+  }
+  const action = schedule(s, event.kind, s.budgets.observedAt);
+  if (action) actions.push(action);
+  return { snapshot: s, actions };
+}
