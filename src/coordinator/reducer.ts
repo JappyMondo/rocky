@@ -5,6 +5,8 @@ import {
   terminal,
   validateAction,
   validateSnapshot,
+  validateEvent,
+  evidenceBundle,
   validateCoordinatorAdmission,
   integer,
   type Admission,
@@ -26,7 +28,7 @@ export function initialSnapshot(
   ) as Admission;
   const s: RunSnapshot = {
     ...a,
-    schema: 1,
+    schema: 2,
     revision: 0,
     inputDigest: "",
     stage: "admitted",
@@ -47,6 +49,7 @@ export function initialSnapshot(
     },
     execution: null,
     receipts: {},
+    observations: {},
     signatures: [],
     wait: null,
   };
@@ -222,6 +225,16 @@ export function reduce(
   now: number,
 ): { snapshot: RunSnapshot; actions: Action[] } {
   validateSnapshot(snapshot);
+  validateEvent(
+    event,
+    ["observation", "receipt"].includes(event.type)
+      ? "evidence"
+      : event.type === "result"
+        ? "transport"
+        : ["schedule", "tick", "wake"].includes(event.type)
+          ? "scheduler"
+          : "control",
+  );
   integer(now);
   const s = JSON.parse(canonical(snapshot)) as RunSnapshot;
   s.revision++;
@@ -304,7 +317,7 @@ export function reduce(
       block(s, "recovery", "unexpected-result");
     }
     if (s.wait && !s.blocker) {
-      s.wait.resume = s.stage;
+      if (s.stage !== "waiting_external") s.wait.resume = s.stage;
       s.stage = "waiting_external";
     } else ready(s);
     return { snapshot: s, actions };
@@ -357,7 +370,7 @@ export function reduce(
       reason: event.reason,
       wakeAt: event.wakeAt,
       deadline: event.deadline,
-      resume: s.stage,
+      resume: s.wait?.resume ?? s.stage,
     };
     s.stage = "waiting_external";
     return { snapshot: s, actions };
@@ -374,7 +387,28 @@ export function reduce(
     }
     return { snapshot: s, actions };
   }
+  if (event.type === "observation") {
+    const o = event.observation;
+    if (
+      o.runId !== s.runId ||
+      o.inputDigest !== s.inputDigest ||
+      o.bundleDigest !== evidenceBundle(s, o.kind)
+    )
+      throw new Error("stale-observation-inputs");
+    if (o.generation !== (s.observations[o.kind]?.generation ?? 0) + 1)
+      throw new Error("invalid-observation-generation");
+    s.observations[o.kind] = o;
+    delete s.receipts[o.kind];
+    invalidateDependentReceipts(s, o.kind);
+    if (s.stage === "handoff_ready") s.stage = "awaiting_delivery_evidence";
+    return { snapshot: s, actions };
+  }
   if (event.type === "receipt") {
+    const o = event.receipt.observation;
+    if (canonical(s.observations[event.kind] ?? null) !== canonical(o))
+      throw new Error("superseded-observation");
+    if (o.bundleDigest !== evidenceBundle(s, event.kind))
+      throw new Error("stale-evidence-bundle");
     const i = event.receipt.inputs;
     if (
       i.head !== s.head ||
@@ -385,12 +419,10 @@ export function reduce(
       i.coordinatorInput !== s.inputDigest
     )
       throw new Error("stale-evidence");
+    if (canonical(s.receipts[event.kind] ?? null) === canonical(event.receipt))
+      return { snapshot: s, actions };
     s.receipts[event.kind] = event.receipt;
-    if (["baseline", "checks", "ci"].includes(event.kind)) {
-      delete s.receipts.review;
-      delete s.receipts.approval;
-    }
-    if (event.kind === "review") delete s.receipts.approval;
+    invalidateDependentReceipts(s, event.kind);
     if (event.kind === "baseline") {
       s.stage = "baseline";
       if (event.receipt.outcome !== "pass")
@@ -403,10 +435,21 @@ export function reduce(
           : "verifying";
     if (["ci", "review"].includes(event.kind) && s.stage === "handoff_ready")
       s.stage = "awaiting_delivery_evidence";
-    ready(s);
+    if (s.wait) {
+      if (s.stage !== "waiting_external") s.wait.resume = s.stage;
+      s.stage = "waiting_external";
+    } else ready(s);
     return { snapshot: s, actions };
   }
   const action = schedule(s, event.kind, s.budgets.observedAt);
   if (action) actions.push(action);
   return { snapshot: s, actions };
+}
+
+function invalidateDependentReceipts(s: RunSnapshot, kind: string) {
+  if (["baseline", "checks", "ci"].includes(kind)) {
+    delete s.receipts.review;
+    delete s.receipts.approval;
+  }
+  if (kind === "review") delete s.receipts.approval;
 }

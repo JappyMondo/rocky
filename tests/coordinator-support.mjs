@@ -1,4 +1,7 @@
-import { Store, Evidence, identity } from "../dist/index.js";
+export const coordinatorModule = await import(
+  process.env.COORDINATOR_TEST_MODULE ?? "../dist/index.js"
+);
+const { Store, Evidence, identity } = coordinatorModule;
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 export const versions = {
@@ -47,7 +50,7 @@ export function admission(runId = "run-1", overrides = {}) {
 }
 export function fixture(name, clock = () => 1000) {
   const dir = resolve(
-    ".qualification/coordinator-53",
+    process.env.COORDINATOR_ARTIFACT_ROOT ?? ".qualification/coordinator-53",
     `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
@@ -97,6 +100,11 @@ export function receipt(
   signature = `${kind}-${outcome}`,
   extra = {},
 ) {
+  const observation = f.store.beginCoordinatorObservation?.(
+    f.lease,
+    kind,
+    `attempt-${++seq}`,
+  );
   const s = f.store.coordinatorSnapshot(f.lease.runId);
   const r = {
     schema: 1,
@@ -117,6 +125,7 @@ export function receipt(
     artifacts: [],
     signature,
     diagnostics: "available",
+    ...(observation ? { observation } : {}),
     ...extra,
   };
   const ref = f.evidence.record(r);

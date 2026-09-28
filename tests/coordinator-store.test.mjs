@@ -36,7 +36,7 @@ async function race(mode, path, ids) {
   return messages;
 }
 
-test("C01 schema2 fresh/copy migration retains v1 events/effects/commands; unknown versions reject", async () => {
+test("C01 schema3 fresh/copy migration retains v1 events/effects/commands; unknown versions reject", async () => {
   const f = fixture("C01");
   f.store.close();
   const db = new DatabaseSync(f.dir + "/v1.sqlite");
@@ -106,7 +106,7 @@ test("C01 schema2 fresh/copy migration retains v1 events/effects/commands; unkno
     /incompatible-store-schema/,
   );
   const sql = new DatabaseSync(f.dir + "/copy.sqlite");
-  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 2);
+  assert.equal(sql.prepare("PRAGMA user_version").get().user_version, 3);
   sql.exec("PRAGMA user_version=99");
   sql.close();
   assert.throws(
@@ -376,7 +376,7 @@ test("C15 incompatible/corrupted snapshot cannot resume or dispatch", () => {
   const sql = new DatabaseSync(f.store.path);
   const before = f.store.coordinatorSnapshot("run-1");
   for (const corrupt of [
-    { ...before, schema: 2 },
+    { ...before, schema: 99 },
     { ...before, inputDigest: "corrupt" },
     { ...before, budgets: { ...before.budgets, ci: 5 } },
     { ...before, stage: "invented" },

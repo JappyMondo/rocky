@@ -240,7 +240,7 @@ test("C11 authoritative receipts bind head/scope/build/check plan, reject agent 
         f.evidence,
         old,
       ),
-    /stale-evidence/,
+    /stale-evidence|stale-observation-inputs/,
   );
   assert.throws(
     () =>
@@ -283,7 +283,7 @@ test("C11 authoritative receipts bind head/scope/build/check plan, reject agent 
         "evidence",
         "queued",
       ),
-    /stale-evidence/,
+    /stale-evidence|stale-observation-inputs/,
   );
   retain(f, f.store.coordinatorSnapshot("run-1"));
   f.store.close();

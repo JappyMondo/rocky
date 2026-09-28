@@ -2,7 +2,7 @@ import { canonical, identity } from "../store/json.js";
 import type { Versions } from "../store/index.js";
 import type { Artifact, EvidenceInputs } from "../evidence/index.js";
 
-export const COORDINATOR_SCHEMA = 1;
+export const COORDINATOR_SCHEMA = 2;
 export type Stage =
   | "admitted"
   | "baseline"
@@ -82,7 +82,17 @@ export interface Budgets {
   elapsedMs: number;
   observedAt: number;
 }
+export interface Observation {
+  schema: 1;
+  runId: string;
+  kind: ReceiptKind;
+  collectorKey: string;
+  generation: number;
+  inputDigest: string;
+  bundleDigest: string;
+}
 export interface ReceiptState {
+  observation: Observation;
   reference: Artifact;
   inputs: EvidenceInputs;
   outcome: "pass" | "fail" | "blocked";
@@ -91,7 +101,7 @@ export interface ReceiptState {
 }
 export type ReceiptKind = "baseline" | "checks" | "ci" | "review" | "approval";
 export interface RunSnapshot {
-  schema: 1;
+  schema: 2;
   runId: string;
   repository: string;
   issue: string;
@@ -112,6 +122,7 @@ export interface RunSnapshot {
   budgets: Budgets;
   execution: Action | null;
   receipts: Partial<Record<ReceiptKind, ReceiptState>>;
+  observations: Partial<Record<ReceiptKind, Observation>>;
   signatures: string[];
   wait: {
     reason: string;
@@ -121,6 +132,7 @@ export interface RunSnapshot {
   } | null;
 }
 export type Event =
+  | { type: "observation"; observation: Observation }
   | { type: "schedule"; kind: WorkKind }
   | { type: "cancel" }
   | { type: "block"; kind: Blocker; detail: string }
@@ -161,6 +173,10 @@ export function object(value: unknown): Record<string, unknown> {
     throw new Error("object-required");
   return value as Record<string, unknown>;
 }
+function enumString(value: unknown): string {
+  if (typeof value !== "string") throw new Error("string-enum-required");
+  return value;
+}
 function keys(v: Record<string, unknown>, expected: string[]) {
   if (Object.keys(v).sort().join() !== expected.sort().join())
     throw new Error("invalid-contract-fields");
@@ -188,7 +204,7 @@ export function validateScope(value: unknown): asserts value is ScopeContract {
   ]);
   if (
     s.schema !== 1 ||
-    !["pr-only", "approval-gated"].includes(String(s.deliveryMode))
+    !["pr-only", "approval-gated"].includes(enumString(s.deliveryMode))
   )
     throw new Error("incompatible-scope");
   integer(s.revision, 1);
@@ -297,7 +313,7 @@ export function validateAction(value: unknown): asserts value is Action {
     "deadline",
     "capabilityId",
   ]);
-  if (a.schema !== 1 || !workKinds.includes(String(a.kind)))
+  if (a.schema !== 1 || !workKinds.includes(enumString(a.kind)))
     throw new Error("invalid-action");
   for (const key of ["key", "runId", "inputDigest"]) text(a[key]);
   validateVersions(a.versions);
@@ -311,7 +327,9 @@ export function validateEvent(
   source: InboxSource,
 ): asserts value is Event {
   const e = object(value);
+  enumString(source);
   const fields: Record<string, string[]> = {
+    observation: ["observation"],
     schedule: ["kind"],
     cancel: [],
     block: ["kind", "detail"],
@@ -331,24 +349,27 @@ export function validateEvent(
     ],
     receipt: ["kind", "receipt"],
   };
-  const type = String(e.type);
+  const type = enumString(e.type);
   if (!Object.hasOwn(fields, type)) throw new Error("unsupported-event");
   keys(e, ["type", ...fields[type]!]);
   const allowed: Record<InboxSource, string[]> = {
     control: ["cancel", "block", "wait", "revise", "incompatible"],
     scheduler: ["schedule", "wake", "tick"],
     transport: ["result"],
-    evidence: ["receipt"],
+    evidence: ["receipt", "observation"],
   };
   if (!allowed[source]?.includes(type))
     throw new Error("event-authority-rejected");
   switch (type) {
+    case "observation":
+      validateObservation(e.observation);
+      break;
     case "schedule":
-      if (!workKinds.includes(String(e.kind)))
+      if (!workKinds.includes(enumString(e.kind)))
         throw new Error("invalid-action-kind");
       break;
     case "block":
-      if (!blockers.includes(String(e.kind)))
+      if (!blockers.includes(enumString(e.kind)))
         throw new Error("invalid-blocker");
       text(e.detail);
       break;
@@ -374,7 +395,7 @@ export function validateEvent(
       if (
         typeof e.quiescent !== "boolean" ||
         !["changed", "no_code", "complete", "failed", "interrupted"].includes(
-          String(e.outcome),
+          enumString(e.outcome),
         )
       )
         throw new Error("invalid-result");
@@ -382,23 +403,33 @@ export function validateEvent(
     case "receipt": {
       if (
         !["baseline", "checks", "ci", "review", "approval"].includes(
-          String(e.kind),
+          enumString(e.kind),
         )
       )
         throw new Error("invalid-receipt-kind");
       const r = object(e.receipt);
-      keys(r, ["reference", "inputs", "outcome", "signature", "diagnostics"]);
+      keys(r, [
+        "observation",
+        "reference",
+        "inputs",
+        "outcome",
+        "signature",
+        "diagnostics",
+      ]);
+      validateObservation(r.observation);
+      if (r.observation.kind !== e.kind)
+        throw new Error("observation-kind-mismatch");
       const ref = object(r.reference);
       keys(ref, ["sha256", "bytes"]);
       text(ref.sha256);
       integer(ref.bytes);
-      if (!/^[a-f0-9]{64}$/.test(String(ref.sha256)))
+      if (!/^[a-f0-9]{64}$/.test(enumString(ref.sha256)))
         throw new Error("invalid-artifact-id");
       const inputs = object(r.inputs);
       Object.values(inputs).forEach(text);
       if (
-        !["pass", "fail", "blocked"].includes(String(r.outcome)) ||
-        !["available", "unavailable"].includes(String(r.diagnostics))
+        !["pass", "fail", "blocked"].includes(enumString(r.outcome)) ||
+        !["available", "unavailable"].includes(enumString(r.diagnostics))
       )
         throw new Error("invalid-receipt");
       text(r.signature);
@@ -433,7 +464,7 @@ export function terminal(s: RunSnapshot) {
 /** Corrupt or unknown durable snapshots are recovery inputs, never dispatch permission. */
 export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
   const s = object(value);
-  if (s.schema !== 1) throw new Error("incompatible-coordinator-schema");
+  if (s.schema !== 2) throw new Error("incompatible-coordinator-schema");
   keys(s, [
     "schema",
     "runId",
@@ -456,6 +487,7 @@ export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
     "budgets",
     "execution",
     "receipts",
+    "observations",
     "signatures",
     "wait",
   ]);
@@ -490,7 +522,7 @@ export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
       "recovery_required",
       "cancelling",
       "cancelled",
-    ].includes(String(s.stage))
+    ].includes(enumString(s.stage))
   )
     throw new Error("invalid-snapshot-state");
   if (s.inputDigest !== inputDigest(value as RunSnapshot))
@@ -527,7 +559,7 @@ export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
   if (s.blocker !== null) {
     const blocker = object(s.blocker);
     keys(blocker, ["kind", "detail"]);
-    if (!blockers.includes(String(blocker.kind)))
+    if (!blockers.includes(enumString(blocker.kind)))
       throw new Error("invalid-blocker");
     text(blocker.detail);
   }
@@ -535,10 +567,70 @@ export function validateSnapshot(value: unknown): asserts value is RunSnapshot {
     const wait = object(s.wait);
     keys(wait, ["reason", "wakeAt", "deadline", "resume"]);
     text(wait.reason);
-    text(wait.resume);
+    if (
+      ![
+        "admitted",
+        "baseline",
+        "implementing",
+        "verifying",
+        "awaiting_delivery_evidence",
+        "handoff_ready",
+        "blocked",
+        "recovery_required",
+        "cancelling",
+      ].includes(enumString(wait.resume))
+    )
+      throw new Error("invalid-wait-resume-stage");
     integer(wait.wakeAt);
     integer(wait.deadline);
   }
+  for (const [kind, observation] of Object.entries(object(s.observations))) {
+    validateObservation(observation);
+    if (observation.kind !== kind || observation.runId !== s.runId)
+      throw new Error("invalid-snapshot-observation");
+  }
   for (const [kind, receipt] of Object.entries(object(s.receipts)))
     validateEvent({ type: "receipt", kind, receipt }, "evidence");
+}
+
+export function validateObservation(
+  value: unknown,
+): asserts value is Observation {
+  const o = object(value);
+  keys(o, [
+    "schema",
+    "runId",
+    "kind",
+    "collectorKey",
+    "generation",
+    "inputDigest",
+    "bundleDigest",
+  ]);
+  if (
+    o.schema !== 1 ||
+    !["baseline", "checks", "ci", "review", "approval"].includes(
+      enumString(o.kind),
+    )
+  )
+    throw new Error("invalid-observation");
+  for (const k of ["runId", "collectorKey", "inputDigest", "bundleDigest"])
+    text(o[k]);
+  integer(o.generation, 1);
+}
+/** Exact evidence consumed by subjective review or approval, including in-progress generations. */
+export function evidenceBundle(s: RunSnapshot, kind: ReceiptKind): string {
+  const dependencies: ReceiptKind[] =
+    kind === "review"
+      ? ["baseline", "checks", "ci"]
+      : kind === "approval"
+        ? ["baseline", "checks", "ci", "review"]
+        : [];
+  return identity({
+    inputDigest: s.inputDigest,
+    dependencies: dependencies.map((k) => ({
+      kind: k,
+      observation: s.observations[k] ?? null,
+      reference: s.receipts[k]?.reference ?? null,
+    })),
+  });
 }

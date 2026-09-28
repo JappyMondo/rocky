@@ -11,6 +11,9 @@ import {
   validateEvent,
   validateAction,
   validateSnapshot,
+  validateObservation,
+  evidenceBundle,
+  type Observation,
   validateCapability,
   text,
   integer,
@@ -90,7 +93,7 @@ export class Store {
       const schema = Number(
         this.#db.prepare("PRAGMA user_version").get()?.user_version,
       );
-      if (schema !== 0 && schema !== 1 && schema !== 2) {
+      if (schema !== 0 && schema !== 1 && schema !== 2 && schema !== 3) {
         throw new Error("incompatible-store-schema");
       }
       this.#db
@@ -107,7 +110,32 @@ export class Store {
       CREATE TABLE IF NOT EXISTS coordinator_inbox(source TEXT NOT NULL, event_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), payload TEXT NOT NULL, payload_hash TEXT NOT NULL, consumed_revision INTEGER, PRIMARY KEY(source,event_id));
       CREATE TABLE IF NOT EXISTS coordinator_receipts(run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, hash TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(run_id,kind,hash));
       CREATE TABLE IF NOT EXISTS coordinator_slot(singleton INTEGER PRIMARY KEY CHECK(singleton=1), run_id TEXT NOT NULL REFERENCES runs(id), action_key TEXT NOT NULL UNIQUE REFERENCES effects(key), fence INTEGER NOT NULL, owner TEXT NOT NULL);
-      PRAGMA user_version=2; COMMIT;`);
+      `);
+      if (schema < 3) {
+        for (const row of this.#db
+          .prepare("SELECT run_id,data FROM coordinator_snapshots")
+          .all()) {
+          const previous = JSON.parse(String(row.data));
+          if (previous.schema !== 1)
+            throw new Error("incompatible-coordinator-migration");
+          const next = {
+            ...previous,
+            schema: 2,
+            observations: {},
+            receipts: {},
+            revision: previous.revision + 1,
+          };
+          if (next.stage === "handoff_ready") next.stage = "verifying";
+          // Legacy receipts lack attempt/bundle authority. Keep the original in append-only migration evidence.
+          this.#event(String(row.run_id), "coordinator-schema-migrated", {
+            from: 1,
+            to: 2,
+            previous,
+          });
+          this.#saveSnapshot(next);
+        }
+      }
+      this.#db.exec("PRAGMA user_version=3; COMMIT;");
     } catch (error) {
       this.#db.close();
       throw error;
@@ -595,11 +623,100 @@ export class Store {
     runId: string,
     source: Exclude<InboxSource, "evidence">,
     eventId: string,
-    event: Exclude<Event, { type: "receipt" }>,
+    event: Exclude<Event, { type: "receipt" | "observation" }>,
   ) {
     if ((source as string) === "evidence")
       throw new Error("receipt-registration-required");
     return this.#transaction(() => this.#ingest(runId, source, eventId, event));
+  }
+  /** Obtain before launching a collector. Stable collectorKey retries return the original token, even after supersession. */
+  beginCoordinatorObservation(
+    lease: Lease,
+    kind: ReceiptKind,
+    collectorKey: string,
+  ): Observation {
+    text(collectorKey);
+    return this.#transaction(() => {
+      this.#guard(lease);
+      const s = this.#snapshot(lease.runId);
+      const owner = this.#db
+        .prepare(
+          "SELECT run_id FROM coordinator_issues WHERE repository=? AND issue=?",
+        )
+        .get(s.repository, s.issue);
+      if (owner?.run_id !== s.runId)
+        throw new Error("issue-ownership-superseded");
+      const hash = identity({ kind, collectorKey });
+      const prior = this.#db
+        .prepare(
+          "SELECT data FROM coordinator_receipts WHERE run_id=? AND kind=? AND hash=?",
+        )
+        .get(s.runId, "observation", hash);
+      if (prior)
+        return JSON.parse(String(prior.data)).observation as Observation;
+      const observation: Observation = {
+        schema: 1,
+        runId: s.runId,
+        kind,
+        collectorKey,
+        generation: (s.observations[kind]?.generation ?? 0) + 1,
+        inputDigest: s.inputDigest,
+        bundleDigest: evidenceBundle(s, kind),
+      };
+      validateObservation(observation);
+      const { snapshot } = reduce(
+        s,
+        { type: "observation", observation },
+        this.clock(),
+      );
+      this.#db
+        .prepare(
+          "INSERT INTO coordinator_receipts(run_id,kind,hash,data) VALUES(?,?,?,?)",
+        )
+        .run(
+          s.runId,
+          "observation",
+          hash,
+          json({ observation, receiptHash: null }),
+        );
+      this.#saveSnapshot(snapshot);
+      this.#event(s.runId, "coordinator-observation-begun", {
+        observation,
+        revision: snapshot.revision,
+      });
+      return observation;
+    });
+  }
+  #assertObservation(
+    s: RunSnapshot,
+    kind: ReceiptKind,
+    observation: Observation,
+    receiptHash: string,
+  ) {
+    validateObservation(observation);
+    if (
+      observation.runId !== s.runId ||
+      observation.kind !== kind ||
+      observation.inputDigest !== s.inputDigest
+    )
+      throw new Error("stale-observation-inputs");
+    if (json(s.observations[kind] ?? null) !== json(observation))
+      throw new Error("superseded-observation");
+    if (observation.bundleDigest !== evidenceBundle(s, kind))
+      throw new Error("stale-evidence-bundle");
+    const hash = identity({ kind, collectorKey: observation.collectorKey });
+    const row = this.#db
+      .prepare(
+        "SELECT data FROM coordinator_receipts WHERE run_id=? AND kind='observation' AND hash=?",
+      )
+      .get(s.runId, hash);
+    if (!row) throw new Error("unissued-observation");
+    const record = JSON.parse(String(row.data));
+    if (json(record.observation) !== json(observation))
+      throw new Error("observation-conflict");
+    if (record.receiptHash !== null && record.receiptHash !== receiptHash)
+      throw new Error("observation-result-conflict");
+    return { hash, record };
   }
   /** Trusted checker/CI/reviewer integration only. Content-addressing proves integrity, not producer identity. */
   registerCoordinatorReceipt(
@@ -633,6 +750,7 @@ export class Store {
         throw new Error("invalid-authoritative-receipt");
       // Signature/diagnostic metadata belongs to the hashed receipt, never to an agent's event envelope.
       const state: ReceiptState = {
+        observation: receipt.observation,
         reference,
         inputs: i,
         outcome: receipt.outcome,
@@ -641,6 +759,18 @@ export class Store {
       };
       const event: Event = { type: "receipt", kind, receipt: state };
       validateEvent(event, "evidence");
+      const { hash, record } = this.#assertObservation(
+        s,
+        kind,
+        state.observation,
+        reference.sha256,
+      );
+      record.receiptHash = reference.sha256;
+      this.#db
+        .prepare(
+          "UPDATE coordinator_receipts SET data=? WHERE run_id=? AND kind='observation' AND hash=?",
+        )
+        .run(json(record), s.runId, hash);
       this.#db
         .prepare(
           "INSERT OR IGNORE INTO coordinator_receipts(run_id,kind,hash,data) VALUES(?,?,?,?)",
@@ -699,6 +829,12 @@ export class Store {
       const event = JSON.parse(String(row.payload)) as Event;
       validateEvent(event, source);
       if (event.type === "receipt") {
+        this.#assertObservation(
+          old,
+          event.kind,
+          event.receipt.observation,
+          event.receipt.reference.sha256,
+        );
         const trusted = this.#db
           .prepare(
             "SELECT data FROM coordinator_receipts WHERE run_id=? AND kind=? AND hash=?",
@@ -791,7 +927,8 @@ export class Store {
       slot.owner !== lease.owner
     )
       throw new Error("stale-slot-fence");
-    if (this.clock() >= a.deadline) throw new Error("action-deadline-exceeded");
+    if (Math.max(this.clock(), s.budgets.observedAt) >= a.deadline)
+      throw new Error("action-deadline-exceeded");
     validateAction(a);
     validateCapability(transport.capability);
     if (a.capabilityId && transport.capability?.id !== a.capabilityId)
