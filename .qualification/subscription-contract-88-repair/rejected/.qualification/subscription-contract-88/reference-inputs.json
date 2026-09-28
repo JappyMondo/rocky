@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "purpose": "Read-only fixed input identities; not a full historical ignored-artifact inventory",
+  "files": [
+    {
+      "path": "acceptance/harness/manifest.json",
+      "bytes": 12153,
+      "sha256": "68f14f61b70fa98d40744dc08bde3d43415f614ca2b0348bdd677c825eed2c5c",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "acceptance/harness/README.md",
+      "bytes": 27904,
+      "sha256": "e9bce3bd31d038b2ab8aa99d49db45654d7452b355ff4da4c0fd49bc6301cd20",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "acceptance/contracts/requirements.json",
+      "bytes": 26205,
+      "sha256": "c841384bc5f1402693e61fe833326106ca4fb3d3dd49429a57ef0b40f288de52",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "docs/rocky-next-concept.md",
+      "bytes": 31670,
+      "sha256": "c0291acdf0b9219d221b27827847da9bfa5b9199b12caf51275305ef63e3695b",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "docs/rocky-next-concept.html",
+      "bytes": 250018,
+      "sha256": "ced6da77909fde2f7662e36e81ffd80c65060e05dfaf6b04253734af9e8a3e7d",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "docs/architecture/first-version-decisions.md",
+      "bytes": 3417,
+      "sha256": "75172d140625ad446340d3a8475974a85d3db0012a9cc1a461d889da209e0f6b",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "src/coordinator/contracts.ts",
+      "bytes": 19050,
+      "sha256": "d77ac087ac5fde4e1733f95df79c7ce616c0ce484565d8915f83cc38c042661e",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "src/coordinator/reducer.ts",
+      "bytes": 16220,
+      "sha256": "9960446b9ee496f3a875733286a1aa2cf3e3d4665102d3f12e0ed864b68d8e4e",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    },
+    {
+      "path": "src/coordinator/transport.ts",
+      "bytes": 1230,
+      "sha256": "e2c2868f7ea3bfab4471a615184b24f2f22a38f3482a2b5fce6ecf646eb61a77",
+      "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704"
+    }
+  ]
+}

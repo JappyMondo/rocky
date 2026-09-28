@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "revision": "60a0233fac37fe4c5ae28b32034dd11d3a3b2639",
+  "purpose": "Exact rejected bytes archived before repair; resolve rejected inventories relative to rejected/",
+  "files": [
+    {
+      "path": ".qualification/subscription-contract-88/artifact-inventory.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/artifact-inventory.json",
+      "bytes": 2070,
+      "sha256": "c49604399f172b276c637495d34de5fc251404c6351ea6930524e0974631b2e9"
+    },
+    {
+      "path": ".qualification/subscription-contract-88/format-check.txt",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/format-check.txt",
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "path": ".qualification/subscription-contract-88/reference-inputs.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/reference-inputs.json",
+      "bytes": 2193,
+      "sha256": "394d9ebb0aa5015054e023f92dae5a489b396470f8a78fa839662ac7d29b17b8"
+    },
+    {
+      "path": ".qualification/subscription-contract-88/static-checks.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/static-checks.json",
+      "bytes": 4663,
+      "sha256": "1c738ff0a16dba93c9e1d3425e0f398c1bf8836d686d58df0b01bfc2d2c029f0"
+    },
+    {
+      "path": "acceptance/subscription/README.md",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/README.md",
+      "bytes": 11757,
+      "sha256": "b5bee7849d16e15e2783501a743931bf8e33c8116b73af797720b505dc61fbd6"
+    },
+    {
+      "path": "acceptance/subscription/final.schema.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/final.schema.json",
+      "bytes": 815,
+      "sha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792"
+    },
+    {
+      "path": "acceptance/subscription/frozen.sha256.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/frozen.sha256.json",
+      "bytes": 1054,
+      "sha256": "30e7f66609cdd4e14ec934394654f37c86ae2a23859b72f6c7881dedb5355d46"
+    },
+    {
+      "path": "acceptance/subscription/manifest.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/manifest.json",
+      "bytes": 13537,
+      "sha256": "843b96d615e8984b53fefb6de92be1b0a9d3cb0f63477c65be269bcd8c99d64f"
+    },
+    {
+      "path": "acceptance/subscription/scenarios.json",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/scenarios.json",
+      "bytes": 19903,
+      "sha256": "e040683bb83af7ac0887ddcf2e892bd8a3d4b0c845b0774f8729f3664c9a9cef"
+    },
+    {
+      "path": "docs/architecture/subscription-harness.md",
+      "archivedPath": ".qualification/subscription-contract-88-repair/rejected/docs/architecture/subscription-harness.md",
+      "bytes": 6279,
+      "sha256": "95e439745ebcf5093bde9895c2431722a3efc05d7c5c2005230fde5a8d1ad732"
+    }
+  ]
+}

@@ -69,25 +69,9 @@ or completions, updates without the required start, events after terminal and
 unsupported active tool kinds. Commands need started → completed with non-pending
 status and integer exit code. `file_change` is completed-only; do not invent a
 required start. Messages/reasoning can be completed-only. A started todo list must
-settle with every task complete. Fully observed ordinary diagnostic/tool failures
-are settled outcomes, not automatically failed actions: a regression may exit
-nonzero before repair, or a patch may fail on context and be corrected later.
-Retain their exact status, exit code where applicable, bounded output and item
-history. A later correctly bound proposal may still qualify as a protocol-successful
-proposal once all remaining stream, fence, usage, EOF and cleanup criteria hold. It
-does not erase any failure or establish verified coding success.
-
-Keep ordinary settled outcomes separate from unresolved/unknown/malformed work
-and actual policy/authority denial, declined operation, reroute or fatal harness/
-turn failure. These latter classes still reject a successful proposal. Determine
-the distinction from source-bound observations, never the model's claim that a
-denial was harmless; missing or ambiguous settlement cannot count as ordinary
-failure. Item status alone never proves containment: a sandbox denial surfacing
-as an ordinary nonzero result is judged by the independent protected-state oracle
-and native qualification, not relabelled. Qualification denial probes remain
-operation evidence, not successful coding actions. Fresh trusted current-input checks and independent review decide
-acceptance: an unresolved mandatory host-check failure or blocking finding still
-prevents delivery, regardless of a later model final or successful diagnostic.
+settle with every task complete. Failed/declined command or failed patch prevents
+successful action acceptance, even if a later message claims success; qualification
+denial probes are assessed as operation evidence, not successful coding actions.
 
 The last completed `agent_message` must parse as exactly `final.schema.json`, match
 the host's action/input/role, and follow every settled tool/plan. Earlier progress
@@ -96,8 +80,8 @@ does not remove host validation. Implementers may propose `changed`, `no_code` o
 `failed`; reviewers may propose `complete` or `failed`. The host checks the actual
 staged diff and evidence independently; `failed` never qualifies a successful action.
 An `error` event/item, reroute, `turn.failed`,
-missing final, unresolved observed item, nonzero CLI exit or stream truncation rejects
-success. Complete stdout **and** stderr EOF, CLI exit zero and independent owned
+missing final, unresolved observed item, nonzero exit or stream truncation rejects
+success. Complete stdout **and** stderr EOF, exit zero and independent owned
 physical quiescence are additional conjuncts. Cancellation or stale identity wins
 over a late final. Omitted internal RPC visibility requires source/native proof;
 no absence is inferred merely because JSONL does not expose it.
@@ -153,10 +137,3 @@ admission and physical launch. Missing, changed or self-approved evidence blocks
 The contract author and production author cannot supply independent approval.
 `frozen.sha256.json` binds the contract files; the qualification directory contains
 static checks only. No executable launcher or qualification checker ships here.
-
-Repair lease #1/837 (transferred by #88/843 under #1/842) addresses STD/SPEC89-01
-with F12/F13 positive proposal controls and F04's unchanged protocol/policy barriers. Exact rejected revision `60a0233`
-and its original inventories are archived under
-`.qualification/subscription-contract-88-repair/rejected/`; original
-`.qualification/subscription-contract-88/` evidence remains unchanged. Re-freezing
-this static contract does not execute or pass any scenario.

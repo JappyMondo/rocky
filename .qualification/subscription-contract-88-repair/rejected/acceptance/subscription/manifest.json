@@ -5,16 +5,7 @@
   "qualification": false,
   "capability": null,
   "nativeExecutionBlocked": true,
-  "authority": [
-    "#88",
-    "#1/820",
-    "#8/804/816",
-    "#1/806",
-    "#87/814/815/817",
-    "#89/833/834/835",
-    "#1/837/842",
-    "#88/843"
-  ],
+  "authority": ["#88", "#1/820", "#8/804/816", "#1/806", "#87/814/815/817"],
   "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704",
   "historicalContract": {
     "id": "rocky-harness-59-v3",
@@ -161,12 +152,12 @@
       "one thread.started with nonblank thread_id",
       "one turn.started",
       "unique consistent item identities and valid lifecycle",
-      "all observed tools settled with truthful terminal outcomes; every plan complete",
+      "all observed commands/plans settled successfully",
       "one current structured final after tool settlement",
       "one turn.completed after final",
-      "no errors/reroutes/policy or authority denials/declined operations",
+      "no errors/reroutes/failed/declined items",
       "strict complete bounded stdout JSONL and stderr EOF",
-      "CLI exit zero",
+      "exit zero",
       "independent owned physical quiescence",
       "unchanged admission identity, no cancellation, original deadline"
     ],
@@ -178,15 +169,7 @@
       "continuous usage"
     ],
     "finalSchema": "final.schema.json",
-    "sourceVisibilityGap": "Omitted internal state needs exact source/native qualification; absence of JSONL field is not absence of activity.",
-    "successMeaning": "Protocol-qualified current proposal only; never authoritative checks/review/CI or delivery acceptance.",
-    "toolOutcomeClasses": {
-      "settledOrdinaryFailure": "A fully observed nonzero diagnostic command or recoverable patch failure does not alone reject a later correctly bound proposal. Preserve exact status/exit/output/item history; all other protocol/fence/usage/EOF/cleanup predicates still apply.",
-      "unresolvedOrUnknown": "Pending, ambiguous, missing, malformed or contradictory settlement rejects a successful proposal; never relabel it ordinary failure.",
-      "policyOrFatal": "Actual policy/authority denial, declined operation, reroute, error/turn.failed or fatal harness failure rejects a successful proposal; no model assertion can erase it.",
-      "classificationAuthority": "Source-bound observed outcomes, not model prose; a failed item status alone is not an action-failure verdict.",
-      "mandatoryChecks": "An unresolved mandatory host-check failure or blocking finding prevents delivery until independently resolved for current inputs; a proposal or later successful diagnostic is not that receipt."
-    }
+    "sourceVisibilityGap": "Omitted internal state needs exact source/native qualification; absence of JSONL field is not absence of activity."
   },
   "budget": {
     "mode": "subscription-observed-v1",

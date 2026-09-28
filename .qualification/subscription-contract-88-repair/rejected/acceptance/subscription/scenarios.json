@@ -39,8 +39,8 @@
       "evidenceClass": "owned-fake-cli",
       "requirements": ["S04"],
       "title": "Item and terminal contradictions",
-      "procedure": "From F02 inject duplicate/missing thread or turn start, reused IDs/type changes, update-before-start, completed-only command, duplicate item completion, pending/unknown/malformed settlement, actual policy/authority denial or declined command, null exit, incomplete todo, duplicate terminal and post-terminal event. Ordinary settled command/patch failures are paired positive controls F12/F13.",
-      "expected": "Each listed protocol/policy contradiction rejects a successful proposal; pending/uncertain lifecycle cannot silently disappear. Completed-only patch/message controls remain accepted. A fully observed ordinary failed item alone is not a protocol/action-failure verdict; its evidence stays retained.",
+      "procedure": "From F02 inject duplicate/missing thread or turn start, reused IDs/type changes, update-before-start, completed-only command, duplicate item completion, pending/failed/declined command, null exit, failed patch, incomplete todo, duplicate terminal and post-terminal event.",
+      "expected": "Each contradiction rejects successful action; pending/uncertain lifecycle cannot silently disappear. Completed-only patch/message controls remain accepted.",
       "status": "unexecuted",
       "blocker": null
     },
@@ -111,26 +111,6 @@
       "title": "Nonsecret classification and forged evidence",
       "procedure": "Inject auth classifications subscription/API/unknown/mismatch/race, raw key fragments, missing effective policy, caller capability=true, altered/missing artifact and stale independent approval. Use owned synthetic values only.",
       "expected": "Only recognized approved nonsecret classification retained; never raw auth status/key fragments. Mismatch/unknown/race unresolved blocks model launch with no forced login/logout or API fallback. Forged/changed evidence cannot mint admission.",
-      "status": "unexecuted",
-      "blocker": null
-    },
-    {
-      "id": "F12",
-      "evidenceClass": "owned-fake-cli",
-      "requirements": ["S04", "S10"],
-      "title": "Failed regression then repair and current proposal",
-      "procedure": "Within one fresh action emit a started/completed regression command with nonzero exit and ordinary diagnostic failure, retain its full bounded result, then source repair and later settled tools, exact changed final, turn.completed with valid reported usage, CLI exit0, both EOFs and independent cleanup. Obtain fresh host-selected current-tree checks. Pair with a mandatory host check that still fails, unresolved diagnostic settlement, and actual policy denial.",
-      "expected": "The ordinary failed regression does not alone reject the correctly bound proposed changed result once all other stream/fence/usage/deadline/cleanup criteria hold. Original failure remains visible. Delivery requires independent current-input passing checks and resolved findings; model prose or a later diagnostic cannot clear the failing host receipt. Unresolved settlement and actual policy denial still reject a successful proposal.",
-      "status": "unexecuted",
-      "blocker": null
-    },
-    {
-      "id": "F13",
-      "evidenceClass": "owned-fake-cli",
-      "requirements": ["S04", "S10"],
-      "title": "Recoverable patch mismatch then corrected proposal",
-      "procedure": "Within one fresh action emit a completed-only file_change with ordinary context-mismatch failure, then a distinct-ID corrected patch with observed completed status and current changed final after all tools settle; complete valid usage/terminal/CLI exit0/EOF/cleanup. Pair with a patch denied by actual authority policy, missing patch settlement, fatal turn/error/reroute and nonzero CLI exit; retain all original patch records.",
-      "expected": "The fully observed ordinary patch failure may precede an accepted current proposal; failed and corrected item histories both remain immutable. Trusted current-input checks still decide behavior and delivery. Actual denial, ambiguous/pending operation, fatal/error/reroute or nonzero CLI exit cannot be healed by the later patch/final.",
       "status": "unexecuted",
       "blocker": null
     },

@@ -1,0 +1,199 @@
+{
+  "schema": 1,
+  "contractId": "rocky-subscription-88-v1",
+  "repairOf": "60a0233fac37fe4c5ae28b32034dd11d3a3b2639",
+  "finding": "STD/SPEC89-01",
+  "kind": "static checks only; no scenario execution, tests, builds, native/auth/model/API/network effects",
+  "qualification": false,
+  "capability": null,
+  "scenarioStatusCounts": {
+    "unexecuted": 18,
+    "blocked": 11
+  },
+  "checks": [
+    {
+      "id": "C-json-manifest.json",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/manifest.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-scenarios.json",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/scenarios.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-final.schema.json",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/final.schema.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-frozen.sha256.json",
+      "check": "JSON parse with duplicate-key rejection: acceptance/subscription/frozen.sha256.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-json-rejected-source-inventory.json",
+      "check": "JSON parse with duplicate-key rejection: .qualification/subscription-contract-88-repair/rejected-source-inventory.json",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-scn-unique",
+      "check": "scenario IDs unique",
+      "result": "pass",
+      "detail": "29 scenarios"
+    },
+    {
+      "id": "C-req-set",
+      "check": "manifest requirements exactly S01-S10",
+      "result": "pass",
+      "detail": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10"
+      ]
+    },
+    {
+      "id": "C-scn-req",
+      "check": "every scenario maps only to existing S-requirements and has >=1",
+      "result": "pass",
+      "detail": []
+    },
+    {
+      "id": "C-req-cover",
+      "check": "every S-requirement covered by >=1 scenario",
+      "result": "pass",
+      "detail": []
+    },
+    {
+      "id": "C-status",
+      "check": "all scenarios unexecuted/blocked; none pass/executed",
+      "result": "pass",
+      "detail": {
+        "unexecuted": 18,
+        "blocked": 11
+      }
+    },
+    {
+      "id": "C-blocker",
+      "check": "blocked scenarios name blocker; unexecuted have null blocker",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-status-preserved",
+      "check": "pre-existing 27 scenario statuses/blockers unchanged; only F12/F13 added",
+      "result": "pass",
+      "detail": ["F12", "F13"]
+    },
+    {
+      "id": "C-flags",
+      "check": "manifest qualification=false, capability=null, nativeExecutionBlocked=true; scenarios executionAuthorized=false",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-outcome-classes",
+      "check": "manifest defines settledOrdinaryFailure/unresolvedOrUnknown/policyOrFatal/classificationAuthority/mandatoryChecks",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-success-pred",
+      "check": "successRequires no longer demands successful commands/no failed items; keeps denial/declined/error/reroute and CLI exit zero",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-readme",
+      "check": "README drops blanket failed-command/patch rejection; retains unresolved/policy/fatal, mandatory-check and nonzero CLI exit barriers",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-F04-F12-F13",
+      "check": "F04 keeps protocol/policy barriers and references F12/F13; F12/F13 owned-fake-cli unexecuted positive controls with negative pairs mapping S04",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-arch",
+      "check": "architecture note has no failed-tool overconstraint (no 'fail'/'declin' text); byte-identical to 60a0233",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-frozen",
+      "check": "frozen.sha256.json bytes/sha256 match all listed files",
+      "result": "pass",
+      "detail": []
+    },
+    {
+      "id": "C-archive",
+      "check": "rejected/ archive equals git show 60a0233 bytes for every inventoried file; inventory covers all archived files",
+      "result": "pass",
+      "detail": {
+        "mismatch": [],
+        "count": 10
+      }
+    },
+    {
+      "id": "C-orig-evidence",
+      "check": ".qualification/subscription-contract-88/** byte-identical to 60a0233, no added files",
+      "result": "pass",
+      "detail": {
+        "files": 4,
+        "extra": []
+      }
+    },
+    {
+      "id": "C-scope",
+      "check": "every tracked/untracked change (and ignored repair dir) within owned paths",
+      "result": "pass",
+      "detail": {
+        "changed": [
+          "acceptance/subscription/README.md",
+          "acceptance/subscription/frozen.sha256.json",
+          "acceptance/subscription/manifest.json",
+          "acceptance/subscription/scenarios.json",
+          ".qualification/subscription-contract-88-repair/rejected-source-inventory.json",
+          ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/artifact-inventory.json",
+          ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/format-check.txt",
+          ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/reference-inputs.json",
+          ".qualification/subscription-contract-88-repair/rejected/.qualification/subscription-contract-88/static-checks.json",
+          ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/README.md",
+          ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/final.schema.json",
+          ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/frozen.sha256.json",
+          ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/manifest.json",
+          ".qualification/subscription-contract-88-repair/rejected/acceptance/subscription/scenarios.json",
+          ".qualification/subscription-contract-88-repair/rejected/docs/architecture/subscription-harness.md"
+        ],
+        "outside": []
+      }
+    },
+    {
+      "id": "C-prettier",
+      "check": "repo-installed Prettier 3.6.2 --check (ignore-path /dev/null) on changed contract/archive-inventory files",
+      "result": "pass",
+      "detail": null
+    },
+    {
+      "id": "C-diff-check",
+      "check": "git diff --check (unstaged working tree)",
+      "result": "pass",
+      "detail": null
+    }
+  ],
+  "allPassed": true
+}

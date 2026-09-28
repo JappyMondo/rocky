@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rocky:subscription:final:1",
+  "title": "Direct subscription proposed action result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "actionKey",
+    "inputDigest",
+    "role",
+    "outcome",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "actionKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "inputDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "role": {
+      "enum": ["implementer", "reviewer"]
+    },
+    "outcome": {
+      "enum": ["changed", "no_code", "complete", "failed"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    }
+  }
+}
