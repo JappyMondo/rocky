@@ -15,9 +15,7 @@
     "#1/837/842",
     "#88/843",
     "#92/857/858/859/860",
-    "#93",
-    "#108/R1 (root triage/acceptance comment 972; zero-call codex native observations CX-P0..CX-P5)",
-    "#110/R3 (wording-only recording of accepted #108/R1 observations incl. the PFC-2 refinement; no scenario executed, no status flipped)"
+    "#93"
   ],
   "baseline": "b1cc77dc7aa0d0394f59e0bc9dc6de2bfad13704",
   "historicalContract": {
@@ -32,7 +30,7 @@
     "version": "0.157.1",
     "binary": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
     "binarySha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d",
-    "binaryIdentityProvenance": "historical harness59-v3; not reattested by #88. Re-measured equal to the pin at R1 #108 CX-P0 (PASS, 2026-09-29): sha256 27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d / 238223808 bytes at /opt/homebrew/Caskroom/codex/0.157.1/bin/codex — read/hash only, no spawn; this is an identity re-measure, NOT runtime or backend attestation (#110/R3; source: .qualification/native-probes-R1/probes/CX-P0/verdict.md)",
+    "binaryIdentityProvenance": "historical harness59-v3; not reattested by #88",
     "platform": "darwin",
     "architecture": "arm64",
     "sourceCommit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
@@ -64,7 +62,6 @@
       "-"
     ],
     "templateIsExecutableOrApprovedProfile": false,
-    "argvSurfaceObservation": "R1 #108 native observation (#110/R3 wording amendment; presence evidence only, NOT runtime attestation): every frozen-template flag is PRESENT in `codex exec --help` for the pinned 0.157.1 — --json --color --skip-git-repo-check --ignore-user-config --ignore-rules --strict-config --output-schema --model --ephemeral -c --image (CX-P1, PASS; zero model call, --help starts no thread); the `-- -` stdin form is not mentioned in the help text (recorded). Binary identity re-measured equal to the pin before any spawn (CX-P0, PASS: sha256 27ceb5f9…6a7d / 238223808 B, read/hash only). Help-text presence never attests runtime semantics; the argv authority of this contract remains the frozen template plus separately authorized native qualification (source: .qualification/native-probes-R1/probes/CX-P1/verdict.md, CX-P0/verdict.md).",
     "profile": {
       "id": "codex-exec-subscription-ephemeral-v1",
       "status": "blocked",
@@ -82,13 +79,13 @@
       "disabled unapproved tool/discovery routes"
     ],
     "configOverrides": {
-      "serialization": "Each -c is exactly one argv element key=value. Every value must round-trip a real TOML parser with structural equality before admission: the pinned source splits the key on every '.' without quoting and a value that fails TOML parsing SILENTLY degrades to a raw string, so path-keyed maps are only admissible as inline-table values under dot-free top-level keys (source: #92 F1, codex 0.157.1 @36650394). Observed against the shipped producer zero-spawn (R1 #108 CX-P2a, PASS; #110/R3): dotted path-keys refuse (codex-override-key-not-dot-free), sandbox_mode refuses (codex-override-forbidden-key), unknown keys refuse (codex-override-unknown-key), and a dot-free path-keyed inline table round-trips and is admitted. Honest note: the shipped dotted-key refusal fires in the key audit BEFORE tomlRoundTrip, and the tomlRoundTrip inequality path is unreachable for the conservative grammar (renderer/parser are exact inverses), so the dot-free key audit plus the forbidden/unknown key audits are the effective F1 pre-spawn defense (source: .qualification/native-probes-R1/probes/CX-P2a/verdict.md).",
+      "serialization": "Each -c is exactly one argv element key=value. Every value must round-trip a real TOML parser with structural equality before admission: the pinned source splits the key on every '.' without quoting and a value that fails TOML parsing SILENTLY degrades to a raw string, so path-keyed maps are only admissible as inline-table values under dot-free top-level keys (source: #92 F1, codex 0.157.1 @36650394).",
       "mergeSemantics": "Tables deep-merge and CLI overrides sit above user/project layers but below thread-config, legacy managed_config and macOS MDM layers; no override can erase inherited map entries such as mcp_servers, hooks, permission profiles or projects. Only a fail-closed discovery inventory (empty/approved before admission) works; no map-erasure semantics may be assumed (source: #92 F2).",
-      "strictValidation": "--strict-config also validates -c overrides: unknown configuration fields or feature keys are rejected with an explicit error (source: #92 F3). Natively observed zero-call (R1 #108 CX-P2b, PASS; #110/R3): exit 1 with 'Error loading config.toml: unknown configuration field `rocky_unknown_probe_key` in -c/--config override', NO thread.started, stdin not consumed. Plan ambiguity recorded in the probe: an unknown key can never reach begin through the shipped adapter (the producer rejects unknown keys pre-spawn, CX-P2a), so the native shape was observed Tier-B (source: .qualification/native-probes-R1/probes/CX-P2b/verdict.md).",
+      "strictValidation": "--strict-config also validates -c overrides: unknown configuration fields or feature keys are rejected with an explicit error (source: #92 F3).",
       "userLayerScope": "--ignore-user-config replaces only the user config.toml layer; the CODEX_HOME skill roots and packaged defaults (credentials store 'file', project_doc_max_bytes, history save-all) still apply beneath, so ignore flags alone never establish absence (source: #92 F4)."
     },
     "forbiddenLaunchInputs": [
-      "--sandbox/-s or sandbox_mode together with named default_permissions: any CLI sandbox override forces legacy syntax and silently drops the named-permission profile; the combination is rejected by source (source: #92 F7, codex 0.157.1 @36650394). Observed zero-spawn (R1 #108 CX-P2c, PASS; #110/R3): assertCodexArgv refuses a --sandbox flag (codex-forbidden-flag:--sandbox — the never-pass check fires first) and the producer refuses sandbox_mode (codex-override-forbidden-key), so the combination is never admitted; the specific codex-forbidden-sandbox-named-permissions error is a redundant defense shadowed by the never-pass refusal. The Tier-B NATIVE shape of --sandbox+named-permissions was deliberately NOT observed: spawning real codex with --sandbox risks a thread/model start, which the zero-call guarantee forbids (skipped per plan, recorded honestly) (source: .qualification/native-probes-R1/probes/CX-P2c/verdict.md).",
+      "--sandbox/-s or sandbox_mode together with named default_permissions: any CLI sandbox override forces legacy syntax and silently drops the named-permission profile; the combination is rejected by source (source: #92 F7, codex 0.157.1 @36650394)",
       "forced_login_method / forced_chatgpt_workspace_id anywhere in overrides: a mismatch triggers logout of the shared auth (source: #92 F8; consistent with auth.forcedLoginLogoutPolicy=false)",
       "auth-bearing environment keys (CODEX_API_KEY, OPENAI_API_KEY, CODEX_ACCESS_TOKEN, refresh/revoke URL overrides, client-id/base-URL overrides): load_auth honours them and in-process exec enables CODEX_API_KEY, so the positive environment allowlist must exclude them (source: #92 F8)"
     ],
@@ -113,7 +110,7 @@
       "eofCount": 1,
       "resendAfterAmbiguity": false,
       "promptInArgv": false,
-      "consumptionEvidence": "Prompt consumption is evidenced only by a subsequent thread.started: the pinned source reads stdin fully before thread start, and an early config error exits without reading (a write may still succeed into the pipe buffer) (source: #92 F9, codex 0.157.1 @36650394). R1 #108 native observations (#110/R3; root-accepted comment 972): the CONFIG-error half is confirmed zero-call — an unknown -c key under --strict-config exits 1 pre-thread ('Error loading config.toml: unknown configuration field …', NO thread.started, stdin not consumed; CX-P2b, PASS) and an early config error exits without reading stdin, a delayed post-exit prompt write recording the attempted-unknown duplex shape (CX-P5, PASS). The AUTH-absent half is REFINED (PFC-2): a valid full adapter bundle with a credential-less CODEX_HOME DOES emit thread.started + turn.started and CONTACTS the model endpoint (wss then https api.openai.com/v1/responses — a TRANSPORT fallback, not an auth fallback), receiving 401 Unauthorized on every attempt (×10) ⇒ turn.failed, exit 1, ZERO billable processing, no usage frame; the adapter settled fatal/failed correctly (CX-P3, PRODUCT_FAILURE_CANDIDATE adjudicated by root as the PFC-2 wording refinement — NOT an L01 pass). thread.started therefore evidences thread start / prompt read, never billable model processing; the fail-closed point for AUTH-absence is the API-layer 401 AFTER thread start, while CONFIG errors refuse pre-thread (source: .qualification/native-probes-R1/probes/CX-P2b/verdict.md, CX-P5/verdict.md, CX-P3/verdict.md)."
+      "consumptionEvidence": "Prompt consumption is evidenced only by a subsequent thread.started: the pinned source reads stdin fully before thread start, and an early config error exits without reading (a write may still succeed into the pipe buffer) (source: #92 F9, codex 0.157.1 @36650394)"
     },
     "environment": "sealed positive allowlist, exact immutable bytes; no inherited API/access/workload tokens, proxies, provider overrides or ambient secrets",
     "runtimePaths": [
@@ -127,12 +124,12 @@
       "owner": "trusted Codex parent",
       "home": "one designated existing harness-owned CODEX_HOME; not private runtime HOME",
       "backend": "explicit approved nonsecret file/keyring/auto selection, never inferred from credentials",
-      "accountMode": "recognized subscription classification only; unknown/API/mismatch rejects before model work. Native observation (R1 #108 CX-P3; #110/R3): when a credential-less CODEX_HOME bundle is nevertheless spawned, the native fail-closed point for auth-absence is the API-layer 401 AFTER thread.started/turn.started — 401×10, turn.failed, exit 1, zero billable processing, no usage frame, no forced login/logout side effect, no API-key auth fallback (the wss→https switch is transport, not auth) — and the shipped adapter settled fatal/failed correctly; the host-side classification-before-model-work requirement is UNCHANGED (source: .qualification/native-probes-R1/probes/CX-P3/verdict.md)",
+      "accountMode": "recognized subscription classification only; unknown/API/mismatch rejects before model work",
       "normalNativeRefresh": "allowed only within later qualified profile authority",
       "rockyCredentialReadCopySymlinkProxy": false,
       "rawStatusRetention": false,
       "forcedLoginLogoutPolicy": false,
-      "trustPersistence": "thread/start with a requested writable cwd and no trust_level persists projects.<git-root-or-cwd>.trust_level='trusted' into the shared CODEX_HOME config.toml; with a shared store this mutates the user's real config. The profile must prevent it with an explicit untrusted override for the canonical staged root (trust_level Some => no persistence) and a projectless staged tree, and post-run must verify the shared config.toml bytes are unchanged (source: #92 F5, codex 0.157.1 @36650394). OBSERVED (refusal-path half, R1 #108 CX-P4, PASS, reproduced byte-for-byte in the documented remediation re-run): the explicit untrusted override HELD under a REAL thread-start condition — across an auth-absent refusal run that DID emit thread.started (CX-P3), the shared synthetic config.toml was byte-identical pre/post (sha256 e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1, 88 B, drift=null) with no projects./trust_level written, so the defense is confirmed under precisely the condition that would normally persist trust, not merely a no-op early exit. The full F5 proof under a successful writable-cwd model turn remains CREDIT-BLOCKED (source: .qualification/native-probes-R1/probes/CX-P4/verdict.md; #110/R3)"
+      "trustPersistence": "thread/start with a requested writable cwd and no trust_level persists projects.<git-root-or-cwd>.trust_level='trusted' into the shared CODEX_HOME config.toml; with a shared store this mutates the user's real config. The profile must prevent it with an explicit untrusted override for the canonical staged root (trust_level Some => no persistence) and a projectless staged tree, and post-run must verify the shared config.toml bytes are unchanged (source: #92 F5, codex 0.157.1 @36650394)"
     },
     "immutableBeforeStart": [
       "argv",
@@ -151,7 +148,6 @@
   },
   "protocol": {
     "kind": "fresh codex exec JSONL; not external JSON-RPC",
-    "nativeFrameShapeObservation": "PARTIAL native frame shapes attested at zero cost (R1 #108 CX-P3 auth-failure lifecycle, 14 JSONL frames; #110/R3): thread.started{thread_id}, turn.started{}, error{message}, item{…}, turn.failed{error{message}} — a NATIVE attestation (not bundle strings) for the opening/error frames ONLY, from a run with zero billable processing (401×10). Completion/usage frames (turn.completed with usage, final agent_message) remain CREDIT-BLOCKED (they need a successful model turn). This partially informs the G-FRAME-SHAPE gate discussed in docs/codex-exec-adapter.md (that document is outside the #110 amendment scope; the observation is recorded here instead). The events/allowedItems/forbiddenItems lists and every success predicate are UNCHANGED (source: .qualification/native-probes-R1/probes/CX-P3/verdict.md BONUS section).",
     "events": [
       "thread.started",
       "turn.started",

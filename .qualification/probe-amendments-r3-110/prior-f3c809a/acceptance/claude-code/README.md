@@ -138,15 +138,8 @@ reviewer write is impossible by tool absence [P roster]. Both roles carry the
 fixed deny list (Agent, Workflow, Skill, web tools, MCP tools `mcp__*`, …)
 (source: #94/878 §A/§D). Model/effort come only from an approved role table;
 an unknown `--effort` merely warns and silently uses the default, so the
-producer validates it — natively confirmed zero-turn (R1 #108 CC-P2 e: the
-exact `Warning: Unknown --effort value …` then proceed to auth failure, so the
-producer-rejection duty is load-bearing) — and effort stays requested-only
-(G-EFFORT, G-MODEL; source: #94/878 F11;
-`.qualification/native-probes-R1/probes/CC-P2/verdict.md`). The G-MODEL
-enumeration half now has a finite candidate list (99 refined bundle-string IDs,
-R1 #108 CC-P8 — NOT runtime-attested; resolvability only via CC-L1); per user
-decision #1 2026-09-29 (c) the IDs stay configurable and the role table is
-host-frozen.
+producer validates it, and effort stays requested-only (G-EFFORT, G-MODEL;
+source: #94/878 F11).
 
 Discovery sealing: `--setting-sources=` (empty ⇒ no user/project/local
 layers), a Rocky-owned canonical `--settings` file whose prohibited keys
@@ -157,31 +150,12 @@ no plugins, no subagents, auto-memory off, background tasks off, and a staged
 tree with no `CLAUDE*.md`/`AGENTS.md`/`.claude`/`.mcp.json` in the tree **or
 any ancestor** (source: #94/872 F6–F8; #94/878 §B). Managed/MDM/server-managed
 layers cannot be disabled, so they are inventoried by hash and **any presence
-refuses the profile** until separately reviewed (G-MANAGED); on the R1 #108
-probe host the real managed/MDM layers were re-observed ALL ABSENT (lstat
-names-only, contents never read) and the named pre-spawn refusals
-(`claude-config-dir-forbidden` / `claude-instruction-files-present` /
-`claude-managed-layer-present`) were observed with zero spawn and the
-SessionStart-hook sentinel untouched (CC-P1, PASS) — the per-run
-presence-refusal requirement is unchanged. In `-p`, settings
+refuses the profile** until separately reviewed (G-MANAGED). In `-p`, settings
 that fail validation are **silently ignored** — an invalid Rocky settings file
 could silently disable the sandbox — so settings bytes are canonical,
 duplicate-key-rejected and hash-bound, and G-SET requires a native proof plus a
 per-run positive control (source: #94/872 F6; #94/880 G-SET/NP4). The
-silent-ignore direction now has its native zero-turn proof: R1 #108 CC-P3
-(PASS) confirmed **Direction B** — invalid `--settings` (unknown key; malformed
-JSON) is silently ignored, byte-identical auth-failure frames to the valid
-baseline — so the shipped fail-closed `validateClaudeSettingsBytes` pre-spawn
-validation is evidence-bound mandatory; G-SET stays open pending the
-effectiveness half (per-run positive control under CC-L2, LIVE, not run). The
-effective sandbox state is not observable in the stream. A hostile
-SessionStart hook was also natively observed firing **pre-auth with no model
-turn** (hook_started/hook_response frames; CC-P6 i), which makes
-`disableAllHooks:true`, the empty `--setting-sources=` and the hostile-config
-discovery refusals load-bearing (source:
-`.qualification/native-probes-R1/probes/CC-P1,CC-P3,CC-P6/`; #108 root triage
-comment 972; #110/R3 wording amendment — observation only, no scenario
-executed).
+effective sandbox state is not observable in the stream.
 
 ## Reading stream-json output
 
@@ -230,16 +204,6 @@ Classification (source: #94/879; #89/850):
   key ≠ the requested model (silent fallback); a changed
   `claude_code_version`. Rejects.
 
-Native zero-turn observation (R1 #108 CC-P2/CC-P5, root-accepted comment 972;
-#110/R3 wording amendment): the unauth auth-failure path surfaces as ONE
-**synthetic** assistant frame (`model:"<synthetic>"`,
-`is_api_error_message:true`, zero usage) plus a result frame carrying
-`subtype:"success"` **with** `is_error:true` and `terminal_reason:"api_error"`
-— a subtype-only classifier would misread auth failure as success; the shipped
-adapter settles this shape fatal correctly (source:
-`.qualification/native-probes-R1/probes/CC-P2/verdict.md`,
-`probes/CC-P5/verdict.md`).
-
 `--json-schema` is implemented as a synthetic `StructuredOutput` tool pair;
 `success` **without** `structured_output` is possible and is treated as
 failure; the flag is a request, not evidence — the host always re-validates
@@ -280,13 +244,7 @@ when no result was emitted**; SIGTERM exits 143, kills the Bash tree and
 leaves **no result** (⇒ unknown); SIGINT frames/exit are unobserved
 (G-SIGINT), so cancellation is SIGTERM-only with no interrupt acknowledgement
 ever claimed; a late result after cancel is ignored (source: #94/879 F16,
-producer contract §4; #94/880 FK7). As of R1 #108 neither signal shape is
-natively observed, **with observation**: unauth auth-failure (~250–260 ms)
-preempted the scheduled T+10s SIGTERM / T+8s SIGINT, so no signal was ever
-delivered to a live process (CC-P6 ii/iii) — the 143-no-result (FK7/F12) and
-SIGINT shapes stay unknown-with-observation, needing CC-L3 (LIVE, not run)
-(source: `.qualification/native-probes-R1/probes/CC-P6/verdict.md`; #110/R3).
-`system/api_retry` events are not fatal;
+producer contract §4; #94/880 FK7). `system/api_retry` events are not fatal;
 a retrying run that later satisfies the full conjunction is **accepted with the
 retries recorded** (decision D-05, adopting the research recommendation;
 source: #94/879; #94/880 G-RETRY).
@@ -335,27 +293,6 @@ residuals stay carried; each remaining gate maps to the scenario that can close
 it. Research left these unresolved and they are encoded as honest gates, not
 guesses.
 
-**R1 native observations (#110/R3 wording amendment).** Since the root-accepted
-R1 #108 zero-turn native probe batch (comment 972, 2026-09-29), several gates
-carry "observed (partial)" annotations in `manifest.json` `openGates` —
-**none is closed and no scenario was executed or flipped**: G-SET (Direction B
-silent-ignore natively confirmed, CC-P3; effectiveness closure still needs
-CC-L2 LIVE), G-MANAGED (probe-host managed/MDM layers observed ABSENT,
-lstat names-only, CC-P1; per-run presence refusal unchanged), G-WRITES
-(startup write set `.claude.json`/`backups/`/`sessions/` observed bounded
-inside the synthetic CFG despite `--no-session-persistence` +
-`CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1`, CC-P5 and the #111 probe;
-auth-refresh/LIVE surfaces still open), G-INIT-VALUES (bare-argv DEFAULT init
-frame CC-P6 and the #111 projected-schema-subset init frame with
-`StructuredOutput` present in `init.tools` are **partially observed** — NOT
-adapter-constrained, NOT proven; the full roster stays gated to CC-L1),
-G-SIGINT plus the SIGTERM 143-no-result shape (unknown-**with-observation**:
-signals never delivered because unauth auth-failure preempted them, CC-P6;
-CC-L3 LIVE needed) and G-MODEL (enumeration half only: 99 bundle-string
-candidate IDs, CC-P8 — NOT runtime-attested; resolvability only via CC-L1).
-Probes are not scenario executions; all 24 scenarios remain unexecuted or
-blocked (14 + 10).
-
 ## Binding and review
 
 Receipts bind the items in `manifest.json` `receiptRequirements`, including the
@@ -387,14 +324,4 @@ wording; status counts remain 14 unexecuted + 10 blocked). Only
 those two entries only. The amendment executes and passes no scenario; the
 #111 confirmation probe (projected schema accepted at native startup, zero
 model turns, unauth) is recorded in the amendment evidence directory, not as
-a scenario pass. (3) The **R3 wording amendment (#110**, 2026-09-29, sole
-mutation lease; baseline `f3c809a`) records the root-accepted R1 #108
-zero-turn native-probe observations and the #111 native confirmation in the
-`openGates`, gate-adjacent and scenario-**blocker** texts cited above:
-wording-only, every change cited to
-`.qualification/native-probes-R1/probes/<ID>/` or
-`.qualification/claude-code-contract-95-amend-pfc1-111/native-probe/`; no
-scenario executed, no `status` flipped (14 unexecuted + 10 blocked unchanged),
-no gate closed. Prior bytes are archived under
-`.qualification/probe-amendments-r3-110/prior-f3c809a/` with an amendments
-log; `frozen.sha256.json` re-freezes the changed files only.
+a scenario pass.

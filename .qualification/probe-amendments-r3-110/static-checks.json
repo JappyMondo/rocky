@@ -1,0 +1,147 @@
+{
+  "schema": 1,
+  "ticket": "#110 (R3)",
+  "baseline": "f3c809a9941314e59f5da3b941ab796c214ade84",
+  "kind": "static checks for a wording-only amendment; no scenario execution, no native spawn, no network",
+  "qualification": false,
+  "capability": null,
+  "scenarioStatusCounts": {
+    "claude-code": {
+      "unexecuted": 14,
+      "blocked": 10
+    },
+    "subscription": {
+      "unexecuted": 18,
+      "blocked": 11
+    }
+  },
+  "checks": [
+    {
+      "id": "C-json-strict-dupkey",
+      "check": "strict duplicate-key JSON parse of every touched/authority JSON",
+      "result": "pass",
+      "detail": [
+        "acceptance/claude-code/manifest.json: ok",
+        "acceptance/claude-code/scenarios.json: ok",
+        "acceptance/claude-code/frozen.sha256.json: ok",
+        "acceptance/subscription/manifest.json: ok",
+        "acceptance/subscription/scenarios.json: ok",
+        "acceptance/subscription/frozen.sha256.json: ok",
+        "acceptance/subscription/final.schema.json: ok"
+      ]
+    },
+    {
+      "id": "C-scenario-statuses",
+      "check": "status counts unchanged (14+10 / 18+11), no enum changed, only blocker text differs",
+      "result": "pass",
+      "detail": [
+        "claude-code: counts={'unexecuted': 14, 'blocked': 10} total=24; differing fields=['blocker']",
+        "subscription: counts={'unexecuted': 18, 'blocked': 11} total=29; differing fields=['blocker']"
+      ]
+    },
+    {
+      "id": "C-frozen-rehash",
+      "check": "every frozen.sha256.json entry re-hashes to current bytes in BOTH dirs",
+      "result": "pass",
+      "detail": [
+        "acceptance/claude-code/README.md: bytesMatch=True shaMatch=True",
+        "acceptance/claude-code/manifest.json: bytesMatch=True shaMatch=True",
+        "acceptance/claude-code/scenarios.json: bytesMatch=True shaMatch=True",
+        "docs/architecture/claude-code-harness.md: bytesMatch=True shaMatch=True",
+        "acceptance/subscription/README.md: bytesMatch=True shaMatch=True",
+        "acceptance/subscription/final.schema.json: bytesMatch=True shaMatch=True",
+        "acceptance/subscription/manifest.json: bytesMatch=True shaMatch=True",
+        "acceptance/subscription/scenarios.json: bytesMatch=True shaMatch=True",
+        "docs/architecture/subscription-harness.md: bytesMatch=True shaMatch=True"
+      ]
+    },
+    {
+      "id": "C-final-schema-untouched",
+      "check": "final.schema.json raw sha == 954dd71e...6792, zero diff vs baseline, frozen entry unchanged",
+      "result": "pass",
+      "detail": {
+        "sha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
+        "diffEmpty": true,
+        "frozenEntryUnchanged": true
+      }
+    },
+    {
+      "id": "C-prior-archive",
+      "check": "prior-f3c809a archive bytes == git show baseline for every modified file",
+      "result": "pass",
+      "detail": [
+        "acceptance/claude-code/README.md: prior==git-show:True sha256=b8f6f5f86f54\u2026",
+        "acceptance/claude-code/frozen.sha256.json: prior==git-show:True sha256=241360ed5dff\u2026",
+        "acceptance/claude-code/manifest.json: prior==git-show:True sha256=af2dedc2d91d\u2026",
+        "acceptance/claude-code/scenarios.json: prior==git-show:True sha256=eeb67965c413\u2026",
+        "acceptance/subscription/README.md: prior==git-show:True sha256=7c5b14644f41\u2026",
+        "acceptance/subscription/frozen.sha256.json: prior==git-show:True sha256=c8da6408e4cb\u2026",
+        "acceptance/subscription/manifest.json: prior==git-show:True sha256=b632eb34b89f\u2026",
+        "acceptance/subscription/scenarios.json: prior==git-show:True sha256=e0e79ca9019c\u2026",
+        "docs/architecture/claude-code-harness.md: prior==git-show:True sha256=98c3cce586e6\u2026",
+        "docs/architecture/subscription-harness.md: prior==git-show:True sha256=bf014d8af8df\u2026"
+      ]
+    },
+    {
+      "id": "C-citations-exist",
+      "check": "every cited evidence path exists on disk (46 unique paths script-verified)",
+      "result": "pass",
+      "detail": {
+        "checked": 46,
+        "missing": [],
+        "sample": [
+          ".qualification/claude-code-contract-95-amend-pfc1-111/corrections/",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/corrections/README.md",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/evidence.sha256",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe-stdout.log",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe.json",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/verdict.md",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/prior-674fffe/",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/static-checks.json",
+          ".qualification/claude-code-contract-95-amend-pfc1-111/typecheck.log",
+          ".qualification/claude-code-contract-95/",
+          ".qualification/claude-code-contract-95/amendment-gkc/prior-e859657/"
+        ]
+      }
+    },
+    {
+      "id": "C-src-tests-untouched",
+      "check": "no src/** or tests/** change",
+      "result": "pass",
+      "detail": {
+        "violations": [],
+        "modifiedFiles": [
+          "acceptance/claude-code/README.md",
+          "acceptance/claude-code/frozen.sha256.json",
+          "acceptance/claude-code/manifest.json",
+          "acceptance/claude-code/scenarios.json",
+          "acceptance/subscription/README.md",
+          "acceptance/subscription/frozen.sha256.json",
+          "acceptance/subscription/manifest.json",
+          "acceptance/subscription/scenarios.json",
+          "docs/architecture/claude-code-harness.md",
+          "docs/architecture/subscription-harness.md"
+        ]
+      }
+    },
+    {
+      "id": "C-git-diff-check",
+      "check": "git diff --check clean over baseline..worktree (tracked files)",
+      "result": "pass",
+      "detail": "clean"
+    }
+  ],
+  "suite": {
+    "tests": 378,
+    "pass": 377,
+    "fail": 0,
+    "skipped": 1,
+    "note": "npm test full suite green after wording amendment; contracts not imported by tests except live hash reads (test-full.log retained)"
+  },
+  "formatting": {
+    "prettierCheck": "pass (prettier.log)",
+    "gitDiffCheck": "clean over baseline..worktree (git-diff-check.log empty)"
+  },
+  "evidenceFormatNote": "evidence.sha256 in this directory is a JSON inventory (schema 1), NOT shasum -c format (see the #111 corrections note)."
+}

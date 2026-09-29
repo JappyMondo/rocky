@@ -6,8 +6,8 @@
   "files": [
     {
       "path": "acceptance/subscription/README.md",
-      "bytes": 19576,
-      "sha256": "857f81a7cd5c14b9ae4f5d565212a09f4334d7fb6b7bf377a70dd23e06db3294"
+      "bytes": 16332,
+      "sha256": "7c5b14644f41e080c62a1b1bb8d01798738bad0132a30a0f2e583668f08bc375"
     },
     {
       "path": "acceptance/subscription/final.schema.json",
@@ -16,18 +16,18 @@
     },
     {
       "path": "acceptance/subscription/manifest.json",
-      "bytes": 25876,
-      "sha256": "8dceed6cd081a2ac13b484f0f681f072ba548b2f4dba70d2fefb9a4c601806c5"
+      "bytes": 19028,
+      "sha256": "b632eb34b89f205eb9abf658958afeab91db2f4b29499bc7dc8ddd7bd5b8de35"
     },
     {
       "path": "acceptance/subscription/scenarios.json",
-      "bytes": 25821,
-      "sha256": "bbc39122d2f7c353e300f11a8b9d7fa56e8e2143d03199fe6d145e0479a08bfa"
+      "bytes": 23514,
+      "sha256": "e0e79ca9019cde5b3a2862ef3ab2b3b598e0dd45287671842206d72277d7bd60"
     },
     {
       "path": "docs/architecture/subscription-harness.md",
-      "bytes": 8772,
-      "sha256": "09a779ca53bc2f54ecb79bf3e090486fd76c0caf51ebe769001d0a54c23786f9"
+      "bytes": 7432,
+      "sha256": "bf014d8af8df2398e2b265bd8ffd353f68963656c606de853712a448d68fd7e2"
     }
   ]
 }

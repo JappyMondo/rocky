@@ -18,9 +18,7 @@
     "#92/857-860",
     "#93",
     "#108/R1 (CC-P5 + zero-turn draft-isolation diagnostic)",
-    "#111",
-    "#108/R1 full batch (root triage/acceptance comment 972; zero-turn native observations)",
-    "#110/R3 (wording-only recording of accepted #108/R1 + #111 native observations; no scenario executed, no status flipped)"
+    "#111"
   ],
   "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
   "reuseByReference": [
@@ -228,7 +226,7 @@
     "neverPassFlagsProvenance": "source: #94/878 section A 'Never pass' list",
     "models": {
       "status": "open-gate G-MODEL",
-      "rule": "Model and effort come ONLY from an approved role table frozen in run config; the producer validates --effort against low|medium|high|xhigh|max because an unknown value only prints a stderr warning and silently uses the default. init does not echo effort, so effort is requested-only. The served model ID is read from result.modelUsage keys and assistant.message.model, never assumed (source: #94/878 F11, section A). The warn-only off-table effort behavior is natively confirmed zero-turn (R1 #108 CC-P2 e, PASS: exact stderr \"Warning: Unknown --effort value 'bogus' — ignoring it and using the default effort.\" then proceed to auth failure), so the producer-rejection duty (claude-effort-off-table) is CONFIRMED load-bearing; a finite candidate-ID enumeration for the host-frozen role table now exists but is bundle strings only, NOT runtime-attested (R1 #108 CC-P8: 99 refined candidates; see G-MODEL) (source: .qualification/native-probes-R1/probes/CC-P2/verdict.md, CC-P8/verdict.md; #110/R3).",
+      "rule": "Model and effort come ONLY from an approved role table frozen in run config; the producer validates --effort against low|medium|high|xhigh|max because an unknown value only prints a stderr warning and silently uses the default. init does not echo effort, so effort is requested-only. The served model ID is read from result.modelUsage keys and assistant.message.model, never assumed (source: #94/878 F11, section A).",
       "researchExample": "claude-opus-5-5/high for complex implementation or independent review (source: #94/878 section A, which requests the exact full model ID from #95/#90 role tables; research did not pin one)",
       "noFallback": "--fallback-model and the fallbackModel setting reroute silently and are forbidden; managed availableModels can constrain --model and is an inventory item; a modelUsage key different from the requested model is fatal (source: #94/878 F11; #94/879 FATAL class)"
     },
@@ -415,7 +413,7 @@
         "statusLine",
         "outputStyle"
       ],
-      "silentIgnoreWarning": "In -p, settings files that fail validation are SILENTLY IGNORED, so an invalid Rocky --settings file could silently disable the sandbox; the settings bytes are canonical, round-trip parsed with duplicate-key rejection and hash-bound before spawn, and gate G-SET requires a native proof plus a per-run positive-control strategy before the profile is admissible (source: #94/872 F6; #94/880 G-SET, NP4). The silent-ignore DIRECTION now has its native zero-turn proof (R1 #108 CC-P3, PASS): invalid --settings (unknown key; malformed JSON) is silently ignored — byte-identical auth-failure frames to the valid baseline (Direction B) — so the shipped fail-closed validateClaudeSettingsBytes pre-spawn validation is evidence-bound mandatory; the per-run positive-control/effectiveness half of G-SET still requires CC-L2 (LIVE, NOT run) (source: .qualification/native-probes-R1/probes/CC-P3/verdict.md; #110/R3).",
+      "silentIgnoreWarning": "In -p, settings files that fail validation are SILENTLY IGNORED, so an invalid Rocky --settings file could silently disable the sandbox; the settings bytes are canonical, round-trip parsed with duplicate-key rejection and hash-bound before spawn, and gate G-SET requires a native proof plus a per-run positive-control strategy before the profile is admissible (source: #94/872 F6; #94/880 G-SET, NP4).",
       "unresolvedSandboxScope": "sandbox.network scope conflicts across docs ('User or managed' vs 'user, managed, or CLI --settings') and stays [P] until probed (source: #94/878 F9 sandbox bullets)."
     },
     "discovery": {
@@ -455,7 +453,7 @@
     },
     "runtimePaths": {
       "rule": "RUN is a fresh per-action root (canonical realpath, 0700, no .git/CLAUDE*.md/AGENTS.md/.claude in RUN or any ancestor); SRC=RUN/stage/source, SCR=RUN/scratch, PH=RUN/parent/home, PT=RUN/parent/tmp, INP=RUN/inputs (0400 files), CFG=designated dedicated config dir [H]. Paths are absolute, NFC, contain no control chars or glob metachars and no ','. All grants pairwise non-overlapping, none inside configDir, configDir not inside any grant (source: #94/878 Placeholders, producer contract 1).",
-      "persistentWritesNote": "--no-session-persistence stops transcripts but the CLI still writes <configDir>/.claude.json and possibly caches, plugin data and file-history; CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 stops file-history. What exactly is written despite the flag is open gate G-WRITES, inventoried before/after on the synthetic dir (source: #94/878 F13; #94/880 G-WRITES). R1 #108 CC-P5 ran exactly that synthetic inventory zero-turn: unauth startup gained .claude.json, backups/ and sessions/ inside the synthetic CFG despite both switches; the private synthetic HOME gained none; the write set was inventoried and bounded (source: .qualification/native-probes-R1/probes/CC-P5/verdict.md). The G-WRITES residual (auth-refresh and LIVE-surface writes) stays open; #110/R3."
+      "persistentWritesNote": "--no-session-persistence stops transcripts but the CLI still writes <configDir>/.claude.json and possibly caches, plugin data and file-history; CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 stops file-history. What exactly is written despite the flag is open gate G-WRITES, inventoried before/after on the synthetic dir (source: #94/878 F13; #94/880 G-WRITES)."
     },
     "immutableBeforeStart": [
       "argv bytes (one --opt=value element per option)",
@@ -509,7 +507,7 @@
       "complete bounded stdout AND stderr EOF, exit 0 and independent owned physical quiescence, recorded separately",
       "unchanged admission identity, no cancellation, original fence/deadline"
     ],
-    "exitCodes": "After the stream, exit = 1 iff the LAST result has is_error:true or the transport closed permanently, otherwise 0 — INCLUDING exit 0 when NO result was emitted in stream-json mode; argument/validation errors print stderr and exit 1; SIGTERM exits 143, kills the running Bash process tree, and leaves the turn unfinished with NO result; SIGINT 'ends the turn' but its exact frames/exit are unobserved [P, G-SIGINT]; known startup refusals emit an error_during_execution result with startup_failure_reason only when CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1, otherwise stderr plus nonzero exit. Exit code alone is therefore NEVER success evidence (source: #94/879 F16 [B]). R1 #108 zero-turn native observations (#110/R3): (1) neither signal shape is natively observed — CC-P6 ii/iii never delivered the scheduled T+10s SIGTERM / T+8s SIGINT because unauth auth-failure exited in ~250-260 ms first, so the 143-no-result (FK7/F12) and SIGINT shapes stay UNKNOWN-WITH-OBSERVATION pending CC-L3 (LIVE, NOT run); (2) the input-validation refusals (empty stdin, whitespace-only stdin, stream-json without --verbose, invalid --json-schema JSON) exit before startup — no startup_failure_reason frame appeared under CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1 (CC-P2); (3) the unauth auth-failure path surfaces as ONE synthetic assistant frame (model '<synthetic>', is_api_error_message:true, zero usage) plus a result frame carrying subtype:'success' WITH is_error:true and terminal_reason:'api_error' — a subtype-only classifier would misread auth failure as success; the shipped adapter settles this shape fatal correctly (CC-P2/CC-P5; #108 root triage comment 972) (source: .qualification/native-probes-R1/probes/CC-P6/verdict.md, CC-P2/verdict.md, CC-P5/verdict.md).",
+    "exitCodes": "After the stream, exit = 1 iff the LAST result has is_error:true or the transport closed permanently, otherwise 0 — INCLUDING exit 0 when NO result was emitted in stream-json mode; argument/validation errors print stderr and exit 1; SIGTERM exits 143, kills the running Bash process tree, and leaves the turn unfinished with NO result; SIGINT 'ends the turn' but its exact frames/exit are unobserved [P, G-SIGINT]; known startup refusals emit an error_during_execution result with startup_failure_reason only when CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1, otherwise stderr plus nonzero exit. Exit code alone is therefore NEVER success evidence (source: #94/879 F16 [B]).",
     "cancellation": "SIGTERM the owned process group only: exit 143 with no result classifies unknown; detached descendants are killed; EOFs and quiescence are recorded separately; a late result after cancel is ignored; NO interrupt acknowledgement is ever claimed. Cancellation is SIGTERM-only until G-SIGINT is closed by native observation (source: #94/879 producer contract 4 Cancel; #94/880 FK7, G-SIGINT).",
     "apiRetryDecision": "system/api_retry records retried attempts and is not fatal by itself; a run that retries and later completes the full COMPLETE conjunction is ACCEPTED and the retry events are recorded in evidence. This is the #95 decision requested by research (recommendation adopted). A model fallback without --fallback-model remains detectable only through modelUsage keys and stays fatal when observed (source: #94/879 F16 note; #94/880 G-RETRY; decision D-05).",
     "finalSchema": "acceptance/subscription/final.schema.json (reused by reference; sha256 954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792). Host validation authority UNCHANGED by the #111 wire projection: only the --json-schema wire bytes carry the draft-07 $schema replacement (projection sha256 c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3); every host re-validation of result.structured_output uses the frozen 2020-12 semantics.",
@@ -565,7 +563,7 @@
     {
       "id": "CC04",
       "reusesConcept": "S01/S03 (by reference)",
-      "gate": "Discovery sealing: --setting-sources= empty, Rocky-owned canonical --settings with allowlisted keys only and producer rejection of prohibited keys (env, apiKeyHelper, *Helper, hooks, mcpServers, model*, fallbackModel, plugins...), hooks/skills/plugins/subagents/MCP/auto-memory/claude.ai-connectors/background-tasks off via the pinned controls, staged tree and every ancestor free of CLAUDE*.md/AGENTS.md/.claude/.mcp.json, managed/MDM/server-managed layers inventoried by hash with any presence refusing the profile, and post-run inventory rehash where drift makes the result unknown; the silently-ignored-invalid-settings behavior stays gated by G-SET (source: #94/872 F6-F8; #94/879 producer contract; #94/880 FK8/NP1/NP4, G-MANAGED/G-SET/G-CLAUDEMD-MANAGED). Native confirmations (R1 #108, zero-turn, #110/R3): a hostile SessionStart hook EXECUTES pre-auth with NO model turn — hook_started/hook_response frames, sentinel written inside the synthetic temp root (CC-P6 i, PASS) — so disableAllHooks:true + empty --setting-sources + the hostile-config discovery refusals are LOAD-BEARING, not belt-and-braces; the discovery refusals themselves were observed named and pre-spawn with zero spawn and the sentinel untouched (CC-P1, PASS: claude-config-dir-forbidden / claude-instruction-files-present / claude-managed-layer-present); and the G-SET silent-ignore direction is confirmed Direction B (CC-P3, PASS — effectiveness closure still requires CC-L2) (source: .qualification/native-probes-R1/probes/CC-P6/verdict.md, CC-P1/verdict.md, CC-P3/verdict.md)."
+      "gate": "Discovery sealing: --setting-sources= empty, Rocky-owned canonical --settings with allowlisted keys only and producer rejection of prohibited keys (env, apiKeyHelper, *Helper, hooks, mcpServers, model*, fallbackModel, plugins...), hooks/skills/plugins/subagents/MCP/auto-memory/claude.ai-connectors/background-tasks off via the pinned controls, staged tree and every ancestor free of CLAUDE*.md/AGENTS.md/.claude/.mcp.json, managed/MDM/server-managed layers inventoried by hash with any presence refusing the profile, and post-run inventory rehash where drift makes the result unknown; the silently-ignored-invalid-settings behavior stays gated by G-SET (source: #94/872 F6-F8; #94/879 producer contract; #94/880 FK8/NP1/NP4, G-MANAGED/G-SET/G-CLAUDEMD-MANAGED)."
     },
     {
       "id": "CC05",
@@ -655,11 +653,11 @@
     },
     {
       "id": "G-SET",
-      "gate": "-p silently ignores settings files that fail validation and the effective sandbox state is unobservable in the stream; needs NP4 proof plus a per-run positive-control strategy or accepted qualification binding (source: #94/872 F6; #94/880). OBSERVED (partial, R1 #108 CC-P3, PASS, zero-turn): DIRECTION B natively confirmed — invalid --settings (unknown key; malformed JSON) is SILENTLY IGNORED, producing a byte-identical auth-failure frame sequence to the valid baseline, zero turns. Consequence: the shipped fail-closed pre-spawn validateClaudeSettingsBytes validation is evidence-bound MANDATORY, not optional hardening. The gate stays OPEN: effectiveness closure (proof the sandbox is actually effective when settings are valid, plus the per-run positive-control strategy) still requires CC-L2 (LIVE, NOT run) via N04 (source: .qualification/native-probes-R1/probes/CC-P3/verdict.md; #108 root triage comment 972; #110/R3)."
+      "gate": "-p silently ignores settings files that fail validation and the effective sandbox state is unobservable in the stream; needs NP4 proof plus a per-run positive-control strategy or accepted qualification binding (source: #94/872 F6; #94/880)."
     },
     {
       "id": "G-MANAGED",
-      "gate": "Server-managed settings for Team/Enterprise OAuth are fetched remotely and cannot be disabled or inspected nonsecretly; account plan unknown (Pro/Max => not fetched [D]); endpoint managed absent at research time (names-only check) and re-inventoried each run (source: #94/880). OBSERVED (partial, R1 #108 CC-P1, PASS): the real host managed/MDM layers were re-inventoried on the probe host and are ALL ABSENT (lstat names-only; contents never read), and the shipped discovery refusal claude-managed-layer-present fires pre-spawn against a synthetic present layer (zero spawn). The per-run presence-refusal requirement is UNCHANGED; server-managed remote fetch remains uninspectable nonsecretly and the gate stays open (source: .qualification/native-probes-R1/probes/CC-P1/verdict.md; #110/R3)."
+      "gate": "Server-managed settings for Team/Enterprise OAuth are fetched remotely and cannot be disabled or inspected nonsecretly; account plan unknown (Pro/Max => not fetched [D]); endpoint managed absent at research time (names-only check) and re-inventoried each run (source: #94/880)."
     },
     {
       "id": "G-HOME",
@@ -671,7 +669,7 @@
     },
     {
       "id": "G-WRITES",
-      "gate": "What the CLI writes into configDir despite --no-session-persistence (.claude.json, caches, statsig/growthbook, plugin cache, debug) and during auth refresh; inventory before/after on the synthetic dir (source: #94/878 F13; #94/880). OBSERVED (partial, R1 #108 CC-P5 sub-finding 1, PASS-quality; corroborated by the #111 native probe): unauth startup in a synthetic dedicated CFG gained .claude.json, backups/ (with .claude.json.backup.<ts>) and sessions/ DESPITE --no-session-persistence and CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1; every gain bounded inside the synthetic CFG (temp root); the private synthetic HOME gained none; the empty-input pre-spawn refusal (prompt-empty) produced zero writes. The gate stays OPEN for auth-refresh writes, caches/statsig/plugin/debug surfaces under LIVE authority and any keychain interaction (CC-L0/CC-L1, NOT run) (source: .qualification/native-probes-R1/probes/CC-P5/verdict.md; .qualification/claude-code-contract-95-amend-pfc1-111/native-probe/verdict.md; #110/R3)."
+      "gate": "What the CLI writes into configDir despite --no-session-persistence (.claude.json, caches, statsig/growthbook, plugin cache, debug) and during auth refresh; inventory before/after on the synthetic dir (source: #94/878 F13; #94/880)."
     },
     {
       "id": "G-VERSION",
@@ -679,11 +677,11 @@
     },
     {
       "id": "G-INIT-VALUES",
-      "gate": "Exact init tools/skills/slash_commands/mcp_servers values under this profile, including whether StructuredOutput appears in tools and whether --restricted composes with explicit --tools, are [P] (source: #94/880). PARTIALLY OBSERVED (zero-turn, unauth — NOT proven, NOT adapter-constrained): (1) R1 #108 CC-P6 addendum — a BARE-ARGV Tier-B init frame echoed model 'claude-sonnet-4-5', permissionMode 'default', the full DEFAULT tool roster, mcp_servers [] and the full slash_commands list: this is the native DEFAULT init shape under bare argv, and the echoed model is the accepted REQUEST, not proof of resolvability (auth failed immediately, zero turn). (2) #111 native probe — an init frame under the adapter-sealed env with the projected-schema argv SUBSET (-p --output-format=stream-json --verbose --input-format=text --json-schema=<projected> --model; the subset carried no --tools/--permission-mode/--setting-sources) shows StructuredOutput PRESENT in init.tools alongside the DEFAULT roster, permissionMode 'default', zero-turn. The research [P] honesty items H-01/H-02 are therefore PARTIALLY OBSERVED (citations above), not proven: exact init values under the adapter-constrained full profile (role roster, dontAsk, --restricted composition) remain gated to CC-L1 (LIVE, NOT run) and N02/L03 (source: .qualification/native-probes-R1/probes/CC-P6/verdict.md ADDENDUM; .qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe-stdout.log + verdict.md; #110/R3)."
+      "gate": "Exact init tools/skills/slash_commands/mcp_servers values under this profile, including whether StructuredOutput appears in tools and whether --restricted composes with explicit --tools, are [P] (source: #94/880)."
     },
     {
       "id": "G-SIGINT",
-      "gate": "SIGINT frames and exit code unobserved; cancellation is SIGTERM-only, which is honest unknown (source: #94/880). STILL UNKNOWN — now WITH OBSERVATION (R1 #108 CC-P6 ii/iii, PASS): the scheduled signals were NEVER DELIVERED to a live process because unauth claude auth-failed in ~250-260 ms, preempting the T+8s SIGINT and the T+10s SIGTERM (signalsSent=[]); the FK7/F12 SIGTERM 143-no-result shape is likewise natively unobserved. Closure for both signal shapes requires a live model turn (CC-L3, LIVE, NOT run) (source: .qualification/native-probes-R1/probes/CC-P6/verdict.md; #110/R3)."
+      "gate": "SIGINT frames and exit code unobserved; cancellation is SIGTERM-only, which is honest unknown (source: #94/880)."
     },
     {
       "id": "G-RETRY",
@@ -703,7 +701,7 @@
     },
     {
       "id": "G-MODEL",
-      "gate": "Research requested the exact full model IDs for the role table from #95/#90 and recorded only an example (claude-opus-5-5/high); the approved role table must be frozen in run config before admission, and the served ID always comes from modelUsage/assistant.message.model (source: #94/878 section A). ENUMERATION HALF PARTIALLY SATISFIED (R1 #108 CC-P8, PASS, static): a bounded read-only hashed grep of the pinned 2.1.283 bundle yielded 99 refined candidate model IDs (opus 37 / sonnet 37 / haiku 17 / instant 3 / legacy 5; .qualification/native-probes-R1/probes/CC-P8/refined-model-candidates.json). These are BUNDLE STRINGS, NOT runtime-attested; resolvability of ANY candidate (including role-table models) is established only by CC-L1 modelUsage/assistant.message.model (LIVE, NOT run) or stays open. Per the user scope decision #1 2026-09-29 (c) (recorded as 'user decision c' in the #105 plan authority, comments 955/957), model IDs stay configurable and the role table is host-frozen: the approved role table must still be frozen in run config before admission. The gate stays OPEN (source: .qualification/native-probes-R1/probes/CC-P8/verdict.md; #110/R3)."
+      "gate": "Research requested the exact full model IDs for the role table from #95/#90 and recorded only an example (claude-opus-5-5/high); the approved role table must be frozen in run config before admission, and the served ID always comes from modelUsage/assistant.message.model (source: #94/878 section A)."
     }
   ],
   "sources": [
@@ -726,11 +724,6 @@
       "kind": "repo",
       "ref": ".qualification/native-probes-R1/probes/CC-P5/ (verdict.md, verdict.json, diag-json-schema.json) at 674fffed12a0d7d387f37d0a5edec757bfa4d16c",
       "note": "R1 #108 zero-turn native evidence for the #111 request-schema wire projection: pinned claude 2.1.283 rejects the frozen draft-2020-12 --json-schema at startup ('no schema with key or ref', exit 1, zero frames) and accepts the same body with $schema=http://json-schema.org/draft-07/schema# (system/init emitted, proceeds to auth failure; zero billable turns). A bundled validator-registry limitation of the pinned binary, not a network artifact; claude-specific (codex --output-schema did not reject the same 2020-12 schema at startup, CX-P3). #111 native confirmation probe: .qualification/claude-code-contract-95-amend-pfc1-111/native-probe/."
-    },
-    {
-      "kind": "repo",
-      "ref": ".qualification/native-probes-R1/ (summary.md, HANDOFF.md, probes/CC-P0..CC-P8) at 674fffed12a0d7d387f37d0a5edec757bfa4d16c; #108 root triage/acceptance comment 972",
-      "note": "Root-accepted R1 zero-turn native probe batch consumed by the #110/R3 wording amendment (probes are NOT scenario executions; no status flipped): CC-P1 named pre-spawn discovery refusals + managed/MDM absence (G-MANAGED, N01 pre-spawn half, CC04); CC-P2 exact native refusal shapes incl. the F14 verbose rule and warn-only off-table effort (N05, FK3 duty confirmed, auth-failure frame shape); CC-P3 Direction B silent-ignore of invalid --settings (G-SET, N04); CC-P5 startup write set bounded inside the synthetic CFG (G-WRITES) + PFC-1 (handled by #111); CC-P6 SessionStart hook fires pre-auth no-turn (CC04) and signal non-delivery (G-SIGINT/FK7 unknown-with-observation); CC-P7i/ii the 10MB cap both halves (N05); CC-P8 99 bundle-string model-ID candidates, NOT runtime-attested (G-MODEL enumeration half). #111 native probe (StructuredOutput present in init.tools under the projected-schema argv subset, zero-turn): .qualification/claude-code-contract-95-amend-pfc1-111/native-probe/."
     }
   ]
 }

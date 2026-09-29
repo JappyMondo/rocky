@@ -58,21 +58,7 @@ close stdin once. Persist attempted-write before I/O; partial/uncertain write ne
 permits resend. Prompt consumption is evidenced only by a subsequent
 `thread.started`: the pinned source reads stdin before the thread starts, and an
 early config error can exit without reading, so a write that disappears into a
-pipe buffer proves nothing (source: #92 F9, codex 0.157.1 @36650394). R1 #108
-native observations (root-accepted comment 972; #110/R3 wording amendment —
-observation only, no scenario executed): the config-error half is confirmed
-zero-call — an unknown `-c` key under `--strict-config` exits 1 pre-thread with
-stdin unconsumed (CX-P2b), and an early config error exits without reading, a
-delayed post-exit write recording the attempted-unknown duplex shape (CX-P5) —
-while the auth-absent half is REFINED (PFC-2): a valid full bundle with a
-credential-less CODEX_HOME DOES emit `thread.started` + `turn.started` and
-contacts the model endpoint (wss then https `api.openai.com/v1/responses` — a
-transport fallback, not an auth fallback), receives 401×10 ⇒ `turn.failed`,
-exit 1, zero billable processing, no usage frame, and the adapter settles fatal
-correctly (CX-P3). `thread.started` therefore evidences thread start / prompt
-read, never billable model processing; fail-closed for AUTH-absence occurs at
-the API-layer 401 AFTER thread start, while CONFIG errors refuse pre-thread
-(source: `.qualification/native-probes-R1/probes/CX-P2b,CX-P3,CX-P5/`). Do not
+pipe buffer proves nothing (source: #92 F9, codex 0.157.1 @36650394). Do not
 JSON-stringify plaintext through `DuplexRunner.send`.
 Record bounded raw stdout/stderr separately before interpretation. Decode UTF-8
 incrementally and strictly, require complete newline-delimited JSON objects and
@@ -187,15 +173,7 @@ field, never synthesized from the requested model. Receipts must also retain a
 post-run rehash of the approved discovery inventory and of the shared CODEX_HOME
 `config.toml`; drift during a run makes the result stale/unknown, because the
 pinned source both persists project trust into that file and may re-read global
-instructions per turn (source: #92 F5/F6, codex 0.157.1 @36650394). The
-untrusted-override defense was observed HELD under a real thread-start condition
-at zero call (R1 #108 CX-P4, PASS: shared `config.toml` byte-identical pre/post,
-sha256 `e20e1626…3eacc1`, no `projects.`/`trust_level` written); the full
-writable-cwd model-turn proof (F5) remains credit-blocked. The pinned binary was
-re-measured equal to its identity pin at R1 #108 CX-P0 (read/hash only — an
-identity re-measure, not runtime attestation), and every frozen-template flag is
-present in `codex exec --help` for 0.157.1 (CX-P1 — help-text presence evidence
-only, NOT runtime attestation).
+instructions per turn (source: #92 F5/F6, codex 0.157.1 @36650394).
 
 Only a trusted loader may resolve an independently approved immutable binding;
 the approval references its hash and exact supported budget mode. Revalidate at
@@ -223,25 +201,3 @@ other barrier. Prior `572accf` bytes of every amended file are archived under
 an amendments log; all scenarios remain unexecuted/blocked and
 `qualification=false`, `capability=null` are unchanged. Re-freezing this static
 contract does not execute or pass any scenario.
-
-Amendment #110 (R3, 2026-09-29, sole mutation lease; baseline `f3c809a`,
-WORDING-ONLY) records the root-accepted R1 #108 zero-turn/zero-call codex
-native-probe observations (root triage comment 972) in this contract: the PFC-2
-refinement above (CONFIG errors refuse pre-thread with no `thread.started` and
-stdin unread, CX-P2b/CX-P5; AUTH-absent runs DO start a thread and fail at the
-API-layer 401×10 after model-endpoint contact, with zero billable processing —
-CX-P3, NOT an L01 pass), the argv-surface presence evidence (CX-P1 — help-text
-presence only, not runtime attestation), the identity re-measure (CX-P0), the
-untrusted-override trust defense observed held under a real thread start
-(CX-P4; full F5 remains credit-blocked), the shipped-producer pre-spawn
-refusals (CX-P2a/CX-P2c, zero spawn) and partial native opening/error frame
-shapes at zero cost (CX-P3 BONUS; completion/usage frames remain
-credit-blocked). Probes are NOT scenario executions: no scenario was executed,
-no `status` flipped (18 unexecuted + 11 blocked unchanged), the codex N-class
-stays credit-blocked with narrowing notes only on N01/N06, and
-`qualification=false`, `capability=null`, `executionAuthorized=false` are
-unchanged. Prior `f3c809a` bytes of every amended file are archived under
-`.qualification/probe-amendments-r3-110/prior-f3c809a/` with an amendments
-log; `frozen.sha256.json` re-freezes the changed files only and
-`final.schema.json` is untouched (sha256 `954dd71e…6792`). Re-freezing this
-static contract does not execute or pass any scenario.

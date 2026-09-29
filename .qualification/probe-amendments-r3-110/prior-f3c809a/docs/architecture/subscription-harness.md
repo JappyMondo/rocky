@@ -35,14 +35,6 @@ persistence is a second write route: `thread/start` with a writable cwd and no
 CODEX_HOME `config.toml`, so the profile must carry an explicit untrusted
 override for the canonical staged root and post-run must verify the shared
 `config.toml` bytes are unchanged (source: #92 F5, codex 0.157.1 @36650394).
-Factual observation (R1 #108, root-accepted comment 972; #110/R3): the
-untrusted override was observed HELD under a real thread-start condition at
-zero call — `config.toml` byte-identical pre/post, no `projects.`/`trust_level`
-written (CX-P4, PASS); the full writable-cwd model-turn proof remains
-credit-blocked. Relatedly, the native fail-closed point for auth-absence was
-observed at the API-layer 401 AFTER `thread.started`/`turn.started` (401×10,
-`turn.failed`, exit 1, zero billable processing — CX-P3, the PFC-2
-refinement), while CONFIG errors refuse pre-thread with stdin unread (CX-P2b).
 
 Private runtime HOME/TMP, SQLite/log/artifact paths are distinct from shared
 CODEX_HOME; no sterile-home claim. Ephemeral session mode avoids session persistence
@@ -115,14 +107,3 @@ Amendment #93 corrected the disproved todo-complete predicate and recorded the
 the contract; the prior `572accf` bytes are archived under
 `.qualification/subscription-contract-88-amend-93/prior-572accf/`. The amendment
 grants no execution and passes no scenario.
-
-Amendment #110 (R3, wording-only) recorded the root-accepted R1 #108 zero-call
-codex native observations in the contract text with citations — the PFC-2
-refinement (config-error refuses pre-thread; auth-absent starts a thread and
-fails at API 401 with zero billable processing), argv-flag presence evidence
-(help text only, not runtime attestation), the identity re-measure, the CX-P4
-trust-override observation and partial native opening/error frame shapes — no
-scenario executed, no status flipped (18 unexecuted + 11 blocked unchanged),
-codex N-class still credit-blocked; prior `f3c809a` bytes are archived under
-`.qualification/probe-amendments-r3-110/prior-f3c809a/`. This amendment grants
-no execution and passes no scenario.

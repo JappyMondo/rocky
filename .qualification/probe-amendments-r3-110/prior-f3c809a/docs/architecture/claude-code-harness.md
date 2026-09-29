@@ -48,12 +48,7 @@ via the pinned controls, and a fail-closed managed/MDM/server-managed
 inventory — managed layers cannot be disabled, so any presence refuses the
 profile (source: #94/872 F6–F8). Invalid `--settings` are silently ignored in
 `-p`, so settings bytes are canonical and hash-bound and gate G-SET requires a
-native positive control (source: #94/872 F6; #94/880 NP4). Factual observation
-(R1 #108, root-accepted comment 972; recorded by the #110/R3 wording
-amendment): the silent-ignore direction is natively confirmed zero-turn
-(CC-P3, Direction B) and the named pre-spawn discovery refusals were observed
-with zero spawn (CC-P1); G-SET effectiveness closure still requires a LIVE
-positive control (CC-L2), and no scenario status changed.
+native positive control (source: #94/872 F6; #94/880 NP4).
 
 Roles: implementer Bash/Read/Edit/Write/Glob/Grep with the Seatbelt sandbox
 confined to the staged source and scratch, no network; reviewer
@@ -103,17 +98,3 @@ read-only strings of the pinned binary sha256 `d8cb1e5c…d21e`, and the
 anthropics/claude-code CHANGELOG. Source correspondence, installed-binary
 identity and live backend attestation remain deliberately separate claims.
 This note grants no execution and passes no scenario.
-
-Amendment #110 (R3, wording-only) recorded the root-accepted R1 #108 zero-turn
-native observations in the contract's gate and scenario-blocker wording —
-Direction B silent-ignore (CC-P3, G-SET), named pre-spawn discovery refusals
-and managed/MDM absence (CC-P1), exact refusal shapes including warn-only
-off-table effort (CC-P2), the bounded startup write set inside the synthetic
-CFG (CC-P5, G-WRITES), SessionStart-hook pre-auth firing and signal
-non-delivery (CC-P6), the 10MB cap both halves (CC-P7i/ii), 99 bundle-string
-model candidates (CC-P8, G-MODEL enumeration half) and the #111
-projected-schema init frame with `StructuredOutput` in `init.tools` — with
-citations, no scenario executed, no status flipped (14 unexecuted + 10
-blocked) and no gate closed; prior `f3c809a` bytes are archived under
-`.qualification/probe-amendments-r3-110/prior-f3c809a/`. This amendment
-grants no execution.

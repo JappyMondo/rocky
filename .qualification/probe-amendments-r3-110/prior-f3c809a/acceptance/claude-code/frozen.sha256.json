@@ -6,23 +6,23 @@
   "files": [
     {
       "path": "acceptance/claude-code/README.md",
-      "bytes": 25466,
-      "sha256": "3901aaf489cbf6e3066f11a2fe877c9881996b2df315653d4c6902137886d4a4"
+      "bytes": 20555,
+      "sha256": "b8f6f5f86f54ebc0ebd703cee49a7bfce585ddc92021d14508541e589a637b89"
     },
     {
       "path": "acceptance/claude-code/manifest.json",
-      "bytes": 73831,
-      "sha256": "36bb63d89943e014421326293a7864a8e04505c527349b2e02054b1a3cd88c53"
+      "bytes": 64401,
+      "sha256": "af2dedc2d91df82dc54c224e51d1e4dd5a2c9389f94901c69da39997acec61ec"
     },
     {
       "path": "acceptance/claude-code/scenarios.json",
-      "bytes": 32020,
-      "sha256": "0cdde317219836110eb8e36ca6608ea0384f3bc888ad7ffbe73a5e4d68c3bf2d"
+      "bytes": 27009,
+      "sha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
     },
     {
       "path": "docs/architecture/claude-code-harness.md",
-      "bytes": 7699,
-      "sha256": "184e9477a90890d1ec6e237471da704ac62ed8cfb91f4b32254cb476497fc08e"
+      "bytes": 6423,
+      "sha256": "98c3cce586e6cef22d9a3daed06e4da6dd520f5b908e452b23d521bd39c69296"
     }
   ]
 }

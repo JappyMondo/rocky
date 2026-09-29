@@ -1,0 +1,257 @@
+{
+  "schema": 1,
+  "contracts": [
+    "rocky-claude-code-95-v1",
+    "rocky-subscription-88-v1"
+  ],
+  "ticket": "#110 (R3)",
+  "algorithm": "sha256",
+  "baseline": "f3c809a9941314e59f5da3b941ab796c214ade84",
+  "note": "Hashes of every evidence file in this directory (this inventory excludes itself) and of the append-only correction notes, plus amended repo paths with their prior-f3c809a hashes, and re-measured hashes of key UNTOUCHED authority files. FORMAT: JSON inventory, NOT shasum -c (see the #111 corrections note). qualification=false, capability=null; no scenario executed or passed; no status flipped.",
+  "qualification": false,
+  "capability": null,
+  "scenarioStatusCounts": {
+    "claude-code": {
+      "unexecuted": 14,
+      "blocked": 10
+    },
+    "subscription": {
+      "unexecuted": 18,
+      "blocked": 11
+    }
+  },
+  "suite": {
+    "tests": 378,
+    "pass": 377,
+    "fail": 0,
+    "skipped": 1
+  },
+  "evidenceFiles": [
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/corrections/README.md",
+      "bytes": 3656,
+      "sha256": "cf904f4250d3e7cc9d4b403f069f13a634594e5680f9b73714019a562382f1d9"
+    },
+    {
+      "path": ".qualification/native-probes-R1/corrections/README.md",
+      "bytes": 5085,
+      "sha256": "b7aed76af633a25dbfd2a263e5a86ae9c01d02a3926552078d63654a336238ad"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/README.md",
+      "bytes": 3094,
+      "sha256": "a15bd9f56cf65de727634c2973b109f720bf76671db24cc39ceec06ca7f9eb0f"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendments.md",
+      "bytes": 46291,
+      "sha256": "78c82d01cc6d8aa96aca18a80e9a46be37b36669342eba2aaee6e50d07441eef"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/build.log",
+      "bytes": 220,
+      "sha256": "e246cb9d616958171614a9788f22de28a1f627a38f71636e128f92be94243f82"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/git-diff-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prettier.log",
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/claude-code/README.md",
+      "bytes": 20555,
+      "sha256": "b8f6f5f86f54ebc0ebd703cee49a7bfce585ddc92021d14508541e589a637b89"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/claude-code/frozen.sha256.json",
+      "bytes": 912,
+      "sha256": "241360ed5dffe8a0b343b357448211e007dd6482e53fbd70eabcfe8c4ef98477"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/claude-code/manifest.json",
+      "bytes": 64401,
+      "sha256": "af2dedc2d91df82dc54c224e51d1e4dd5a2c9389f94901c69da39997acec61ec"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/claude-code/scenarios.json",
+      "bytes": 27009,
+      "sha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/subscription/README.md",
+      "bytes": 16332,
+      "sha256": "7c5b14644f41e080c62a1b1bb8d01798738bad0132a30a0f2e583668f08bc375"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/subscription/frozen.sha256.json",
+      "bytes": 1054,
+      "sha256": "c8da6408e4cb009fd9b35bcb84f6cca43360f1c32060d92854bbdfcc7628898e"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/subscription/manifest.json",
+      "bytes": 19028,
+      "sha256": "b632eb34b89f205eb9abf658958afeab91db2f4b29499bc7dc8ddd7bd5b8de35"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/acceptance/subscription/scenarios.json",
+      "bytes": 23514,
+      "sha256": "e0e79ca9019cde5b3a2862ef3ab2b3b598e0dd45287671842206d72277d7bd60"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/docs/architecture/claude-code-harness.md",
+      "bytes": 6423,
+      "sha256": "98c3cce586e6cef22d9a3daed06e4da6dd520f5b908e452b23d521bd39c69296"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/prior-f3c809a/docs/architecture/subscription-harness.md",
+      "bytes": 7432,
+      "sha256": "bf014d8af8df2398e2b265bd8ffd353f68963656c606de853712a448d68fd7e2"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/static-checks.json",
+      "bytes": 6535,
+      "sha256": "93a2f92332d3633c95c51576550acb44af7023cbf811e8b9421bc72b059affda"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/static-checks.py",
+      "bytes": 7865,
+      "sha256": "599f8c58f5bc6b962eb5cd5e316cc9c834a436edf77758a6398cec23821353cd"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/test-full.log",
+      "bytes": 38564,
+      "sha256": "196bb0f5cd413dde5cc6167621c88d096614fcdf62bfa5ed97e5808a99a5023e"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/typecheck.log",
+      "bytes": 57,
+      "sha256": "91e322188d342005b8add57bb38176db2bbba6685973f9ec57577d864c6def40"
+    }
+  ],
+  "amendedFiles": [
+    {
+      "path": "acceptance/claude-code/README.md",
+      "priorF3c809a": {
+        "bytes": 20555,
+        "sha256": "b8f6f5f86f54ebc0ebd703cee49a7bfce585ddc92021d14508541e589a637b89"
+      },
+      "amended": {
+        "bytes": 25466,
+        "sha256": "3901aaf489cbf6e3066f11a2fe877c9881996b2df315653d4c6902137886d4a4"
+      }
+    },
+    {
+      "path": "acceptance/claude-code/frozen.sha256.json",
+      "priorF3c809a": {
+        "bytes": 912,
+        "sha256": "241360ed5dffe8a0b343b357448211e007dd6482e53fbd70eabcfe8c4ef98477"
+      },
+      "amended": {
+        "bytes": 912,
+        "sha256": "af92c2d90ed79d0e71487da78b4baa58654b0a4d1e711391ed51c5b50ab9bd94"
+      }
+    },
+    {
+      "path": "acceptance/claude-code/manifest.json",
+      "priorF3c809a": {
+        "bytes": 64401,
+        "sha256": "af2dedc2d91df82dc54c224e51d1e4dd5a2c9389f94901c69da39997acec61ec"
+      },
+      "amended": {
+        "bytes": 73831,
+        "sha256": "36bb63d89943e014421326293a7864a8e04505c527349b2e02054b1a3cd88c53"
+      }
+    },
+    {
+      "path": "acceptance/claude-code/scenarios.json",
+      "priorF3c809a": {
+        "bytes": 27009,
+        "sha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
+      },
+      "amended": {
+        "bytes": 32020,
+        "sha256": "0cdde317219836110eb8e36ca6608ea0384f3bc888ad7ffbe73a5e4d68c3bf2d"
+      }
+    },
+    {
+      "path": "acceptance/subscription/README.md",
+      "priorF3c809a": {
+        "bytes": 16332,
+        "sha256": "7c5b14644f41e080c62a1b1bb8d01798738bad0132a30a0f2e583668f08bc375"
+      },
+      "amended": {
+        "bytes": 19576,
+        "sha256": "857f81a7cd5c14b9ae4f5d565212a09f4334d7fb6b7bf377a70dd23e06db3294"
+      }
+    },
+    {
+      "path": "acceptance/subscription/frozen.sha256.json",
+      "priorF3c809a": {
+        "bytes": 1054,
+        "sha256": "c8da6408e4cb009fd9b35bcb84f6cca43360f1c32060d92854bbdfcc7628898e"
+      },
+      "amended": {
+        "bytes": 1054,
+        "sha256": "ad931fd8d7eadca54a24e3199d10e8ffb2c3a8e701c1f1a854b86c9cf80be70b"
+      }
+    },
+    {
+      "path": "acceptance/subscription/manifest.json",
+      "priorF3c809a": {
+        "bytes": 19028,
+        "sha256": "b632eb34b89f205eb9abf658958afeab91db2f4b29499bc7dc8ddd7bd5b8de35"
+      },
+      "amended": {
+        "bytes": 25876,
+        "sha256": "8dceed6cd081a2ac13b484f0f681f072ba548b2f4dba70d2fefb9a4c601806c5"
+      }
+    },
+    {
+      "path": "acceptance/subscription/scenarios.json",
+      "priorF3c809a": {
+        "bytes": 23514,
+        "sha256": "e0e79ca9019cde5b3a2862ef3ab2b3b598e0dd45287671842206d72277d7bd60"
+      },
+      "amended": {
+        "bytes": 25821,
+        "sha256": "bbc39122d2f7c353e300f11a8b9d7fa56e8e2143d03199fe6d145e0479a08bfa"
+      }
+    },
+    {
+      "path": "docs/architecture/claude-code-harness.md",
+      "priorF3c809a": {
+        "bytes": 6423,
+        "sha256": "98c3cce586e6cef22d9a3daed06e4da6dd520f5b908e452b23d521bd39c69296"
+      },
+      "amended": {
+        "bytes": 7699,
+        "sha256": "184e9477a90890d1ec6e237471da704ac62ed8cfb91f4b32254cb476497fc08e"
+      }
+    },
+    {
+      "path": "docs/architecture/subscription-harness.md",
+      "priorF3c809a": {
+        "bytes": 7432,
+        "sha256": "bf014d8af8df2398e2b265bd8ffd353f68963656c606de853712a448d68fd7e2"
+      },
+      "amended": {
+        "bytes": 8772,
+        "sha256": "09a779ca53bc2f54ecb79bf3e090486fd76c0caf51ebe769001d0a54c23786f9"
+      }
+    }
+  ],
+  "untouchedAuthority": [
+    {
+      "path": "acceptance/subscription/final.schema.json",
+      "bytes": 815,
+      "sha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
+      "note": "FORBIDDEN path / neutral host-validation authority; zero diff vs baseline; expected sha256 954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792"
+    }
+  ],
+  "retainedEvidenceUntouched": "git status shows no modification to any tracked file under .qualification/native-probes-R1/** or .qualification/claude-code-contract-95-amend-pfc1-111/** (correction notes are NEW append-only files in NEW corrections/ subdirs)"
+}
