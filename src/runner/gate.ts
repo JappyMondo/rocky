@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { Store } from "../store/index.js";
 import { JsonLineDecoder } from "./duplex.js";
 import type { CommandSpec } from "./index.js";
+import { assertBinaryIdentity } from "./process.js";
 const [db, id, token] = process.argv.slice(2);
 if (!db || !id || !token) throw new Error("invalid-gate-arguments");
 const store = new Store(db);
@@ -17,14 +18,20 @@ process.once("message", (message) => {
     const spec = command.spec as unknown as CommandSpec;
     const child = store.guardedStart(command.lease, () => {
       if (command.duplex) store.assertDuplexStart(id, token);
+      // C1 admission recheck: the pinned binary hash is re-measured inside the same guarded
+      // transaction as the spawn, so drift or substitution yields zero spawn.
+      const pinned = command.duplex?.binaryIdentity;
+      if (pinned) assertBinaryIdentity(pinned);
       return spawn(spec.file, spec.args, {
         cwd: spec.cwd,
         stdio: [command.duplex ? "pipe" : "ignore", "pipe", "pipe"],
-        env: {
-          PATH: process.env.PATH ?? "/usr/bin:/bin",
-          HOME: spec.cwd,
-          TMPDIR: spec.outputDir,
-        },
+        env: spec.env
+          ? Object.fromEntries(spec.env)
+          : {
+              PATH: process.env.PATH ?? "/usr/bin:/bin",
+              HOME: spec.cwd,
+              TMPDIR: spec.outputDir,
+            },
       });
     });
     if (command.duplex) {
@@ -121,11 +128,20 @@ process.once("message", (message) => {
       process.send?.({ exitCode, signal }),
     );
   } catch (error) {
-    process.send?.({
-      exitCode: null,
-      signal: null,
-      error: error instanceof Error ? error.message : "start-failed",
-    });
+    const message = error instanceof Error ? error.message : "start-failed";
+    // Durable named pre-spawn rejection reason; the guarded-start rollback already proves zero spawn.
+    if (
+      command.duplex &&
+      (message === "binary-identity-drift" ||
+        message === "binary-identity-missing")
+    ) {
+      try {
+        store.observeDuplex(id, token, { failure: message });
+      } catch {
+        /* Supervisor retains recovery. */
+      }
+    }
+    process.send?.({ exitCode: null, signal: null, error: message });
   }
 });
 process.on("disconnect", () => {

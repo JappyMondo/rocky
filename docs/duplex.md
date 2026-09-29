@@ -22,7 +22,11 @@ Storage schema 5 prevents an older reader from owning the new duplex commands;
 existing schema-4 snapshots, budgets and records are preserved when upgraded.
 
 `send(lease, id, sendKey, frame)` and `end(lease, id, sendKey)` reserve bounded input
-in SQLite. An identical send returns its previous state; a conflicting payload
+in SQLite; `sendText(lease, id, sendKey, text)` (`Store.queueDuplexText`) reserves
+exact raw UTF-8 text with no JSON framing and no added newline, for direct-harness
+adapters whose contracts require one-shot exact-bytes stdin plus a single EOF. All
+three share the same durable semantics. An identical send returns its previous state; a
+conflicting payload
 fails. `queued` has not been attempted, `writing` is ambiguous, and `written`
 means the OS pipe callback completed, **not** application acknowledgement.
 The gate commits `writing`, commits a one-shot attempt latch, then rechecks the
@@ -37,12 +41,21 @@ must commit before the pipe side effect.
 The decoder accepts fragmented/multiple frames, strict UTF-8 and plain JSON only.
 Partial EOF, malformed UTF-8/JSON, oversized frames, excessive frame count or
 captured byte limits fail the stream. Input/output totals are bounded (at most
-16 MiB each), frames at most 1 MiB, counts at most 4096; stderr and raw stdout
+16 MiB each), frames at most 10 MiB — the frame bound also caps a single one-shot
+raw stdin write, because direct-harness contracts admit a prompt up to
+min(config, 10 MB) delivered once — counts at most 4096; stderr and raw stdout
 logs have their own command limit, at most 16 MiB each for duplex. These are
 retained/accepted-stream bounds, not a claim that a child cannot generate more
 bytes before termination. Persist only synthetic or approved nonsensitive
 payloads: the queue, frames, command arguments and logs are durable, not a secret
-store. Runtime environments retain the existing minimal runner allowlist.
+store. Runtime environments retain the existing minimal runner allowlist unless
+the command spec carries a sealed positive-allowlist `env` (ordered
+`[key, value]` entries), in which case the gate spawns the child with exactly
+those entries and nothing inherited. A duplex binding may pin a `binaryIdentity`
+(path/sha256/bytes), optionally joined with an adapter `bundleDigest` in the
+invocation identity; the gate re-measures the pinned binary inside the guarded
+start and records a durable named failure with zero spawn on drift, substitution
+or absence.
 
 `interrupt` durably revokes the invocation. It does not assert completion.
 `wait` reports local `quiescent` only after the existing supervisor observes both

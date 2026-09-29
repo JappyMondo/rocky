@@ -16,3 +16,6 @@ export * from "./agents/provider-gateway.js";
 
 export * from "./agents/stock-request.js";
 export * from "./agents/stock-response.js";
+
+export * from "./agents/seam.js";
+export * from "./agents/claude-code/index.js";

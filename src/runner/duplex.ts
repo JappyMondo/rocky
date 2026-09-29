@@ -4,6 +4,7 @@ import type { Action } from "../coordinator/contracts.js";
 import type { Store, Lease, CommandRecord } from "../store/index.js";
 import { canonical, type Json } from "../store/json.js";
 import { CommandRunner, type CommandSpec } from "./index.js";
+import type { BinaryIdentity } from "./process.js";
 
 export interface DuplexLimits {
   frameBytes: number;
@@ -16,6 +17,13 @@ export interface DuplexBinding {
   action: Action;
   limits: DuplexLimits;
   request: Json;
+  /** Optional pinned-binary identity re-measured by the gate inside the guarded start (C1). */
+  binaryIdentity?: BinaryIdentity;
+}
+export interface DuplexStartExtra {
+  binaryIdentity?: BinaryIdentity;
+  /** Adapter-computed immutable bundle digest bound into the invocation identity. */
+  bundleDigest?: string;
 }
 export interface DuplexSend {
   key: string;
@@ -47,10 +55,12 @@ export function validateDuplexLimits(limits: DuplexLimits) {
     "inputFrames",
     "outputFrames",
   ] as const) {
+    // The frame bound also caps a single one-shot raw stdin write; direct-harness contracts
+    // admit a prompt up to min(config, 10 MB) written once, so frames admit the same bound.
     const max = key.endsWith("Frames")
       ? 4096
       : key === "frameBytes"
-        ? 1024 * 1024
+        ? 10 * 1024 * 1024
         : 16 * 1024 * 1024;
     if (
       !Number.isSafeInteger(limits[key]) ||
@@ -110,10 +120,16 @@ export class DuplexRunner {
     action: Action,
     spec: CommandSpec,
     limits: DuplexLimits,
+    extra: DuplexStartExtra = {},
   ): string {
     validateDuplexLimits(limits);
     if (spec.logBytes > 16 * 1024 * 1024)
       throw new Error("invalid-duplex-log-limit");
+    if (
+      extra.binaryIdentity !== undefined &&
+      typeof extra.bundleDigest !== "string"
+    )
+      throw new Error("invalid-duplex-start-extra");
     const request = JSON.parse(
       canonical({
         action,
@@ -123,6 +139,12 @@ export class DuplexRunner {
           outputDir: resolve(spec.outputDir),
         },
         limits,
+        ...(extra.bundleDigest !== undefined
+          ? { bundleDigest: extra.bundleDigest }
+          : {}),
+        ...(extra.binaryIdentity !== undefined
+          ? { binaryIdentity: extra.binaryIdentity }
+          : {}),
       }),
     ) as Json;
     const old = this.store.duplexInvocation(action.key);
@@ -135,13 +157,20 @@ export class DuplexRunner {
       // This is observation, not a start retry, even when the supervisor is gone.
       return old.id;
     }
+    const binding: DuplexBinding = { action, limits, request };
+    if (extra.binaryIdentity !== undefined)
+      binding.binaryIdentity = extra.binaryIdentity;
     return this.store.guardedStart(lease, () => {
       this.store.assertDuplexAction(lease, action);
-      return this.commands.start(lease, spec, { action, limits, request });
+      return this.commands.start(lease, spec, binding);
     });
   }
   send(lease: Lease, id: string, key: string, frame: Json) {
     return this.store.queueDuplex(lease, id, key, frame);
+  }
+  /** Queue exact raw UTF-8 text (no JSON framing) as one durable once-only stdin write. */
+  sendText(lease: Lease, id: string, key: string, text: string) {
+    return this.store.queueDuplexText(lease, id, key, text);
   }
   end(lease: Lease, id: string, key: string) {
     return this.store.queueDuplex(lease, id, key, null, true);

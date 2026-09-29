@@ -16,6 +16,33 @@ export interface CommandSpec {
   cleanupMs: number;
   logBytes: number;
   outputDir: string;
+  /** Optional sealed positive-allowlist child environment as ordered [key, value] entries.
+   * When present the gate spawns with exactly these entries and nothing inherited; when
+   * absent the existing minimal runner environment applies unchanged. */
+  env?: readonly (readonly [string, string])[];
+}
+/** Ordered sealed environment validation: unique well-formed keys, NUL-free string values. */
+export function validateSealedEnvEntries(
+  env: readonly (readonly [string, string])[],
+) {
+  if (!Array.isArray(env) || env.length > 256)
+    throw new Error("invalid-sealed-env");
+  const seen = new Set<string>();
+  for (const entry of env) {
+    if (!Array.isArray(entry) || entry.length !== 2)
+      throw new Error("invalid-sealed-env");
+    const [key, value] = entry as unknown[];
+    if (
+      typeof key !== "string" ||
+      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ||
+      seen.has(key)
+    )
+      throw new Error("invalid-sealed-env");
+    if (typeof value !== "string" || value.includes("\0"))
+      throw new Error("invalid-sealed-env");
+    seen.add(key);
+  }
+  return env;
 }
 export interface CommandResult {
   outcome:
@@ -50,6 +77,7 @@ function validate(spec: CommandSpec) {
     spec.args.some((a) => typeof a !== "string")
   )
     throw new Error("invalid-command");
+  if (spec.env !== undefined) validateSealedEnvEntries(spec.env);
   canonical(spec);
 }
 export class CommandRunner {

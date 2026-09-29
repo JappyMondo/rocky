@@ -1,5 +1,47 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, statSync } from "node:fs";
 import type { ProcessIdentity } from "../store/index.js";
+/** Host-measured pinned-binary identity. The hash is never taken from the tool's own --version. */
+export interface BinaryIdentity {
+  path: string;
+  sha256: string;
+  bytes: number;
+}
+/**
+ * Re-measure a pinned binary at the guarded-start admission checkpoint (C1). A symlink, a missing
+ * file, a non-regular file or any hash/size drift throws before spawn, so the profile becomes
+ * unavailable and is never substituted. Reading is measurement only; the bytes are not retained.
+ */
+export function measureBinaryIdentity(path: string): BinaryIdentity {
+  if (typeof path !== "string" || !path.startsWith("/"))
+    throw new Error("binary-identity-missing");
+  if (lstatSync(path).isSymbolicLink())
+    throw new Error("binary-identity-drift");
+  const stat = statSync(path);
+  if (!stat.isFile()) throw new Error("binary-identity-missing");
+  const bytes = readFileSync(path);
+  return {
+    path,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.length,
+  };
+}
+export function assertBinaryIdentity(pinned: BinaryIdentity): BinaryIdentity {
+  let measured: BinaryIdentity;
+  try {
+    measured = measureBinaryIdentity(pinned.path);
+  } catch (error) {
+    throw new Error(
+      (error as Error).message === "binary-identity-drift"
+        ? "binary-identity-drift"
+        : "binary-identity-missing",
+    );
+  }
+  if (measured.sha256 !== pinned.sha256 || measured.bytes !== pinned.bytes)
+    throw new Error("binary-identity-drift");
+  return measured;
+}
 export function identify(pid: number): ProcessIdentity | null {
   if (!Number.isSafeInteger(pid) || pid < 2) return null;
   try {

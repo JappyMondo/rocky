@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { TextDecoder } from "node:util";
 import { canonical, identity, type Json } from "./json.js";
 import { configure } from "../config/index.js";
 import { Evidence, type Artifact } from "../evidence/index.js";
@@ -526,6 +527,17 @@ export class Store {
         throw new Error("command-recovery-required");
       if (binding) {
         validateDuplexLimits(binding.limits);
+        const pinned = binding.binaryIdentity;
+        if (
+          pinned !== undefined &&
+          (typeof pinned.path !== "string" ||
+            !pinned.path.startsWith("/") ||
+            typeof pinned.sha256 !== "string" ||
+            !/^[a-f0-9]{64}$/.test(pinned.sha256) ||
+            !Number.isSafeInteger(pinned.bytes) ||
+            pinned.bytes < 1)
+        )
+          throw new Error("invalid-binary-identity");
         this.assertDuplexAction(lease, binding.action);
         if (this.duplexInvocation(binding.action.key))
           throw new Error("duplex-invocation-conflict");
@@ -1079,12 +1091,36 @@ export class Store {
     frame: Json,
     end = false,
   ): DuplexSend {
+    const wire = end ? "" : canonical(frame) + "\n";
+    return this.#queueDuplexSend(lease, id, key, wire, end);
+  }
+  /** Queue exact raw UTF-8 text as a once-only stdin write: no JSON framing, no added newline.
+   * Durable attempted-before-IO, conflict and limit semantics are identical to queueDuplex. */
+  queueDuplexText(lease: Lease, id: string, key: string, text: string) {
+    if (typeof text !== "string" || !text)
+      throw new Error("invalid-duplex-text");
+    const bytes = Buffer.from(text, "utf8");
+    let decoded: string;
+    try {
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error("invalid-duplex-text");
+    }
+    if (decoded !== text) throw new Error("invalid-duplex-text");
+    return this.#queueDuplexSend(lease, id, key, text, false);
+  }
+  #queueDuplexSend(
+    lease: Lease,
+    id: string,
+    key: string,
+    wire: string,
+    end: boolean,
+  ): DuplexSend {
     return this.#transaction(() => {
       const record = this.command(id);
       if (!record?.duplex || record.runId !== lease.runId)
         throw new Error("duplex-not-found");
       if (!key || key.length > 256) throw new Error("invalid-duplex-send-key");
-      const wire = end ? "" : canonical(frame) + "\n";
       const old = record.duplex.sends.find((s) => s.key === key);
       if (old) {
         if (old.wire !== wire || old.end !== end)
