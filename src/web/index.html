@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Rocky · Local operator</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand">Rocky<span>next</span></a
+      ><span class="local"><i></i> Local workspace</span
+      ><span id="connection">Connecting…</span>
+    </header>
+    <main>
+      <div class="intro">
+        <p class="eyebrow">YOUR CODING WORKFLOW</p>
+        <h1>From task to reviewed change.</h1>
+        <p>
+          Configure a scoped run, follow the evidence, and approve the exact
+          commit.
+        </p>
+      </div>
+      <div id="error" role="alert" hidden></div>
+      <nav aria-label="Workspace">
+        <button class="tab active" data-view="configure">Configuration</button
+        ><button class="tab" data-view="runs">
+          Runs <span id="count">0</span>
+        </button>
+      </nav>
+      <section id="configure" class="view">
+        <div class="columns">
+          <form id="config-form" class="card">
+            <div class="section-title">
+              <span class="step">01</span>
+              <h2>Describe the work</h2>
+            </div>
+            <label
+              >Target checkout<input
+                name="repositoryPath"
+                placeholder="/absolute/path/to/attraccess"
+                autocomplete="off"
+              /><small
+                >Rocky works in an isolated copy. The original checkout is
+                preserved.</small
+              ></label
+            >
+            <div class="row">
+              <label
+                >GitHub repository<input
+                  name="repository"
+                  placeholder="attraccess/attraccess"
+                  required /></label
+              ><label>Base branch<input name="baseBranch" required /></label>
+            </div>
+            <label
+              >Task and acceptance criteria<textarea
+                name="task"
+                rows="7"
+                placeholder="What should change? How will we know it works?"
+                required
+              ></textarea>
+            </label>
+            <div class="row three">
+              <label
+                >Action limit <small>minutes</small
+                ><input
+                  type="number"
+                  name="actionMinutes"
+                  min="1"
+                  max="1440"
+                  required /></label
+              ><label
+                >Total allowance <small>minutes</small
+                ><input
+                  type="number"
+                  name="totalMinutes"
+                  min="5"
+                  max="1440"
+                  required /></label
+              ><label
+                >Reported token threshold<input
+                  type="number"
+                  name="reportedTokenThreshold"
+                  min="1"
+                  max="10000000"
+                  required
+              /></label>
+            </div>
+            <p class="muted">
+              Token usage comes from the harness. The threshold is checked
+              between actions; it is not a hard spending cap.
+            </p>
+            <div class="actions">
+              <button type="submit">Save configuration</button
+              ><button type="button" id="start" class="primary">
+                Start run <span>↗</span>
+              </button>
+            </div>
+            <p id="saved" role="status"></p>
+          </form>
+          <aside>
+            <div class="card">
+              <p class="eyebrow">EXECUTION PROFILE</p>
+              <h2>OpenCode</h2>
+              <p class="model">alibaba-token-plan/qwen3.8-max</p>
+              <div class="role"><span>Implementer</span><b>32 steps</b></div>
+              <div class="role">
+                <span>Independent reviewer</span><b>12 steps</b>
+              </div>
+              <p class="muted">Host-frozen model, roles, and check recipes.</p>
+            </div>
+            <div class="card setup">
+              <div class="section-title">
+                <h2>Readiness</h2>
+                <button id="recheck" class="link" type="button">Refresh</button>
+              </div>
+              <div id="preflight">
+                <p class="muted">Checking local setup…</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section id="runs" class="view" hidden>
+        <div class="run-layout">
+          <aside class="card">
+            <h2>Run history</h2>
+            <div id="run-list"></div>
+          </aside>
+          <div id="run-detail" class="card empty">
+            <h2>Your work will appear here</h2>
+            <p>
+              Save a task and start a run to follow its progress and evidence.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      Rocky Next <span>One local workflow · Human approval before merge</span>
+    </footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

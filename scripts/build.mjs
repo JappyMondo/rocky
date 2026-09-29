@@ -6,6 +6,7 @@ import {
   readdirSync,
   rmSync,
   existsSync,
+  cpSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -40,6 +41,7 @@ rmSync("dist", { recursive: true, force: true });
 execFileSync(process.execPath, ["node_modules/typescript/bin/tsc"], {
   stdio: "inherit",
 });
+cpSync("src/web", "dist/web", { recursive: true });
 const hashes = {};
 function walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

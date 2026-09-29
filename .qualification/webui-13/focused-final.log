@@ -1,0 +1,29 @@
+✔ Attraccess snapshot preserves exact bytes and rejects mutation/shared escape (1.554583ms)
+✔ Mailpit verification requires exact origin/path/email and one HTML token (2.314167ms)
+✔ Private credential fields are absent from nested public fixture output (0.207125ms)
+✔ Frozen check policy cannot use implicit parent Git revisions (0.100708ms)
+✔ Admission cannot begin with an arbitrary hash-shaped approval (0.362208ms)
+✔ Cleanup refuses a foreign resource even if a listing presents its ID (548.980709ms)
+✔ Cleanup aggregate deadline retains unknown remainder and safely reconciles later (437.033625ms)
+✔ Both source mode directions and file types fail shared host/container verification (103.816667ms)
+✔ Runtime verification rejects compiled and driver implementation drift with metadata unchanged (284.659292ms)
+✔ HTTP helpers refuse remote or credential-bearing origins (0.355959ms)
+﹣ Installed pinned browser launches, retains private trace and closes owned process (0.040375ms) # SKIP
+✔ Environment lease survives nested idle work but never starts after cancel or takeover (14234.64325ms)
+✔ API mutation initiation requires a live effect guard (0.444292ms)
+✔ Fixture HTTP writes record intent before dispatch and redact durable receipts (41.568541ms)
+✔ HTTP config persistence, truthful preflight blocker, local origin gate and SSE (5741.711041ms)
+✔ real SQLite + fake OpenCode process: checks, draft, CI/review, exact-head approval, merge and manual closeout (4322.438292ms)
+✔ changed remote head after exact approval refuses merge and records stale approval (4301.753375ms)
+✔ CI collector distinguishes head/integration and never promotes absent required checks (0.441583ms)
+✔ failed baseline stops before any agent or GitHub write (1692.33425ms)
+✔ restart preserves unfinished work as recovery required without relaunch (3.526ms)
+✔ draft creation rechecks cancellation after push before creating a PR (0.168542ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 31977.949084

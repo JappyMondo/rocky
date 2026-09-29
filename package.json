@@ -22,7 +22,9 @@
     "docs/foundation.md",
     "docs/attraccess-environment.md",
     "docs/provider-gateway.md",
-    "docs/stock-gateway.md"
+    "docs/stock-gateway.md",
+    "docs/operating.md",
+    "docs/opencode-adapter.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",

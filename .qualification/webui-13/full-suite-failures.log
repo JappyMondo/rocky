@@ -1,0 +1,41 @@
+ℹ tests 406
+ℹ suites 0
+ℹ pass 403
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 240924.090459
+
+✖ failing tests:
+
+test at tests/attraccess.test.mjs:442:1
+✖ Environment lease survives nested idle work but never starts after cancel or takeover (1028.189834ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///Users/jappy/code/jappy/rocky/tests/attraccess.test.mjs:454:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1313:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:897:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /active-environment-runtime-build-refused/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+test at tests/source-provenance.test.mjs:8:1
+✖ two-commit approved fixture has one pinned file difference and rejects in-memory source or mode drift (0.38875ms)
+  Error: ENOENT: no such file or directory, lstat '/Users/jappy/.t3/worktrees/rocky/rocky-next/.qualification/attraccess/fixture-layout-baseline'
+      at realpathSync (node:fs:2787:29)
+      at sourceInventory (file:///Users/jappy/code/jappy/rocky/dist/attraccess/source.js:74:9)
+      at TestContext.<anonymous> (file:///Users/jappy/code/jappy/rocky/tests/source-provenance.test.mjs:9:19)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1306:25)
+      at Test.start (node:internal/test_runner/test:1177:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'lstat',
+    path: '/Users/jappy/.t3/worktrees/rocky/rocky-next/.qualification/attraccess/fixture-layout-baseline'
+  }

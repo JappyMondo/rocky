@@ -135,6 +135,7 @@ export class Store {
       }
       this.#db
         .exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;
+      CREATE TABLE IF NOT EXISTS operator_records(key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, data TEXT NOT NULL, owner TEXT, fence INTEGER NOT NULL DEFAULT 0, expires INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), kind TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS effects(key TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), data TEXT NOT NULL);
@@ -187,6 +188,34 @@ export class Store {
       this.#db.close();
       throw error;
     }
+  }
+  /** Daemon projections/configuration; coordinator snapshots remain workflow authority. */
+  operatorRecord<T>(key: string): T | undefined {
+    const row = this.#db
+      .prepare("SELECT data FROM operator_records WHERE key=?")
+      .get(key);
+    return row ? (JSON.parse(String(row.data)) as T) : undefined;
+  }
+  saveOperatorRecord(key: string, value: unknown) {
+    this.#db
+      .prepare(
+        "INSERT INTO operator_records(key,data) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data",
+      )
+      .run(key, canonical(value));
+  }
+  operatorRecords<T>(prefix: string): T[] {
+    return this.#db
+      .prepare(
+        "SELECT data FROM operator_records WHERE substr(key,1,?)=? ORDER BY rowid DESC",
+      )
+      .all(prefix.length, prefix)
+      .map((row) => JSON.parse(String(row.data)) as T);
+  }
+  intent(lease: Lease, input: { key: string; kind: string; payload: Json }) {
+    this.#transaction(() => {
+      this.#guard(lease);
+      this.#intent(lease.runId, input);
+    });
   }
   close() {
     this.#db.close();
