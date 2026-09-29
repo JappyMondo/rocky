@@ -1,0 +1,187 @@
+{
+  "probeId": "PFC1-111-native-probe",
+  "ticket": "#111 (PFC-1)",
+  "purpose": "Confirm the projected draft-07 request schema passes pinned claude 2.1.283 --json-schema startup validation (zero-turn, unauth); the frozen 2020-12 IRI is rejected (R1 #108 CC-P5).",
+  "startedAt": "2026-09-29T08:23:44.802Z",
+  "finishedAt": "2026-09-29T08:23:45.265Z",
+  "binary": {
+    "pinned": {
+      "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+      "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+      "bytes": 225036032
+    },
+    "measured": {
+      "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+      "bytes": 225036032,
+      "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e"
+    },
+    "identityMatch": true
+  },
+  "projection": {
+    "sourceFile": "acceptance/subscription/final.schema.json",
+    "sourceFileSha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
+    "dialectReplacement": {
+      "from": "https://json-schema.org/draft/2020-12/schema",
+      "to": "http://json-schema.org/draft-07/schema#"
+    },
+    "canonicalBytes": 586,
+    "projectionSha256": "c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3",
+    "derivedBy": "dist.projectClaudeWireRequestSchema (shipped implementation)"
+  },
+  "argvFlags": [
+    "-p",
+    "--output-format=stream-json",
+    "--verbose",
+    "--input-format=text",
+    "--json-schema=<586B projected schema, sha256 c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3>",
+    "--model=claude-sonnet-4-5"
+  ],
+  "env": [
+    [
+      "HOME",
+      "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/pfc1-probe-1790670224801-2NgaPy/ph"
+    ],
+    [
+      "CLAUDE_CONFIG_DIR",
+      "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/pfc1-probe-1790670224801-2NgaPy/cfg"
+    ],
+    [
+      "PATH",
+      "/usr/bin:/bin:/usr/sbin:/sbin"
+    ],
+    [
+      "LANG",
+      "en_US.UTF-8"
+    ],
+    [
+      "TMPDIR",
+      "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/pfc1-probe-1790670224801-2NgaPy/pt"
+    ],
+    [
+      "CLAUDE_CODE_TMPDIR",
+      "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/pfc1-probe-1790670224801-2NgaPy/pt"
+    ],
+    [
+      "DISABLE_AUTOUPDATER",
+      "1"
+    ],
+    [
+      "DISABLE_UPDATES",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+      "1"
+    ],
+    [
+      "DISABLE_TELEMETRY",
+      "1"
+    ],
+    [
+      "DISABLE_ERROR_REPORTING",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_POLICY_SKILLS",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_SKIP_PROMPT_HISTORY",
+      "1"
+    ],
+    [
+      "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS",
+      "1"
+    ],
+    [
+      "CLAUDE_CODE_STARTUP_FAILURE_RESULTS",
+      "1"
+    ]
+  ],
+  "cwd": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/pfc1-probe-1790670224801-2NgaPy/src",
+  "stdin": "hi\\n (single write + EOF)",
+  "result": {
+    "exitCode": 1,
+    "signal": null,
+    "wallMs": 461,
+    "timedOut": false,
+    "spawnError": null,
+    "stdinNote": null,
+    "signalsSent": [],
+    "stdout": {
+      "file": "probe-stdout.log",
+      "bytes": 3711,
+      "storedBytes": 3711,
+      "sha256": "613138963b57d3b370f110ece1eeddfa3ac2e6e3c2c784f8b56609a0087aa629",
+      "truncated": false
+    },
+    "stderr": {
+      "file": "probe-stderr.log",
+      "bytes": 0,
+      "storedBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "truncated": false
+    }
+  },
+  "observations": {
+    "schemaRejected": false,
+    "initObserved": true,
+    "authFailureObserved": true,
+    "zeroTurn": true,
+    "resultFrame": {
+      "subtype": "success",
+      "is_error": true,
+      "num_turns": 1,
+      "total_cost_usd": 0,
+      "modelUsage": {},
+      "terminal_reason": "api_error"
+    }
+  },
+  "containment": {
+    "configDirGains": [
+      {
+        "path": ".claude.json",
+        "kind": "file",
+        "bytes": 569,
+        "sha256": "e45882cd3513d788f23a4e50208569d32020f253a315d707c30caafc0381e5b4"
+      },
+      {
+        "path": "backups",
+        "kind": "dir"
+      },
+      {
+        "path": "backups/.claude.json.backup.1790670224921",
+        "kind": "file",
+        "bytes": 84,
+        "sha256": "f43f98d161c3eb691ce8ec8ac9f55bc74ca3856355dcfb8178da5e349d031ced"
+      },
+      {
+        "path": "sessions",
+        "kind": "dir"
+      }
+    ],
+    "parentHomeGains": [],
+    "note": "all gains inside the synthetic temp root; temp root deleted after evidence copy"
+  },
+  "verdict": "PASS"
+}

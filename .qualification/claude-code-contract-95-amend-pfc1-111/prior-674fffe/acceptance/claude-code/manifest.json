@@ -16,9 +16,7 @@
     "#89/850",
     "#90",
     "#92/857-860",
-    "#93",
-    "#108/R1 (CC-P5 + zero-turn draft-isolation diagnostic)",
-    "#111"
+    "#93"
   ],
   "baseline": "717fb0a3893c7d5604b324b6e958988abca7c6bd",
   "reuseByReference": [
@@ -32,7 +30,7 @@
       "artifact": "acceptance/subscription/final.schema.json",
       "contractId": "rocky-subscription-88-v1",
       "frozenSha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
-      "reused": "The proposed-action final schema is harness-neutral and is reused by reference as the full protected schema against which result.structured_output is always re-validated by the host. This contract ships no second schema file. #111 amendment (wire projection): the --json-schema wire value is a deterministic projection of these frozen bytes — canonical-minified, with ONLY \"$schema\" replaced by \"http://json-schema.org/draft-07/schema#\" (explicit dialect, never omission) — because the pinned claude 2.1.283 --json-schema validator lacks the draft-2020-12 meta-schema in its bundled registry and rejects the frozen IRI at startup (exit 1, 'no schema with key or ref', zero frames), while the same body under the draft-07 IRI is accepted and proceeds to auth failure (source: R1 #108 CC-P5 verdict + diag-json-schema zero-turn diagnostic, .qualification/native-probes-R1/probes/CC-P5/). The frozen body uses no draft-2020-12-exclusive vocabulary (only $schema/$id/title/type/properties/required/additionalProperties/const/enum/minLength/maxLength/pattern), so the draft-07 reading is semantically identical. Host-side validation authority remains these frozen 2020-12 bytes, unchanged; the projection is derived at launch preparation, is fail-closed unless the source \"$schema\" is exactly the frozen 2020-12 IRI, and its projection hash (sha256 c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3 of the projected canonical bytes) is pinned with the launch bundle."
+      "reused": "The proposed-action final schema is harness-neutral and is reused by reference as the full protected schema against which result.structured_output is always re-validated by the host. This contract ships no second schema file."
     },
     {
       "artifact": "docs/coordinator.md section 'Direct-harness subscription budget mode (Taskbot #90)'",
@@ -103,7 +101,7 @@
       "--tools=<role-tool-list>",
       "--allowedTools=<role-tool-list>",
       "--disallowedTools=<fixed-deny-list>",
-      "--json-schema=<canonical-minified-projected-request-schema-json>",
+      "--json-schema=<canonical-minified-request-schema-json>",
       "--append-system-prompt-file=<INP/instructions.md>"
     ],
     "argvTemplateNotes": [
@@ -111,8 +109,7 @@
       "--verbose is mandatory: with -p, stream-json without --verbose exits 1 with 'Error: When using --print, --output-format=stream-json requires --verbose' (source: #94/879 F14 [B]).",
       "--setting-sources= is present as an EMPTY value; the empty string yields [] and an unknown value is an error (source: #94/872 F6 [B]).",
       "Reviewer role additionally passes --restricted; that it composes with explicit --tools/--setting-sources= is an open probe (source: #94/878 section A [D; P]; #94/880 G-INIT-VALUES).",
-      "The default Anthropic system prompt is NOT replaced: --system-prompt/--system-prompt-file stay on the never-pass list and only --append-system-prompt-file is used, so the default prompt is bound solely by the version pin (source: #94/878 section A; #94/880 G-DEFAULT-PROMPT; decision D-06).",
-      "--json-schema carries the WIRE PROJECTION of the frozen request schema (#111 amendment): canonical-minified acceptance/subscription/final.schema.json bytes with only \"$schema\" replaced by \"http://json-schema.org/draft-07/schema#\". Pinned 2.1.283 rejects the frozen draft-2020-12 $schema at startup ('no schema with key or ref', exit 1, zero frames) and accepts the same body under draft-07 (source: R1 #108 CC-P5 + zero-turn draft-isolation diagnostic). The producer fail-closes if the source \"$schema\" is not exactly the frozen 2020-12 IRI or the projection derivation is non-deterministic; the projection hash is pinned (sha256 c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3); host-side final validation still uses the FROZEN 2020-12 schema bytes as its unchanged authority."
+      "The default Anthropic system prompt is NOT replaced: --system-prompt/--system-prompt-file stay on the never-pass list and only --append-system-prompt-file is used, so the default prompt is bound solely by the version pin (source: #94/878 section A; #94/880 G-DEFAULT-PROMPT; decision D-06)."
     ],
     "templateIsExecutableOrApprovedProfile": false,
     "profile": {
@@ -461,7 +458,7 @@
       "settings.json bytes",
       "cwd/staged tree and ancestor instruction-file absence",
       "prompt bytes and digest",
-      "request schema projected canonical wire bytes (draft-07 projection of the frozen 2020-12 schema, #111) and its pinned projection sha256",
+      "request schema canonical bytes",
       "append-system-prompt file bytes",
       "role/model/effort table binding",
       "binary path + host-measured sha256",
@@ -496,7 +493,7 @@
     "initFields": "session_id, apiKeySource, claude_code_version, cwd, tools[], mcp_servers[], model, permissionMode, slash_commands, skills, plugins, plugin_errors?, capabilities? (source: #94/879 F14). Exact expected tools/skills/slash_commands/mcp_servers values under this profile, including whether StructuredOutput appears in tools, are open gate G-INIT-VALUES [P] (source: #94/880).",
     "assistantFrames": "message = BetaMessage {id, model, content[text|thinking|tool_use{id,name,input}], stop_reason, usage}, parent_tool_use_id, error? (authentication_failed|oauth_org_not_allowed|account_on_hold|billing_error|rate_limit|overloaded|invalid_request|model_not_found|server_error|max_output_tokens|cloud_credential_error|unknown), aborted?. One API response can produce several assistant frames sharing message.id (source: #94/879 F14).",
     "resultFields": "subtype success|error_max_turns|error_during_execution|error_max_budget_usd|error_max_structured_output_retries; is_error INDEPENDENT of subtype (success may carry is_error:true with api_error_status); num_turns, duration_ms, duration_api_ms, total_cost_usd (client ESTIMATE), usage (main loop only), modelUsage{model:{inputTokens, outputTokens(includes thinking), thinkingTokens?, cacheReadInputTokens, cacheCreationInputTokens, webSearchRequests, costUSD, contextWindow, maxOutputTokens, canonicalModel?, provider?, costBasis?}} (includes subagents, compaction and internal calls), permission_denials[{tool_name, tool_use_id, tool_input}] (the AUTHORITATIVE denial record), structured_output?, stop_reason, terminal_reason? (completed|max_turns|tool_deferred|aborted_streaming|aborted_tools|hook_stopped|stop_hook_prevented|background_requested|blocking_limit|rapid_refill_breaker|prompt_too_long|image_error|model_error|api_error|malformed_tool_use_exhausted|budget_exhausted|structured_output_retry_exhausted|tool_deferred_unavailable|turn_setup_failed), errors[], startup_failure_reason?, result_index?, origin?, queued_turn_count? (absent on crash/fatal-startup results, which may carry zeroed totals). More than one result can occur (task-notification follow-ups); a result_index gap means a lost result (source: #94/879 F15).",
-    "structuredOutput": "--json-schema takes an INLINE canonical minified JSON string, not a path; an invalid schema exits with an error; 'format' is annotation-only; an 'unsatisfiable' schema only WARNS to the debug log. It is implemented as a synthetic tool named StructuredOutput appearing as a tool_use/tool_result pair; the value arrives in result.structured_output; failure subtype is error_max_structured_output_retries; success WITHOUT structured_output is possible and must be treated as failure. The host ALWAYS re-validates result.structured_output against the full protected schema (acceptance/subscription/final.schema.json by reference) and against action/input/role; the flag is a request, not evidence (source: #94/878 F10, section F). #111 amendment: the inline value is the wire projection of the frozen schema — canonical-minified, \"$schema\" replaced by \"http://json-schema.org/draft-07/schema#\", body semantically identical (no draft-2020-12-exclusive vocabulary present) — because the pinned 2.1.283 validator registry lacks the 2020-12 meta-schema and rejects the frozen IRI at startup while accepting the draft-07 body (source: R1 #108 CC-P5 + zero-turn diagnostic); host re-validation authority remains the frozen 2020-12 bytes and the projection hash is pinned.",
+    "structuredOutput": "--json-schema takes an INLINE canonical minified JSON string, not a path; an invalid schema exits with an error; 'format' is annotation-only; an 'unsatisfiable' schema only WARNS to the debug log. It is implemented as a synthetic tool named StructuredOutput appearing as a tool_use/tool_result pair; the value arrives in result.structured_output; failure subtype is error_max_structured_output_retries; success WITHOUT structured_output is possible and must be treated as failure. The host ALWAYS re-validates result.structured_output against the full protected schema (acceptance/subscription/final.schema.json by reference) and against action/input/role; the flag is a request, not evidence (source: #94/878 F10, section F).",
     "successRequires": [
       "exactly one system/init first (after no startup events other than known ones), with session_id nonblank, claude_code_version=='2.1.283', cwd==SRC, apiKeySource=='none', mcp_servers==[], plugins==[], skills/slash_commands within the approved (expected empty) set [P exact values, G-INIT-VALUES], tools == the exact role roster (+StructuredOutput where proven), permissionMode=='dontAsk' (source: #94/879 COMPLETE)",
       "every assistant tool_use id unique with exactly one later user tool_result carrying the same tool_use_id",
@@ -510,7 +507,7 @@
     "exitCodes": "After the stream, exit = 1 iff the LAST result has is_error:true or the transport closed permanently, otherwise 0 — INCLUDING exit 0 when NO result was emitted in stream-json mode; argument/validation errors print stderr and exit 1; SIGTERM exits 143, kills the running Bash process tree, and leaves the turn unfinished with NO result; SIGINT 'ends the turn' but its exact frames/exit are unobserved [P, G-SIGINT]; known startup refusals emit an error_during_execution result with startup_failure_reason only when CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1, otherwise stderr plus nonzero exit. Exit code alone is therefore NEVER success evidence (source: #94/879 F16 [B]).",
     "cancellation": "SIGTERM the owned process group only: exit 143 with no result classifies unknown; detached descendants are killed; EOFs and quiescence are recorded separately; a late result after cancel is ignored; NO interrupt acknowledgement is ever claimed. Cancellation is SIGTERM-only until G-SIGINT is closed by native observation (source: #94/879 producer contract 4 Cancel; #94/880 FK7, G-SIGINT).",
     "apiRetryDecision": "system/api_retry records retried attempts and is not fatal by itself; a run that retries and later completes the full COMPLETE conjunction is ACCEPTED and the retry events are recorded in evidence. This is the #95 decision requested by research (recommendation adopted). A model fallback without --fallback-model remains detectable only through modelUsage keys and stays fatal when observed (source: #94/879 F16 note; #94/880 G-RETRY; decision D-05).",
-    "finalSchema": "acceptance/subscription/final.schema.json (reused by reference; sha256 954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792). Host validation authority UNCHANGED by the #111 wire projection: only the --json-schema wire bytes carry the draft-07 $schema replacement (projection sha256 c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3); every host re-validation of result.structured_output uses the frozen 2020-12 semantics.",
+    "finalSchema": "acceptance/subscription/final.schema.json (reused by reference; sha256 954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792)",
     "sourceVisibilityGap": "The effective sandbox state is NOT observable in the stream; prompt consumption is evidenced only by system/init; effort is not echoed. Absence of a stream field is not absence of activity: these gaps bind to qualification plus inventory (G-SET, G-INIT-VALUES, G-EFFORT) (source: #94/879 runtime metadata sources 5).",
     "successMeaning": "Protocol-qualified current proposal only; never authoritative checks/review/CI, head adoption or delivery acceptance (reused by reference from acceptance/subscription/README.md 'Usage and authority').",
     "toolOutcomeClasses": {
@@ -578,7 +575,7 @@
     {
       "id": "CC07",
       "reusesConcept": "S04 (by reference); final schema reused from acceptance/subscription/final.schema.json",
-      "gate": "Structured final: inline canonical-minified --json-schema request implemented as the synthetic StructuredOutput tool_use/tool_result pair; the inline value is the #111 draft-07 wire projection of the frozen 2020-12 schema (semantically identical body; pinned projection hash; fail-closed dialect guard) because the pinned 2.1.283 validator rejects the frozen IRI at startup (source: R1 #108 CC-P5 + zero-turn diagnostic); result.structured_output REQUIRED for success — success without it is failure; error_max_structured_output_retries rejects; the host always re-validates against the full protected FROZEN schema and action/input/role binding; the schema flag is a request, never evidence (source: #94/878 F10, section F)."
+      "gate": "Structured final: inline canonical-minified --json-schema request implemented as the synthetic StructuredOutput tool_use/tool_result pair; result.structured_output REQUIRED for success — success without it is failure; error_max_structured_output_retries rejects; the host always re-validates against the full protected schema and action/input/role binding; the schema flag is a request, never evidence (source: #94/878 F10, section F)."
     },
     {
       "id": "CC08",
@@ -719,11 +716,6 @@
       "kind": "repo",
       "ref": "docs/coordinator.md section 'Direct-harness subscription budget mode (Taskbot #90)'",
       "note": "subscription-observed-v1 usage schema 2 semantics reused by reference."
-    },
-    {
-      "kind": "repo",
-      "ref": ".qualification/native-probes-R1/probes/CC-P5/ (verdict.md, verdict.json, diag-json-schema.json) at 674fffed12a0d7d387f37d0a5edec757bfa4d16c",
-      "note": "R1 #108 zero-turn native evidence for the #111 request-schema wire projection: pinned claude 2.1.283 rejects the frozen draft-2020-12 --json-schema at startup ('no schema with key or ref', exit 1, zero frames) and accepts the same body with $schema=http://json-schema.org/draft-07/schema# (system/init emitted, proceeds to auth failure; zero billable turns). A bundled validator-registry limitation of the pinned binary, not a network artifact; claude-specific (codex --output-schema did not reject the same 2020-12 schema at startup, CX-P3). #111 native confirmation probe: .qualification/claude-code-contract-95-amend-pfc1-111/native-probe/."
     }
   ]
 }

@@ -1,0 +1,26 @@
+{
+  "root": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/pfc1-probe-1790670224801-2NgaPy/cfg",
+  "present": true,
+  "entries": [
+    {
+      "path": ".claude.json",
+      "kind": "file",
+      "bytes": 569,
+      "sha256": "e45882cd3513d788f23a4e50208569d32020f253a315d707c30caafc0381e5b4"
+    },
+    {
+      "path": "backups",
+      "kind": "dir"
+    },
+    {
+      "path": "backups/.claude.json.backup.1790670224921",
+      "kind": "file",
+      "bytes": 84,
+      "sha256": "f43f98d161c3eb691ce8ec8ac9f55bc74ca3856355dcfb8178da5e349d031ced"
+    },
+    {
+      "path": "sessions",
+      "kind": "dir"
+    }
+  ]
+}

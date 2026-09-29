@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "contractId": "rocky-claude-code-95-v1",
+  "ticket": "#111 (PFC-1)",
+  "algorithm": "sha256",
+  "baseline": "674fffed12a0d7d387f37d0a5edec757bfa4d16c",
+  "note": "Hashes of every evidence file in this directory (this inventory excludes itself) plus amended repo paths with their prior-674fffe hashes, and re-measured hashes of key UNTOUCHED authority files. qualification=false, capability=null; no scenario executed or passed.",
+  "qualification": false,
+  "capability": null,
+  "projection": {
+    "rule": "canonical-minified frozen acceptance/subscription/final.schema.json with ONLY $schema replaced by http://json-schema.org/draft-07/schema#",
+    "frozenSourceRawSha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
+    "projectionSha256": "c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3",
+    "frozenSourceCanonicalSha256": "0e1c3a522774776c8954de8db979468faa473904e7cc92735c2f88e16ca0bd51"
+  },
+  "nativeProbe": {
+    "verdict": "PASS",
+    "zeroTurn": true,
+    "exitCode": 1,
+    "schemaRejected": false,
+    "initObserved": true,
+    "authFailure": "Not logged in · Please run /login",
+    "detail": "native-probe/verdict.md + native-probe/probe.json"
+  },
+  "suite": {
+    "tests": 378,
+    "pass": 377,
+    "fail": 0,
+    "skipped": 1,
+    "baselineTests": 376,
+    "baselineSkipped": 1
+  },
+  "evidenceFiles": [
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/amendments.md",
+      "bytes": 11799,
+      "sha256": "2f45cf2a6df7f4d4eb54d41eb832a184e4f28ad9551ecc3bfbb9edcf6125bacf"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/build.log",
+      "bytes": 220,
+      "sha256": "602db2bbfe7b364bd1ebcd36455fb19dfaeb0ebf2dcc28706d22fd17b21347b6"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/handoff-checks.md",
+      "bytes": 8487,
+      "sha256": "cca7e0c6d0eafa461582c4c6d7ecbaa1fc1aa7d105161f49b43c8167a9ae47f5"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/cfg-inventory-post.json",
+      "bytes": 637,
+      "sha256": "e399ef2bd14db7782094d56cec788ff315c5ee9eb11cfca42db0a4d61059b110"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/cfg-inventory-pre.json",
+      "bytes": 154,
+      "sha256": "14385e2e052b6771a459bc15702a5f858d9c9e0432bf20497677e3d2396a6c79"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe-stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe-stdout.log",
+      "bytes": 3711,
+      "sha256": "613138963b57d3b370f110ece1eeddfa3ac2e6e3c2c784f8b56609a0087aa629"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe.json",
+      "bytes": 4958,
+      "sha256": "b4b00a2c9badbfca0f6abd3428f404e6ae3e9386c9a8a7520045469363811f93"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/probe.mjs",
+      "bytes": 10979,
+      "sha256": "1f24086a6ae7dfca26aaa728bec528c4eedacaadb5b053f1cb2b4ec1fd3e4892"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/native-probe/verdict.md",
+      "bytes": 2968,
+      "sha256": "fbd692937115d83bdbdd7592c08aa5ed23d3f67d9a11ef37770373a63ec41e9d"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/prettier.log",
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/prior-674fffe/acceptance/claude-code/README.md",
+      "bytes": 17482,
+      "sha256": "c145897f1805d9a7d4e4f93ddaefd36b8541a2ea227c8f6d7bfcdd237b2aca92"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/prior-674fffe/acceptance/claude-code/frozen.sha256.json",
+      "bytes": 912,
+      "sha256": "08e3b3b8ce75cf71cea770aa5598df47c0d555504f5837a6d464559c1d13f2bd"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/prior-674fffe/acceptance/claude-code/manifest.json",
+      "bytes": 60144,
+      "sha256": "b124b059c98ac202fd731d84b1b9e24b8189dd523ea90ffa9e6bd680d28bc2f4"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/prior-674fffe/acceptance/claude-code/scenarios.json",
+      "bytes": 27009,
+      "sha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/static-checks.json",
+      "bytes": 3998,
+      "sha256": "627cb6eede5bc1b37bea5338786002abed17e08562b2b70d14f04d7f186d9d07"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/test-full.log",
+      "bytes": 38542,
+      "sha256": "c00c6083d0a8a5d934a79de9d0b39a909492ea3d4ec40798b95bc13e47b7b6fa"
+    },
+    {
+      "path": ".qualification/claude-code-contract-95-amend-pfc1-111/typecheck.log",
+      "bytes": 58,
+      "sha256": "08e9f23016720eb99262da348a7d0bf4ca7b0e0869d3b4dc6acea9887c67acf3"
+    }
+  ],
+  "amendedFiles": [
+    {
+      "path": "acceptance/claude-code/README.md",
+      "bytes": 20555,
+      "sha256": "b8f6f5f86f54ebc0ebd703cee49a7bfce585ddc92021d14508541e589a637b89",
+      "prior674fffe": {
+        "sha256": "c145897f1805d9a7d4e4f93ddaefd36b8541a2ea227c8f6d7bfcdd237b2aca92"
+      }
+    },
+    {
+      "path": "acceptance/claude-code/manifest.json",
+      "bytes": 64401,
+      "sha256": "af2dedc2d91df82dc54c224e51d1e4dd5a2c9389f94901c69da39997acec61ec",
+      "prior674fffe": {
+        "sha256": "b124b059c98ac202fd731d84b1b9e24b8189dd523ea90ffa9e6bd680d28bc2f4"
+      }
+    },
+    {
+      "path": "acceptance/claude-code/frozen.sha256.json",
+      "bytes": 912,
+      "sha256": "241360ed5dffe8a0b343b357448211e007dd6482e53fbd70eabcfe8c4ef98477",
+      "prior674fffe": {
+        "sha256": "08e3b3b8ce75cf71cea770aa5598df47c0d555504f5837a6d464559c1d13f2bd"
+      }
+    },
+    {
+      "path": "docs/claude-code-adapter.md",
+      "bytes": 20070,
+      "sha256": "0728606f56386126075f682068d135d9992c850c507010e8c954b2d666c47a19",
+      "prior674fffe": {
+        "sha256": "5603721f7ad109fe2a672f64d7c64f37eb55f4c1ce93c410f41b034b13d5db97"
+      }
+    },
+    {
+      "path": "src/agents/claude-code/adapter.ts",
+      "bytes": 25896,
+      "sha256": "43ce20d08bd1117068e607e4b8d2d08145cd649a749e5c9d25e86ca3b33e8817",
+      "prior674fffe": {
+        "sha256": "ed0f254388377157ded9fb62bd8ca3b4d09c27aaae61abfe68cb977d0fca88fd"
+      }
+    },
+    {
+      "path": "src/agents/claude-code/config.ts",
+      "bytes": 11958,
+      "sha256": "196b0d65e43da3923a6536da5bf3e0e24f315807e1473964647a98d191ed9549",
+      "prior674fffe": {
+        "sha256": "d20cc1717d5790940e24c12ea04112812439c5a4bb4191b34d93374e7825afb9"
+      }
+    },
+    {
+      "path": "src/agents/claude-code/index.ts",
+      "bytes": 351,
+      "sha256": "d10136898135ce19ad314fa4644a2a5cc2a7ef85c2951f76ebb3f7f9ec2b4f0f",
+      "prior674fffe": {
+        "sha256": "9494f0063c761f82bf67034ae5893fdcda38d0cbf0285d6edbd6e6d233ae9872"
+      }
+    },
+    {
+      "path": "src/agents/claude-code/projection.ts",
+      "bytes": 3356,
+      "sha256": "be9114643aea4dbdd4360d03ade8bc1ef6cbc087d669195db7f294697a354eac",
+      "prior674fffe": {
+        "newFile": true
+      }
+    },
+    {
+      "path": "tests/claude-code-launch.test.mjs",
+      "bytes": 46439,
+      "sha256": "66e07fb330487b9d16e392d48c4801bc840b95150ced0da4a384fbfaa50cd883",
+      "prior674fffe": {
+        "sha256": "7bce833b81130e404ef234e87ca158e13d4ca61a40095a4f87a3d1f12bad014b"
+      }
+    }
+  ],
+  "untouchedAuthorityFiles": [
+    {
+      "path": "acceptance/claude-code/scenarios.json",
+      "bytes": 27009,
+      "sha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
+    },
+    {
+      "path": "acceptance/subscription/final.schema.json",
+      "bytes": 815,
+      "sha256": "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792"
+    },
+    {
+      "path": "src/agents/seam.ts",
+      "bytes": 13148,
+      "sha256": "82979a05b111c28435b261f621cab3d24dc7533094c31986002fc868c1ec0caa"
+    }
+  ]
+}

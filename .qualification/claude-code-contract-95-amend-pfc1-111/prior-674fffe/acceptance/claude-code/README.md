@@ -24,9 +24,8 @@ in `docs/coordinator.md` § "Direct-harness subscription budget mode (Taskbot
 native-test evidence rules, the settled-ordinary vs unresolved vs policy/fatal
 classification per #89/850(a)/(b)/(c), duplex attempted-before-IO input
 semantics, the proposed-action final schema
-(`acceptance/subscription/final.schema.json`, sha256 `954dd71e…6792`; its
-Claude wire projection is defined under "Reading stream-json output", #111),
-the `subscription-observed-v1` usage schema 2 with statuses
+(`acceptance/subscription/final.schema.json`, sha256 `954dd71e…6792`), the
+`subscription-observed-v1` usage schema 2 with statuses
 reported/ambiguous-zero/unknown, and the rule that a model final never
 establishes head/checks/CI/review authority. This contract adds only
 Claude-Code-specific argv/env/auth/discovery/event/role/stream bindings. Where
@@ -210,34 +209,6 @@ failure; the flag is a request, not evidence — the host always re-validates
 against `acceptance/subscription/final.schema.json` (by reference)
 (source: #94/878 F10, §F).
 
-**Request-schema wire projection (#111 amendment).** The inline `--json-schema`
-value is the **wire projection** of the frozen schema: the canonical-minified
-`acceptance/subscription/final.schema.json` bytes with **only** `"$schema"`
-replaced by `"http://json-schema.org/draft-07/schema#"` (explicit dialect,
-never omission). Reason: the pinned claude 2.1.283 `--json-schema` validator
-does not carry the draft-2020-12 meta-schema in its bundled registry, so the
-frozen IRI is rejected at startup (`Error: --json-schema is not a valid JSON
-Schema: no schema with key or ref "https://json-schema.org/draft/2020-12/schema"`,
-exit 1, zero frames — every structured-output launch would fail), while the
-same body under the draft-07 IRI is accepted and startup proceeds to auth
-failure (source: R1 #108 CC-P5 verdict + `diag-json-schema` zero-turn
-draft-isolation diagnostic,
-`.qualification/native-probes-R1/probes/CC-P5/`; a bundled-registry
-limitation of the pinned binary, not a network artifact, and claude-specific —
-codex `--output-schema` did not reject the same 2020-12 schema at startup,
-CX-P3). The frozen body uses **no draft-2020-12-exclusive vocabulary** (only
-`$schema`/`$id`/`title`/`type`/`properties`/`required`/`additionalProperties`/
-`const`/`enum`/`minLength`/`maxLength`/`pattern`), so the draft-07 reading is
-semantically identical. **Host-side validation authority is unchanged**: the
-frozen 2020-12 `final.schema.json` bytes remain the schema every
-`result.structured_output` is re-validated against; the projection is a
-request-wire detail derived at launch preparation, never a second shipped
-schema file and never evidence. The producer fail-closes if the source
-`"$schema"` is not exactly the frozen 2020-12 IRI or the projection derivation
-is non-deterministic, and the projection hash is pinned (sha256
-`c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3` of the
-projected canonical bytes; #111).
-
 Exit codes are **never success evidence alone**: exit is 1 iff the last result
 has `is_error:true` or the transport closed permanently — including **exit 0
 when no result was emitted**; SIGTERM exits 143, kills the Bash tree and
@@ -308,20 +279,3 @@ static checks only. No executable launcher, adapter or qualification checker
 ships here. All 24 scenarios are frozen unexecuted or blocked;
 `qualification=false`, `capability=null`, `executionAuthorized=false`.
 Re-freezing this static contract does not execute or pass any scenario.
-
-**Amendment provenance.** (1) The G-KC user decision was recorded by the #95
-amendment (2026-09-28; prior bytes archived under
-`.qualification/claude-code-contract-95/amendment-gkc/prior-e859657/`). (2)
-The request-schema wire projection above was amended by **#111** (2026-09-29,
-sole mutation lease; baseline `674fffe`) on the root-accepted R1 #108 CC-P5
-finding plus its zero-turn draft-isolation diagnostic; prior bytes are
-archived under
-`.qualification/claude-code-contract-95-amend-pfc1-111/prior-674fffe/`, and
-every changed claim there carries its citation. `scenarios.json` is
-**untouched** by #111 (no scenario text depends on the request-schema dialect
-wording; status counts remain 14 unexecuted + 10 blocked). Only
-`README.md` and `manifest.json` changed, and `frozen.sha256.json` re-freezes
-those two entries only. The amendment executes and passes no scenario; the
-#111 confirmation probe (projected schema accepted at native startup, zero
-model turns, unauth) is recorded in the amendment evidence directory, not as
-a scenario pass.

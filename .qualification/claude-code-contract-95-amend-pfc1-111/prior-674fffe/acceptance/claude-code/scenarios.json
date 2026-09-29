@@ -1,0 +1,249 @@
+{
+  "schema": 1,
+  "contractId": "rocky-claude-code-95-v1",
+  "frozenBeforeExecution": true,
+  "executionAuthorized": false,
+  "statusVocabulary": "Reused by reference from acceptance/subscription/README.md 'Acceptance rules': unexecuted means no attempt, blocked means a named missing prerequisite, unknown means incomplete or ambiguous observations; neither unexecuted nor blocked counts as pass; all attempts stay in the denominator.",
+  "scenarios": [
+    {
+      "id": "F01",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC01", "CC03", "CC12"],
+      "title": "Exact spawn binding and binary identity",
+      "procedure": "Owned fake CLI records argv/env/cwd and the settings/schema/append-prompt bytes. Assert recorded bytes equal the C0 bundle element-for-element. Inject one-byte drift in each of argv, env, settings.json, request schema, append prompt, BIN hash and an inventory entry between C0 and C1. Present BIN as the ~/.local/bin symlink, the Homebrew 2.1.236 path, versions/2.1.233 and versions/2.1.238, and a truncated/renamed copy of the pinned file (source: #94/880 FK1; #94/872 F1).",
+      "expected": "Any drift or identity substitution yields ZERO child spawn and a named pre-spawn rejection; the fake never launches. Only the absolute versioned pinned path with the host-measured hash at C1 spawns. A missing binary makes the profile unavailable, never substituted (G-VERSION).",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F02",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC03", "CC04"],
+      "title": "Serializer: one --opt=value element, empty setting-sources, settings rejection",
+      "procedure": "Variadic-swallow test: a would-be positional after --tools must not become a tool; assert every option arrives as exactly one argv element in --opt=value form and --setting-sources= is present with an empty value. Feed the serializer settings.json variants: duplicate key, each prohibited key (env, apiKeyHelper, *Helper, hooks, fallbackModel, model*, enabledPlugins, extraKnownMarketplaces, mcpServers, allowedMcpServers, forceLogin*, sandbox.filesystem.disabled, allowAppleEvents, allowUnixSockets, enableWeakerNestedSandbox, network.tlsTerminate, pluginConfigs, statusLine, outputStyle), a permissions.allow entry beyond the role table, and relative/~/glob-metachar paths (source: #94/880 FK2; #94/878 section B).",
+      "expected": "Each malformed or prohibited input is rejected pre-spawn with zero child launch; no silent normalization; canonical round-trip parse with duplicate-key rejection is the only admitted settings shape.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F03",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC02", "CC03"],
+      "title": "Forbidden flags, forbidden env, forbidden roles",
+      "procedure": "Attempt admission with each never-pass flag (--bare, --safe-mode, bypass flags, --permission-prompt-tool, resume/continue/--fork-session/--session-id, --fallback-model, --mcp-config, --plugin-dir/--plugin-url, --agents/--agent, --add-dir for the reviewer, --managed-settings, --system-prompt(-file), --max-budget-usd, --debug family, session/remote/cloud family). Plant each prohibited env var in the HOST env — at minimum ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CODE_USE_BEDROCK, ANTHROPIC_BASE_URL, ANTHROPIC_PROFILE, CLAUDE_SECURESTORAGE_CONFIG_DIR, CLAUDE_CODE_MANAGED_SETTINGS_PATH, CLAUDE_CODE_SIMPLE, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB — and assert non-propagation. Request reviewer with Bash/Edit/Write or --add-dir, and an effort value outside low|medium|high|xhigh|max (source: #94/880 FK3; #94/878 sections A/C).",
+      "expected": "Every forbidden flag/role/effort is rejected pre-spawn (the CLI itself would only warn on a bad effort, so the producer must reject). No forbidden env key appears in the child environment; the sealed allowlist is the complete child env. CLAUDE_CONFIG_DIR present in shared mode or missing in dedicated mode is rejected.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F04",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC05"],
+      "title": "stdin exact bytes, single EOF, pre-spawn input rejection, attempted-unknown",
+      "procedure": "Prompt contains newlines, Unicode, quotes, shell metacharacters and JSON-looking text; assert exact bytes arrive once, one EOF, no shell interpretation, no resend. Reject before spawn: BOM, invalid UTF-8, empty, whitespace-only, over-limit (> min(config, 10 MB)). Fake exits before reading stdin (EPIPE and silent-buffering variants); fake reads twice; owner crashes between durable intent and write (source: #94/880 FK4; #94/878 F12, section E).",
+      "expected": "Valid input reaches the child exactly once with one EOF. Rejected inputs yield zero spawn. An exit-before-read attempt is attempted-unknown: no init, no resend, no success. Durable attempted-before-IO intent semantics follow the accepted subscription duplex contract by reference.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F05",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC06", "CC07", "CC08"],
+      "title": "Positive complete lifecycle control",
+      "procedure": "Fake emits the source-shaped complete control: system/init (session_id nonblank, claude_code_version 2.1.283, cwd==SRC, apiKeySource 'none', mcp_servers [], plugins [], permissionMode 'dontAsk', exact role roster) -> assistant tool_use Bash -> user tool_result -> assistant StructuredOutput tool_use -> user tool_result -> result subtype success, is_error false, terminal_reason completed, structured_output valid against the full protected schema and bound to action/input/role, permission_denials [], modelUsage keyed by the requested model with provider firstParty and positive token counts -> stdout EOF, stderr EOF, exit 0; independent group quiescence observed (source: #94/880 FK5 positive control; #94/879 COMPLETE).",
+      "expected": "The complete control may yield a protocol-successful PROPOSAL only: checks/review/CI remain unverified and the model final establishes no authority. Fragmented multibyte UTF-8 across frame boundaries decodes identically.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F06",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC07", "CC08", "CC09"],
+      "title": "Result subtype, is_error and exit-code matrix",
+      "procedure": "From the F05 control inject one fault each: (a) no result at all + exit 0; (b) result success + is_error:true + exit 1; (c) subtype error_max_turns; error_during_execution; error_max_budget_usd; error_max_structured_output_retries; (d) success without structured_output; (e) structured_output schema-valid but wrong action/input/role; (f) exit 1 after an otherwise valid success result; (g) startup refusal with startup_failure_reason (CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1) and without it (stderr + nonzero exit only) (source: #94/880 FK5(a)-(e); #94/879 F15/F16).",
+      "expected": "Each fault rejects a successful proposal; (a) classifies unresolved/unknown despite exit 0 — exit code alone is never success evidence; (g) is fatal. Subtype and is_error are evaluated independently.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F07",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC06", "CC08"],
+      "title": "tool_use/tool_result pairing and source-defined denial",
+      "procedure": "Inject one fault each: a tool_use with no tool_result; a duplicate tool_result for one tool_use_id; an orphan tool_result with an unseen tool_use_id; the same tool_use_id appearing in result.permission_denials with and without a system/permission_denied event; a system/permission_denied event alone; a tool_use for a tool outside the roster (Agent, WebFetch, mcp__x); a denied/declined StructuredOutput. Positive controls: a nonzero Bash tool_result is_error:true followed by a later successful run and complete success; an Edit old_string mismatch is_error:true followed by a corrected Edit with a DISTINCT tool_use_id and complete success (source: #94/880 FK5(f)-(j); #94/879 classes; #89/850(a)/(b)).",
+      "expected": "Pairing faults and every denial form reject (permission_denials is the authoritative source-defined denial record for this harness, answering #89/850(b)); off-roster tool_use rejects. The two positive controls are settled ordinary failures that do NOT alone reject the later correctly bound proposal; original failure records stay retained and immutable, and containment of any sandbox-denial-looking output rests on the independent oracle and native qualification, never relabelling (#89/850(a)).",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F08",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC01", "CC02", "CC08"],
+      "title": "init identity and provider/model fatal gates",
+      "procedure": "Inject one fault each in system/init or result: apiKeySource 'ANTHROPIC_API_KEY', 'apiKeyHelper', '/login managed key'; modelUsage provider bedrock/vertex/foundry/anthropicAws/mantle/gateway; a modelUsage key different from the requested model (silent fallback); claude_code_version != 2.1.283; cwd != SRC; permissionMode != dontAsk; non-empty mcp_servers/plugins/skills; tools roster mismatch; blank session_id (source: #94/880 FK5(k)/(l); #94/879 FATAL).",
+      "expected": "Each is fatal (or unresolved for roster/identity mismatch per the FATAL binding): no proposal, and the auth-signal faults additionally record a subscription-exclusivity breach for evidence. apiKeySource 'none' alone never proves subscription OAuth (it does not distinguish bearer/profile), so the sealed-env assertion in F03 remains the primary control.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F09",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC06"],
+      "title": "Framing, bounds and malformed stream garbage",
+      "procedure": "From the F05 control inject one fault each: frames after the result; two results (task-notification origin) and a result_index gap; an unknown message type/subtype off the reviewed allowlist (including each observedButNotAdmittedByDefault member when unapproved); non-JSON garbage line; invalid UTF-8 bytes; duplicate JSON keys within a frame; a truncated stream (partial last line then carrier EOF); an oversized frame/stdout beyond configured byte limits; non-object JSON; a stderr-holder descendant keeping stderr open after stdout EOF (source: #94/880 FK5(n)/(o); #94/879 UNRESOLVED).",
+      "expected": "No accepted success; retain the bounded raw prefix and a truncation/unknown reason. Distinguish child decoder EOF from carrier EOF and stderr EOF; stdout content alone cannot establish cleanup. Overflow, invalid encoding, duplicate keys, trailing partial data or unknown fields/types are never silently discarded.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F10",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC08"],
+      "title": "assistant errors, aborts and api_retry acceptance",
+      "procedure": "Inject one fault each: assistant.error authentication_failed, oauth_org_not_allowed, account_on_hold, billing_error, model_not_found; assistant aborted:true; a tool_result carrying a sandbox-style denial message as ordinary output (control: stays ordinary). Then the decision control: system/api_retry frames (attempt/max_retries/retry_delay_ms/error_status) followed by a full F05-complete success (source: #94/880 FK5(m)/(p); #94/879 F14/F16 note).",
+      "expected": "assistant.error auth/billing/model faults and aborted:true reject (fatal for the auth class). The api_retry-then-success run is ACCEPTED with every retry event recorded in evidence per decision D-05; retries are not fatal by themselves and not silently dropped.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F11",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC10", "CC11"],
+      "title": "Usage mapping onto subscription-observed-v1 schema 2",
+      "procedure": "Emit in separate runs: positive modelUsage for the requested model with cacheReadInputTokens/cacheCreationInputTokens/thinkingTokens subsets; all-zero modelUsage; missing modelUsage; a zeroed crash/fatal-startup result; an interrupted run (SIGTERM, no result); negative/fractional/unsafe/inconsistent counts; outputTokens with thinkingTokens present (double-count trap); total_cost_usd and num_turns populated; a todo/plan-bearing stream whose plan state claims completion the tool history contradicts (source: #94/880 FK6; #94/879 usage note; docs/coordinator.md #90 by reference).",
+      "expected": "Positive valid counts map to schema-2 status 'reported' with total = inputTokens + outputTokens per model, subsets never added twice, thinking never added on top of outputTokens. All-zero or absent maps to 'ambiguous-zero'; interrupted/truncated/zeroed-crash maps to 'unknown'; invalid counts reject. total_cost_usd/num_turns stay informational and never become receipts or budget inputs. Todo/plan state is informational only and never corroborates or contradicts a final — mirroring the #93-amended subscription rule. Threshold/stop/recovery behavior is the referenced #90 mode, not re-tested here.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F12",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC09", "CC12"],
+      "title": "Cancellation, deadline and physical cleanup",
+      "procedure": "Owned fake child with ignored SIGTERM, held stdout/stderr, an owned detached descendant, a lost supervisor and an unrelated sentinel process. Hit the work deadline reserving cleanup time; SIGTERM the owned group; deliver a late result after cancel with the same identity; inject cleanup uncertainty (source: #94/880 FK7; #94/879 producer contract 4).",
+      "expected": "Bounded TERM/KILL only for exact owned identities; sentinel preserved. SIGTERM yields exit 143 with NO result and classifies unknown; no interrupt acknowledgement is claimed; EOFs and quiescence are recorded separately; the late result after cancel is ignored; the original deadline never restarts; an unknown/escaped descendant keeps the slot fenced and the result unaccepted.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F13",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC04", "CC12"],
+      "title": "Post-run discovery drift",
+      "procedure": "Between C1 and C5 mutate one item of the discovery inventory: a managed-path name set, <configDir> children gaining settings.json/CLAUDE.md/skills, a staged-tree or ancestor CLAUDE.md/AGENTS.md/.claude/.mcp.json appearing, remote-settings.json appearing (source: #94/880 FK8; #94/879 producer contract 4 C5).",
+      "expected": "Post-run rehash detects the drift and the result is stale/unknown, never success. In dedicated mode the configDir children-name set check runs even when hashes are unavailable.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "F14",
+      "evidenceClass": "owned-fake-cli",
+      "requirements": ["CC05", "CC12"],
+      "title": "Start/input crash windows and duplicate delivery",
+      "procedure": "Kill the owner before/after durable start-intent persistence, before/after the attempted-input record, before/after EOF, and before final persistence; restart and deliver duplicate/late results with the same action identity; race cancel against start (source: #94/879 producer contract 4 C2/C3; accepted subscription F06 semantics by reference).",
+      "expected": "At most one native start per action; partial/lost start or input reconciles from durable intent or stays recovery_required, never blind replay/resend; a pipe-buffered write without system/init stays attempted-unknown; original deadline and physical identity survive; cancel/stale identity rejects publication.",
+      "status": "unexecuted",
+      "blocker": null
+    },
+    {
+      "id": "N01",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["CC04"],
+      "title": "Hostile discovery sealing (NP1)",
+      "procedure": "In a disposable synthetic environment with the pinned BIN: plant hostile synthetic <configDir>/{settings.json with env ANTHROPIC_API_KEY + apiKeyHelper + hooks, CLAUDE.md, rules/, skills/, agents/, plugins}, a staged .claude/settings.json with env+apiKeyHelper+hooks, .mcp.json, CLAUDE.md, AGENTS.md, and an ancestor CLAUDE.md; sentinel file detects any helper execution; observe the model context via a loopback provider available only in the synthetic harness (source: #94/880 NP1).",
+      "expected": "init shows no skills/plugins/mcp, the exact roster, apiKeySource 'none', no hook events, the helper sentinel untouched, and the model context contains only the approved append prompt plus the version-bound default. Any planted instruction reaching the context fails the profile.",
+      "status": "blocked",
+      "blocker": "Separately authorized native execution in a disposable synthetic environment required; no native authority granted by this contract."
+    },
+    {
+      "id": "N02",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["CC03"],
+      "title": "Role and sandbox matrix (NP2)",
+      "procedure": "Implementer: Edit/Write in SRC allowed; Bash writes to SRC/SCR allowed; Bash writes outside denied; Read/Bash reads of CFG, PH, PT, INP, ~/.claude, ~/.config/anthropic and deny roots denied; network to a loopback sentinel denied; dangerouslyDisableSandbox ignored. Reviewer: roster has no Bash/Edit/Write; Read outside cwd denied; --restricted composition with explicit --tools observed (closes part of G-INIT-VALUES). Positive allowed controls and an independent protected-state oracle mandatory (source: #94/880 NP2; #94/878 section D).",
+      "expected": "Every allowed operation succeeds observably; every protected operation is actually denied with no leaked bytes and independently unchanged protected state. Prose denials, producer booleans or missing routes do not demonstrate containment; an unobservable required boundary is blocked/unsupported, never passed.",
+      "status": "blocked",
+      "blocker": "Separately authorized native execution in a disposable synthetic environment required; no native authority granted by this contract."
+    },
+    {
+      "id": "N03",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["CC02"],
+      "title": "Keychain credential exfiltration gate G-KC (NP3)",
+      "procedure": "SYNTHETIC keychain in a separate keychain file (never the login keychain) with an item reachable through a mimicked 'Claude Code-credentials-<sha8>' service name. Model-run attempts: `security find-generic-password -w`, python Security framework, `sh -c` wrappers, /usr/bin/security by absolute path, and a read of the .credentials.json fallback file. Independent oracle verifies the synthetic item bytes never appear in any model-reachable output (source: #94/880 NP3; #94/872 F5).",
+      "expected": "Every route fails or is classified as a containment breach with the exact mechanism recorded. The user ACCEPTED the residual G-KC risk 2026-09-28 (#95/883, #1/884), so this scenario is OPTIONAL defense-in-depth evidence for the final report's limitation section — it is not a blocking closure path and not a prerequisite for the implementer profile or anything else (decision D-15). If executed, its result documents the accepted limitation; it can never retract the recorded user acceptance. No real credential is ever probed.",
+      "status": "blocked",
+      "blocker": "Separately authorized native execution in a disposable synthetic environment required; no native authority granted by this contract. (The former additional G-KC decision blocker was resolved 2026-09-28 by the user's recorded risk acceptance, #95/883, #1/884; N03 is now optional defense-in-depth, still blocked on native authority should it ever be run.)"
+    },
+    {
+      "id": "N04",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["CC04"],
+      "title": "Settings validity and silent-ignore gate G-SET (NP4)",
+      "procedure": "Run the pinned BIN with a deliberately invalid --settings file, with sandbox.failIfUnavailable true and false, and observe whether the process starts silently unsandboxed; pair with a per-run positive control that proves the sandbox is effective when settings are valid (source: #94/880 NP4; #94/872 F6).",
+      "expected": "An invalid settings file must NOT yield a silently unsandboxed start under the Rocky profile; the observed behavior closes G-SET or forces a fail-closed pre-validation binding. Effective sandbox state is otherwise unobservable in the stream, so the positive control is mandatory every run.",
+      "status": "blocked",
+      "blocker": "Separately authorized native execution in a disposable synthetic environment required; no native authority granted by this contract."
+    },
+    {
+      "id": "N05",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["CC05", "CC06", "CC09"],
+      "title": "Native lifecycle probes (NP5)",
+      "procedure": "Observe: stdin read ordering vs system/init emission; SIGTERM frames and exit 143; SIGINT frames and exit (closes G-SIGINT); background-task disable behavior; the 10 MB stdin cap error; exit 0 with NO result in stream-json mode; --verbose requirement error path (source: #94/880 NP5; #94/878 F12; #94/879 F16).",
+      "expected": "Native behavior matches the F-class bindings or the contract is amended with the observed truth; init-means-prompt-accepted [P] is confirmed or replaced; SIGINT stays unknown until observed here.",
+      "status": "blocked",
+      "blocker": "Separately authorized native execution in a disposable synthetic environment required; no native authority granted by this contract."
+    },
+    {
+      "id": "N06",
+      "evidenceClass": "synthetic-native",
+      "requirements": ["CC02", "CC04"],
+      "title": "Dedicated config-dir writes and HOME/keychain resolution (G-WRITES, G-HOME)",
+      "procedure": "On a fresh synthetic dedicated configDir with HOME=<PH> != real home: one-time interactive /login flow (synthetic or user-authorized test account only), then inventory configDir children before/after headless runs and after an auth refresh; observe keychain search-list resolution and whether USER must match the real login name; record what .claude.json/caches/file-history are written despite --no-session-persistence (source: #94/880 G-HOME/G-WRITES; #94/872 F4; #94/878 F13).",
+      "expected": "The exact write set is inventoried and bounded; Rocky reads none of it as evidence; refresh behavior and the dedicated-entry isolation are confirmed; unresolved keychain-resolution behavior keeps the profile blocked rather than assumed.",
+      "status": "blocked",
+      "blocker": "Separately authorized native execution in a disposable synthetic environment required; no native authority granted by this contract."
+    },
+    {
+      "id": "L01",
+      "evidenceClass": "live-subscription",
+      "requirements": ["CC01", "CC02", "CC08"],
+      "title": "Live subscription auth and requested model (L-a)",
+      "procedure": "After the synthetic gates and separate finite user-authorized live authority: a tiny benign task in dedicated-config mode; observe init.apiKeySource, modelUsage provider and served model IDs against the requested role-table model; no credential read/copy/proxy at any point (source: #94/880 L-a).",
+      "expected": "apiKeySource 'none', provider firstParty, served model == requested model; retained evidence is nonsecret and bounded; backend attestation stays null unless independently supplied; any mismatch is fatal and blocks the profile.",
+      "status": "blocked",
+      "blocker": "Explicit user authorization for live subscription execution, preceding synthetic-native gates, and separate finite authority required."
+    },
+    {
+      "id": "L02",
+      "evidenceClass": "live-subscription",
+      "requirements": ["CC10"],
+      "title": "Live modelUsage telemetry and all-zero behavior (L-b)",
+      "procedure": "Within separately frozen tiny task/attempt/deadline limits observe real modelUsage on a completed run and any source zero-default behavior; retain the raw result telemetry and its sha256 receipt; map to schema-2 statuses per the referenced #90 mode (source: #94/880 L-b).",
+      "expected": "Positive counts label 'reported' with the subset rules intact; all-zero/missing labels 'ambiguous-zero'/'unknown'; hidden inference/compaction/retries preclude numeric cap claims; total_cost_usd is never treated as a receipt.",
+      "status": "blocked",
+      "blocker": "Explicit user authorization for live subscription execution, preceding synthetic-native gates, and separate finite authority required."
+    },
+    {
+      "id": "L03",
+      "evidenceClass": "live-subscription",
+      "requirements": ["CC07"],
+      "title": "Live StructuredOutput acceptance (L-c)",
+      "procedure": "Run a tiny benign task with the projected inline request schema; observe the StructuredOutput tool pair and result.structured_output; host re-validates against the full protected schema and action/input/role binding; also observe whether StructuredOutput appears in init.tools (closes part of G-INIT-VALUES) (source: #94/880 L-c; #94/878 F10).",
+      "expected": "The projected schema is accepted and the structured value validates; success without structured_output confirms the failure binding; schema-flag-is-request semantics hold against the real backend.",
+      "status": "blocked",
+      "blocker": "Explicit user authorization for live subscription execution, preceding synthetic-native gates, and separate finite authority required."
+    },
+    {
+      "id": "L04",
+      "evidenceClass": "live-subscription",
+      "requirements": ["CC11"],
+      "title": "Effort application policy probe (L-d)",
+      "procedure": "Effort is not observable in the stream (G-EFFORT). Only under separate user-authorized live authority, run a policy-decision probe (e.g. distinguishable reasoning-effort-sensitive task pairs) or record an explicit policy decision to treat effort as requested-only forever (source: #94/880 L-d).",
+      "expected": "Either observed evidence that the requested effort is applied, or a recorded honest policy decision that effort remains requested-only and no claim of applied effort is ever made in receipts.",
+      "status": "blocked",
+      "blocker": "Explicit user authorization for live subscription execution and a policy decision on requested-only effort; not observable from static or fake evidence."
+    }
+  ]
+}

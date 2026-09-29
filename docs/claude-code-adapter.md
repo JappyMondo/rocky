@@ -96,7 +96,19 @@ Lifecycle per action, mirroring the contract's C0–C5 producer checkpoints:
   CLI would only warn, role rosters, reviewer `--restricted`, no positional
   prompt); the sealed env allowlist; and the `bundleDigest`. Re-preparing an
   identical action is idempotent; a changed bundle for the same action is a
-  named conflict.
+  named conflict. The `--json-schema` element carries the **wire projection**
+  of the frozen request schema (`projection.ts`, #111): canonical-minified
+  `acceptance/subscription/final.schema.json` bytes with only `"$schema"`
+  replaced by `"http://json-schema.org/draft-07/schema#"`, because pinned
+  claude 2.1.283's validator registry lacks the draft-2020-12 meta-schema and
+  rejects the frozen IRI at startup while accepting the semantically identical
+  draft-07 body (evidence: R1 #108 CC-P5 + zero-turn diagnostic; contract
+  amendment #111). The projection is pure and deterministic, fail-closed
+  unless the source `"$schema"` is exactly the frozen 2020-12 IRI (and on any
+  non-deterministic derivation or body drift), and its hash is pinned: the
+  validated config exposes `requestSchemaCanonical` (projected wire bytes),
+  `requestSchemaSha256` (projection hash) and `requestSchemaSourceSha256`
+  (frozen source hash); the launch plan pins the projection hash.
 - **C1 `begin(action)`** — synchronous initiation inside the dispatch guarded
   start: source-env rescan, full bundle-drift recomputation (INP file rehash,
   argv/env/spawn-binding equality, prompt digest, discovery re-inventory,
@@ -132,8 +144,10 @@ Lifecycle per action, mirroring the contract's C0–C5 producer checkpoints:
   and no interrupt acknowledgement is ever claimed. The structured final is
   re-validated against the frozen
   [final schema](../acceptance/subscription/final.schema.json) semantics and
-  the action/input/role binding; `success` without `structured_output` is
-  failure. The head is re-derived from the staged tree. A receipt covering the
+  the action/input/role binding — the frozen draft-2020-12 schema remains the
+  sole host-side validation authority; the draft-07 wire projection is a
+  request-wire detail and never validates anything (#111). `success` without
+  `structured_output` is failure. The head is re-derived from the staged tree. A receipt covering the
   manifest `receiptRequirements` (contract hashes, C0/C5 binary measurements,
   bundleDigest, auth-home mode with nonsecret keychain-service derivation
   only, pre/post discovery inventories, init identity, ordered bounded stream
@@ -177,11 +191,11 @@ Usage comes only from `result.modelUsage` of the single terminal result:
 | ---- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | CC01 | pinned identity in `config.ts`/`prepareLaunch`; gate C1 rehash; symlink/refusal rules          | `claude-code-launch` X01, X09                   |
 | CC02 | `env.ts` sealed allowlist + forbidden scan; dedicated CFG; nonsecret signals in `stream.ts`    | X04, P06                                        |
-| CC03 | `argv.ts` template/rosters/never-pass/effort table                                             | X02, P03/P03b                                   |
+| CC03 | `argv.ts` template/rosters/never-pass/effort table; `projection.ts` draft-07 wire projection   | X02, X10, X11, P03/P03b                         |
 | CC04 | `settings.ts` + `discovery.ts` inventories and refusals; C5 drift                              | X03, X06, L06                                   |
 | CC05 | `validateAgentPrompt`; `queueDuplexText`; init-only consumption evidence                       | X05, L04, L08                                   |
 | CC06 | `StrictNdjsonDecoder` + `classifyClaudeStream` allowlist/pairing/bounds                        | P02, P05, P07, P07z                             |
-| CC07 | `final.ts` re-validation + binding; success-without-output failure                             | P01, P04(d/e)                                   |
+| CC07 | `final.ts` re-validation + binding; success-without-output failure; projection equivalence     | P01, P04(d/e), X10, X11                         |
 | CC08 | classification classes incl. authoritative `permission_denials` and ordinary-failure retention | P04–P06, P08                                    |
 | CC09 | exit-code matrix; SIGTERM-only cancel; separated EOF/exit/quiescence                           | P04(a/b/f/g), L01–L03, L05                      |
 | CC10 | `usage.ts` schema-2 mapping                                                                    | P09, P01                                        |

@@ -9,7 +9,7 @@ import {
   type ExecutionQualification,
 } from "../../coordinator/contracts.js";
 import type { Versions } from "../../store/index.js";
-import { parseStrictJson } from "../seam.js";
+import { projectClaudeWireRequestSchema } from "./projection.js";
 import { CLAUDE_EFFORTS, type ClaudeRole } from "./argv.js";
 
 export const CLAUDE_CODE_HARNESS = "claude-code";
@@ -81,8 +81,15 @@ export interface ClaudeCodeConfig {
   evidenceClass: string;
 }
 export interface ValidatedClaudeCodeConfig extends ClaudeCodeConfig {
+  /** Canonical-minified draft-07 WIRE PROJECTION of the frozen request schema (the exact
+   * --json-schema bytes; #111). The frozen source keeps its 2020-12 dialect and stays the
+   * host-side validation authority; projection.ts fail-closes on any source whose "$schema"
+   * is not exactly the frozen draft-2020-12 IRI. */
   requestSchemaCanonical: string;
+  /** Projection hash: sha256 of the projected canonical wire bytes. */
   requestSchemaSha256: string;
+  /** sha256 of the canonical-minified FROZEN source schema bytes (unchanged authority). */
+  requestSchemaSourceSha256: string;
   configDigest: string;
 }
 const sha256Pattern = /^[a-f0-9]{64}$/;
@@ -187,7 +194,7 @@ export function validateClaudeCodeConfig(
     Buffer.byteLength(v.requestSchema) > CLAUDE_CODE_MAX_SETTINGS_BYTES
   )
     throw new Error("invalid-claude-config:requestSchema");
-  const requestSchemaCanonical = canonical(parseStrictJson(v.requestSchema));
+  const projection = projectClaudeWireRequestSchema(String(v.requestSchema));
   const initExpectations = object(v.initExpectations);
   const skills = stringList(initExpectations.skills, "initExpectations.skills");
   const slashCommands = stringList(
@@ -297,8 +304,9 @@ export function validateClaudeCodeConfig(
   ) as ClaudeCodeConfig;
   return {
     ...config,
-    requestSchemaCanonical,
-    requestSchemaSha256: identity(requestSchemaCanonical),
+    requestSchemaCanonical: projection.canonical,
+    requestSchemaSha256: projection.sha256,
+    requestSchemaSourceSha256: projection.sourceSha256,
     configDigest: identity(config),
   };
 }

@@ -14,7 +14,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   claudeFixture,
   baseConfig,
@@ -24,6 +24,7 @@ import {
   successScript,
   dispatchClaude,
   settleClaude,
+  closeFixture,
   fakeRecord,
   readReceipt,
   contractBinding,
@@ -43,9 +44,13 @@ const {
   assertClaudeArgv,
   renderClaudeSettings,
   validateClaudeSettingsBytes,
+  projectClaudeWireRequestSchema,
+  validateClaudeStructuredFinal,
   canonical,
   CLAUDE_ROLE_TOOLS,
   CLAUDE_DISALLOWED_TOOLS,
+  CLAUDE_FROZEN_SCHEMA_DIALECT,
+  CLAUDE_WIRE_SCHEMA_DIALECT,
 } = coordinatorModule;
 const promptOf = (action) =>
   JSON.stringify({ script: [{ exit: 0 }], actionKey: action.key });
@@ -226,12 +231,30 @@ test("X02 argv serializer: exact one-element --opt=value template, role rosters,
         `positional-or-bad-element:${element}`,
       );
     assert.ok(!argv.includes("--restricted"));
-    // The inline --json-schema element is canonical minified JSON (the request schema).
+    // The inline --json-schema element is canonical minified JSON: the draft-07 WIRE
+    // PROJECTION of the frozen 2020-12 request schema (#111; R1 #108 CC-P5).
     const schemaText = argv
       .find((a) => a.startsWith("--json-schema="))
       .slice("--json-schema=".length);
     assert.equal(canonical(JSON.parse(schemaText)), schemaText);
     assert.equal(schemaText, f.adapter.config.requestSchemaCanonical);
+    const wireSchema = JSON.parse(schemaText);
+    assert.equal(wireSchema.$schema, CLAUDE_WIRE_SCHEMA_DIALECT);
+    // The projected body is the frozen schema body verbatim: restoring the frozen dialect
+    // reproduces the canonical-minified frozen source bytes exactly.
+    const frozenSource = JSON.parse(
+      readFileSync(
+        resolve("acceptance/subscription/final.schema.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(frozenSource.$schema, CLAUDE_FROZEN_SCHEMA_DIALECT);
+    assert.equal(
+      canonical({ ...wireSchema, $schema: CLAUDE_FROZEN_SCHEMA_DIALECT }),
+      canonical(frozenSource),
+    );
+    // The plan pins the projection hash, not the frozen source hash.
+    assert.equal(plan.requestSchemaSha256, sha(schemaText));
     // Variadic swallow: a would-be positional after --tools must never become a tool.
     const swallow = [...argv];
     swallow.splice(
@@ -998,5 +1021,291 @@ test("X09 gate C1 binary rehash: one-byte binary drift after prepare records the
     assert.equal(settled.budgets.unknownActions, 1);
   } finally {
     f.store.close();
+  }
+});
+
+test("X10 request-schema wire projection: deterministic draft-07 projection of the frozen 2020-12 schema, pinned hash, fail-closed dialect guard (CC03/CC07; #111, R1 #108 CC-P5)", () => {
+  const f = claudeFixture("X10");
+  try {
+    const frozenText = readFileSync(
+      resolve("acceptance/subscription/final.schema.json"),
+      "utf8",
+    );
+    const frozenSource = JSON.parse(frozenText);
+    assert.equal(frozenSource.$schema, CLAUDE_FROZEN_SCHEMA_DIALECT);
+    // The frozen source file itself is the protected artifact the contract cites by hash.
+    assert.equal(
+      sha(frozenText),
+      "954dd71e11a7b45ac86c9b30d96c9ef98d5fd40e2864568d149dd39c15986792",
+    );
+    const p = projectClaudeWireRequestSchema(frozenText);
+    // Wire bytes: canonical minified, explicit draft-07 dialect (never omission), body identical.
+    const wire = JSON.parse(p.canonical);
+    assert.equal(wire.$schema, CLAUDE_WIRE_SCHEMA_DIALECT);
+    assert.equal(canonical(wire), p.canonical);
+    assert.equal(
+      canonical({ ...wire, $schema: CLAUDE_FROZEN_SCHEMA_DIALECT }),
+      canonical(frozenSource),
+    );
+    // Hash pin: the projection hash is a fixed value while the frozen source stays pinned.
+    assert.equal(
+      p.sha256,
+      "c02efee93dbeffb0e6f6153ba6d465804af4f31cb163d95ab76fe9f4b5b1a6e3",
+    );
+    assert.equal(p.sha256, sha(p.canonical));
+    assert.equal(p.sourceSha256, sha(canonical(frozenSource)));
+    // Determinism: repeated derivations and differently-formatted (same-content) sources all
+    // produce byte-identical projections.
+    const pretty = JSON.stringify({ ...frozenSource }, null, 2);
+    const keyShuffled = JSON.stringify(
+      Object.fromEntries(Object.entries(frozenSource).reverse()),
+    );
+    for (const variant of [frozenText, pretty, keyShuffled])
+      for (let i = 0; i < 8; i++) {
+        const q = projectClaudeWireRequestSchema(variant);
+        assert.equal(q.canonical, p.canonical);
+        assert.equal(q.sha256, p.sha256);
+      }
+    // Config/plan pinning: the validated config carries the projection (wire bytes + hash)
+    // and the frozen-source hash; the adapter plan pins the same projection hash.
+    const validated = validateClaudeCodeConfig(f.config);
+    assert.equal(validated.requestSchemaCanonical, p.canonical);
+    assert.equal(validated.requestSchemaSha256, p.sha256);
+    assert.equal(validated.requestSchemaSourceSha256, p.sourceSha256);
+    assert.equal(f.adapter.config.requestSchemaCanonical, p.canonical);
+    assert.equal(f.adapter.config.requestSchemaSha256, p.sha256);
+    // Fail closed: a source whose $schema is not EXACTLY the frozen 2020-12 IRI rejects,
+    // at both the pure projection and full config validation.
+    const mutated = (schemaValue) =>
+      JSON.stringify({ ...frozenSource, $schema: schemaValue });
+    for (const bad of [
+      CLAUDE_WIRE_SCHEMA_DIALECT, // already-projected input is NOT an accepted source
+      "http://json-schema.org/draft-07/schema",
+      "https://json-schema.org/draft/2020-12/schema#",
+      `${CLAUDE_FROZEN_SCHEMA_DIALECT} `,
+      "",
+    ]) {
+      assert.throws(
+        () => projectClaudeWireRequestSchema(mutated(bad)),
+        /claude-request-schema-dialect/,
+        `projection accepted $schema:${JSON.stringify(bad)}`,
+      );
+      assert.throws(
+        () =>
+          validateClaudeCodeConfig(
+            baseConfig(f, { requestSchema: mutated(bad) }),
+          ),
+        /claude-request-schema-dialect/,
+        `config accepted $schema:${JSON.stringify(bad)}`,
+      );
+    }
+    const { $schema: _omitted, ...noDialect } = frozenSource;
+    assert.throws(
+      () => projectClaudeWireRequestSchema(JSON.stringify(noDialect)),
+      /claude-request-schema-dialect/,
+    );
+    assert.throws(
+      () =>
+        validateClaudeCodeConfig(
+          baseConfig(f, { requestSchema: JSON.stringify(noDialect) }),
+        ),
+      /claude-request-schema-dialect/,
+    );
+    // Malformed and duplicate-key sources never reach a projection.
+    assert.throws(
+      () => projectClaudeWireRequestSchema("{not json"),
+      /strict-json/,
+    );
+    assert.throws(
+      () =>
+        projectClaudeWireRequestSchema(
+          '{"$schema":"https://json-schema.org/draft/2020-12/schema","$schema":"https://json-schema.org/draft/2020-12/schema"}',
+        ),
+      /strict-json-duplicate-key/,
+    );
+    assert.throws(
+      () => projectClaudeWireRequestSchema("[1,2]"),
+      /object-required/,
+    );
+  } finally {
+    f.store.close();
+  }
+});
+
+// Test-owned reference interpreter for the finite keyword vocabulary the frozen schema uses.
+// It is applied IDENTICALLY to the frozen 2020-12 document and the projected draft-07
+// document; any keyword outside this allowlist throws, so a future schema gaining
+// draft-2020-12-exclusive vocabulary fails this test loudly instead of silently diverging.
+const ANNOTATION_KEYWORDS = new Set(["$schema", "$id", "title"]);
+function evaluateSchema(schema, instance) {
+  if (schema === true) return true;
+  if (schema === false) return false;
+  if (typeof schema !== "object" || schema === null || Array.isArray(schema))
+    throw new Error("ref-evaluator:schema-shape");
+  for (const key of Object.keys(schema))
+    if (
+      ![
+        "type",
+        "const",
+        "enum",
+        "required",
+        "properties",
+        "additionalProperties",
+        "minLength",
+        "maxLength",
+        "pattern",
+        ...ANNOTATION_KEYWORDS,
+      ].includes(key)
+    )
+      throw new Error(`ref-evaluator:unknown-keyword:${key}`);
+  if (schema.type !== undefined) {
+    const t = schema.type;
+    const actual = Array.isArray(instance)
+      ? "array"
+      : instance === null
+        ? "null"
+        : typeof instance;
+    if (t !== actual) return false;
+  }
+  if (schema.const !== undefined && instance !== schema.const) return false;
+  if (schema.enum !== undefined && !schema.enum.some((e) => e === instance))
+    return false;
+  if (typeof instance === "string") {
+    if (schema.minLength !== undefined && instance.length < schema.minLength)
+      return false;
+    if (schema.maxLength !== undefined && instance.length > schema.maxLength)
+      return false;
+    if (
+      schema.pattern !== undefined &&
+      !new RegExp(schema.pattern).test(instance)
+    )
+      return false;
+  }
+  if (
+    typeof instance === "object" &&
+    instance !== null &&
+    !Array.isArray(instance)
+  ) {
+    for (const name of schema.required ?? [])
+      if (!(name in instance)) return false;
+    for (const [name, value] of Object.entries(instance)) {
+      const sub = schema.properties?.[name];
+      if (sub === undefined) {
+        if (schema.additionalProperties === false) return false;
+      } else if (!evaluateSchema(sub, value)) return false;
+    }
+  }
+  return true;
+}
+
+test("X11 projection equivalence: frozen 2020-12 and projected draft-07 documents accept/reject identically over a representative corpus, matching the host validator; the fake CLI records the projected wire bytes (CC07; #111)", async () => {
+  const f = claudeFixture("X11");
+  try {
+    const frozenText = readFileSync(
+      resolve("acceptance/subscription/final.schema.json"),
+      "utf8",
+    );
+    const frozenDoc = JSON.parse(frozenText);
+    const projectedDoc = JSON.parse(
+      projectClaudeWireRequestSchema(frozenText).canonical,
+    );
+    const action = implementAction(f);
+    const binding = {
+      actionKey: action.key,
+      inputDigest: action.inputDigest,
+      role: "implementer",
+    };
+    const base = finalProposal(action, "implementer");
+    // Representative corpus: valid final, missing required field, wrong types,
+    // additionalProperties violation and nested violations, plus boundaries.
+    const corpus = [
+      ["valid-final", base],
+      [
+        "missing-required-summary",
+        (() => {
+          const { summary: _s, ...rest } = base;
+          return rest;
+        })(),
+      ],
+      [
+        "missing-required-schema",
+        (() => {
+          const { schema: _s, ...rest } = base;
+          return rest;
+        })(),
+      ],
+      ["wrong-type-schema-string", { ...base, schema: "1" }],
+      ["wrong-type-summary-number", { ...base, summary: 42 }],
+      ["wrong-type-summary-null", { ...base, summary: null }],
+      ["additional-property", { ...base, extra: "field" }],
+      ["nested-role-off-enum", { ...base, role: "arbiter" }],
+      ["nested-outcome-off-enum", { ...base, outcome: "succeeded" }],
+      [
+        "nested-inputDigest-bad-pattern",
+        { ...base, inputDigest: "0".repeat(63) },
+      ],
+      [
+        "nested-inputDigest-uppercase",
+        { ...base, inputDigest: "A".repeat(64) },
+      ],
+      ["nested-actionKey-empty", { ...base, actionKey: "" }],
+      ["nested-actionKey-over-max", { ...base, actionKey: "a".repeat(257) }],
+      ["nested-summary-at-max-8192", { ...base, summary: "s".repeat(8192) }],
+      ["nested-summary-over-max-8193", { ...base, summary: "s".repeat(8193) }],
+      ["instance-array", [base]],
+      ["instance-string", "final"],
+      ["instance-null", null],
+    ];
+    for (const [name, instance] of corpus) {
+      const frozenAccepts = evaluateSchema(frozenDoc, instance);
+      const projectedAccepts = evaluateSchema(projectedDoc, instance);
+      // The projected document must accept/reject EXACTLY like the frozen document.
+      assert.equal(
+        projectedAccepts,
+        frozenAccepts,
+        `projection divergence on ${name}`,
+      );
+      // And both must agree with the shipped host validator (binding is correct for every
+      // corpus item; binding enforcement is host-side and outside the schema documents).
+      let hostAccepts = true;
+      try {
+        validateClaudeStructuredFinal(instance, binding);
+      } catch {
+        hostAccepts = false;
+      }
+      assert.equal(
+        hostAccepts,
+        frozenAccepts,
+        `host validator divergence on ${name}`,
+      );
+    }
+    // Positive control: the valid final is accepted by all three readings.
+    assert.equal(evaluateSchema(frozenDoc, base), true);
+    assert.equal(evaluateSchema(projectedDoc, base), true);
+    // End-to-end wire check: a real spawned fake CLI records the projected canonical bytes
+    // as its --json-schema argv element, element-for-element equal to the sealed bundle.
+    const proposal = base;
+    const { plan, pending } = dispatchClaude(
+      f,
+      action,
+      successScript(proposal),
+    );
+    const snapshot = await settleClaude(f, action, pending);
+    assert.equal(snapshot.blocker, null);
+    const recorded = fakeRecord(plan);
+    assert.deepEqual(recorded.argv, plan.bundle.argv);
+    const wireElement = recorded.argv.find((a) =>
+      a.startsWith("--json-schema="),
+    );
+    assert.equal(
+      wireElement,
+      `--json-schema=${f.adapter.config.requestSchemaCanonical}`,
+    );
+    assert.equal(
+      JSON.parse(wireElement.slice("--json-schema=".length)).$schema,
+      CLAUDE_WIRE_SCHEMA_DIALECT,
+    );
+  } finally {
+    await closeFixture(f);
   }
 });

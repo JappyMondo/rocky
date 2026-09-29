@@ -103,6 +103,8 @@ export interface AgentLaunchPlan {
     maxFrames: number;
   };
   expectations: ClaudeExpectations;
+  /** Projection hash (sha256 of the projected canonical --json-schema wire bytes, #111);
+   * the frozen 2020-12 source schema remains the host-side validation authority. */
   requestSchemaSha256: string;
   preparedAt: number;
 }

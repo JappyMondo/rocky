@@ -6,13 +6,13 @@
   "files": [
     {
       "path": "acceptance/claude-code/README.md",
-      "bytes": 20555,
-      "sha256": "b8f6f5f86f54ebc0ebd703cee49a7bfce585ddc92021d14508541e589a637b89"
+      "bytes": 17482,
+      "sha256": "c145897f1805d9a7d4e4f93ddaefd36b8541a2ea227c8f6d7bfcdd237b2aca92"
     },
     {
       "path": "acceptance/claude-code/manifest.json",
-      "bytes": 64401,
-      "sha256": "af2dedc2d91df82dc54c224e51d1e4dd5a2c9389f94901c69da39997acec61ec"
+      "bytes": 60144,
+      "sha256": "b124b059c98ac202fd731d84b1b9e24b8189dd523ea90ffa9e6bd680d28bc2f4"
     },
     {
       "path": "acceptance/claude-code/scenarios.json",
