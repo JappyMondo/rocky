@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, statSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readSync, statSync } from "node:fs";
 import type { ProcessIdentity } from "../store/index.js";
 /** Host-measured pinned-binary identity. The hash is never taken from the tool's own --version. */
 export interface BinaryIdentity {
@@ -20,12 +20,21 @@ export function measureBinaryIdentity(path: string): BinaryIdentity {
     throw new Error("binary-identity-drift");
   const stat = statSync(path);
   if (!stat.isFile()) throw new Error("binary-identity-missing");
-  const bytes = readFileSync(path);
-  return {
-    path,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    bytes: bytes.length,
-  };
+  const hash = createHash("sha256");
+  const chunk = Buffer.allocUnsafe(4 * 1024 * 1024);
+  const fd = openSync(path, "r");
+  try {
+    let position = 0;
+    for (;;) {
+      const read = readSync(fd, chunk, 0, chunk.length, position);
+      if (read === 0) break;
+      hash.update(chunk.subarray(0, read));
+      position += read;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return { path, sha256: hash.digest("hex"), bytes: stat.size };
 }
 export function assertBinaryIdentity(pinned: BinaryIdentity): BinaryIdentity {
   let measured: BinaryIdentity;

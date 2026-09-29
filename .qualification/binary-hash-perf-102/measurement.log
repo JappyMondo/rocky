@@ -1,0 +1,49 @@
+== environment ==
+node    v24.16.0 (darwin arm64)
+cpus    8x Apple M3
+memGB   16.0
+tmpdir  /var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T
+workdir /var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/binary-hash-perf-102
+note    measurements on this dev machine (macOS); the real qualification environment may differ
+
+== small-4KiB-random (4096 bytes, random) ==
+old readFileSync+sha256 [small-4KiB-random]
+  ms      min=0.0 median=0.0 max=0.3
+  rssMB   min=0.0 median=0.0 max=0.2
+  runs    [0.3, 0.0, 0.0, 0.0, 0.0]
+  result  sha256=c5207f266a09669e0aa2b50eb16bc1bdee2f7db3964173d638e5cc6ff1775899 bytes=4096
+new chunked sha256      [small-4KiB-random]
+  ms      min=0.0 median=0.0 max=0.1
+  rssMB   min=0.0 median=0.0 max=0.1
+  runs    [0.1, 0.1, 0.0, 0.0, 0.0]
+  result  sha256=c5207f266a09669e0aa2b50eb16bc1bdee2f7db3964173d638e5cc6ff1775899 bytes=4096
+  parity  old==new sha256/bytes OK
+
+== 225MB-zero-filled (235929600 bytes, zero) ==
+old readFileSync+sha256 [225MB-zero-filled]
+  ms      min=103.4 median=105.2 max=121.4
+  rssMB   min=0.0 median=225.1 max=225.3
+  runs    [104.4, 117.4, 103.4, 121.4, 105.2]
+  result  sha256=6822247179e87fccfcdb94ec9918323e7bd73b6a5da7133f1bc0fb12cfa6bb0e bytes=235929600
+new chunked sha256      [225MB-zero-filled]
+  ms      min=88.1 median=88.3 max=88.7
+  rssMB   min=0.0 median=4.0 max=4.0
+  runs    [88.7, 88.4, 88.3, 88.2, 88.1]
+  result  sha256=6822247179e87fccfcdb94ec9918323e7bd73b6a5da7133f1bc0fb12cfa6bb0e bytes=235929600
+  parity  old==new sha256/bytes OK
+
+== 225MB-random (235929600 bytes, random) ==
+old readFileSync+sha256 [225MB-random]
+  ms      min=104.0 median=105.7 max=116.1
+  rssMB   min=0.0 median=0.0 max=225.0
+  runs    [105.7, 105.6, 104.0, 116.1, 113.2]
+  result  sha256=afba062056cf263ed2b96afd41d3c9f94ce5e9b462e45299b324c4be19b86397 bytes=235929600
+new chunked sha256      [225MB-random]
+  ms      min=87.6 median=87.9 max=88.9
+  rssMB   min=0.0 median=0.0 max=0.1
+  runs    [88.9, 87.9, 88.0, 87.6, 87.7]
+  result  sha256=afba062056cf263ed2b96afd41d3c9f94ce5e9b462e45299b324c4be19b86397 bytes=235929600
+  parity  old==new sha256/bytes OK
+
+cleanup: deleted /var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/binary-hash-perf-102 (225MB files never enter the repo)
+peak process rssMB 1199.96875

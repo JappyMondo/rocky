@@ -201,11 +201,18 @@ Usage comes only from `result.modelUsage` of the single terminal result:
   which covers the C5 logic), and C1 drift is end-to-end tested, but no test
   mutates the pinned binary mid-run and asserts the C5 outcome end to end.
   Tracked in follow-up ticket #102.
-- **Real-binary (~225 MB) hash performance is untested.**
-  `measureBinaryIdentity` buffers the whole file and hashes it at C0/C1/C5,
-  with the C1 rehash inside the guarded-start transaction. Chunked hashing and
-  a measurement on a real-size binary are required before native/live
-  qualification. Tracked in follow-up ticket #102.
+- **Real-binary (~225 MB) hash performance: chunked, measured on synthetic
+  files, not yet on the real binary.** `measureBinaryIdentity` now hashes in
+  bounded 4 MiB chunks (synchronous, constant memory, safe inside the
+  guarded-start transaction) instead of buffering the whole file. On the dev
+  machine (Apple M3, warm page cache) a 225 MB synthetic file measured
+  ~88 ms median chunked vs ~105 ms median for the old whole-file buffer, with
+  peak RSS delta ~4 MB vs ~225 MB; a 4 KiB file is ~0 ms either way (evidence:
+  `.qualification/binary-hash-perf-102/`). The C1 in-transaction cost at real
+  binary size is therefore bounded and small (~90 ms class on this hardware),
+  but this was measured on synthetic zero-filled and random files on a dev
+  machine, not on the actual pinned binary in the qualification environment;
+  native/live qualification still re-measures there. Ticket #102.
 - **G-SET / G-MANAGED / G-HOME / G-WRITES / G-VERSION / G-SIGINT / G-EFFORT /
   G-DEFAULT-PROMPT** stay open exactly as the contract records them; the
   adapter fail-closes around each (settings audit + inventory refusals,
