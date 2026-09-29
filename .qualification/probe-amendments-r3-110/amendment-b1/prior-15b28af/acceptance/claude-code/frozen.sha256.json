@@ -6,18 +6,18 @@
   "files": [
     {
       "path": "acceptance/claude-code/README.md",
-      "bytes": 26068,
-      "sha256": "ce7c782c5a52dd4cd01c251386435174b238573e161455467fe282ae5bb91f68"
+      "bytes": 25466,
+      "sha256": "3901aaf489cbf6e3066f11a2fe877c9881996b2df315653d4c6902137886d4a4"
     },
     {
       "path": "acceptance/claude-code/manifest.json",
-      "bytes": 75568,
-      "sha256": "c3cd8629e842b9df484626e6833f29771e38ed2fba3e0bb7cde4e041bde395ef"
+      "bytes": 73831,
+      "sha256": "36bb63d89943e014421326293a7864a8e04505c527349b2e02054b1a3cd88c53"
     },
     {
       "path": "acceptance/claude-code/scenarios.json",
-      "bytes": 32455,
-      "sha256": "570da0a3d95eccf0fa94f7a6d2e4e7ced1a5a5a2b0c92d1e25cf24c3f6d65c64"
+      "bytes": 32020,
+      "sha256": "0cdde317219836110eb8e36ca6608ea0384f3bc888ad7ffbe73a5e4d68c3bf2d"
     },
     {
       "path": "docs/architecture/claude-code-harness.md",

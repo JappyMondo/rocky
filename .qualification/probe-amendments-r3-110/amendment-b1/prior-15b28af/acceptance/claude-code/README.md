@@ -170,26 +170,18 @@ duplicate-key-rejected and hash-bound, and G-SET requires a native proof plus a
 per-run positive control (source: #94/872 F6; #94/880 G-SET/NP4). The
 silent-ignore direction now has its native zero-turn proof: R1 #108 CC-P3
 (PASS) confirmed **Direction B** — invalid `--settings` (unknown key; malformed
-JSON) is silently ignored: same exit 1, empty stderr, no settings mention
-anywhere in output, and the same auth-failure frame _shape_ as the valid
-baseline (synthetic assistant "Not logged in" frame + result `is_error:true` /
-`terminal_reason:api_error`). The raw captures are **not** byte-identical —
-per-run identifiers (`session_id`, uuids, socket path, cwd, durations) differ —
-and the malformed run's init frame observably reverted `permissionMode` to
-`default` vs the baseline's `dontAsk`: the settings file was dropped wholesale,
-which strengthens the hazard. So the shipped fail-closed
-`validateClaudeSettingsBytes` pre-spawn validation is evidence-bound
-mandatory; G-SET stays open pending the
+JSON) is silently ignored, byte-identical auth-failure frames to the valid
+baseline — so the shipped fail-closed `validateClaudeSettingsBytes` pre-spawn
+validation is evidence-bound mandatory; G-SET stays open pending the
 effectiveness half (per-run positive control under CC-L2, LIVE, not run). The
 effective sandbox state is not observable in the stream. A hostile
 SessionStart hook was also natively observed firing **pre-auth with no model
 turn** (hook_started/hook_response frames; CC-P6 i), which makes
 `disableAllHooks:true`, the empty `--setting-sources=` and the hostile-config
 discovery refusals load-bearing (source:
-`.qualification/native-probes-R1/probes/CC-P1,CC-P3,CC-P6/`, CC-P3 stdout
-captures + `.qualification/native-probes-R1/drivers/run-phase3.mjs:198`
-sameShape; #108 root triage comment 972; #110/R3 wording amendment;
-#110/R3-B1 correction — observation only, no scenario executed).
+`.qualification/native-probes-R1/probes/CC-P1,CC-P3,CC-P6/`; #108 root triage
+comment 972; #110/R3 wording amendment — observation only, no scenario
+executed).
 
 ## Reading stream-json output
 

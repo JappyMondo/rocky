@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "contracts": [
+    "rocky-claude-code-95-v1"
+  ],
+  "ticket": "#110 (R3-B1 repair)",
+  "algorithm": "sha256",
+  "baseline": "15b28affbeaf922ea2751590a11ef222ea9bc6d0",
+  "note": "Sibling inventory for amendment-b1 (follows the parent dir's JSON-inventory convention; excludes itself). Hashes of every evidence file in amendment-b1/, the amended repo paths, and RE-MEASURED hashes of key UNTOUCHED authority files proving retained probe evidence bytes were never edited. FORMAT: JSON inventory, NOT shasum -c. qualification=false, capability=null; no scenario executed or passed; no status flipped.",
+  "qualification": false,
+  "capability": null,
+  "scenarioStatusCounts": {
+    "claude-code": {
+      "unexecuted": 14,
+      "blocked": 10
+    }
+  },
+  "suite": {
+    "tests": 378,
+    "pass": 377,
+    "fail": 0,
+    "skipped": 1
+  },
+  "evidenceFiles": [
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/amendments-b1.md",
+      "bytes": 11943,
+      "sha256": "8fd71310ecc4363f7a8b961b78b69671c501549c968fc81568ee6bf855bcad34"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/build.log",
+      "bytes": 220,
+      "sha256": "c0a89bb8ca6470aba6cc3cf232b320d6f6cb610fedeafc402a18ab1350eae683"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/git-diff-check.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/prettier.log",
+      "bytes": 66,
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/prior-15b28af/acceptance/claude-code/README.md",
+      "bytes": 25466,
+      "sha256": "3901aaf489cbf6e3066f11a2fe877c9881996b2df315653d4c6902137886d4a4"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/prior-15b28af/acceptance/claude-code/frozen.sha256.json",
+      "bytes": 912,
+      "sha256": "af92c2d90ed79d0e71487da78b4baa58654b0a4d1e711391ed51c5b50ab9bd94"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/prior-15b28af/acceptance/claude-code/manifest.json",
+      "bytes": 73831,
+      "sha256": "36bb63d89943e014421326293a7864a8e04505c527349b2e02054b1a3cd88c53"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/prior-15b28af/acceptance/claude-code/scenarios.json",
+      "bytes": 32020,
+      "sha256": "0cdde317219836110eb8e36ca6608ea0384f3bc888ad7ffbe73a5e4d68c3bf2d"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/static-checks-b1.json",
+      "bytes": 1398,
+      "sha256": "ffdde54b3e9b8fe6eef94156c5a183accde635b743718e994a463489c433eb90"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/static-checks-b1.py",
+      "bytes": 7193,
+      "sha256": "9326498a7c8523e678ae7f39f89f835e10efc2933b7fa7e7505cd2671953f5e1"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/test-full.log",
+      "bytes": 38554,
+      "sha256": "aee14b0131e1e507a99962fdde975a18684338548aa94f0df3fac9e68321a6c8"
+    },
+    {
+      "path": ".qualification/probe-amendments-r3-110/amendment-b1/typecheck.log",
+      "bytes": 58,
+      "sha256": "08e9f23016720eb99262da348a7d0bf4ca7b0e0869d3b4dc6acea9887c67acf3"
+    }
+  ],
+  "amendedRepoPaths": [
+    {
+      "path": "acceptance/claude-code/README.md",
+      "bytes": 26068,
+      "sha256": "ce7c782c5a52dd4cd01c251386435174b238573e161455467fe282ae5bb91f68"
+    },
+    {
+      "path": "acceptance/claude-code/manifest.json",
+      "bytes": 75568,
+      "sha256": "c3cd8629e842b9df484626e6833f29771e38ed2fba3e0bb7cde4e041bde395ef"
+    },
+    {
+      "path": "acceptance/claude-code/scenarios.json",
+      "bytes": 32455,
+      "sha256": "570da0a3d95eccf0fa94f7a6d2e4e7ced1a5a5a2b0c92d1e25cf24c3f6d65c64"
+    },
+    {
+      "path": "acceptance/claude-code/frozen.sha256.json",
+      "bytes": 912,
+      "sha256": "ea729bec3007d815f5eed1a38640b80195a0087309c3183a2ba7fc9e5e26401f"
+    },
+    {
+      "path": "docs/architecture/claude-code-harness.md",
+      "bytes": 7699,
+      "sha256": "184e9477a90890d1ec6e237471da704ac62ed8cfb91f4b32254cb476497fc08e"
+    }
+  ],
+  "untouchedAuthorityFiles": [
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/stdout-baseline-valid.log",
+      "bytes": 3705,
+      "sha256": "45de2867da6ffccda491323b8f6dc452c890e4f10a2d63f871002efb96a82350"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/stdout-unknown-key.log",
+      "bytes": 3702,
+      "sha256": "591e845712d00c9d04e8712ba7a186a44a9e2911563c5ddad923e7235dbb4284"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/stdout-malformed-json.log",
+      "bytes": 3705,
+      "sha256": "b42fde165acd0cd5042ac933507ec80c161b958c55c040817fd0557d1be3995c"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/stderr-baseline-valid.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/stderr-unknown-key.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/stderr-malformed-json.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/verdict.md",
+      "bytes": 1213,
+      "sha256": "31eaf08a20f719701a9472044b19d4973746ca78a454da999b408c03fe0f3834"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/verdict.json",
+      "bytes": 1226,
+      "sha256": "1858afc1f7b1c039e2d5589f04eb36efae03642b1d20e01408dd23f840bf9103"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P3/meta.json",
+      "bytes": 4046,
+      "sha256": "ea2e33c9fc8b70380efd6f2b0b1cd95e29413d7e1743f0d93405ef3c7897d7e1"
+    },
+    {
+      "path": ".qualification/native-probes-R1/environment.md",
+      "bytes": 3107,
+      "sha256": "8c15ca8376f7925a23ec03d8cb695cc5bfd7c05c088529cf6458e40eb27337e5"
+    },
+    {
+      "path": ".qualification/native-probes-R1/drivers/run-phase3.mjs",
+      "bytes": 26907,
+      "sha256": "4086a67f2172175f6418b631e7d95450af55b3668e2c96faa133e0bffff7f9d6"
+    },
+    {
+      "path": ".qualification/native-probes-R1/probes/CC-P1/verdict.md",
+      "bytes": 2169,
+      "sha256": "60223f8904d81c37febb38fadb3b0f528e01fdf5533e7d13aa1a85e8700176bc"
+    }
+  ]
+}

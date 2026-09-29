@@ -1,0 +1,52 @@
+{
+  "dup-key-parse:manifest.json": {
+    "pass": true,
+    "detail": ""
+  },
+  "dup-key-parse:scenarios.json": {
+    "pass": true,
+    "detail": ""
+  },
+  "dup-key-parse:frozen.sha256.json": {
+    "pass": true,
+    "detail": ""
+  },
+  "scenario-counts-unchanged": {
+    "pass": true,
+    "detail": "now={'unexecuted': 14, 'blocked': 10} old={'unexecuted': 14, 'blocked': 10} expected unexecuted=14 blocked=10"
+  },
+  "scenario-counts-values": {
+    "pass": true,
+    "detail": "{\"unexecuted\": 14, \"blocked\": 10}"
+  },
+  "scenarios-only-N04-blocker": {
+    "pass": true,
+    "detail": "field diffs=[('N04', 'blocker')] top diffs=[]"
+  },
+  "frozen-rehash": {
+    "pass": true,
+    "detail": "all entries match on-disk bytes"
+  },
+  "no-byte-identical-frame-claims": {
+    "pass": true,
+    "detail": "[]"
+  },
+  "prior-archive-integrity": {
+    "pass": true,
+    "detail": "all four equal git show 15b28af"
+  },
+  "only-owned-files-changed": {
+    "pass": true,
+    "detail": "[\"acceptance/claude-code/README.md\", \"acceptance/claude-code/frozen.sha256.json\", \"acceptance/claude-code/manifest.json\", \"acceptance/claude-code/scenarios.json\"]"
+  },
+  "git-diff-check": {
+    "pass": true,
+    "detail": ""
+  },
+  "evidence-facts-reverified": {
+    "pass": true,
+    "detail": "capture hashes/sizes, permissionMode revert, sameShape:198, environment.md:25-32 all verified"
+  }
+}
+
+12/12 pass
