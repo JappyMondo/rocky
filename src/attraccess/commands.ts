@@ -85,7 +85,12 @@ export class EnvironmentCommands {
       ).trim();
     if (!this.dockerHost.startsWith("unix://"))
       throw new Error("local-docker-required");
-    const markerRoot = join(TARGET.root, "active-runtimes");
+    const markerRoot = fileURLToPath(
+      new URL(
+        "../../.qualification/attraccess/active-runtimes",
+        import.meta.url,
+      ),
+    );
     mkdirSync(markerRoot, { recursive: true, mode: 0o700 });
     this.#activeMarker = join(markerRoot, randomUUID() + ".json");
     writeFileSync(
