@@ -1,6 +1,10 @@
 // Taskbot #97 lifecycle tests: CC05/CC09/CC12 cancellation, deadline, physical quiescence,
 // stdin consumption evidence, crash windows and post-run discovery drift (F04/F12/F13/F14),
 // driven by the owned fake CLI over REAL spawned processes and real SQLite stores.
+// Test-ID disambiguation: the adapter lifecycle tests in this file carry IDs L01–L12. They
+// are NOT the frozen contract's live-subscription scenarios L01–L04 in
+// acceptance/claude-code/scenarios.json; those live scenarios remain unexecuted (a separate
+// root-granted step) and nothing here runs or substitutes for them.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

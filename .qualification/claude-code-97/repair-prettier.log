@@ -1,0 +1,4 @@
+$ npx prettier --check docs/claude-code-adapter.md tests/claude-code-lifecycle.test.mjs
+Checking formatting...
+All matched files use Prettier code style!
+prettier-exit=0

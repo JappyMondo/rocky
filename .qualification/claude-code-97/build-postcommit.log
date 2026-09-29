@@ -1,0 +1,5 @@
+
+> @jappymondo/rocky-next@0.1.0 build
+> node scripts/build.mjs
+
+{"sourceCommit":"c5c1f44782fb8e2dc6a9d886a1f80c0e983e1f6b","sourceDirty":false,"buildId":"a763026afa6ff400890f0f5a9f8eefa522d8cf7924a9f87ec5a5e721eb04907a"}

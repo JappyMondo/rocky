@@ -196,6 +196,16 @@ Usage comes only from `result.modelUsage` of the single terminal result:
   tools/skills/slash_commands, StructuredOutput visibility, `--restricted`
   composition) and G-MODEL role-table IDs are host-frozen config approvals,
   recorded as receipt gaps, awaiting native/live evidence.
+- **C5 mid-run binary drift has no e2e mutation test.** Detection code and
+  settlement-time measurement exist (C5 rehash plus the drift-comparison path,
+  which covers the C5 logic), and C1 drift is end-to-end tested, but no test
+  mutates the pinned binary mid-run and asserts the C5 outcome end to end.
+  Tracked in follow-up ticket #102.
+- **Real-binary (~225 MB) hash performance is untested.**
+  `measureBinaryIdentity` buffers the whole file and hashes it at C0/C1/C5,
+  with the C1 rehash inside the guarded-start transaction. Chunked hashing and
+  a measurement on a real-size binary are required before native/live
+  qualification. Tracked in follow-up ticket #102.
 - **G-SET / G-MANAGED / G-HOME / G-WRITES / G-VERSION / G-SIGINT / G-EFFORT /
   G-DEFAULT-PROMPT** stay open exactly as the contract records them; the
   adapter fail-closes around each (settings audit + inventory refusals,
