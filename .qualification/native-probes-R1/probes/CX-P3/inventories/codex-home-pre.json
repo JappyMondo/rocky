@@ -1,0 +1,12 @@
+{
+  "root": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P3-j4wboE/codex-home",
+  "present": true,
+  "entries": [
+    {
+      "path": "config.toml",
+      "kind": "file",
+      "bytes": 76,
+      "sha256": "df022cbc2feff3b9f2337ea32189f245b93baa1a1c492d57c38c79882f27b614"
+    }
+  ]
+}

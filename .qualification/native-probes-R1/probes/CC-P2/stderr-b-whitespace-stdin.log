@@ -1,0 +1,1 @@
+Error: Input contained only whitespace. Provide a prompt with text through stdin or as a prompt argument when using --print

@@ -1,0 +1,17 @@
+{
+  "probeId": "CC-P0",
+  "label": "claude 2.1.283",
+  "pin": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032,
+    "version": "2.1.283",
+    "buildTime": "2026-09-25T00:44:42Z"
+  },
+  "measured": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032
+  },
+  "error": null
+}

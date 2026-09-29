@@ -1,0 +1,11 @@
+{
+  "verdict": "PASS",
+  "tier": "B (pre-adapter native settings handling)",
+  "gate": "G-SET / N04 zero-turn half",
+  "hypothesis": "Native claude either rejects invalid --settings (Direction A: hazard reduced) or silently ignores it and proceeds identically to the valid baseline (Direction B: fail-closed pre-spawn validateClaudeSettingsBytes BOUND mandatory).",
+  "criterion": "PART2 CC-P3: 'Observable: native rejection vs silent-ignore (proceeds identically to baseline). Direction A: rejection ⇒ hazard reduced. Direction B: silent-ignore confirmed ⇒ fail-closed pre-spawn validation (shipped validateClaudeSettingsBytes) BOUND mandatory; G-SET effectiveness closure defers to CC-L2. 0 turns.'",
+  "expected": "A determinate direction (rejection OR silent-ignore), 0 turns.",
+  "observed": "{\"baseline\":{\"exit\":1,\"stderrHead\":\"\"},\"unknownKey\":{\"exit\":1,\"mentionsSettings\":false,\"sameAsBaseline\":true},\"malformed\":{\"exit\":1,\"mentionsSettings\":false,\"sameAsBaseline\":true},\"direction\":\"B-silent-ignore\"}",
+  "class": "direction-B-silent-ignore",
+  "notes": "Zero turns (unauth ⇒ cannot reach model). Direction recorded honestly; effectiveness closure defers to CC-L2 (LIVE, not run)."
+}

@@ -1,0 +1,199 @@
+{
+  "probeId": "CC-P2",
+  "binary": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032,
+    "version": "2.1.283",
+    "buildTime": "2026-09-25T00:44:42Z"
+  },
+  "cases": [
+    {
+      "name": "a-empty-stdin",
+      "argv": [
+        "-p",
+        "--output-format=stream-json",
+        "--verbose",
+        "--input-format=text"
+      ],
+      "envKeyCount": 20,
+      "stdin": "eof",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 553,
+      "timedOut": false,
+      "stdoutBytes": 0,
+      "stderrBytes": 94,
+      "stdoutTruncated": false,
+      "stderrTruncated": false,
+      "startupFailureFrame": false,
+      "initFrameSeen": false,
+      "stdoutHead": "",
+      "stderrHead": "Error: Input must be provided either through stdin or as a prompt argument when using --print\n",
+      "capOut": {
+        "file": "stdout-a-empty-stdin.log",
+        "bytes": 0,
+        "storedBytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "truncated": false
+      },
+      "capErr": {
+        "file": "stderr-a-empty-stdin.log",
+        "bytes": 94,
+        "storedBytes": 94,
+        "sha256": "2122456c9827a04aff9792c1149505097ac016d61c330a0df0dd73976358987c",
+        "truncated": false
+      }
+    },
+    {
+      "name": "b-whitespace-stdin",
+      "argv": [
+        "-p",
+        "--output-format=stream-json",
+        "--verbose",
+        "--input-format=text"
+      ],
+      "envKeyCount": 20,
+      "stdin": "   \n\t ",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 234,
+      "timedOut": false,
+      "stdoutBytes": 0,
+      "stderrBytes": 124,
+      "stdoutTruncated": false,
+      "stderrTruncated": false,
+      "startupFailureFrame": false,
+      "initFrameSeen": false,
+      "stdoutHead": "",
+      "stderrHead": "Error: Input contained only whitespace. Provide a prompt with text through stdin or as a prompt argument when using --print\n",
+      "capOut": {
+        "file": "stdout-b-whitespace-stdin.log",
+        "bytes": 0,
+        "storedBytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "truncated": false
+      },
+      "capErr": {
+        "file": "stderr-b-whitespace-stdin.log",
+        "bytes": 124,
+        "storedBytes": 124,
+        "sha256": "04085d848d643c85874115b37e16f343f86b8c5c2b76fa9c58e40211ac311cdc",
+        "truncated": false
+      }
+    },
+    {
+      "name": "c-streamjson-no-verbose",
+      "argv": [
+        "-p",
+        "--output-format=stream-json",
+        "--input-format=text"
+      ],
+      "envKeyCount": 20,
+      "stdin": "hello",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 232,
+      "timedOut": false,
+      "stdoutBytes": 0,
+      "stderrBytes": 74,
+      "stdoutTruncated": false,
+      "stderrTruncated": false,
+      "startupFailureFrame": false,
+      "initFrameSeen": false,
+      "stdoutHead": "",
+      "stderrHead": "Error: When using --print, --output-format=stream-json requires --verbose\n",
+      "capOut": {
+        "file": "stdout-c-streamjson-no-verbose.log",
+        "bytes": 0,
+        "storedBytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "truncated": false
+      },
+      "capErr": {
+        "file": "stderr-c-streamjson-no-verbose.log",
+        "bytes": 74,
+        "storedBytes": 74,
+        "sha256": "feb1740346a5db353a734dd0eed0a277c2e772aa11b7bad480afe3a0256c0d25",
+        "truncated": false
+      }
+    },
+    {
+      "name": "d-invalid-json-schema",
+      "argv": [
+        "-p",
+        "--output-format=stream-json",
+        "--verbose",
+        "--input-format=text",
+        "--json-schema={invalid"
+      ],
+      "envKeyCount": 20,
+      "stdin": "hello",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 180,
+      "timedOut": false,
+      "stdoutBytes": 0,
+      "stderrBytes": 71,
+      "stdoutTruncated": false,
+      "stderrTruncated": false,
+      "startupFailureFrame": false,
+      "initFrameSeen": false,
+      "stdoutHead": "",
+      "stderrHead": "Error: --json-schema is not valid JSON: JSON Parse error: Expected '}'\n",
+      "capOut": {
+        "file": "stdout-d-invalid-json-schema.log",
+        "bytes": 0,
+        "storedBytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "truncated": false
+      },
+      "capErr": {
+        "file": "stderr-d-invalid-json-schema.log",
+        "bytes": 71,
+        "storedBytes": 71,
+        "sha256": "900738b9ceb89fde6afcf656ab7937bcdb4dd092a8aa836fa5698af4eacf4594",
+        "truncated": false
+      }
+    },
+    {
+      "name": "e-effort-bogus",
+      "argv": [
+        "-p",
+        "--output-format=stream-json",
+        "--verbose",
+        "--input-format=text",
+        "--effort=bogus",
+        "--model=claude-sonnet-4-5"
+      ],
+      "envKeyCount": 20,
+      "stdin": "hello",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 259,
+      "timedOut": false,
+      "stdoutBytes": 3691,
+      "stderrBytes": 131,
+      "stdoutTruncated": false,
+      "stderrTruncated": false,
+      "startupFailureFrame": false,
+      "initFrameSeen": true,
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P2e-tNcywY/src\",\"session_id\":\"69b0c543-1068-4dce-8825-e45d6be9fb3a\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWorktree\",\"ListAgents\",\"NotebookEdit\",\"Read\",\"ReportFindings\",\"ScheduleWakeup\",\"SendMessage\",\"Skill\",\"TaskCreate\",\"TaskGet\",\"TaskList\",\"TaskStop\",\"TaskUpdate\",\"ToolSearch\",\"WebFetch\",\"WebSearch\",\"Workflow\",\"Write\"],\"mcp_servers\":[],\"model\":\"claude-sonnet-4-5\",\"permissionMode\":\"default\",\"slash_commands\":[\"doctor\",\"agents\",\"auto-mode-setup\",\"autocompact\",\"clear\",\"color\",\"compact\",\"config\",\"output-style\",\"context\",\"effort\",\"fast\",\"focus\",\"heapdump\",\"init\",\"mcp\",\"model\",\"__remote-workflow\",\"workflow-launch-exec\",\"reload-plugins\",\"reload-skills\",\"rename\",\"security-review\",\"usage\",\"insights\",\"recap\",\"goal\",\"list-agents\",\"team-onboarding\"],\"terminal_slash_commands\":[\"doctor\",\"color\",\"focus\",\"reload-plugins\"],\"apiKeySource\":\"none\",\"claude_code_version\":\"2.1.283\",\"output_style\":\"default\",\"agents\":[],\"skills\":[\"doctor\"],\"plugins\":[{\"name\":\"agents-md\",\"path\":\"builtin\",\"source\":\"agents-md@builtin\"}],\"capabilities\":[\"interrupt_receipt_v1\",\"interrupt_cancel_queued_v1\",\"msg_lifecycle_v1\",\"mcp_read_resource_v1\",\"mcp_tool_ui_meta_v1\"],\"analytics_disabled\":true,\"product_feedback_disabled\":true,\"uuid\":\"f1fab13a-9b25-4947-8b9c-1488a451fe6e\",\"messaging_socket_path\":\"/tmp/cc-socks-501/34746.sock\",\"fast_mode_state\":\"off\"…[+2189B]",
+      "stderrHead": "Warning: Unknown --effort value 'bogus' — ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.\n",
+      "capOut": {
+        "file": "stdout-e-effort-bogus.log",
+        "bytes": 3691,
+        "storedBytes": 3691,
+        "sha256": "a1dbe9c9dcbb2b2b4f3e9f454ac6ba99995903a79303eaf61487c86d4be3da47",
+        "truncated": false
+      },
+      "capErr": {
+        "file": "stderr-e-effort-bogus.log",
+        "bytes": 131,
+        "storedBytes": 131,
+        "sha256": "2c843d900b8e2d0486e3aef059fa9dd5dec92c12946bf8b6475193493cdc40a8",
+        "truncated": false
+      }
+    }
+  ]
+}

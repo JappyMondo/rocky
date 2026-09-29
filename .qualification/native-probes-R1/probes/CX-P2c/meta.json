@@ -1,0 +1,7 @@
+{
+  "probeId": "CX-P2c",
+  "obs": {
+    "argvWithSandbox": "codex-forbidden-flag:--sandbox",
+    "producerSandboxMode": "codex-override-forbidden-key:sandbox_mode"
+  }
+}

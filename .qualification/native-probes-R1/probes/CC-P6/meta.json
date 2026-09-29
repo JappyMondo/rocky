@@ -1,0 +1,39 @@
+{
+  "probeId": "CC-P6",
+  "binary": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032,
+    "version": "2.1.283",
+    "buildTime": "2026-09-25T00:44:42Z"
+  },
+  "obs": {
+    "i": {
+      "initBeforeEOF": false,
+      "sentinelWritten": true,
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 3241,
+      "signalsSent": [],
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"hook_started\",\"hook_id\":\"732a3e61-f37d-4b4a-96c4-14dc6cf77812\",\"hook_name\":\"SessionStart:startup\",\"hook_event\":\"SessionStart\",\"uuid\":\"2d8aff95-1bac-4f52-96c5-ad63479aeb34\",\"session_id\":\"d1f8f048-e589-41ee-b14e-5dd90f8b079b\"}\n{\"type\":\"system\",\"subtype\":\"hook_response\",\"hook_id\":\"732a3e61-f37d-4b4a-96c4-14dc6cf77812\",\"hook_name\":\"SessionStart:startup\",\"hook_event\":\"SessionStart\",\"output\":\"\",\"stdout\":\"\",\"stderr\":\"\",\"exit_code\":0,\"outcome\":\"success\",\"uuid\":\"e2cfa1bd-9446-4af8-af0e-a307063d8a16\",\"session_id\":\"d1f8f048-e589-41ee-b14e-5dd90f8b079b\"}\n"
+    },
+    "ii": {
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 261,
+      "signalsSent": [],
+      "resultFrame": true,
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P6ii-xZ1wbk/src\",\"session_id\":\"c509f5ee-877a-46e3-88b5-3b1e8618d743\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWorktree\",\"ListAgents\",\"NotebookEdit\",\"Read\",\"ReportFindings\",\"ScheduleWakeup\",\"SendMessage\",\"Skill\",\"TaskCreate\",\"TaskGet\",\"TaskList\",\"TaskStop\",\"TaskUpdate\",\"ToolSearch\",\"WebFetch\",\"WebSearch\",\"Workflow\",\"Write\"],\"mcp_servers\":[],\"model\":\"claude-sonnet-4-5\",\"permissionMode\":\"default\",\"slash_commands\":[\"doctor\",\"agents\",\"auto-mode-setup\",\"autocompact\",\"clear\",\"color\",\"compact\",\"config\",\"output-style\",\"context\",\"effort\",\"fast\",\"focus\",\"heapdump\",\"init\",\"mcp\",\"model\",\"__remote-workflow\",\"workflow-launch-exec\",\"reload-plugins\",\"reload-skills\",\"rename\",\"security-review\",\"usage\",\"insights\",\"recap\",\"goal\",\"list-agents\",\"team-onboarding\"],\"terminal_slash_commands\":[\"doctor\",\"color\",\"focus\",\"reload-plugins\"],\"apiK…[+2690B]",
+      "sigtermDelivered": false
+    },
+    "iii": {
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 250,
+      "signalsSent": [],
+      "resultFrame": true,
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P6iii-lAR58v/src\",\"session_id\":\"3e1e425a-bbb6-4a82-b9e2-857e8a9503c8\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWorktree\",\"ListAgents\",\"NotebookEdit\",\"Read\",\"ReportFindings\",\"ScheduleWakeup\",\"SendMessage\",\"Skill\",\"TaskCreate\",\"TaskGet\",\"TaskList\",\"TaskStop\",\"TaskUpdate\",\"ToolSearch\",\"WebFetch\",\"WebSearch\",\"Workflow\",\"Write\"],\"mcp_servers\":[],\"model\":\"claude-sonnet-4-5\",\"permissionMode\":\"default\",\"slash_commands\":[\"doctor\",\"agents\",\"auto-mode-setup\",\"autocompact\",\"clear\",\"color\",\"compact\",\"config\",\"output-style\",\"context\",\"effort\",\"fast\",\"focus\",\"heapdump\",\"init\",\"mcp\",\"model\",\"__remote-workflow\",\"workflow-launch-exec\",\"reload-plugins\",\"reload-skills\",\"rename\",\"security-review\",\"usage\",\"insights\",\"recap\",\"goal\",\"list-agents\",\"team-onboarding\"],\"terminal_slash_commands\":[\"doctor\",\"color\",\"focus\",\"reload-plugins\"],\"api…[+2691B]",
+      "sigintDelivered": false
+    }
+  }
+}

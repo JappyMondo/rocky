@@ -1,0 +1,11 @@
+{
+  "verdict": "PASS",
+  "tier": "B (native codex strict-config refusal) — see ambiguity note",
+  "gate": "N01 strict-config slice / F9 (stdin not read)",
+  "hypothesis": "An unknown -c key under --strict-config yields an explicit native error and nonzero exit before any thread starts; stdin is not consumed (F9 attempted-unknown shape).",
+  "criterion": "PART3 CX-P2(b): 'spawn with unknown -c key under --strict-config ⇒ explicit native error, nonzero exit; verify stdin NOT read (F9 ...; prompt digest unconsumed, no thread.started).'",
+  "expected": "nonzero exit + explicit config error; no thread.started; stdin write EPIPE/attempted-unknown.",
+  "observed": "{\"exit\":1,\"signal\":null,\"explicitError\":true,\"noThread\":true,\"stdinNote\":null,\"stderrHead\":\"Error loading config.toml: unknown configuration field `rocky_unknown_probe_key` in -c/--config override\\n\"}",
+  "class": "native-strict-config-refusal",
+  "notes": "PLAN AMBIGUITY (recorded honestly): the plan labels CX-P2(b) 'Tier-A prepareLaunch→begin', but the SHIPPED producer (buildCodexOverrideAssignments/assertCodexOverrideKey) rejects unknown -c keys PRE-SPAWN (proven in CX-P2a), so an unknown key can never reach begin through the adapter. The native strict-config refusal shape is therefore observed Tier-B (bare CLI), which is the only safe way to see it under the zero-call guarantee. Zero model call (config error precedes auth/thread)."
+}

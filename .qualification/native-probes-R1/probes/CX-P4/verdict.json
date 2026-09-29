@@ -1,0 +1,11 @@
+{
+  "verdict": "PASS",
+  "tier": "A (CodexExecAdapter.prepareLaunch→begin; captureSharedConfigToml pre/post)",
+  "gate": "F5 trust-persistence (refusal-path half) / N01",
+  "hypothesis": "Across a CX-P3-style pre-model refusal, the shared synthetic config.toml is byte-identical (sha256+bytes unchanged) and no projects.<path>.trust_level is written.",
+  "criterion": "PART3 CX-P4: 'captureSharedConfigToml pre/post ⇒ sha256+bytes unchanged; assert no projects.<path>.trust_level written. PASS: byte-identical config.toml. Any mutation ⇒ PRODUCT_FAILURE (containment breach).'",
+  "expected": "pre.sha256==post.sha256 && pre.bytes==post.bytes && drift==null && no trust_level.",
+  "observed": "{\"pre\":{\"path\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-auB2ru/codex-home/config.toml\",\"sha256\":\"e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1\",\"bytes\":88},\"post\":{\"path\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-auB2ru/codex-home/config.toml\",\"sha256\":\"e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1\",\"bytes\":88},\"drift\":null,\"trustWritten\":false}",
+  "class": "config-toml-byte-identical",
+  "notes": "Zero model call. Full F5 proof (thread/start with writable cwd persisting trust) REQUIRES a model turn ⇒ credit-blocked, stays open. A mutation here would be a containment breach ⇒ PRODUCT_FAILURE_CANDIDATE (and the agent would STOP)."
+}

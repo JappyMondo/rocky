@@ -1,0 +1,11 @@
+{
+  "verdict": "PASS",
+  "tier": "A (CodexExecAdapter.prepareLaunch→begin via store dispatch; real pinned binary)",
+  "gate": "auth-absence fail-closed (S09/L01-adjacent honesty)",
+  "hypothesis": "A full valid bundle through the shipped adapter with a credential-less synthetic CODEX_HOME terminates at a pre-model auth/config refusal: nonzero exit, no thread.started, no API fallback, no forced login/logout side effect; sealed-env key names retained.",
+  "criterion": "PART3 CX-P3: 'PASS: fail-closed pre-model refusal with bounded nonsecret classification. This is NOT an L01 pass; it evidences that missing auth blocks before model work.'",
+  "expected": "nonzero exit / failed outcome; threadStarted=false; no API fallback; no forced login/logout.",
+  "observed": "{\"command\":{\"state\":\"finished\",\"outcome\":\"failed\",\"exitCode\":1,\"signal\":null,\"duplexFailure\":null},\"threadStarted\":false,\"apiFallback\":false,\"forcedLoginLogout\":false,\"sealedEnvKeyNames\":[\"HOME\",\"CODEX_HOME\",\"TMPDIR\",\"PATH\",\"LANG\"],\"stderrHead\":\"\"}",
+  "class": "fail-closed-pre-model-refusal",
+  "notes": "Zero model call (synthetic unauth CODEX_HOME). NOT an L01 pass. Sealed-env KEY NAMES only retained (no values are secrets; CODEX_HOME is a path)."
+}

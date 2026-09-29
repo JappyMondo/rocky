@@ -1,0 +1,29 @@
+{
+  "probeId": "CX-P1",
+  "exitCode": 0,
+  "signal": null,
+  "wallMs": 72,
+  "stdoutBytes": 4031,
+  "stdoutTruncated": false,
+  "present": {
+    "--json": true,
+    "--color": true,
+    "--skip-git-repo-check": true,
+    "--ignore-user-config": true,
+    "--ignore-rules": true,
+    "--strict-config": true,
+    "--output-schema": true,
+    "--model": true,
+    "--ephemeral": true,
+    "-c": true,
+    "--image": true
+  },
+  "stdinFormMentioned": false,
+  "capOut": {
+    "file": "stdout.log",
+    "bytes": 4031,
+    "storedBytes": 4031,
+    "sha256": "0e82cfde0122715250e93dc65866caa956b2ac5b9d0b20ec4ad4f9e81486509e",
+    "truncated": false
+  }
+}

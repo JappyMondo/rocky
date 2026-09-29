@@ -1,0 +1,96 @@
+{
+  "probeId": "CC-P5",
+  "binary": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032,
+    "version": "2.1.283",
+    "buildTime": "2026-09-25T00:44:42Z"
+  },
+  "obs": {
+    "startups": [
+      {
+        "kind": "empty-input-refusal",
+        "refusal": "prompt-empty",
+        "spawn": false,
+        "cfgChildrenPre": 0,
+        "cfgChildrenPost": 0,
+        "commandRows": 0
+      }
+    ],
+    "pairs": {
+      "userTrue": {
+        "kind": "valid-startup-user-true",
+        "envOptionsUser": true,
+        "spawn": true,
+        "sealedEnvHasUSER": true,
+        "sealedEnvHasLOGNAME": true,
+        "settlement": {
+          "stage": "blocked",
+          "blocker": "needs_engineering"
+        },
+        "dispatchErr": null,
+        "command": {
+          "state": "finished",
+          "outcome": "failed",
+          "exitCode": 1,
+          "signal": null,
+          "duplexFailure": null
+        },
+        "cfgChildrenPre": [],
+        "cfgChildrenPost": [
+          ".claude.json",
+          "backups",
+          "backups/.claude.json.backup.1790665479963",
+          "sessions"
+        ],
+        "cfgGains": [
+          ".claude.json",
+          "backups",
+          "backups/.claude.json.backup.1790665479963",
+          "sessions"
+        ],
+        "cfgChanged": [],
+        "phGains": [],
+        "nativeStderrHead": "",
+        "nativeStdoutHead": ""
+      },
+      "userFalse": {
+        "kind": "valid-startup-user-false",
+        "envOptionsUser": false,
+        "spawn": true,
+        "sealedEnvHasUSER": false,
+        "sealedEnvHasLOGNAME": false,
+        "settlement": {
+          "stage": "blocked",
+          "blocker": "needs_engineering"
+        },
+        "dispatchErr": null,
+        "command": {
+          "state": "finished",
+          "outcome": "failed",
+          "exitCode": 1,
+          "signal": null,
+          "duplexFailure": null
+        },
+        "cfgChildrenPre": [],
+        "cfgChildrenPost": [
+          ".claude.json",
+          "backups",
+          "backups/.claude.json.backup.1790665480924",
+          "sessions"
+        ],
+        "cfgGains": [
+          ".claude.json",
+          "backups",
+          "backups/.claude.json.backup.1790665480924",
+          "sessions"
+        ],
+        "cfgChanged": [],
+        "phGains": [],
+        "nativeStderrHead": "",
+        "nativeStdoutHead": ""
+      }
+    }
+  }
+}

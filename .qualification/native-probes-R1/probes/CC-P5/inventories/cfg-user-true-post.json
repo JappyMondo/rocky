@@ -1,0 +1,26 @@
+{
+  "root": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-user-true-Xhoa1J/claude-config",
+  "present": true,
+  "entries": [
+    {
+      "path": ".claude.json",
+      "kind": "file",
+      "bytes": 343,
+      "sha256": "cd4bff509c8db6e9a3ea437bd7137eb7e12bd984f427c995afb1aa89963695f0"
+    },
+    {
+      "path": "backups",
+      "kind": "dir"
+    },
+    {
+      "path": "backups/.claude.json.backup.1790665479963",
+      "kind": "file",
+      "bytes": 84,
+      "sha256": "3cdc68d35c95cdf7d5a27be068db2883890ba046747c6076391f8b54b63e0c04"
+    },
+    {
+      "path": "sessions",
+      "kind": "dir"
+    }
+  ]
+}

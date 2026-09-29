@@ -1,0 +1,13 @@
+{
+  "probeId": "CC-P7ii",
+  "stdinBytes": 10485761,
+  "exitCode": 1,
+  "signal": null,
+  "wallMs": 182,
+  "timedOut": false,
+  "stdoutBytes": 0,
+  "stderrBytes": 97,
+  "stdinNote": null,
+  "stderrHead": "Error: piped stdin input exceeds 10MB. Pass large content as a file path in your prompt instead.\n",
+  "stdoutHead": ""
+}

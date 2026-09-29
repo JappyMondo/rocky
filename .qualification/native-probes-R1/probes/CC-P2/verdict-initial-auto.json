@@ -1,0 +1,11 @@
+{
+  "verdict": "PRODUCT_FAILURE_CANDIDATE",
+  "tier": "B (pre-adapter native refusal shapes; sealed shipped env)",
+  "gate": "N05 refusal shapes (F12/F14/F16); FK3 producer-rejection duty",
+  "hypothesis": "(a) empty stdin ⇒ exit 1 'Input must be provided'; (b) whitespace ⇒ exit 1; (c) stream-json without --verbose ⇒ exit 1 + exact stderr; (d) invalid --json-schema ⇒ error exit; (e) --effort=bogus ⇒ warn-only and proceed to auth failure (CLI does NOT reject off-table effort ⇒ the adapter's assertClaudeArgv MUST).",
+  "criterion": "PART2 CC-P2: 'PASS: matches claim or exact divergence retained (PRODUCT_FAILURE candidate ⇒ amendment). REJECT: silent acceptance of invalid input.'",
+  "expected": "nonzero exits for a–d matching the claimed shapes; e proceeds past effort (warn-only) to a downstream failure.",
+  "observed": "{\"a\":{\"exit\":1,\"sig\":null,\"head\":\"Error: Input must be provided either through stdin or as a prompt argument when using --print\\n\",\"matchedClaim\":true},\"b\":{\"exit\":1,\"matchedClaim\":true},\"c\":{\"exit\":1,\"stderrMentionsVerbose\":true,\"matchedClaim\":true},\"d\":{\"exit\":1,\"matchedClaim\":true},\"e\":{\"exit\":1,\"proceeded\":true,\"effortHardRejected\":true,\"stderrHead\":\"Warning: Unknown --effort value 'bogus' — ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.\\n\"},\"startupFailureFrames\":[{\"name\":\"a-empty-stdin\",\"startup_failure_reason\":false,\"init\":false},{\"name\":\"b-whitespace-stdin\",\"startup_failure_reason\":false,\"init\":false},{\"name\":\"c-streamjson-no-verbose\",\"startup_failure_reason\":false,\"init\":false},{\"name\":\"d-invalid-json-schema\",\"startup_failure_reason\":false,\"init\":false},{\"name\":\"e-effort-bogus\",\"startup_failure_reason\":false,\"init\":true}]}",
+  "class": "exact-divergence-retained",
+  "notes": "Zero billable turns (unauth synthetic CFG + private HOME). 5 bounded native spawns, one owned group each. Any claim mismatch is retained as PRODUCT_FAILURE_CANDIDATE for R3, NOT weakened."
+}

@@ -1,0 +1,11 @@
+{
+  "verdict": "PASS",
+  "tier": "A (ClaudeCodeAdapter.prepareLaunch→begin via store dispatch; real pinned binary)",
+  "gate": "N06 / G-WRITES (+ G-HOME partial)",
+  "hypothesis": "Two zero-turn startups: empty input refuses pre-spawn (zero writes); a valid startup spawns the real claude which fails auth and its write set is inventoried and bounded entirely inside the synthetic CFG/PH/PT (gains recorded, not drift). envOptions.user true/false changes USER/LOGNAME presence.",
+  "criterion": "PART2 CC-P5: 'PASS: write set inventoried+bounded, all inside CFG/PH/PT; drift classifier agrees (gains recorded, not drift). REJECT: write outside ⇒ PRODUCT_FAILURE/containment.'",
+  "expected": "empty-input pre-spawn refusal; valid startup auth-failure; CFG/PH gains inventoried and inside the synthetic tree; USER/LOGNAME track envOptions.user.",
+  "observed": "{\"emptyInput\":{\"kind\":\"empty-input-refusal\",\"refusal\":\"prompt-empty\",\"spawn\":false,\"cfgChildrenPre\":0,\"cfgChildrenPost\":0,\"commandRows\":0},\"userTrue\":{\"settlement\":{\"stage\":\"blocked\",\"blocker\":\"needs_engineering\"},\"command\":{\"state\":\"finished\",\"outcome\":\"failed\",\"exitCode\":1,\"signal\":null,\"duplexFailure\":null},\"cfgGains\":[\".claude.json\",\"backups\",\"backups/.claude.json.backup.1790665479963\",\"sessions\"],\"phGains\":[],\"sealedEnvHasUSER\":true},\"userFalse\":{\"settlement\":{\"stage\":\"blocked\",\"blocker\":\"needs_engineering\"},\"command\":{\"state\":\"finished\",\"outcome\":\"failed\",\"exitCode\":1,\"signal\":null,\"duplexFailure\":null},\"cfgGains\":[\".claude.json\",\"backups\",\"backups/.claude.json.backup.1790665480924\",\"sessions\"],\"phGains\":[],\"sealedEnvHasUSER\":false},\"userDependenceDiffers\":true}",
+  "class": "writes-inventoried-bounded",
+  "notes": "Zero billable turns (unauth synthetic CFG + private synthetic HOME=PH≠real). No keychain call observable within the bounded captures; G-HOME keychain/login residual stays USER-ASSISTED (CC-L0), open. Gains recorded, not treated as drift."
+}

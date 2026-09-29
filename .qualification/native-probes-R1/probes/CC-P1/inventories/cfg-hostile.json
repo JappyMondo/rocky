@@ -1,0 +1,34 @@
+{
+  "root": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/cfg-hostile",
+  "present": true,
+  "entries": [
+    {
+      "path": "CLAUDE.md",
+      "kind": "file",
+      "bytes": 7,
+      "sha256": "8f383ccddc6f17eb57a96c711523e4a8072d8e791b4a773ea0153e0d993d03e1"
+    },
+    {
+      "path": "agents",
+      "kind": "dir"
+    },
+    {
+      "path": "plugins",
+      "kind": "dir"
+    },
+    {
+      "path": "rules",
+      "kind": "dir"
+    },
+    {
+      "path": "settings.json",
+      "kind": "file",
+      "bytes": 298,
+      "sha256": "2301bc26e065be4c92cc7345e3e6c3cbfdb55eeb3a7cbc215858827480163f05"
+    },
+    {
+      "path": "skills",
+      "kind": "dir"
+    }
+  ]
+}

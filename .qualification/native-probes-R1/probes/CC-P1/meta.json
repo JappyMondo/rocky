@@ -1,0 +1,57 @@
+{
+  "probeId": "CC-P1",
+  "pins": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032,
+    "version": "2.1.283",
+    "buildTime": "2026-09-25T00:44:42Z"
+  },
+  "obs": {
+    "subcases": [
+      {
+        "case": "A-hostile-config-dir",
+        "forbiddenConfigDirChildren": [
+          "CLAUDE.md",
+          "agents",
+          "plugins",
+          "rules",
+          "settings.json",
+          "skills"
+        ],
+        "refusal": "claude-config-dir-forbidden:CLAUDE.md,agents,plugins,rules,settings.json,skills"
+      },
+      {
+        "case": "B-hostile-instruction-files",
+        "instructionFiles": [
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/.claude",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/.mcp.json",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/AGENTS.md",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/CLAUDE.md"
+        ],
+        "refusal": "claude-instruction-files-present:/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/.claude,/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/.mcp.json,/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/AGENTS.md,/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/run/stage/source/CLAUDE.md"
+      },
+      {
+        "case": "C-managed-layer-present",
+        "refusal": "claude-managed-layer-present:/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/managed/managed-settings.json"
+      }
+    ],
+    "sentinelUntouched": true,
+    "tierA": {
+      "refusal": "claude-config-dir-forbidden:settings.json",
+      "runTreeDirs": 1,
+      "inpSettingsRendered": false,
+      "commandRows": 0,
+      "stageInstructionRefusal": "claude-instruction-files-present:/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P1-akW0Mq/tierA2/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source/CLAUDE.md",
+      "stageCommandRows": 0
+    },
+    "cfgHostileInventory": [
+      "CLAUDE.md",
+      "agents",
+      "plugins",
+      "rules",
+      "settings.json",
+      "skills"
+    ]
+  }
+}

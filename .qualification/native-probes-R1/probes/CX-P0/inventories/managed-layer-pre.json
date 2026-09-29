@@ -1,0 +1,81 @@
+{
+  "symlinkNeverSpawn": {
+    "present": true,
+    "isSymlink": true,
+    "target": "/Users/jappy/.local/share/claude/versions/2.1.284"
+  },
+  "managed": [
+    {
+      "path": "/Library/Application Support/ClaudeCode/managed-settings.json",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Library/Application Support/ClaudeCode/managed-mcp.json",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Library/Application Support/ClaudeCode/CLAUDE.md",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Library/Application Support/ClaudeCode/managed-settings.d",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Library/Managed Preferences/com.anthropic.claudecode.plist",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Users/jappy/Library/Managed Preferences/com.anthropic.claudecode.plist",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/etc/codex/config.toml",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/etc/codex/requirements.toml",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/etc/codex/managed_config.toml",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/etc/codex/skills",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Library/Managed Preferences/com.openai.codex.plist",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    },
+    {
+      "path": "/Users/jappy/Library/Managed Preferences/com.openai.codex.plist",
+      "present": false,
+      "kind": "absent",
+      "names": null
+    }
+  ]
+}

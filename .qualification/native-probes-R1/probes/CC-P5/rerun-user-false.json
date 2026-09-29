@@ -1,0 +1,534 @@
+{
+  "tag": "user-false",
+  "command": {
+    "id": "1ba7b039-5919-49b8-865b-8afb3e49ef98",
+    "state": "finished",
+    "result": {
+      "outcome": "failed",
+      "exitCode": 1,
+      "signal": null,
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    "duplex": {
+      "failure": null,
+      "stdoutEof": true,
+      "stderrEof": true,
+      "childStdoutEof": true,
+      "childStderrEof": true,
+      "decoderComplete": true,
+      "revoked": false,
+      "frameCount": 0
+    }
+  },
+  "frames": [],
+  "receipt": {
+    "attempt": {
+      "actionKey": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896",
+      "commandId": "1ba7b039-5919-49b8-865b-8afb3e49ef98",
+      "deadline": 1790666791992,
+      "fence": 1,
+      "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+      "lease": {
+        "fence": 1,
+        "owner": "owner",
+        "runId": "run-1",
+        "versions": {
+          "adapter": "test-only",
+          "build": "local-test",
+          "prompt": "1",
+          "runner": "injected-contract-only",
+          "workflow": "coordinator-1"
+        }
+      },
+      "runId": "run-1",
+      "versions": {
+        "adapter": "test-only",
+        "build": "local-test",
+        "prompt": "1",
+        "runner": "injected-contract-only",
+        "workflow": "coordinator-1"
+      }
+    },
+    "authHome": {
+      "configDir": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/claude-config",
+      "credentialReadCopySymlinkProxy": false,
+      "keychainServiceName": "Claude Code-credentials-c269dc47",
+      "mode": "dedicated"
+    },
+    "binary": {
+      "c1Rule": "gate re-measures sha256/size inside the guarded start; drift records a durable failure and zero spawn",
+      "measuredC0": {
+        "bytes": 225036032,
+        "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+        "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e"
+      },
+      "measuredC5": {
+        "bytes": 225036032,
+        "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+        "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e"
+      },
+      "pinned": {
+        "buildTime": "2026-09-25T00:44:42Z",
+        "bytes": 225036032,
+        "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+        "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+        "version": "2.1.283"
+      }
+    },
+    "bundle": {
+      "argv": [
+        "-p",
+        "--output-format=stream-json",
+        "--verbose",
+        "--input-format=text",
+        "--no-session-persistence",
+        "--setting-sources=",
+        "--settings=/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs/settings.json",
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--permission-mode=dontAsk",
+        "--permission-prompts=none",
+        "--model=claude-synthetic-test-model",
+        "--effort=high",
+        "--max-turns=8",
+        "--tools=Bash,Read,Edit,Write,Glob,Grep",
+        "--allowedTools=Bash,Read,Edit,Write,Glob,Grep",
+        "--disallowedTools=Agent,Workflow,Skill,WebFetch,WebSearch,Monitor,PowerShell,NotebookEdit,Task*,Cron*,EnterWorktree,ExitWorktree,EnterPlanMode,ExitPlanMode,AskUserQuestion,SendMessage,ListAgents,SendUserFile,PushNotification,RemoteTrigger,ScheduleWakeup,Artifact,ShareOnboardingGuide,SendFeedback,LSP,ToolSearch,WaitForMcpServers,ListMcpResourcesTool,ReadMcpResourceTool,mcp__*",
+        "--json-schema={\"$id\":\"urn:rocky:subscription:final:1\",\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"actionKey\":{\"maxLength\":256,\"minLength\":1,\"type\":\"string\"},\"inputDigest\":{\"pattern\":\"^[a-f0-9]{64}$\",\"type\":\"string\"},\"outcome\":{\"enum\":[\"changed\",\"no_code\",\"complete\",\"failed\"]},\"role\":{\"enum\":[\"implementer\",\"reviewer\"]},\"schema\":{\"const\":1},\"summary\":{\"maxLength\":8192,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"schema\",\"actionKey\",\"inputDigest\",\"role\",\"outcome\",\"summary\"],\"title\":\"Direct subscription proposed action result v1\",\"type\":\"object\"}",
+        "--append-system-prompt-file=/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs/instructions.md"
+      ],
+      "cwd": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source",
+      "discoveryDigest": "59825c3103a87367f0d1261acfc965e7e8878249377bcc4c31a1190ccaab3868",
+      "env": [
+        [
+          "HOME",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/home"
+        ],
+        [
+          "CLAUDE_CONFIG_DIR",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/claude-config"
+        ],
+        [
+          "PATH",
+          "/usr/bin:/bin:/usr/sbin:/sbin"
+        ],
+        [
+          "LANG",
+          "en_US.UTF-8"
+        ],
+        [
+          "TMPDIR",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/tmp"
+        ],
+        [
+          "CLAUDE_CODE_TMPDIR",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/tmp"
+        ],
+        [
+          "DISABLE_AUTOUPDATER",
+          "1"
+        ],
+        [
+          "DISABLE_UPDATES",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+          "1"
+        ],
+        [
+          "DISABLE_TELEMETRY",
+          "1"
+        ],
+        [
+          "DISABLE_ERROR_REPORTING",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_POLICY_SKILLS",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_SKIP_PROMPT_HISTORY",
+          "1"
+        ],
+        [
+          "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS",
+          "1"
+        ],
+        [
+          "CLAUDE_CODE_STARTUP_FAILURE_RESULTS",
+          "1"
+        ]
+      ],
+      "files": [
+        {
+          "bytes": 3929,
+          "name": "settings.json",
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs/settings.json",
+          "sha256": "228ac33856bf605c32f0c35c143e6b842a587a032153bd56f4a74cee55b9b445"
+        },
+        {
+          "bytes": 87,
+          "name": "instructions.md",
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs/instructions.md",
+          "sha256": "bdb1a3184bb093f8e0917d207280374503c2d99783d56f4f0a4433d545c3f05c"
+        }
+      ],
+      "input": {
+        "bytes": 39,
+        "sha256": "17a3b5c0d95dfc226ad0bb2a750382fc555be0bdeb3fdd36d0503d50656692b0"
+      }
+    },
+    "bundleDigest": "d45def1bde8afc7d0ed53af3340e92a0efdb678cfc6f7853e35dbffc7e895ad9",
+    "contract": {
+      "approvalReference": "taskbot-96-independent-contract-review",
+      "contractId": "rocky-claude-code-95-v1",
+      "frozenSha256": "08e3b3b8ce75cf71cea770aa5598df47c0d555504f5837a6d464559c1d13f2bd",
+      "manifestSha256": "b124b059c98ac202fd731d84b1b9e24b8189dd523ea90ffa9e6bd680d28bc2f4",
+      "scenariosSha256": "eeb67965c413ec9c7c2475ae6806ff5955439082d08ce3481f3c52276861a721"
+    },
+    "discovery": {
+      "configDirChildrenGained": [
+        ".claude.json",
+        "backups",
+        "sessions"
+      ],
+      "drift": [],
+      "post": {
+        "configDirChildren": [
+          ".claude.json",
+          "backups",
+          "sessions"
+        ],
+        "digest": "7fd497a09a86e31312bec0a9dbbca7f8ac95e36d9480517d89873ab3f98f7040",
+        "forbiddenConfigDirChildren": [],
+        "instructionFiles": [],
+        "managed": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/discovery/managed-settings.json",
+            "present": false
+          }
+        ],
+        "managedDirs": [
+          {
+            "names": [],
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/discovery/managed-settings.d",
+            "present": false
+          }
+        ],
+        "mdm": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/discovery/com.anthropic.claudecode.plist",
+            "present": false
+          }
+        ],
+        "schema": 1,
+        "serverManaged": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/claude-config/remote-settings.json",
+            "present": false
+          },
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/claude-config/policy-limits.json",
+            "present": false
+          }
+        ]
+      },
+      "pre": {
+        "configDirChildren": [],
+        "digest": "59825c3103a87367f0d1261acfc965e7e8878249377bcc4c31a1190ccaab3868",
+        "forbiddenConfigDirChildren": [],
+        "instructionFiles": [],
+        "managed": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/discovery/managed-settings.json",
+            "present": false
+          }
+        ],
+        "managedDirs": [
+          {
+            "names": [],
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/discovery/managed-settings.d",
+            "present": false
+          }
+        ],
+        "mdm": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/discovery/com.anthropic.claudecode.plist",
+            "present": false
+          }
+        ],
+        "schema": 1,
+        "serverManaged": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/claude-config/remote-settings.json",
+            "present": false
+          },
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/claude-config/policy-limits.json",
+            "present": false
+          }
+        ]
+      }
+    },
+    "evidenceClass": "synthetic-native",
+    "gaps": [
+      {
+        "gap": "effective sandbox state is not observable in the stream; settings validity proof and per-run positive control remain gated",
+        "gate": "G-SET"
+      },
+      {
+        "gap": "effort is requested-only and never echoed; no claim of applied effort is made",
+        "gate": "G-EFFORT"
+      },
+      {
+        "gap": "exact init tools/skills/slash_commands expectations are config-frozen host approvals, not natively proven values",
+        "gate": "G-INIT-VALUES"
+      },
+      {
+        "gap": "role-table model IDs are host-frozen config; the served model is only read from modelUsage keys and assistant.message.model",
+        "gate": "G-MODEL"
+      },
+      {
+        "gap": "user-accepted limitation (2026-09-28, #95/883, #1/884): a model-run shell MAY reach the subscription keychain item; not a containment claim",
+        "gate": "G-KC"
+      },
+      {
+        "gap": "cancellation is SIGTERM-only; SIGINT frames/exit remain unobserved",
+        "gate": "G-SIGINT"
+      },
+      {
+        "gap": "configDir writes despite --no-session-persistence are inventoried by name, not bounded natively",
+        "gate": "G-WRITES"
+      },
+      {
+        "gap": "live subscription qualification is a separate root-granted step; this receipt is not live evidence",
+        "gate": "L01-L04"
+      },
+      {
+        "gap": "system/init not observed: prompt consumption is unproven; the attempt stays attempted-unknown with no resend",
+        "gate": "CC05"
+      }
+    ],
+    "head": {
+      "post": "9c848ac1cab74bca9561647748ba0700136fd8f8788351b916232e7176b2df65",
+      "pre": "9c848ac1cab74bca9561647748ba0700136fd8f8788351b916232e7176b2df65"
+    },
+    "initIdentity": null,
+    "lifecycle": {
+      "childStderrEof": true,
+      "childStdoutEof": true,
+      "cleanupError": null,
+      "commandOutcome": "failed",
+      "decoderComplete": true,
+      "exitCode": 1,
+      "quiescent": true,
+      "signal": null,
+      "stderrEof": true,
+      "stdoutEof": true
+    },
+    "limits": {
+      "cleanupReserveMs": 250,
+      "killGraceMs": 250,
+      "maxArgvBytes": 65536,
+      "maxFrames": 256,
+      "maxLineBytes": 65536,
+      "maxPromptBytes": 65536,
+      "maxResultBytes": 32768,
+      "maxSettingsBytes": 65536,
+      "maxStderrBytes": 65536,
+      "maxStdoutBytes": 262144,
+      "maxToolUses": 16,
+      "maxTreeNodes": 2000,
+      "maxTurns": 8,
+      "quiescenceTimeoutMs": 2000
+    },
+    "receiptDigest": "a5cec4d2be6844df308271b10bbb5be39d0be4a12e8cbc01985ecb6c33910b6f",
+    "result": {
+      "fields": null,
+      "modelUsageRaw": null,
+      "modelUsageSha256": null,
+      "proposal": null,
+      "resultIndexContinuity": []
+    },
+    "schema": 1,
+    "settlement": {
+      "classification": "fatal",
+      "detail": "claude-fatal:startup-refusal|init-missing|no-result",
+      "outcome": "failed",
+      "reasons": [
+        "startup-refusal",
+        "init-missing",
+        "no-result"
+      ]
+    },
+    "stream": {
+      "apiRetries": [],
+      "decodeError": null,
+      "framesObserved": 0,
+      "inputBytes": 39,
+      "ordinaryFailures": [],
+      "outputBytes": 0,
+      "permissionDeniedEvents": [],
+      "rawStderrLog": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/stderr.log",
+      "rawStdoutLog": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/stdout.log",
+      "revoked": false,
+      "sends": [
+        {
+          "attempted": true,
+          "end": false,
+          "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896:prompt",
+          "state": "written"
+        },
+        {
+          "attempted": true,
+          "end": true,
+          "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896:eof",
+          "state": "written"
+        }
+      ],
+      "stderrArtifact": {
+        "bytes": 122,
+        "sha256": "d8a1e758a0885d376f7a2457d829c53f27040ef929246fb4e28105670fb743de"
+      },
+      "stderrBytes": 122,
+      "stderrTruncated": false,
+      "stdoutArtifact": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdoutTruncated": false,
+      "toolUseCount": 0,
+      "transportFailure": null,
+      "transportFramesRetained": 0
+    },
+    "timestamps": {
+      "commandCreatedAt": 1790666764104,
+      "preparedAt": 1790666763993,
+      "settledAt": 1790666764810
+    },
+    "usage": {
+      "harness": "claude-code",
+      "reason": "claude-fatal-before-usage-mapping:startup-refusal",
+      "schema": 2,
+      "source": "native-harness-telemetry",
+      "status": "unknown"
+    }
+  },
+  "runTree": [
+    {
+      "path": "inputs",
+      "kind": "dir"
+    },
+    {
+      "path": "inputs/instructions.md",
+      "kind": "file",
+      "bytes": 87
+    },
+    {
+      "path": "inputs/settings.json",
+      "kind": "file",
+      "bytes": 3929
+    },
+    {
+      "path": "parent",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/home",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/artifacts",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/artifacts/d8a1e758a0885d376f7a2457d829c53f27040ef929246fb4e28105670fb743de",
+      "kind": "file",
+      "bytes": 122
+    },
+    {
+      "path": "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/artifacts/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kind": "file",
+      "bytes": 0
+    },
+    {
+      "path": "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/stderr.log",
+      "kind": "file",
+      "bytes": 122
+    },
+    {
+      "path": "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/stdout.log",
+      "kind": "file",
+      "bytes": 0
+    },
+    {
+      "path": "parent/logs/receipt-1ba7b039-5919-49b8-865b-8afb3e49ef98.json",
+      "kind": "file",
+      "bytes": 12326
+    },
+    {
+      "path": "parent/tmp",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/tmp/claude-501",
+      "kind": "dir"
+    },
+    {
+      "path": "scratch",
+      "kind": "dir"
+    },
+    {
+      "path": "stage",
+      "kind": "dir"
+    },
+    {
+      "path": "stage/source",
+      "kind": "dir"
+    }
+  ],
+  "logs": {
+    "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/stderr.log": {
+      "bytes": 122,
+      "content": "Error: --json-schema is not a valid JSON Schema: no schema with key or ref \"https://json-schema.org/draft/2020-12/schema\"\n"
+    },
+    "parent/logs/1ba7b039-5919-49b8-865b-8afb3e49ef98/stdout.log": {
+      "bytes": 0,
+      "content": ""
+    }
+  },
+  "nativeLog": null,
+  "harness": "claude",
+  "receiptPath": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-rerun-user-false-vbCyBk/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/logs/receipt-1ba7b039-5919-49b8-865b-8afb3e49ef98.json"
+}

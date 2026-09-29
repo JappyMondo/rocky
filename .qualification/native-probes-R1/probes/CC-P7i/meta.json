@@ -1,0 +1,16 @@
+{
+  "probeId": "CC-P7i",
+  "obs": {
+    "overLimit": {
+      "configuredMaxPromptBytes": 65536,
+      "promptBytes": 70000,
+      "refusal": "prompt-over-limit",
+      "runTreeDirs": 0,
+      "commandRows": 0
+    },
+    "ceiling": {
+      "attemptedMaxPromptBytes": 11534336,
+      "refusal": "invalid-claude-config:limits.maxPromptBytes"
+    }
+  }
+}

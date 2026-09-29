@@ -1,0 +1,21 @@
+{
+  "probeId": "CX-P4",
+  "pre": {
+    "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-auB2ru/codex-home/config.toml",
+    "sha256": "e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1",
+    "bytes": 88
+  },
+  "post": {
+    "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-auB2ru/codex-home/config.toml",
+    "sha256": "e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1",
+    "bytes": 88
+  },
+  "drift": null,
+  "trustWritten": false,
+  "postTomlBytes": 88,
+  "settlement": {
+    "stage": "blocked",
+    "blocker": "needs_engineering"
+  },
+  "dispatchErr": null
+}

@@ -1,0 +1,44 @@
+{
+  "probeId": "CC-P3",
+  "runs": [
+    {
+      "name": "baseline-valid",
+      "settingsPath": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P3-C3lgLS/settings-valid.json",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 422,
+      "timedOut": false,
+      "stdoutBytes": 3705,
+      "stderrBytes": 0,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P3-C3lgLS/src-baseline-valid\",\"session_id\":\"04d39141-3811-471b-a742-13a305f90bb6\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWorktree\",\"ListAgents\",\"NotebookEdit\",\"Read\",\"ReportFindings\",\"ScheduleWakeup\",\"SendMessage\",\"Skill\",\"TaskCreate\",\"TaskGet\",\"TaskList\",\"TaskStop\",\"TaskUpdate\",\"ToolSearch\",\"WebFetch\",\"WebSearch\",\"Workflow\",\"Write\"],\"mcp_servers\":[],\"model\":\"claude-sonnet-4-5\",\"permissionMode\":\"dontAsk\",\"slash_commands\":[\"doctor\",\"agents\",\"auto-mode-setup\",\"autocompact\",\"clear\",\"color\",\"compact\",\"config\",\"output-style\",\"context\",\"effort\",\"fast\",\"focus\",\"heapdump\",\"init\",\"mcp\",\"model\",\"__remote-workflow\",\"workflow-la…[+2903B]",
+      "mentionsSettings": false
+    },
+    {
+      "name": "unknown-key",
+      "settingsPath": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P3-C3lgLS/settings-unknown.json",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 358,
+      "timedOut": false,
+      "stdoutBytes": 3702,
+      "stderrBytes": 0,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P3-C3lgLS/src-unknown-key\",\"session_id\":\"fca890be-b36d-4d8c-a897-0cd7f165437c\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWorktree\",\"ListAgents\",\"NotebookEdit\",\"Read\",\"ReportFindings\",\"ScheduleWakeup\",\"SendMessage\",\"Skill\",\"TaskCreate\",\"TaskGet\",\"TaskList\",\"TaskStop\",\"TaskUpdate\",\"ToolSearch\",\"WebFetch\",\"WebSearch\",\"Workflow\",\"Write\"],\"mcp_servers\":[],\"model\":\"claude-sonnet-4-5\",\"permissionMode\":\"dontAsk\",\"slash_commands\":[\"doctor\",\"agents\",\"auto-mode-setup\",\"autocompact\",\"clear\",\"color\",\"compact\",\"config\",\"output-style\",\"context\",\"effort\",\"fast\",\"focus\",\"heapdump\",\"init\",\"mcp\",\"model\",\"__remote-workflow\",\"workflow-launc…[+2900B]",
+      "mentionsSettings": false
+    },
+    {
+      "name": "malformed-json",
+      "settingsPath": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P3-C3lgLS/settings-malformed.json",
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 257,
+      "timedOut": false,
+      "stdoutBytes": 3705,
+      "stderrBytes": 0,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P3-C3lgLS/src-malformed-json\",\"session_id\":\"319e4845-c484-414f-8f84-6428a31dde3a\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWorktree\",\"ListAgents\",\"NotebookEdit\",\"Read\",\"ReportFindings\",\"ScheduleWakeup\",\"SendMessage\",\"Skill\",\"TaskCreate\",\"TaskGet\",\"TaskList\",\"TaskStop\",\"TaskUpdate\",\"ToolSearch\",\"WebFetch\",\"WebSearch\",\"Workflow\",\"Write\"],\"mcp_servers\":[],\"model\":\"claude-sonnet-4-5\",\"permissionMode\":\"default\",\"slash_commands\":[\"doctor\",\"agents\",\"auto-mode-setup\",\"autocompact\",\"clear\",\"color\",\"compact\",\"config\",\"output-style\",\"context\",\"effort\",\"fast\",\"focus\",\"heapdump\",\"init\",\"mcp\",\"model\",\"__remote-workflow\",\"workflow-la…[+2903B]",
+      "mentionsSettings": false
+    }
+  ]
+}

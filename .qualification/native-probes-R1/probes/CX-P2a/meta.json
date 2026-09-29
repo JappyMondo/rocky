@@ -1,0 +1,32 @@
+{
+  "probeId": "CX-P2a",
+  "obs": {
+    "cases": [
+      {
+        "label": "dotted-key-projects./some/path",
+        "out": null,
+        "err": "codex-override-key-not-dot-free:projects./some/path"
+      },
+      {
+        "label": "forbidden-key-sandbox_mode",
+        "out": null,
+        "err": "codex-override-forbidden-key:sandbox_mode"
+      },
+      {
+        "label": "unknown-key",
+        "out": null,
+        "err": "codex-override-unknown-key:totally_unknown_key"
+      },
+      {
+        "label": "legit-dotfree-projects-map",
+        "out": "projects={\"/some/path\"={\"trust_level\"=\"untrusted\"}}",
+        "err": null
+      },
+      {
+        "label": "tomlRoundTrip-proof",
+        "out": "{\"/some/path\"={\"trust_level\"=\"untrusted\"}}",
+        "err": null
+      }
+    ]
+  }
+}

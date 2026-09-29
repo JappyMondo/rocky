@@ -1,0 +1,10 @@
+{
+  "probeId": "CX-P5",
+  "exitCode": 1,
+  "signal": null,
+  "wallMs": 12,
+  "stdinNote": null,
+  "threadStarted": false,
+  "stdoutHead": "",
+  "stderrHead": "Error loading config.toml: unknown configuration field `rocky_unknown_probe_key` in -c/--config override\n"
+}

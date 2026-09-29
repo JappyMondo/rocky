@@ -1,0 +1,16 @@
+06ae88e62bb891cbb01d92558244d8abdc5bf1db1ad15ed5c3ba33444a25f6a7  lib.mjs
+eb9e8ccb2970c1bfcee0a91e33bb2b5c8e57aac35e5dc2e46c78f5e2eedb9c5f  run-phase1.mjs
+166fcd593a433998b28a1296c1f49f919e1ddb4710664f4424e0a4002d7d713c  run-phase2.mjs
+4086a67f2172175f6418b631e7d95450af55b3668e2c96faa133e0bffff7f9d6  run-phase3.mjs
+7c277f64652444ef5d841eca0fc2775f22ea3c9021ab2e8b50155a5228ff7ad2  run-phase4.mjs
+1438e4fa7c8c54c31d07d4cc8795b9f8607d581547f404b276fa1fc047011bd0  run-phase5.mjs
+
+# ADDENDUM (post-freeze): remediation driver added AFTER the initial drivers.sha256 freeze to remediate a
+# Tier-A native-capture log-read defect (run-phase3/run-phase4 read 0-byte logs). Hashed BEFORE its first spawn.
+# Re-runs CC-P5/CX-P3/CX-P4 ONCE (documented in consumed.md; zero-turn, bounded). Original evidence preserved.
+1c7c7a1a21769c63e6b51f82018b5ef980c7b38894642111f888323b974ca64f  run-remediate.mjs
+# ADDENDUM 2 (post-freeze): diagnostic to characterize the CC-P5 --json-schema rejection (draft isolation).
+# Zero-turn (unauth synthetic CFG), bounded, hashed BEFORE its first spawn. Characterization for R3, not an amendment.
+ba3e86e7b70a633ccf1f0a78f972b9fa2e608ed1aa7d93a2b085c81fe6984a0b  diag-json-schema.mjs
+# ADDENDUM 2b: diag-json-schema.mjs re-hashed after fixing a driver bug (missing mkdir cwd ⇒ exit -2, no data). One documented diagnostic re-run.
+d7cb8f45fe0f75d1389a8d88506afdcc7eff0c6e16b74c50a66a96ba0348b5d6  diag-json-schema.mjs

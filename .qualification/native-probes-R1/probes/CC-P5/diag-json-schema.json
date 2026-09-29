@@ -1,0 +1,83 @@
+{
+  "probeId": "CC-P5",
+  "diagnostic": "json-schema-draft-isolation",
+  "binary": {
+    "path": "/Users/jappy/.local/share/claude/versions/2.1.283",
+    "sha256": "d8cb1e5c79684cc12a8bfc813e3a2073406921b6245744b3009be3ab5651d21e",
+    "bytes": 225036032,
+    "version": "2.1.283",
+    "buildTime": "2026-09-25T00:44:42Z"
+  },
+  "results": [
+    {
+      "name": "contract-2020-12",
+      "schemaBytes": 591,
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 650,
+      "spawnError": null,
+      "stdinNote": null,
+      "timedOut": false,
+      "schemaRejected": true,
+      "reachedAuthOrInit": false,
+      "stderrHead": "Error: --json-schema is not a valid JSON Schema: no schema with key or ref \"https://json-schema.org/draft/2020-12/schema\"\n",
+      "stdoutHead": ""
+    },
+    {
+      "name": "draft-07",
+      "schemaBytes": 586,
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 325,
+      "spawnError": null,
+      "stdinNote": null,
+      "timedOut": false,
+      "schemaRejected": false,
+      "reachedAuthOrInit": true,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-diag-draft-07-rNeF8l/src\",\"session_id\":\"91e221a9-540a-4a08-820f-d1334b212027\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"ExitWork…[+3421B]"
+    },
+    {
+      "name": "no-schema-key",
+      "schemaBytes": 534,
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 262,
+      "spawnError": null,
+      "stdinNote": null,
+      "timedOut": false,
+      "schemaRejected": false,
+      "reachedAuthOrInit": true,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-diag-no-schema-key-tBcL1Z/src\",\"session_id\":\"e1c431d3-b053-41f8-bf94-e92e36dc466e\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"Exi…[+3426B]"
+    },
+    {
+      "name": "no-schema-no-id",
+      "schemaBytes": 495,
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 261,
+      "spawnError": null,
+      "stdinNote": null,
+      "timedOut": false,
+      "schemaRejected": false,
+      "reachedAuthOrInit": true,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-diag-no-schema-no-id-ZVWxUH/src\",\"session_id\":\"55b181c6-0d78-489b-a0e3-f30fe066bdcc\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"E…[+3428B]"
+    },
+    {
+      "name": "minimal-no-meta",
+      "schemaBytes": 103,
+      "exitCode": 1,
+      "signal": null,
+      "wallMs": 261,
+      "spawnError": null,
+      "stdinNote": null,
+      "timedOut": false,
+      "schemaRejected": false,
+      "reachedAuthOrInit": true,
+      "stderrHead": "",
+      "stdoutHead": "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CC-P5-diag-minimal-no-meta-xdxhbi/src\",\"session_id\":\"97929952-8383-4770-9ea9-db3abb62c734\",\"tools\":[\"Task\",\"Bash\",\"CronCreate\",\"CronDelete\",\"CronList\",\"Edit\",\"EnterWorktree\",\"E…[+3428B]"
+    }
+  ]
+}

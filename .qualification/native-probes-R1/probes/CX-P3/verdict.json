@@ -1,0 +1,44 @@
+{
+  "verdict": "PRODUCT_FAILURE_CANDIDATE",
+  "tier": "A (CodexExecAdapter.prepareLaunch→begin; real pinned codex 0.157.1)",
+  "gate": "auth-absence fail-closed (S09/L01-adjacent honesty); BONUS partial G-FRAME-SHAPE",
+  "hypothesis": "A full valid bundle through the shipped adapter with a credential-less synthetic CODEX_HOME terminates at a pre-model auth refusal with no thread.started, no API fallback, no forced login/logout.",
+  "criterion": "PART3 CX-P3: 'Observables: refusal shape ..., no API fallback, no forced login/logout side effects, no partial thread.started, sealed-env key list retained. PASS: fail-closed pre-model refusal with bounded nonsecret classification. This is NOT an L01 pass.' Zero-call premise: 'every case terminates at config/auth refusal BEFORE any thread/model start.'",
+  "expected": "fail-closed pre-model refusal; NO thread.started; no API fallback; no forced login/logout.",
+  "observed": {
+    "frameCount": 14,
+    "lifecycle": ["thread.started", "turn.started", "error(401 wss reconnect 2/5..5/5)", "item(WS→HTTPS fallback)", "error(401 https reconnect 1/5..5/5)", "error(401 final)", "turn.failed"],
+    "threadStarted": true,
+    "turnStarted": true,
+    "modelEndpointContacted": "wss://api.openai.com/v1/responses then https://api.openai.com/v1/responses (401 Unauthorized every attempt)",
+    "exitCode": 1,
+    "nativeStderr": "ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized",
+    "adapterSettlement": { "classification": "fatal", "detail": "codex-fatal:error-event|error-event|error-event|error-event", "outcome": "failed", "reasons": ["error-event x10", "turn-failed", "item-id-shape", "no-final"], "correctlyNotSuccess": true },
+    "sealedEnvKeyNames": ["HOME", "CODEX_HOME", "TMPDIR", "PATH", "LANG"],
+    "apiFallback_auth": false,
+    "transportFallback": "WS→HTTPS (transport, not auth)",
+    "forcedLoginLogout": false,
+    "codexHomeGains": ["installation_id", "tmp", "tmp/arg0/..."],
+    "configTomlUnchanged": "see CX-P4 (F5 PASS)"
+  },
+  "classification": {
+    "zeroBillingGuarantee": "HELD (every model-endpoint contact 401 Unauthorized ⇒ no model processing, no tokens, no cost; turn.failed; no usage frame)",
+    "failClosed": "HELD (exit 1; adapter fatal/failed not success; no proposal/head authority; no forced login/logout; no API-key auth fallback)",
+    "divergence": "Plan zero-call premise 'terminates BEFORE any thread/model start' and observable 'no partial thread.started' CONTRADICTED: codex emitted thread.started + turn.started and contacted the model API endpoint before failing at API-layer 401.",
+    "refinement": "CONFIG error refuses pre-thread (CX-P2(b): unknown -c key ⇒ 'Error loading config.toml: unknown configuration field', no thread.started); AUTH error (valid config, no creds) ⇒ thread.started + model-endpoint contact + 401.",
+    "networkAuthority": "api.openai.com contact is the CLI's own unavoidable startup/model endpoint, unauth (401), recorded and never billed — within granted authority (PART1). Recorded honestly because the plan premise said no thread/model contact would occur."
+  },
+  "bonus_G_FRAME_SHAPE": {
+    "status": "partial native attestation (zero-cost), was credit-blocked",
+    "attestedFrames": ["thread.started{thread_id}", "turn.started{}", "error{message}", "item{...}", "turn.failed{error{message}}"],
+    "stillCreditBlocked": "turn.completed{usage}, final agent_message (need a successful model turn)"
+  },
+  "correction": {
+    "initialAutoVerdict": "PASS (threadStarted=false)",
+    "initialAutoVerdictPreservedAt": "verdict-initial-auto.json",
+    "rootCauseOfCorrection": "initial native capture was 0 bytes (driver log-path read defect) ⇒ threadStarted mis-read as false; command.duplex.frames (authoritative, gate-retained) show threadStarted=true.",
+    "remediation": "run-remediate.mjs (hashed addendum), documented single re-run (zero-call, bounded), recorded in consumed.md; original evidence preserved.",
+    "correctedVerdict": "PRODUCT_FAILURE_CANDIDATE"
+  },
+  "notes": "Flagged PRODUCT_FAILURE_CANDIDATE for R3/root adjudication (frozen plan observable contradicted). Zero-billing and adapter fail-closed handling both HELD, so this is a correction to the model of WHERE fail-closed occurs (API 401 after thread start, not pre-thread refusal), not a billing/containment failure. NOT an L01 pass. Zero model call. No orphan processes; temp roots deleted."
+}

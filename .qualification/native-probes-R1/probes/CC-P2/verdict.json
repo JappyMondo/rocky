@@ -1,0 +1,38 @@
+{
+  "verdict": "PASS",
+  "tier": "B (pre-adapter native refusal shapes; sealed shipped env, unauth synthetic CFG)",
+  "gate": "N05 refusal shapes (F12/F14/F16); FK3 producer-rejection duty",
+  "hypothesis": "(a) empty stdin ⇒ exit 1 'Input must be provided'; (b) whitespace ⇒ exit 1; (c) stream-json without --verbose ⇒ exit 1 + exact stderr; (d) invalid --json-schema ⇒ error exit; (e) --effort=bogus ⇒ warn-only and proceed to auth failure (CLI does NOT reject off-table effort ⇒ the adapter's assertClaudeArgv MUST).",
+  "criterion": "PART2 CC-P2: 'PASS: matches claim or exact divergence retained (PRODUCT_FAILURE candidate ⇒ amendment). REJECT: silent acceptance of invalid input.'",
+  "expected": "nonzero exits for a–d matching the claimed shapes; e proceeds past effort (warn-only) to a downstream failure.",
+  "observed": {
+    "a": { "exit": 1, "stderr": "Error: Input must be provided either through stdin or as a prompt argument when using --print", "matchesClaim": true },
+    "b": { "exit": 1, "stderr": "Error: Input contained only whitespace. Provide a prompt with text through stdin or as a prompt argument when using --print", "matchesClaim": true },
+    "c": { "exit": 1, "stderr": "Error: When using --print, --output-format=stream-json requires --verbose", "matchesClaim": true },
+    "d": { "exit": 1, "stderr": "Error: --json-schema is not valid JSON: JSON Parse error: Expected '}'", "matchesClaim": true },
+    "e": {
+      "exit": 1,
+      "stderrWarning": "Warning: Unknown --effort value 'bogus' — ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.",
+      "proceeded": true,
+      "initFrameEmitted": true,
+      "reachedAuthFailure": true,
+      "effortHardRejected": false,
+      "matchesClaim": true
+    },
+    "zeroTurnConfirmation": {
+      "resultFrame": { "is_error": true, "subtype": "success", "terminal_reason": "api_error", "num_turns": 1, "total_cost_usd": 0, "modelUsage": {}, "usageTokensAllZero": true, "result": "Not logged in · Please run /login" },
+      "assistantFrame": { "model": "<synthetic>", "error": "authentication_failed", "is_api_error_message": true },
+      "billableTurnOccurred": false
+    },
+    "startupFailureReasonFrames": false
+  },
+  "class": "native-refusal-shapes-match-claims",
+  "correction": {
+    "initialAutoVerdict": "PRODUCT_FAILURE_CANDIDATE",
+    "initialAutoVerdictPreservedAt": "verdict-initial-auto.json",
+    "rootCause": "driver heuristic eEffortRejected = /effort/i && /invalid|unknown|expected|allowed/i false-matched the word 'Unknown' inside the WARNING string 'Warning: Unknown --effort value ... ignoring it and using the default effort', which is a warn-and-proceed, not a hard rejection.",
+    "action": "Post-hoc classification correction from retained raw evidence (meta.json + captures unchanged). NO re-run, NO new spawn. Consumed-probe entry stands.",
+    "correctedVerdict": "PASS"
+  },
+  "notes": "5 bounded native spawns, one owned group each, all exited <600ms inside the wall cap (no timeout, no orphan). Zero billable turns (unauth synthetic CFG + private synthetic HOME). Cross-cutting: native auth-failure result frame carries subtype:'success' with is_error:true/terminal_reason:'api_error' — a subtype-only classifier would misread it; CC-P5 shows the shipped adapter settles it as blocked/needs_engineering (not success)."
+}

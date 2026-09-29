@@ -1,0 +1,32 @@
+{
+  "probeId": "CX-P3",
+  "rerun": true,
+  "obs": {
+    "settlement": {
+      "stage": "blocked",
+      "blocker": "needs_engineering"
+    },
+    "dispatchErr": null,
+    "commandOutcome": "failed",
+    "exitCode": 1,
+    "frameCount": 14,
+    "threadStarted": true,
+    "codexHomeGains": [
+      "installation_id",
+      "tmp",
+      "tmp/arg0",
+      "tmp/arg0/codex-arg0yvN8i2",
+      "tmp/arg0/codex-arg0yvN8i2/.lock",
+      "tmp/arg0/codex-arg0yvN8i2/apply_patch",
+      "tmp/arg0/codex-arg0yvN8i2/applypatch",
+      "tmp/arg0/codex-arg0yvN8i2/codex-execve-wrapper"
+    ],
+    "sealedEnvKeyNames": [
+      "HOME",
+      "CODEX_HOME",
+      "TMPDIR",
+      "PATH",
+      "LANG"
+    ]
+  }
+}

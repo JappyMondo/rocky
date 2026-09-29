@@ -1,0 +1,47 @@
+{
+  "verdict": "PRODUCT_FAILURE_CANDIDATE",
+  "tier": "A (ClaudeCodeAdapter.prepareLaunch→begin; real pinned claude 2.1.283) + Tier-B draft-isolation diagnostic",
+  "gate": "N06 / G-WRITES (+ G-HOME partial); ALSO surfaces a contract-level structured-output divergence",
+  "hypothesis": "Two zero-turn startups: empty input refuses pre-spawn (zero writes); a valid startup spawns real claude whose write set is inventoried and bounded inside the synthetic CFG/PH/PT; envOptions.user true/false changes USER/LOGNAME presence.",
+  "criterion": "PART2 CC-P5: 'PASS: write set inventoried+bounded, all inside CFG/PH/PT; drift classifier agrees (gains recorded, not drift). REJECT: write outside ⇒ PRODUCT_FAILURE/containment.' Expected startups: 'empty-input refusal; valid startup ⇒ auth failure'.",
+  "expected": "empty-input pre-spawn refusal; valid startup reaching auth failure; CFG/PH gains inventoried and inside the synthetic tree; USER/LOGNAME track envOptions.user.",
+  "observed": {
+    "subFinding1_G_WRITES": {
+      "class": "PASS-quality (writes inventoried + bounded)",
+      "emptyInput": "prepareLaunch refuses pre-spawn (prompt-empty), zero spawn, zero CFG writes, 0 command rows",
+      "validStartupCfgGains": [".claude.json", "backups", "backups/.claude.json.backup.<ts>", "sessions"],
+      "gainLocation": "all inside synthetic CFG (inside temp root); parentHome (sealed HOME=PH) gains none",
+      "notableDespite": "--no-session-persistence + CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 (state still written at startup)",
+      "userLognameDependence": "USER+LOGNAME present iff envOptions.user=true",
+      "ghomeKeychainResidual": "USER-ASSISTED (CC-L0), stays open; no keychain call observable in bounded captures"
+    },
+    "subFinding2_json_schema_PRODUCT_FAILURE_CANDIDATE": {
+      "class": "PRODUCT_FAILURE_CANDIDATE (contract request-schema draft vs pinned claude validator)",
+      "expectedStartup": "valid startup ⇒ auth failure",
+      "actualStartup": "valid startup ⇒ STARTUP REFUSAL at --json-schema (never reached auth)",
+      "nativeStderr": "Error: --json-schema is not a valid JSON Schema: no schema with key or ref \"https://json-schema.org/draft/2020-12/schema\"",
+      "frames": 0,
+      "adapterSettlement": { "classification": "fatal", "detail": "claude-fatal:startup-refusal|init-missing|no-result", "usageStatus": "unknown", "correctlyNotSuccess": true },
+      "frozenContractClaim": "acceptance/claude-code/manifest.json: harness-neutral final schema (acceptance/subscription/final.schema.json, $schema=https://json-schema.org/draft/2020-12/schema) reused by reference as inline --json-schema=<canonical-minified-request-schema-json>; 'This contract ships no second schema file'; result.structured_output REQUIRED for success.",
+      "diagnosticIsolation": {
+        "driver": "diag-json-schema.mjs (hashed addendum, zero-turn Tier-B)",
+        "contract-2020-12": "REJECTED (no schema with key or ref; no init)",
+        "draft-07": "ACCEPTED (system/init emitted)",
+        "no-schema-key": "ACCEPTED (init emitted)",
+        "no-schema-no-id": "ACCEPTED (init emitted)",
+        "minimal-no-meta": "ACCEPTED (init emitted)",
+        "conclusion": "claude 2.1.283 --json-schema validator lacks the draft 2020-12 meta-schema in its registry (bundled-registry limitation, NOT network — draft-07 resolves in the same sealed env). Claude-specific: codex --output-schema did not reject the same 2020-12 schema at startup (CX-P3 started a thread)."
+      },
+      "adapterBehavior": "CORRECT (fails closed: fatal/startup-refusal, usage unknown, no false success, no proposal/head authority)",
+      "resolutionDirectionForRoot": "use a claude-supported draft (draft-07 verified accepted) or omit $schema for the claude --json-schema request projection; host still re-validates result.structured_output against the FULL protected schema. Runner does NOT edit acceptance/**."
+    }
+  },
+  "correction": {
+    "initialAutoVerdict": "PASS",
+    "initialAutoVerdictPreservedAt": "verdict-initial-auto.json",
+    "rootCauseOfCorrection": "initial native stdout/stderr captures were 0 bytes (driver log-path read defect); remediation re-run captured command.duplex.frames + receipt + run-tree walk, revealing the --json-schema startup refusal that the empty captures had hidden.",
+    "remediation": "run-remediate.mjs (hashed addendum), documented single re-run (zero-turn, bounded), recorded in consumed.md; original evidence preserved.",
+    "correctedVerdict": "PRODUCT_FAILURE_CANDIDATE"
+  },
+  "notes": "Zero billable turns (unauth synthetic CFG + private synthetic HOME). No orphan processes; temp roots deleted after evidence copy. G-WRITES observation is PASS-quality and remains consumable by root/R3; the headline is the --json-schema draft-2020-12 PRODUCT_FAILURE_CANDIDATE which affects EVERY claude structured-output launch against the pinned binary."
+}

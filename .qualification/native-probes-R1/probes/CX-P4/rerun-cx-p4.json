@@ -1,0 +1,844 @@
+{
+  "tag": "cx-p4",
+  "command": {
+    "id": "322c4f4a-c2fa-4019-b42d-886fd691461e",
+    "state": "finished",
+    "result": {
+      "outcome": "failed",
+      "exitCode": 1,
+      "signal": null,
+      "stdoutTruncated": false,
+      "stderrTruncated": false
+    },
+    "duplex": {
+      "failure": null,
+      "stdoutEof": true,
+      "stderrEof": true,
+      "childStdoutEof": true,
+      "childStderrEof": true,
+      "decoderComplete": true,
+      "revoked": false,
+      "frameCount": 14
+    }
+  },
+  "frames": [
+    {
+      "thread_id": "01a0ec0e-b482-7480-b8d1-22705d9a8f6c",
+      "type": "thread.started"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a429425fdb6d6134-HAM)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 3/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a42942634e5cffcf-HAM)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 4/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a4294268fcdcffcf-HAM)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 5/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a4294274cece4f8d-HAM)",
+      "type": "error"
+    },
+    {
+      "item": {
+        "id": "item_0",
+        "message": "Falling back from WebSockets to HTTPS transport. unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a429428819ae6134-HAM",
+        "type": "error"
+      },
+      "type": "item.completed"
+    },
+    {
+      "message": "Reconnecting... 1/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942889b56c48b-HAM, request id: req_92c67befc059447aa7012d80bdf0fe65)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a429428b9c1aae67-HAM, request id: req_0b81208d098e4e6981b7233c8b8db20c)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 3/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942901f449303-HAM, request id: req_9e116dbd349f4b3a9efcb4f32097ac1c)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 4/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942966c32444a-HAM, request id: req_9150ce9fc36e41dbbc9ed335be02b441)",
+      "type": "error"
+    },
+    {
+      "message": "Reconnecting... 5/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942a37a14a898-HAM, request id: req_5887da5cb6724847a9b30fcddf7f5c72)",
+      "type": "error"
+    },
+    {
+      "message": "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942baebfc0fcc-HAM, request id: req_81b892932eaf4ca5918bc08874519cb8",
+      "type": "error"
+    },
+    {
+      "error": {
+        "message": "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942baebfc0fcc-HAM, request id: req_81b892932eaf4ca5918bc08874519cb8"
+      },
+      "type": "turn.failed"
+    }
+  ],
+  "receipt": {
+    "attempt": {
+      "actionKey": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896",
+      "commandId": "322c4f4a-c2fa-4019-b42d-886fd691461e",
+      "deadline": 1790666809534,
+      "fence": 1,
+      "inputDigest": "6c42e2076c9912d7a5ecac2e31a198efe0c4b2834c68262a0fec7d531802a356",
+      "lease": {
+        "fence": 1,
+        "owner": "owner",
+        "runId": "run-1",
+        "versions": {
+          "adapter": "test-only",
+          "build": "local-test",
+          "prompt": "1",
+          "runner": "injected-contract-only",
+          "workflow": "coordinator-1"
+        }
+      },
+      "runId": "run-1",
+      "versions": {
+        "adapter": "test-only",
+        "build": "local-test",
+        "prompt": "1",
+        "runner": "injected-contract-only",
+        "workflow": "coordinator-1"
+      }
+    },
+    "authHome": {
+      "accountModeClassification": "unavailable; exec output carries no auth mode and Rocky never reads auth bytes (gate G-AUTH/G7)",
+      "codexHome": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home",
+      "credentialReadCopySymlinkProxy": false,
+      "credentialsStore": "file",
+      "forcedLoginLogoutPolicy": false,
+      "mode": "shared-designated",
+      "rawStatusRetention": false,
+      "secretAuthStorage": false
+    },
+    "binary": {
+      "c1Rule": "gate re-measures sha256/size inside the guarded start; drift records a durable failure and zero spawn",
+      "measuredC0": {
+        "bytes": 238223808,
+        "path": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
+        "sha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d"
+      },
+      "measuredC5": {
+        "bytes": 238223808,
+        "path": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
+        "sha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d"
+      },
+      "pinned": {
+        "buildTime": null,
+        "bytes": 238223808,
+        "path": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
+        "sha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d",
+        "sourceCommit": "36650394c5b38c2990ccf2a3457165ca3e9d9726",
+        "version": "0.157.1"
+      }
+    },
+    "bundle": {
+      "argv": [
+        "exec",
+        "--json",
+        "--color",
+        "never",
+        "--skip-git-repo-check",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
+        "--output-schema",
+        "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs/final.request.schema.json",
+        "--model",
+        "gpt-6-sol",
+        "--ephemeral",
+        "-c",
+        "model_reasoning_effort=\"medium\"",
+        "-c",
+        "model_provider=\"openai\"",
+        "-c",
+        "web_search=\"disabled\"",
+        "-c",
+        "project_doc_max_bytes=0",
+        "-c",
+        "projects={\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source\"={\"trust_level\"=\"untrusted\"}}",
+        "-c",
+        "allow_login_shell=false",
+        "-c",
+        "suppress_unstable_features_warning=true",
+        "-c",
+        "cli_auth_credentials_store=\"file\"",
+        "-c",
+        "sqlite_home=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/native/sqlite\"",
+        "-c",
+        "log_dir=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/native/log\"",
+        "-c",
+        "history={\"persistence\"=\"none\"}",
+        "-c",
+        "analytics={\"enabled\"=false}",
+        "-c",
+        "default_permissions=\"rocky_implementer\"",
+        "-c",
+        "permissions={\"rocky_implementer\"={\"filesystem\"={\"/Applications\"=\"deny\",\"/Library/Filesystems/NetFSPlugins\"=\"deny\",\"/Library/Preferences\"=\"deny\",\"/Library/Preferences/Logging\"=\"deny\",\"/etc\"=\"deny\",\"/opt/homebrew/lib\"=\"deny\",\"/private/etc\"=\"deny\",\"/private/tmp\"=\"deny\",\"/private/var/db\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/.credentials.json\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.md\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.override.md\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/auth.json\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/config.toml\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/log\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/memories\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/sessions\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/skills\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/deny-root\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/native\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/scratch\"=\"write\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source\"=\"write\",\"/private/var/tmp\"=\"deny\",\"/tmp\"=\"deny\",\"/usr/local/lib\"=\"deny\",\"/var/db\"=\"deny\",\"/var/tmp\"=\"deny\",\":minimal\"=\"read\"},\"network\"={\"enabled\"=false}}}",
+        "-c",
+        "shell_environment_policy={\"inherit\"=\"none\",\"set\"={\"HOME\"=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/scratch/home\",\"LANG\"=\"en_US.UTF-8\",\"PATH\"=\"/usr/bin:/bin:/usr/sbin:/sbin\",\"TMPDIR\"=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/scratch/tmp\"}}",
+        "-c",
+        "features={\"apps\"=false,\"browser_use\"=false,\"computer_use\"=false,\"goals\"=false,\"hooks\"=false,\"image_generation\"=false,\"in_app_browser\"=false,\"memories\"=false,\"multi_agent\"=false,\"plugins\"=false,\"secret_auth_storage\"=false,\"shell_snapshot\"=false,\"skill_mcp_dependency_install\"=false,\"skill_search\"=false,\"skip_host_skill_discovery\"=true,\"tool_suggest\"=false,\"unbounded_connection_retries\"=false,\"view_image\"=false}",
+        "-c",
+        "skills={\"bundled\"={\"enabled\"=false},\"include_instructions\"=false}",
+        "-c",
+        "tools={\"experimental_request_user_input\"={\"enabled\"=false}}",
+        "--",
+        "-"
+      ],
+      "cwd": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source",
+      "discoveryDigest": "6f11f361de596fec1dd575ccd592ad32a6a4e6b979569cfb11dd64817b088bf8",
+      "env": [
+        [
+          "HOME",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/home"
+        ],
+        [
+          "CODEX_HOME",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home"
+        ],
+        [
+          "TMPDIR",
+          "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/tmp"
+        ],
+        [
+          "PATH",
+          "/usr/bin:/bin:/usr/sbin:/sbin"
+        ],
+        [
+          "LANG",
+          "en_US.UTF-8"
+        ]
+      ],
+      "files": [
+        {
+          "bytes": 591,
+          "name": "final.request.schema.json",
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs/final.request.schema.json",
+          "sha256": "0e1c3a522774776c8954de8db979468faa473904e7cc92735c2f88e16ca0bd51"
+        }
+      ],
+      "input": {
+        "bytes": 34,
+        "sha256": "be31933680654e80c68293fb01439bd06f144a30a6dd6a981cde0031f67522d0"
+      }
+    },
+    "bundleDigest": "1014a4b430b393552480abd571cd1ac353126133899680420f4329db57dbe22d",
+    "contract": {
+      "approvalReference": "taskbot-89-independent-contract-review",
+      "contractId": "rocky-subscription-88-v1",
+      "frozenSha256": "c8da6408e4cb009fd9b35bcb84f6cca43360f1c32060d92854bbdfcc7628898e",
+      "manifestSha256": "b632eb34b89f205eb9abf658958afeab91db2f4b29499bc7dc8ddd7bd5b8de35",
+      "scenariosSha256": "e0e79ca9019cde5b3a2862ef3ab2b3b598e0dd45287671842206d72277d7bd60"
+    },
+    "discovery": {
+      "codexHomeChildrenGained": [
+        "installation_id",
+        "tmp"
+      ],
+      "drift": [],
+      "post": {
+        "ancestorGitPresent": false,
+        "codexHomeChildren": [
+          {
+            "name": "config.toml",
+            "type": "file"
+          },
+          {
+            "name": "installation_id",
+            "type": "file"
+          },
+          {
+            "name": "tmp",
+            "type": "dir"
+          }
+        ],
+        "codexHomeSkills": {
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/skills",
+          "present": false,
+          "treeDigest": null
+        },
+        "digest": "1221bf2cd275aa398ff040c437d85999d309ab7d8a656e4fb76a5f85d5e9906b",
+        "effectiveGlobalAgentsSha256": null,
+        "globalAgents": {
+          "bytes": 0,
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.md",
+          "present": false,
+          "sha256": null
+        },
+        "globalAgentsOverride": {
+          "bytes": 0,
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.override.md",
+          "present": false,
+          "sha256": null
+        },
+        "mdm": [
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/com.openai.codex.plist",
+            "present": false,
+            "sha256": null
+          }
+        ],
+        "schema": 1,
+        "sharedConfigToml": {
+          "bytes": 88,
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/config.toml",
+          "sha256": "e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1"
+        },
+        "stagedAgentsDir": false,
+        "stagedAgentsFiles": [],
+        "stagedCodexDir": false,
+        "stagedGitPresent": false,
+        "system": [
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/config.toml",
+            "present": false,
+            "sha256": null
+          },
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/requirements.toml",
+            "present": false,
+            "sha256": null
+          },
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/managed_config.toml",
+            "present": false,
+            "sha256": null
+          }
+        ],
+        "systemDirs": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/skills",
+            "present": false,
+            "treeDigest": null
+          }
+        ]
+      },
+      "pre": {
+        "ancestorGitPresent": false,
+        "codexHomeChildren": [
+          {
+            "name": "config.toml",
+            "type": "file"
+          }
+        ],
+        "codexHomeSkills": {
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/skills",
+          "present": false,
+          "treeDigest": null
+        },
+        "digest": "6f11f361de596fec1dd575ccd592ad32a6a4e6b979569cfb11dd64817b088bf8",
+        "effectiveGlobalAgentsSha256": null,
+        "globalAgents": {
+          "bytes": 0,
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.md",
+          "present": false,
+          "sha256": null
+        },
+        "globalAgentsOverride": {
+          "bytes": 0,
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.override.md",
+          "present": false,
+          "sha256": null
+        },
+        "mdm": [
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/com.openai.codex.plist",
+            "present": false,
+            "sha256": null
+          }
+        ],
+        "schema": 1,
+        "sharedConfigToml": {
+          "bytes": 88,
+          "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/config.toml",
+          "sha256": "e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1"
+        },
+        "stagedAgentsDir": false,
+        "stagedAgentsFiles": [],
+        "stagedCodexDir": false,
+        "stagedGitPresent": false,
+        "system": [
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/config.toml",
+            "present": false,
+            "sha256": null
+          },
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/requirements.toml",
+            "present": false,
+            "sha256": null
+          },
+          {
+            "bytes": 0,
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/managed_config.toml",
+            "present": false,
+            "sha256": null
+          }
+        ],
+        "systemDirs": [
+          {
+            "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/discovery/skills",
+            "present": false,
+            "treeDigest": null
+          }
+        ]
+      }
+    },
+    "evidenceClass": "synthetic-native",
+    "gaps": [
+      {
+        "gap": "effective config/tool roster is not observable in exec --json (print_config_summary emits only thread.started); override exactness is producer-audited and round-trip validated, native effectiveness remains gated N01",
+        "gate": "G-OVERRIDES"
+      },
+      {
+        "gap": "model/effort are requested-only; the served model is never echoed, a reroute surfaces only as an error item, and silent reroute detection is a live/native gate (L01)",
+        "gate": "G-MODEL"
+      },
+      {
+        "gap": "model_reasoning_effort is requested-only and never echoed; no claim of applied effort is made",
+        "gate": "G-EFFORT"
+      },
+      {
+        "gap": "exec output carries no auth mode and Rocky never reads auth bytes; nonsecret account/mode classification is a separate harness-owned step with residual TOCTOU (G7), not performed here",
+        "gate": "G-AUTH"
+      },
+      {
+        "gap": "trust persistence is prevented by the explicit untrusted override + projectless tree and detected by a nonsecret shared config.toml byte check; native proof that config.toml is unchanged is N01",
+        "gate": "G-TRUST"
+      },
+      {
+        "gap": "the exact native exec-JSONL serde field names are an owned source-consistent interpretation of the pinned taxonomy; the native lifecycle/frame shape is gated N06",
+        "gate": "G-FRAME-SHAPE"
+      },
+      {
+        "gap": "reviewer --image input transform/delivery and view_image absence are gated N08; a hash/path request alone is not proof of functional image consumption",
+        "gate": "G-VISUAL"
+      },
+      {
+        "gap": "native writes into the shared CODEX_HOME despite overrides/ephemeral (tmp/arg0 helper links, auth refresh, caches) are inventoried by name/hash, not natively bounded (G4)",
+        "gate": "G-WRITES"
+      },
+      {
+        "gap": "cancellation is SIGTERM-only via the owned group; an interrupted turn emits no terminal and exits 1, and no turn/interrupt acknowledgement is ever claimed",
+        "gate": "G-SIGINT"
+      },
+      {
+        "gap": "live subscription/model qualification is a separate root-granted step (blocked on OpenAI credits — external access gap); this receipt is not live evidence",
+        "gate": "L01-L02"
+      }
+    ],
+    "head": {
+      "post": "9c848ac1cab74bca9561647748ba0700136fd8f8788351b916232e7176b2df65",
+      "pre": "9c848ac1cab74bca9561647748ba0700136fd8f8788351b916232e7176b2df65"
+    },
+    "lifecycle": {
+      "childStderrEof": true,
+      "childStdoutEof": true,
+      "cleanupError": null,
+      "commandOutcome": "failed",
+      "decoderComplete": true,
+      "exitCode": 1,
+      "quiescent": true,
+      "signal": null,
+      "stderrEof": true,
+      "stdoutEof": true
+    },
+    "limits": {
+      "cleanupReserveMs": 250,
+      "killGraceMs": 250,
+      "maxAggregatedOutputBytes": 65536,
+      "maxArgvBytes": 65536,
+      "maxDenyEntries": 512,
+      "maxFinalBytes": 32768,
+      "maxFrames": 256,
+      "maxImageBytes": 4194304,
+      "maxImages": 4,
+      "maxItems": 64,
+      "maxLineBytes": 65536,
+      "maxOverrideValueBytes": 65536,
+      "maxOverrides": 64,
+      "maxPromptBytes": 65536,
+      "maxStderrBytes": 65536,
+      "maxStdoutBytes": 262144,
+      "maxTreeNodes": 2000,
+      "quiescenceTimeoutMs": 2000
+    },
+    "overrides": {
+      "assignments": [
+        "model_reasoning_effort=\"medium\"",
+        "model_provider=\"openai\"",
+        "web_search=\"disabled\"",
+        "project_doc_max_bytes=0",
+        "projects={\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source\"={\"trust_level\"=\"untrusted\"}}",
+        "allow_login_shell=false",
+        "suppress_unstable_features_warning=true",
+        "cli_auth_credentials_store=\"file\"",
+        "sqlite_home=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/native/sqlite\"",
+        "log_dir=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/native/log\"",
+        "history={\"persistence\"=\"none\"}",
+        "analytics={\"enabled\"=false}",
+        "default_permissions=\"rocky_implementer\"",
+        "permissions={\"rocky_implementer\"={\"filesystem\"={\"/Applications\"=\"deny\",\"/Library/Filesystems/NetFSPlugins\"=\"deny\",\"/Library/Preferences\"=\"deny\",\"/Library/Preferences/Logging\"=\"deny\",\"/etc\"=\"deny\",\"/opt/homebrew/lib\"=\"deny\",\"/private/etc\"=\"deny\",\"/private/tmp\"=\"deny\",\"/private/var/db\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/.credentials.json\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.md\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/AGENTS.override.md\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/auth.json\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/config.toml\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/log\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/memories\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/sessions\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/skills\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/deny-root\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/inputs\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/native\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent\"=\"deny\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/scratch\"=\"write\",\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/stage/source\"=\"write\",\"/private/var/tmp\"=\"deny\",\"/tmp\"=\"deny\",\"/usr/local/lib\"=\"deny\",\"/var/db\"=\"deny\",\"/var/tmp\"=\"deny\",\":minimal\"=\"read\"},\"network\"={\"enabled\"=false}}}",
+        "shell_environment_policy={\"inherit\"=\"none\",\"set\"={\"HOME\"=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/scratch/home\",\"LANG\"=\"en_US.UTF-8\",\"PATH\"=\"/usr/bin:/bin:/usr/sbin:/sbin\",\"TMPDIR\"=\"/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/scratch/tmp\"}}",
+        "features={\"apps\"=false,\"browser_use\"=false,\"computer_use\"=false,\"goals\"=false,\"hooks\"=false,\"image_generation\"=false,\"in_app_browser\"=false,\"memories\"=false,\"multi_agent\"=false,\"plugins\"=false,\"secret_auth_storage\"=false,\"shell_snapshot\"=false,\"skill_mcp_dependency_install\"=false,\"skill_search\"=false,\"skip_host_skill_discovery\"=true,\"tool_suggest\"=false,\"unbounded_connection_retries\"=false,\"view_image\"=false}",
+        "skills={\"bundled\"={\"enabled\"=false},\"include_instructions\"=false}",
+        "tools={\"experimental_request_user_input\"={\"enabled\"=false}}"
+      ],
+      "roundTripRule": "each -c value round-trips a real (owned) TOML value parser with structural equality before admission (F1); sandbox_mode is a prohibited key and default_permissions never co-occurs with a CLI sandbox override (F7)"
+    },
+    "receiptDigest": "98fe08cc2021fe6977d4d47be7610e53cb157a8ef76c6fbb28fc105c19c12b3f",
+    "result": {
+      "final": null,
+      "finalRawText": null,
+      "finalRawTextSha256": null,
+      "proposalAuthority": "proposal only; never authoritative checks/CI/review/head (host deriveTreeHead only)",
+      "turnCompletedUsageRaw": null,
+      "turnCompletedUsageSha256": null
+    },
+    "role": {
+      "effort": "medium",
+      "model": "gpt-6-sol",
+      "permissionProfile": "rocky_implementer",
+      "role": "implementer"
+    },
+    "schema": 1,
+    "settlement": {
+      "classification": "fatal",
+      "detail": "codex-fatal:error-event|error-event|error-event|error-event",
+      "outcome": "failed",
+      "reasons": [
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "error-event",
+        "turn-failed",
+        "item-id-shape",
+        "no-final"
+      ]
+    },
+    "stream": {
+      "decodeError": null,
+      "errorEvents": [
+        {
+          "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a429425fdb6d6134-HAM)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 3/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a42942634e5cffcf-HAM)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 4/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a4294268fcdcffcf-HAM)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 5/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a4294274cece4f8d-HAM)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 1/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942889b56c48b-HAM, request id: req_92c67befc059447aa7012d80bdf0fe65)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a429428b9c1aae67-HAM, request id: req_0b81208d098e4e6981b7233c8b8db20c)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 3/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942901f449303-HAM, request id: req_9e116dbd349f4b3a9efcb4f32097ac1c)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 4/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942966c32444a-HAM, request id: req_9150ce9fc36e41dbbc9ed335be02b441)",
+          "type": "error"
+        },
+        {
+          "message": "Reconnecting... 5/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942a37a14a898-HAM, request id: req_5887da5cb6724847a9b30fcddf7f5c72)",
+          "type": "error"
+        },
+        {
+          "message": "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942baebfc0fcc-HAM, request id: req_81b892932eaf4ca5918bc08874519cb8",
+          "type": "error"
+        }
+      ],
+      "errorItems": [],
+      "framesObserved": 14,
+      "inputBytes": 34,
+      "itemCount": 0,
+      "ordinaryFailures": [],
+      "outputBytes": 2983,
+      "rawStderrLog": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/stderr.log",
+      "rawStdoutLog": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/stdout.log",
+      "revoked": false,
+      "sends": [
+        {
+          "attempted": true,
+          "end": false,
+          "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896:prompt",
+          "state": "written"
+        },
+        {
+          "attempted": true,
+          "end": true,
+          "key": "coordinator/af9e3e073ca80945632152293d150efe4b873626e88042a1a1ad2b5babc28896:eof",
+          "state": "written"
+        }
+      ],
+      "stderrArtifact": {
+        "bytes": 1239,
+        "sha256": "0e079f5ab70641aa6594004c5e042a08527a5dc81d7fb33dbccdad02aee36d1c"
+      },
+      "stderrBytes": 1239,
+      "stderrTruncated": false,
+      "stdoutArtifact": {
+        "bytes": 2983,
+        "sha256": "197675e3bf220f0907b86b3a47cca219317e053d170de316c961f462189053cf"
+      },
+      "stdoutTruncated": false,
+      "transportFailure": null,
+      "transportFramesRetained": 14
+    },
+    "threadIdentity": {
+      "notExposed": [
+        "turn id",
+        "turn.error:null",
+        "JSON-RPC request ids",
+        "pending-server-request map",
+        "continuous usage"
+      ],
+      "threadId": "01a0ec0e-b482-7480-b8d1-22705d9a8f6c",
+      "threadStartedObserved": true
+    },
+    "timestamps": {
+      "commandCreatedAt": 1790666781627,
+      "preparedAt": 1790666781534,
+      "settledAt": 1790666797731
+    },
+    "trustPersistence": {
+      "projectlessTree": true,
+      "sharedConfigTomlPost": {
+        "bytes": 88,
+        "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/config.toml",
+        "sha256": "e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1"
+      },
+      "sharedConfigTomlPre": {
+        "bytes": 88,
+        "path": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/codex-home/config.toml",
+        "sha256": "e20e162652098c9fa14a48c248f5a91126ac4544ecaaf5f7a400b333403eacc1"
+      },
+      "unchanged": true,
+      "untrustedOverridePresent": true
+    },
+    "usage": {
+      "harness": "codex-exec",
+      "reason": "codex-fatal-before-usage-mapping:error-event",
+      "schema": 2,
+      "source": "native-harness-telemetry",
+      "status": "unknown"
+    }
+  },
+  "runTree": [
+    {
+      "path": "inputs",
+      "kind": "dir"
+    },
+    {
+      "path": "inputs/final.request.schema.json",
+      "kind": "file",
+      "bytes": 591
+    },
+    {
+      "path": "native",
+      "kind": "dir"
+    },
+    {
+      "path": "native/log",
+      "kind": "dir"
+    },
+    {
+      "path": "native/sqlite",
+      "kind": "dir"
+    },
+    {
+      "path": "native/sqlite/goals_1.sqlite",
+      "kind": "file",
+      "bytes": 4096
+    },
+    {
+      "path": "native/sqlite/goals_1.sqlite-shm",
+      "kind": "file",
+      "bytes": 32768
+    },
+    {
+      "path": "native/sqlite/goals_1.sqlite-wal",
+      "kind": "file",
+      "bytes": 74192
+    },
+    {
+      "path": "native/sqlite/logs_2.sqlite",
+      "kind": "file",
+      "bytes": 49152
+    },
+    {
+      "path": "native/sqlite/logs_2.sqlite-shm",
+      "kind": "file",
+      "bytes": 32768
+    },
+    {
+      "path": "native/sqlite/logs_2.sqlite-wal",
+      "kind": "file",
+      "bytes": 119512
+    },
+    {
+      "path": "native/sqlite/memories_1.sqlite",
+      "kind": "file",
+      "bytes": 4096
+    },
+    {
+      "path": "native/sqlite/memories_1.sqlite-shm",
+      "kind": "file",
+      "bytes": 32768
+    },
+    {
+      "path": "native/sqlite/memories_1.sqlite-wal",
+      "kind": "file",
+      "bytes": 86552
+    },
+    {
+      "path": "native/sqlite/queue_1.sqlite",
+      "kind": "file",
+      "bytes": 4096
+    },
+    {
+      "path": "native/sqlite/queue_1.sqlite-shm",
+      "kind": "file",
+      "bytes": 32768
+    },
+    {
+      "path": "native/sqlite/queue_1.sqlite-wal",
+      "kind": "file",
+      "bytes": 86552
+    },
+    {
+      "path": "native/sqlite/state_5.sqlite",
+      "kind": "file",
+      "bytes": 4096
+    },
+    {
+      "path": "native/sqlite/state_5.sqlite-shm",
+      "kind": "file",
+      "bytes": 32768
+    },
+    {
+      "path": "native/sqlite/state_5.sqlite-wal",
+      "kind": "file",
+      "bytes": 1940552
+    },
+    {
+      "path": "parent",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/home",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/artifacts",
+      "kind": "dir"
+    },
+    {
+      "path": "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/artifacts/0e079f5ab70641aa6594004c5e042a08527a5dc81d7fb33dbccdad02aee36d1c",
+      "kind": "file",
+      "bytes": 1239
+    },
+    {
+      "path": "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/artifacts/197675e3bf220f0907b86b3a47cca219317e053d170de316c961f462189053cf",
+      "kind": "file",
+      "bytes": 2983
+    },
+    {
+      "path": "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/stderr.log",
+      "kind": "file",
+      "bytes": 1239
+    },
+    {
+      "path": "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/stdout.log",
+      "kind": "file",
+      "bytes": 2983
+    },
+    {
+      "path": "parent/logs/receipt-322c4f4a-c2fa-4019-b42d-886fd691461e.json",
+      "kind": "file",
+      "bytes": 25813
+    },
+    {
+      "path": "parent/tmp",
+      "kind": "dir"
+    },
+    {
+      "path": "scratch",
+      "kind": "dir"
+    },
+    {
+      "path": "scratch/home",
+      "kind": "dir"
+    },
+    {
+      "path": "scratch/tmp",
+      "kind": "dir"
+    },
+    {
+      "path": "stage",
+      "kind": "dir"
+    },
+    {
+      "path": "stage/source",
+      "kind": "dir"
+    }
+  ],
+  "logs": {
+    "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/stderr.log": {
+      "bytes": 1239,
+      "content": "2026-09-29T07:26:22.055948Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n2026-09-29T07:26:22.230897Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n2026-09-29T07:26:22.624801Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n2026-09-29T07:26:23.181753Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n2026-09-29T07:26:24.093505Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n2026-09-29T07:26:25.983625Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n2026-09-29T07:26:29.066921Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses\n"
+    },
+    "parent/logs/322c4f4a-c2fa-4019-b42d-886fd691461e/stdout.log": {
+      "bytes": 2983,
+      "content": "{\"type\":\"thread.started\",\"thread_id\":\"01a0ec0e-b482-7480-b8d1-22705d9a8f6c\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a429425fdb6d6134-HAM)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a42942634e5cffcf-HAM)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a4294268fcdcffcf-HAM)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a4294274cece4f8d-HAM)\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a429428819ae6134-HAM\"}}\n{\"type\":\"error\",\"message\":\"Reconnecting... 1/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942889b56c48b-HAM, request id: req_92c67befc059447aa7012d80bdf0fe65)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a429428b9c1aae67-HAM, request id: req_0b81208d098e4e6981b7233c8b8db20c)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942901f449303-HAM, request id: req_9e116dbd349f4b3a9efcb4f32097ac1c)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942966c32444a-HAM, request id: req_9150ce9fc36e41dbbc9ed335be02b441)\"}\n{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942a37a14a898-HAM, request id: req_5887da5cb6724847a9b30fcddf7f5c72)\"}\n{\"type\":\"error\",\"message\":\"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942baebfc0fcc-HAM, request id: req_81b892932eaf4ca5918bc08874519cb8\"}\n{\"type\":\"turn.failed\",\"error\":{\"message\":\"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a42942baebfc0fcc-HAM, request id: req_81b892932eaf4ca5918bc08874519cb8\"}}\n"
+    }
+  },
+  "nativeLog": [],
+  "harness": "codex",
+  "receiptPath": "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P4-rerun-UxEfyB/runs/run-e1cb98ce7d1d9a8458ed7da046492ea3/parent/logs/receipt-322c4f4a-c2fa-4019-b42d-886fd691461e.json"
+}

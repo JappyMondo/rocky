@@ -1,0 +1,46 @@
+{
+  "probeId": "CX-P3",
+  "binary": {
+    "path": "/opt/homebrew/Caskroom/codex/0.157.1/bin/codex",
+    "sha256": "27ceb5f9b957b43a519efe4eaa3816a0bffb0a531a2c89af18840c0a3c016a7d",
+    "bytes": 238223808,
+    "version": "0.157.1",
+    "buildTime": null,
+    "sourceCommit": "36650394c5b38c2990ccf2a3457165ca3e9d9726"
+  },
+  "settlement": {
+    "stage": "blocked",
+    "blocker": "needs_engineering"
+  },
+  "dispatchErr": null,
+  "command": {
+    "state": "finished",
+    "outcome": "failed",
+    "exitCode": 1,
+    "signal": null,
+    "duplexFailure": null
+  },
+  "sealedEnvKeyNames": [
+    "HOME",
+    "CODEX_HOME",
+    "TMPDIR",
+    "PATH",
+    "LANG"
+  ],
+  "threadStarted": false,
+  "apiFallback": false,
+  "forcedLoginLogout": false,
+  "codexHomeGains": [
+    "installation_id",
+    "tmp",
+    "tmp/arg0",
+    "tmp/arg0/codex-arg0e3WMD2",
+    "tmp/arg0/codex-arg0e3WMD2/.lock",
+    "tmp/arg0/codex-arg0e3WMD2/apply_patch",
+    "tmp/arg0/codex-arg0e3WMD2/applypatch",
+    "tmp/arg0/codex-arg0e3WMD2/codex-execve-wrapper"
+  ],
+  "codexHomeChanged": [],
+  "stdoutHead": "",
+  "stderrHead": ""
+}

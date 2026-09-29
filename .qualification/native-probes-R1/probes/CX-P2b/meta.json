@@ -1,0 +1,32 @@
+{
+  "probeId": "CX-P2b",
+  "argv": [
+    "exec",
+    "--json",
+    "--color",
+    "never",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--strict-config",
+    "--output-schema",
+    "/private/var/folders/0s/94wd01s17jsdg_7jk3zfqsd40000gn/T/opencode/native-probes-r1-CX-P2b-uE3zht/final.request.schema.json",
+    "--model",
+    "gpt-6-sol",
+    "--ephemeral",
+    "-c",
+    "rocky_unknown_probe_key=1",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "--",
+    "-"
+  ],
+  "exitCode": 1,
+  "signal": null,
+  "wallMs": 41,
+  "timedOut": false,
+  "stdinNote": null,
+  "threadStarted": false,
+  "stdoutHead": "",
+  "stderrHead": "Error loading config.toml: unknown configuration field `rocky_unknown_probe_key` in -c/--config override\n"
+}

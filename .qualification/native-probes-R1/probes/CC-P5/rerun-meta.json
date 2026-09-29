@@ -1,0 +1,42 @@
+{
+  "probeId": "CC-P5",
+  "rerun": true,
+  "obs": {
+    "pairs": {
+      "userTrue": {
+        "settlement": {
+          "stage": "blocked",
+          "blocker": "needs_engineering"
+        },
+        "dispatchErr": null,
+        "commandOutcome": "failed",
+        "exitCode": 1,
+        "frameCount": 0,
+        "cfgGains": [
+          ".claude.json",
+          "backups",
+          "backups/.claude.json.backup.1790666763275",
+          "sessions"
+        ],
+        "sealedEnvHasUSER": true
+      },
+      "userFalse": {
+        "settlement": {
+          "stage": "blocked",
+          "blocker": "needs_engineering"
+        },
+        "dispatchErr": null,
+        "commandOutcome": "failed",
+        "exitCode": 1,
+        "frameCount": 0,
+        "cfgGains": [
+          ".claude.json",
+          "backups",
+          "backups/.claude.json.backup.1790666764352",
+          "sessions"
+        ],
+        "sealedEnvHasUSER": false
+      }
+    }
+  }
+}
