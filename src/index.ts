@@ -20,3 +20,4 @@ export * from "./agents/stock-response.js";
 export * from "./agents/seam.js";
 export * from "./agents/claude-code/index.js";
 export * from "./agents/codex-exec/index.js";
+export * from "./agents/opencode/index.js";

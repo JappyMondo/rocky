@@ -1,0 +1,5 @@
+
+> @jappymondo/rocky-next@0.1.0 typecheck
+> tsc --noEmit
+
+typecheck exit: 0

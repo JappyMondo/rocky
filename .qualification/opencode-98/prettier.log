@@ -1,0 +1,4 @@
+$ npx prettier --check src/agents/opencode/*.ts src/index.ts tests/opencode-*.mjs tests/fixtures/opencode-fake-cli.mjs docs/opencode-adapter.md
+Checking formatting...
+All matched files use Prettier code style!
+prettier-exit=0
