@@ -96,3 +96,20 @@ Recorded in the final handoff report and in on-disk-only logs under
 `.qualification/codex-exec-81/` (`build-postcommit.log`,
 `test-full-postcommit.log`) generated after the single clean commit; this
 handoff-checks.md is committed once and is not edited after the commit.
+
+## Post-commit evidence retention
+
+A dedicated evidence-retention commit (this one; supersedes the "on-disk only"
+note above for the small evidence files) adds the three post-commit logs that
+were generated after the implementation commit `154026c` but never committed:
+
+- `typecheck-postcommit.log` — exit 0, no diagnostics.
+- `build-postcommit.log` — buildId `c20e44b7…`, sourceCommit `154026c`,
+  sourceDirty false.
+- `test-full-postcommit.log` — 376 tests / 375 pass / 0 fail / 1 skipped.
+
+`artifacts/**` remains deliberately on-disk only (per the documented convention
+in "Test-artifact retention" above). `evidence.sha256` hashes only the 20
+delivered source/test/doc files and never listed logs, so it is unchanged.
+Independent reviews (#86, range `84a699d..154026c`) both returned ACCEPTED with
+zero blocking findings on 2026-09-29.
