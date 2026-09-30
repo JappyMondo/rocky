@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -9,6 +15,7 @@ import { serve } from "../dist/daemon/server.js";
 import { defaults } from "../dist/daemon/config.js";
 import { execute, GitHub } from "../dist/delivery/github.js";
 import { OpencodeAdapter } from "../dist/agents/opencode/index.js";
+import { delay } from "../dist/runner/process.js";
 import {
   opencodeFixture,
   finalProposal,
@@ -189,12 +196,15 @@ test("HTTP config persistence, truthful preflight blocker, local origin gate and
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
     const changed = { ...defaults, task: "A scoped UI task" };
+    const profile = await (await request("/api/preflight")).json();
+    assert.equal(profile.model, null);
+    assert.deepEqual(profile.roles, []);
     assert.equal((await request("/api/config", "PUT", changed)).status, 200);
     assert.deepEqual(await (await request("/api/config")).json(), changed);
     const blocked = await (await request("/api/runs", "POST", {})).json();
     assert.equal(blocked.phase, "blocked");
     assert.equal(blocked.snapshot, null);
-    assert.match(blocked.message, /not implemented/);
+    assert.match(blocked.message, /rocky-next setup/);
     const hostile = await fetch(app.url + "/api/runs", {
       method: "POST",
       headers: {
@@ -218,6 +228,93 @@ test("HTTP config persistence, truthful preflight blocker, local origin gate and
   assert.equal(restarted.config().task, "A scoped UI task");
   assert.equal(restarted.runs().length, 1);
   await restarted.close();
+});
+
+test("startup freezes the authority and runtime actually validated by preflight", async () => {
+  const f = fixture("frozen-preflight");
+  let authorities = 0,
+    runtimes = 0;
+  f.service.authority = () => {
+    authorities++;
+    return authorities === 1
+      ? f.deps.authority
+      : { ...f.deps.authority, repository: "wrong/target" };
+  };
+  f.service.runtime = () => {
+    runtimes++;
+    return f.deps.runtime;
+  };
+  try {
+    const run = await f.service.start();
+    await f.service.idle();
+    assert.equal(
+      f.service.detail(run.id).phase,
+      "awaiting_ci",
+      f.service.detail(run.id).message,
+    );
+    assert.equal(authorities, 1);
+    assert.equal(runtimes, 1);
+    assert.equal(
+      f.service.store.operatorRecord("authority/" + run.id).repository,
+      "synthetic/target",
+    );
+    const profile = await f.service.preflight();
+    assert.deepEqual(
+      profile.roles.map((r) => r.steps),
+      [
+        f.deps.runtime.roles.implementer.steps,
+        f.deps.runtime.roles.reviewer.steps,
+      ],
+    );
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("cancelling a running local check drains its command and prevents agent or publication", async () => {
+  const f = fixture("cancel-check");
+  writeFileSync(
+    join(f.repo, "check.mjs"),
+    "import {writeFileSync} from 'node:fs';writeFileSync('check-started', String(process.pid));setInterval(() => {}, 1000);\n",
+  );
+  execFileSync("git", ["add", "."], { cwd: f.repo });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@localhost",
+      "commit",
+      "-m",
+      "slow check",
+    ],
+    { cwd: f.repo, stdio: "pipe" },
+  );
+  try {
+    const run = await f.service.start();
+    const deadline = Date.now() + 10000;
+    while (
+      !existsSync(join(f.service.run(run.id).workspace, "check-started"))
+    ) {
+      assert.ok(Date.now() < deadline, "check started within deadline");
+      await delay(25);
+    }
+    await f.service.cancel(run.id);
+    await f.service.idle();
+    const commands = f.service.store.commands(run.id);
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].state, "finished");
+    assert.equal(commands[0].result.outcome, "cancelled");
+    assert.equal(f.service.store.get(run.id).cancelled, true);
+    assert.equal(f.counts().drafts, 0);
+    assert.match(
+      readFileSync(join(f.service.run(run.id).workspace, "index.mjs"), "utf8"),
+      /before/,
+    );
+  } finally {
+    await f.service.close();
+  }
 });
 
 test("real SQLite + fake OpenCode process: checks, draft, CI/review, exact-head approval, merge and manual closeout", async () => {

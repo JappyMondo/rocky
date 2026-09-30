@@ -49,6 +49,8 @@ export interface CheckRecipe {
 }
 /** Reviewed setup facts, deliberately unavailable through the web API. No credentials. */
 export interface HostAuthority {
+  task?: string;
+  profile?: string;
   repository: string;
   liveApproval: string;
   nativeProbeEvidence: string;
@@ -97,8 +99,8 @@ export function validateOperatorConfig(value: unknown): OperatorConfig {
       v[key] > (key === "reportedTokenThreshold" ? 10000000 : 1440)
     )
       throw new Error(`Invalid ${key}`);
-  if (v.totalMinutes < v.actionMinutes * 5)
-    throw new Error("Total time must reserve at least five action allowances");
+  if (v.totalMinutes < v.actionMinutes * 4)
+    throw new Error("Total time must reserve at least four action allowances");
   return structuredClone(v);
 }
 export function readAuthority(home: string): HostAuthority | null {
@@ -149,14 +151,14 @@ export function buildRuntime(
     roles: {
       implementer: {
         model: OPENCODE_PINNED_MODEL,
-        steps: 32,
+        steps: authority.profile === "attraccess-att764-v1" ? 12 : 32,
         prompt:
           common +
           " Implement the scoped behavior and its tests; preserve all existing acceptance checks.",
       },
       reviewer: {
         model: OPENCODE_PINNED_MODEL,
-        steps: 12,
+        steps: authority.profile === "attraccess-att764-v1" ? 6 : 12,
         prompt:
           common +
           " Review independently using read-only tools. Complete means no blocking findings; failed means blocking findings. Include concrete findings in summary.",
@@ -224,7 +226,7 @@ export function setup(home: string) {
     });
   } catch {
     binaryStatus = existsSync(binaryPath)
-      ? "Installed binary differs from supported 1.18.32 identity; qualification required"
+      ? `Installed binary differs from supported ${OPENCODE_PINNED_VERSION} identity; qualification required`
       : "OpenCode is not installed";
   }
   return {

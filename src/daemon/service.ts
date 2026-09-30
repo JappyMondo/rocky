@@ -1,4 +1,13 @@
 import {
+  ATT764_RECIPE,
+  ATT764_TASK,
+  currentCheckRecipe,
+  discoverCurrent,
+  stageATT764,
+  applyATT764,
+  freezeATT764Instructions,
+} from "../attraccess/current.js";
+import {
   cpSync,
   openSync,
   closeSync,
@@ -10,7 +19,7 @@ import {
   readFileSync,
   rmSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { Store, type Lease, type Versions } from "../store/index.js";
@@ -230,16 +239,65 @@ export class OperatorService extends EventEmitter {
       this.deps.runtime ?? buildRuntime(this.home, authority, this.versions)
     );
   }
-  async preflight(config = this.config()) {
+  async preflight(
+    config = this.config(),
+    capture?: (
+      authority: HostAuthority,
+      runtime: OpencodeConfig,
+      target: Json | null,
+    ) => void,
+  ) {
     const blockers: string[] = [];
+    let target: Json | null = null;
+    let runtime: OpencodeConfig | null = null;
     if (!config.repositoryPath)
       blockers.push(
         "Choose a local target checkout. Rocky creates its own copy and does not edit the original.",
       );
-    if (config.repository.toLowerCase() === "attraccess/attraccess")
-      blockers.push(
-        "Attraccess checks are not connected to this workspace yet (integration not implemented).",
-      );
+    if (config.repository.toLowerCase() === "attraccess/attraccess") {
+      for (let dir = resolve(this.home); ; ) {
+        if (existsSync(join(dir, ".git"))) {
+          blockers.push(
+            "Choose ROCKY_NEXT_HOME outside a Git checkout for isolated OpenCode runs.",
+          );
+          break;
+        }
+        if (dirname(dir) === dir) break;
+        dir = dirname(dir);
+      }
+      try {
+        const profile = JSON.parse(
+          readFileSync(join(this.home, "target.json"), "utf8"),
+        );
+        const source = discoverCurrent(
+          config.repositoryPath,
+          join(this.home, "attraccess"),
+        );
+        const baseHead = await this.exec(
+          "git",
+          ["rev-parse", config.baseBranch],
+          config.repositoryPath,
+        );
+        if (
+          profile.recipe !== ATT764_RECIPE ||
+          profile.base !== source.commit ||
+          baseHead !== profile.base ||
+          canonical(profile.recipeFiles) !== canonical(source.recipeFiles)
+        )
+          throw new Error("Prepared source has changed");
+        if (config.task !== ATT764_TASK) throw new Error("Unsupported task");
+        target = profile;
+        await this.exec(
+          "docker",
+          ["info", "--format", "{{.ServerVersion}}"],
+          this.home,
+        );
+      } catch {
+        blockers.push(
+          "Prepare this checkout with rocky-next setup /path/to/attraccess (Docker must be running).",
+        );
+      }
+    }
     if (!config.task.trim())
       blockers.push("Describe the scoped coding task and acceptance criteria.");
     let authority: HostAuthority | null = null;
@@ -257,6 +315,18 @@ export class OperatorService extends EventEmitter {
       authority.repository.toLowerCase() !== config.repository.toLowerCase()
     )
       blockers.push("The target is outside the approved host authority.");
+    if (authority?.task && authority.task !== config.task)
+      blockers.push("The task differs from the approved ATT-764 scope.");
+    if (
+      authority &&
+      config.repository.toLowerCase() === "attraccess/attraccess" &&
+      (authority.profile !== ATT764_RECIPE ||
+        authority.task !== ATT764_TASK ||
+        canonical(authority.checks) !== canonical([currentCheckRecipe()]))
+    )
+      blockers.push(
+        "Host authority must use the prepared ATT-764 check recipe.",
+      );
     if (config.repositoryPath) {
       try {
         const root = await this.exec(
@@ -292,6 +362,7 @@ export class OperatorService extends EventEmitter {
     if (authority)
       try {
         const rt = this.runtime(authority);
+        runtime = rt;
         assertBinaryIdentity(rt.binary);
         if (
           !assertOpencodeDataHomeIsolation(
@@ -311,18 +382,29 @@ export class OperatorService extends EventEmitter {
       } catch {
         blockers.push("Run gh auth login for target PR and CI access.");
       }
+    if (!blockers.length && authority && runtime)
+      capture?.(
+        structuredClone(authority),
+        structuredClone(runtime),
+        structuredClone(target),
+      );
     return {
       technicalDetails: !authority
-        ? "authority.json is absent: accepted live-run authority, native OpenCode probe evidence, credential-boundary decision, execution qualification and reviewed target checks are required. Setup does not grant itself live authority. The historical Attraccess fixture adapter cannot consume a current-head workspace yet."
+        ? "authority.json is absent: accepted live-run authority, native OpenCode probe evidence, credential-boundary decision, execution qualification and reviewed target checks are required. Setup does not grant itself live authority. Current Attraccess setup prepares the owned ATT-764 environment and checks."
         : "Host authority is frozen for each admitted run.",
       ready: !blockers.length,
       blockers,
       harness: "opencode",
-      model: "alibaba-token-plan/qwen3.8-max",
-      roles: [
-        { role: "Implementer", steps: 32 },
-        { role: "Independent reviewer", steps: 12 },
-      ],
+      model: runtime?.roles.implementer.model ?? null,
+      roles: runtime
+        ? [
+            { role: "Implementer", steps: runtime.roles.implementer.steps },
+            {
+              role: "Independent reviewer",
+              steps: runtime.roles.reviewer.steps,
+            },
+          ]
+        : [],
       checks: authority?.checks.map((c) => c.name) ?? [],
       requiredCI: authority?.requiredCI ?? [],
     };
@@ -339,8 +421,17 @@ export class OperatorService extends EventEmitter {
       );
     this.starting = true;
     try {
-      const config = this.config(),
-        preflight = await this.preflight(config);
+      const config = this.config();
+      const frozen: {
+        authority?: HostAuthority;
+        runtime?: OpencodeConfig;
+        target?: Json | null;
+      } = {};
+      const preflight = await this.preflight(
+        config,
+        (authority, runtime, target) =>
+          Object.assign(frozen, { authority, runtime, target }),
+      );
       const id = randomUUID();
       const run: OperatorRun = {
         id,
@@ -362,9 +453,11 @@ export class OperatorService extends EventEmitter {
       };
       this.save(run);
       if (preflight.ready) {
-        const authority = this.authority()!;
+        const authority = frozen.authority!;
         this.store.saveOperatorRecord("authority/" + id, authority);
-        this.store.saveOperatorRecord("runtime/" + id, this.runtime(authority));
+        this.store.saveOperatorRecord("runtime/" + id, frozen.runtime!);
+        if (authority.profile === ATT764_RECIPE)
+          this.store.saveOperatorRecord("target/" + id, frozen.target!);
         this.launch(run, () => this.pipeline(run));
       }
       return this.detail(id);
@@ -373,7 +466,8 @@ export class OperatorService extends EventEmitter {
     }
   }
   private launch(run: OperatorRun, work: () => Promise<void>) {
-    const pending = work()
+    const pending = Promise.resolve()
+      .then(work)
       .catch((e) => {
         run.phase =
           this.store.coordinatorSnapshot(run.id)?.execution ||
@@ -411,6 +505,11 @@ export class OperatorService extends EventEmitter {
       this.leases.set(run.id, l);
     } else this.store.renew(l, 60000);
     return l;
+  }
+  private assertActive(run: OperatorRun) {
+    if (this.stopping || this.run(run.id).phase === "cancelled")
+      throw new Error("Run cancelled; owned work retained");
+    this.store.assertLease(this.lease(run));
   }
   private apply(
     run: OperatorRun,
@@ -500,6 +599,7 @@ export class OperatorService extends EventEmitter {
     const results: unknown[] = [];
     let passed = true;
     for (const check of authority.checks) {
+      this.assertActive(run);
       const remaining = Math.min(
         action.deadline - Date.now(),
         run.config.actionMinutes * 60000,
@@ -507,7 +607,15 @@ export class OperatorService extends EventEmitter {
       if (remaining < 1) throw new Error("Check deadline exceeded");
       const record = await runner.run(l, {
         file: check.file,
-        args: check.args,
+        args:
+          authority.profile === ATT764_RECIPE
+            ? [
+                ...check.args,
+                kind === "baseline" ? "baseline" : "product",
+                join(this.home, "attraccess"),
+                run.base,
+              ]
+            : check.args,
         cwd: run.workspace,
         timeoutMs: remaining,
         cleanupMs: 1000,
@@ -519,6 +627,7 @@ export class OperatorService extends EventEmitter {
           "Check process quiescence unresolved; recovery required",
         );
       const r = record.result as unknown as CommandResult | null;
+      this.assertActive(run);
       results.push({ name: check.name, result: r });
       for (const path of [r?.stdout, r?.stderr])
         if (path && existsSync(path))
@@ -586,9 +695,19 @@ export class OperatorService extends EventEmitter {
       summary: "Describe the change or concrete blocking findings",
     };
     const prompt = `Task and acceptance criteria:\n${run.config.task}\n\n${kind === "review" ? `Review the diff and current evidence independently. Outcome failed for blockers; complete only with no blockers.\nDiff:\n${run.diff.slice(0, 180000)}\nChecks/CI:\n${canonical(this.store.coordinatorSnapshot(run.id)!.receipts)}` : "Implement only this task. Do not edit .github workflows, weaken tests, or access files outside the source tree."}\n\nFinal response must be exactly one JSON object with this shape and these bindings (set outcome and summary truthfully):\n${JSON.stringify(protocol)}`;
+    const repositoryInstructions =
+      this.store.operatorRecord<string>("instructions/" + run.id) ?? "";
     const plan = adapter.prepareLaunch(action, {
-      prompt,
-      stage: (src) => copySource(run.workspace, src),
+      prompt:
+        prompt +
+        (repositoryInstructions
+          ? "\n\nFrozen repository instructions (host captured):\n" +
+            repositoryInstructions
+          : ""),
+      stage: (src) =>
+        authority.profile === ATT764_RECIPE
+          ? stageATT764(run.workspace, src)
+          : copySource(run.workspace, src),
     });
     const transport: CoordinatorTransport = {
       versions: this.versions,
@@ -597,6 +716,7 @@ export class OperatorService extends EventEmitter {
       interrupt: (a) => adapter.interrupt(a),
       begin: async (a) => {
         const result = await adapter.begin(a);
+        this.assertActive(run);
         if (kind === "review") {
           if (result.head !== plan.headPre)
             return {
@@ -608,14 +728,19 @@ export class OperatorService extends EventEmitter {
           return { ...result, head: run.head };
         }
         if (result.outcome === "changed" && result.quiescent) {
-          for (const name of readdirSync(run.workspace))
-            if (name !== ".git")
-              rmSync(join(run.workspace, name), {
-                recursive: true,
-                force: true,
-              });
-          copySource(plan.paths.src, run.workspace);
+          if (authority.profile === ATT764_RECIPE) {
+            applyATT764(plan.paths.src, run.workspace);
+          } else {
+            for (const name of readdirSync(run.workspace))
+              if (name !== ".git")
+                rmSync(join(run.workspace, name), {
+                  recursive: true,
+                  force: true,
+                });
+            copySource(plan.paths.src, run.workspace);
+          }
           await this.exec("git", ["add", "--all"], run.workspace);
+          this.assertActive(run);
           const changed = await this.exec(
             "git",
             ["diff", "--cached", "--name-only"],
@@ -643,6 +768,7 @@ export class OperatorService extends EventEmitter {
             ],
             run.workspace,
           );
+          this.assertActive(run);
           run.head = await this.exec(
             "git",
             ["rev-parse", "HEAD"],
@@ -690,6 +816,7 @@ export class OperatorService extends EventEmitter {
     payload: unknown,
     begin: () => Promise<T>,
   ): Promise<T> {
+    this.assertActive(run);
     const l = this.lease(run),
       key = `operator/${run.id}/${kind}/${run.head}`;
     this.store.intent(l, {
@@ -745,6 +872,19 @@ export class OperatorService extends EventEmitter {
       ["rev-parse", "HEAD"],
       run.workspace,
     );
+    if (authority.profile === ATT764_RECIPE) {
+      const frozen = this.store.operatorRecord("target/" + run.id) as {
+        base: string;
+      };
+      if (!frozen || frozen.base !== run.base)
+        throw new Error(
+          "Prepared source changed before clone; run setup again",
+        );
+      this.store.saveOperatorRecord(
+        "instructions/" + run.id,
+        freezeATT764Instructions(run.workspace),
+      );
+    }
     this.store.admitCoordinator({
       runId: run.id,
       repository: run.config.repository,
@@ -783,6 +923,7 @@ export class OperatorService extends EventEmitter {
     await this.localChecks(run, "baseline", authority);
     if (!(await this.agent(run, "implement", authority))) return;
     await this.localChecks(run, "checks", authority);
+    this.assertActive(run);
     run.phase = "publishing";
     run.message = "Publishing draft PR";
     this.save(run);
@@ -798,7 +939,7 @@ export class OperatorService extends EventEmitter {
           run.head,
           run.workspace,
           run.config.task,
-          () => this.store.assertLease(this.lease(run)),
+          () => this.assertActive(run),
         ),
     );
     run.phase = "awaiting_ci";
@@ -979,11 +1120,13 @@ export class OperatorService extends EventEmitter {
     if (!this.store.coordinatorSnapshot(id))
       throw new Error("Run has no active workflow");
     this.apply(run, { type: "cancel" });
+    this.store.cancel(id);
     const adapter = this.adapters.get(id);
-    if (adapter) this.store.interruptCoordinator(this.lease(run), adapter);
+    const lease = this.leases.get(id);
     run.phase = "cancelled";
     run.message = "Cancellation requested; owned processes are being drained";
     this.save(run);
+    if (adapter && lease) this.store.interruptCoordinator(lease, adapter);
   }
   async idle() {
     await Promise.all([...this.active.values()]);

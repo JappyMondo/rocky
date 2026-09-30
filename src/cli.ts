@@ -10,6 +10,7 @@ import {
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setupAttraccess } from "./attraccess/setup.js";
 import { configure } from "./config/index.js";
 import { homePath, setup } from "./daemon/config.js";
 import { OperatorService } from "./daemon/service.js";
@@ -48,7 +49,15 @@ try {
     const report = setup(home);
     const service = new OperatorService(home);
     await service.close();
-    console.log(JSON.stringify(report, null, 2));
+    console.log(
+      JSON.stringify(
+        arg
+          ? { ...report, attraccess: await setupAttraccess(home, arg) }
+          : report,
+        null,
+        2,
+      ),
+    );
   } else if (command === "status") {
     const m = current();
     console.log(m ? `Running at ${m.url} (pid ${m.process.pid})` : "Stopped");

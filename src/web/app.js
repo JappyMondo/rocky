@@ -32,6 +32,15 @@ for (const b of document.querySelectorAll(".tab"))
   b.onclick = () => view(b.dataset.view);
 async function preflight() {
   const p = await api("/preflight");
+  $("#profile-model").textContent =
+    p.model ?? "Runtime unavailable — complete host setup";
+  $("#profile-roles").replaceChildren(
+    ...p.roles.map((role) => {
+      const row = el("div", undefined, "role");
+      row.append(el("span", role.role), el("b", role.steps + " steps"));
+      return row;
+    }),
+  );
   const box = $("#preflight");
   box.replaceChildren(
     el(
