@@ -7,6 +7,12 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { assertHostAdmission } from "./host.js";
+import {
+  materializeDependencies,
+  dependencyInventory,
+} from "./dependencies.js";
+import { retainImmutable } from "./retention.js";
 import { join, resolve } from "node:path";
 import {
   Store,
@@ -149,18 +155,30 @@ export class OpencodeAdapter {
   #lease: Lease;
   #runner: DuplexRunner;
   #sourceEnv: Record<string, string | undefined>;
+  #renewLease = true;
+  #exportSignal?: AbortSignal;
+  #canStart: () => boolean = () => true;
+  #settling = new Map<string, Promise<ResultEvent>>();
   #plans = new Map<string, OpencodeLaunchPlan>();
   constructor(
     store: Store,
     lease: Lease,
     config: unknown,
-    options: { sourceEnv?: Record<string, string | undefined> } = {},
+    options: {
+      sourceEnv?: Record<string, string | undefined>;
+      renewLease?: boolean;
+      canStart?: () => boolean;
+      exportSignal?: AbortSignal;
+    } = {},
   ) {
     this.#store = store;
     this.#lease = JSON.parse(canonical(lease)) as Lease;
     this.config = validateOpencodeConfig(config);
     this.#runner = new DuplexRunner(store);
     this.#sourceEnv = options.sourceEnv ?? process.env;
+    this.#renewLease = options.renewLease !== false;
+    if (options.exportSignal) this.#exportSignal = options.exportSignal;
+    this.#canStart = options.canStart ?? (() => true);
     store.assertLease(this.#lease);
     this.qualification = this.config.qualification;
     this.versions = this.config.versions;
@@ -177,6 +195,8 @@ export class OpencodeAdapter {
     const role = this.#role(frozen);
     assertOpencodeSourceEnvAdmissible(this.#sourceEnv);
     const config = this.config;
+    if (config.evidenceClass === "live-subscription")
+      assertHostAdmission(config);
     const limits = config.limits;
     const now = this.#store.clock();
     if (frozen.deadline <= now + limits.cleanupReserveMs + limits.killGraceMs)
@@ -200,6 +220,11 @@ export class OpencodeAdapter {
     const runRoot = join(runsRoot, `run-${digest(frozen.key).slice(0, 32)}`);
     const paths = createOpencodeRunTree(runRoot);
     input.stage?.(paths.src);
+    if (config.hostAdmission)
+      materializeDependencies(
+        config.hostAdmission.dependencies,
+        paths.configHome,
+      );
     const inventoryPre = inventoryOpencodeIsolation({
       config,
       paths,
@@ -318,6 +343,7 @@ export class OpencodeAdapter {
    * deadline/binary rehash) is rechecked by the store and the gate inside the guarded spawn; C3
    * queues the exact prompt bytes plus one EOF (durable attempted-before-IO, never resent). */
   begin(action: Readonly<Action>): Promise<ResultEvent> {
+    if (!this.#canStart()) throw namedError("opencode-worker-disconnected");
     const plan = this.#plans.get(action.key);
     if (!plan) throw namedError("opencode-launch-not-prepared");
     if (canonical(plan.action) !== canonical(action))
@@ -355,21 +381,29 @@ export class OpencodeAdapter {
   plan(actionKey: string): OpencodeLaunchPlan | undefined {
     return this.#plans.get(actionKey);
   }
-  async #settle(plan: OpencodeLaunchPlan, id: string): Promise<ResultEvent> {
-    const { record, quiescent } = await this.#runner.wait(this.#lease, id);
-    const settlement = this.settleCommand(plan, id, record, quiescent);
-    return settlementToResultEvent(settlement, plan.action);
+  #settle(plan: OpencodeLaunchPlan, id: string): Promise<ResultEvent> {
+    const old = this.#settling.get(id);
+    if (old) return old;
+    const pending = (async () => {
+      const { record, quiescent } = await this.#runner.wait(this.#lease, id, {
+        renewLease: this.#renewLease,
+      });
+      const settlement = await this.settleCommand(plan, id, record, quiescent);
+      return settlementToResultEvent(settlement, plan.action);
+    })();
+    this.#settling.set(id, pending);
+    return pending;
   }
   /** C5 settlement from the durable command record: post-run rehash (isolation inventory +
    * binary), strict stream decode, classification, the MANDATORY export-audit success conjunct,
    * usage mapping, host-derived head and the receipt. Also the reconciliation entrypoint after a
    * restart: it observes an existing terminal command and never relaunches. */
-  settleCommand(
+  async settleCommand(
     plan: OpencodeLaunchPlan,
     id: string,
     record?: CommandRecord,
     quiescent?: boolean,
-  ): AgentSettlement {
+  ): Promise<AgentSettlement> {
     const rec = record ?? this.#store.command(id);
     if (!rec || rec.runId !== plan.action.runId)
       throw namedError("opencode-command-not-found");
@@ -382,9 +416,9 @@ export class OpencodeAdapter {
       rec.state === "finished" &&
       duplex.stdoutEof === true &&
       duplex.stderrEof === true &&
-      (quiescent ?? true);
+      quiescent === true;
     const settledAt = this.#store.clock();
-    const post = this.#measurePostRun(plan);
+    let post = this.#measurePostRun(plan);
     let verdict: OpencodeStreamVerdict | null = null;
     let decodeError: string | null = null;
     let exportAudit: OpencodeExportAudit | null = null;
@@ -456,27 +490,47 @@ export class OpencodeAdapter {
           inputDigest: plan.action.inputDigest,
         },
       });
-      if (verdict.settlement === "complete" && verdict.sessionId) {
+      if (
+        verdict.settlement === "complete" &&
+        verdict.sessionId &&
+        this.#canStart()
+      ) {
         // The export audit is a REQUIRED success conjunct (F25/PART 4 §2): it runs only after
         // physical quiescence, in the same sealed env, against the same isolated OPENCODE_DB.
         exportRawPath = opencodeExportRawPath(plan.paths, rec.id);
         const [, modelID] = splitModel(this.config.roles[plan.role].model);
-        exportAudit = runOpencodeExportAudit({
-          binaryPath: plan.bundle.binary.path,
-          env: plan.bundle.env,
-          cwd: plan.paths.src,
-          timeoutMs: this.config.limits.exportTimeoutMs,
-          maxExportBytes: this.config.limits.maxExportBytes,
-          retainPath: exportRawPath,
-          expectations: {
-            sessionId: verdict.sessionId,
-            version: this.config.binary.version,
-            directory: plan.paths.src,
-            providerID: OPENCODE_PINNED_PROVIDER,
-            modelID,
-            summedTokens: verdict.summedTokens,
-          },
-        });
+        let exportAllowed = true;
+        try {
+          this.#store.assertLease(this.#lease);
+        } catch {
+          exportAllowed = false;
+        }
+        if (exportAllowed)
+          exportAudit = await runOpencodeExportAudit({
+            start: (launch) =>
+              this.#store.guardedStart(this.#lease, () => {
+                if (!this.#canStart())
+                  throw namedError("opencode-worker-disconnected");
+                this.#store.assertDuplexAction(this.#lease, plan.action);
+                assertBinaryIdentity(plan.bundle.binary);
+                return launch();
+              }),
+            ...(this.#exportSignal ? { signal: this.#exportSignal } : {}),
+            binaryPath: plan.bundle.binary.path,
+            env: plan.bundle.env,
+            cwd: plan.paths.src,
+            timeoutMs: this.config.limits.exportTimeoutMs,
+            maxExportBytes: this.config.limits.maxExportBytes,
+            retainPath: exportRawPath,
+            expectations: {
+              sessionId: verdict.sessionId,
+              version: this.config.binary.version,
+              directory: plan.paths.src,
+              providerID: OPENCODE_PINNED_PROVIDER,
+              modelID,
+              summedTokens: verdict.summedTokens,
+            },
+          });
       }
       if (verdict.settlement === "complete" && exportAudit?.ok) {
         usage = mapOpencodeUsage({
@@ -526,6 +580,25 @@ export class OpencodeAdapter {
         detail = `opencode-${classification}:${primary}`;
       }
     }
+    post = this.#measurePostRun(plan);
+    if (post.drift.length && classification === "complete") {
+      classification = "unresolved";
+      outcome = "failed";
+      detail = "opencode-post-export-isolation-drift";
+    }
+    if (
+      this.config.evidenceClass === "live-subscription" &&
+      classification === "complete" &&
+      (usage.status !== "reported" ||
+        !verdict?.stepStartCount ||
+        !verdict.stepFinishCount ||
+        !exportAudit?.ok ||
+        exportAudit.divergence)
+    ) {
+      classification = "unresolved";
+      outcome = "failed";
+      detail = "opencode-first-live-observation-incomplete";
+    }
     const head = this.#derivePostHead(plan);
     const settlement: AgentSettlement = {
       schema: 1,
@@ -538,17 +611,34 @@ export class OpencodeAdapter {
       detail,
       proposal,
     };
-    this.#writeReceipt(
-      plan,
-      rec,
-      verdict,
-      settlement,
-      post,
-      exportAudit,
-      exportRawPath,
-      decodeError,
-      settledAt,
-    );
+    let retained: { path: string; sha256: string; bytes: number } | null = null;
+    try {
+      retained = this.#writeReceipt(
+        plan,
+        rec,
+        verdict,
+        settlement,
+        post,
+        exportAudit,
+        exportRawPath,
+        decodeError,
+        settledAt,
+      );
+    } catch {
+      settlement.classification = "unresolved";
+      settlement.outcome = "failed";
+      settlement.detail = "opencode-receipt-retention-failed";
+    }
+    this.#store.saveOperatorRecord("opencode-observation/" + plan.action.key, {
+      schema: 1,
+      actionKey: plan.action.key,
+      inputDigest: plan.action.inputDigest,
+      bundleDigest: plan.bundle.bundleDigest,
+      commandId: rec.id,
+      evidenceClass: this.config.evidenceClass,
+      receipt: retained,
+      settlement: JSON.parse(canonical(settlement)),
+    });
     return settlement;
   }
   #recheckBundle(plan: OpencodeLaunchPlan) {
@@ -570,6 +660,14 @@ export class OpencodeAdapter {
       prompt.bytes !== plan.bundle.input.bytes
     )
       throw namedError("opencode-bundle-drift:prompt");
+    if (this.config.evidenceClass === "live-subscription")
+      assertHostAdmission(this.config);
+    if (
+      this.config.hostAdmission &&
+      dependencyInventory(join(plan.paths.configHome, "opencode")) !==
+        this.config.hostAdmission.dependencies.inventorySha256
+    )
+      throw namedError("opencode-dependency-materialization-drift");
     const isolation = assertOpencodeDataHomeIsolation(
       this.config.dataHome,
       this.config.hostIdentity.userHome,
@@ -623,6 +721,17 @@ export class OpencodeAdapter {
       authProvisioned,
     });
     const drift = opencodeIsolationDrift(plan.inventoryPre, inventoryPost);
+    if (this.config.hostAdmission)
+      try {
+        if (
+          dependencyInventory(join(plan.paths.configHome, "opencode")) !==
+          this.config.hostAdmission.dependencies.inventorySha256
+        )
+          drift.push("dependency-materialization-drift");
+        assertHostAdmission(this.config);
+      } catch {
+        drift.push("host-admission-drift");
+      }
     if (dataHomeInadmissible) drift.push("data-home-inadmissible-post-run");
     if (authProvisioned !== plan.inventoryPre.authProvisioned)
       drift.push("auth-provisioning-changed");
@@ -677,45 +786,40 @@ export class OpencodeAdapter {
     decodeError: string | null,
     settledAt: number,
   ) {
-    try {
-      const receipt = assembleOpencodeReceipt({
-        actionKey: plan.action.key,
-        inputDigest: plan.action.inputDigest,
-        runId: plan.action.runId,
-        deadline: plan.action.deadline,
-        role: plan.role,
-        model: this.config.roles[plan.role].model,
-        agent: opencodeAgentName(plan.role),
-        paths: plan.paths,
-        record,
-        verdict,
-        settlement,
-        config: this.config,
-        binaryC0: plan.binaryC0,
-        binaryC5: post.binaryC5,
-        inventoryPre: plan.inventoryPre,
-        inventoryPost: post.inventoryPost,
-        drift: post.drift,
-        configContent: plan.configContent,
-        configContentSha256: plan.configContentSha256,
-        argvSha256: digest(canonical(plan.bundle.argv)),
-        envSha256: digest(canonical(plan.bundle.env)),
-        inputSha256: plan.bundle.input.sha256,
-        bundleDigest: plan.bundle.bundleDigest,
-        exportAudit,
-        exportRawPath:
-          exportRawPath && existsSync(exportRawPath) ? exportRawPath : null,
-        decodeError,
-        headPre: plan.headPre,
-        preparedAt: plan.preparedAt,
-        settledAt,
-      });
-      const path = opencodeReceiptPath(plan.paths, record.id);
-      writeFileSync(path, `${canonical(receipt)}\n`, { mode: 0o600 });
-      chmodSync(path, 0o600);
-    } catch {
-      // Receipt assembly is evidence, never a side effect that may mask the settlement itself.
-    }
+    const receipt = assembleOpencodeReceipt({
+      actionKey: plan.action.key,
+      inputDigest: plan.action.inputDigest,
+      runId: plan.action.runId,
+      deadline: plan.action.deadline,
+      role: plan.role,
+      model: this.config.roles[plan.role].model,
+      agent: opencodeAgentName(plan.role),
+      paths: plan.paths,
+      record,
+      verdict,
+      settlement,
+      config: this.config,
+      binaryC0: plan.binaryC0,
+      binaryC5: post.binaryC5,
+      inventoryPre: plan.inventoryPre,
+      inventoryPost: post.inventoryPost,
+      drift: post.drift,
+      configContent: plan.configContent,
+      configContentSha256: plan.configContentSha256,
+      argvSha256: digest(canonical(plan.bundle.argv)),
+      envSha256: digest(canonical(plan.bundle.env)),
+      inputSha256: plan.bundle.input.sha256,
+      bundleDigest: plan.bundle.bundleDigest,
+      exportAudit,
+      exportRawPath:
+        exportRawPath && existsSync(exportRawPath) ? exportRawPath : null,
+      decodeError,
+      headPre: plan.headPre,
+      preparedAt: plan.preparedAt,
+      settledAt,
+    });
+    const path = opencodeReceiptPath(plan.paths, record.id);
+    return retainImmutable(path, `${canonical(receipt)}\n`);
   }
 }
 /** Split the model string on the FIRST '/' (F4): provider/model. */

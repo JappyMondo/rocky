@@ -66,6 +66,8 @@ export function assembleOpencodeReceipt(input: OpencodeReceiptInput): Json {
     schema: 1,
     contract: {
       contractId: config.qualification.contractId,
+      qualification: config.qualification,
+      hostAdmission: config.hostAdmission ?? null,
       approvalReference:
         "none: PoC identity, no protected-contract ceremony (user decision 2026-09-29; #106/#107 cancelled)",
     },
@@ -117,6 +119,7 @@ export function assembleOpencodeReceipt(input: OpencodeReceiptInput): Json {
       sessionId: verdict?.sessionId ?? null,
       textPartCount: verdict?.textPartCount ?? 0,
       toolUseCount: verdict?.toolUseCount ?? 0,
+      stepStartCount: verdict?.stepStartCount ?? 0,
       stepFinishCount: verdict?.stepFinishCount ?? 0,
       summedTokens: verdict?.summedTokens ?? null,
       errorEvents: verdict?.errorEvents ?? [],
@@ -207,7 +210,9 @@ export function opencodeReceiptGaps(
     },
     {
       gate: "G-NPM",
-      gap: "config bootstrap can background-install @opencode-ai/plugin into config dirs (F14b); the per-action CFG is fresh and inventoried, not pre-materialized — live runs require the pre-materialization proof",
+      gap: config.hostAdmission
+        ? "The verified dependency template was pre-materialized and checked C0/C1/C5; full native install/write behavior remains unqualified"
+        : "config bootstrap can background-install @opencode-ai/plugin into config dirs (F14b); the per-action CFG is fresh and inventoried, not pre-materialized — live runs require the pre-materialization proof",
     },
     {
       gate: "G-WRITES",
@@ -215,7 +220,9 @@ export function opencodeReceiptGaps(
     },
     {
       gate: "G-AUTHFILE",
-      gap: "auth.json is a plain 0600 file and bash-obfuscation reachability is unproven (F7 [P]); NOT decided by the user — explicit user decision REQUIRED before any live run; Rocky never reads/copies/proxies it (path-existence metadata only)",
+      gap: config.hostAdmission
+        ? `User accepted plain-file/bash reachability boundary: ${config.hostAdmission.authBoundary.reference}. Metadata-only C0/C1/C5 checks do not prove credential confinement; Rocky never opens/copies/proxies auth bytes.`
+        : "auth.json is a plain 0600 file and bash-obfuscation reachability is unproven (F7 [P]); NOT decided by the user — explicit user decision REQUIRED before any live run; Rocky never reads/copies/proxies it (path-existence metadata only)",
     },
     {
       gate: "G-DEFAULT-PROMPT",
@@ -223,7 +230,9 @@ export function opencodeReceiptGaps(
     },
     {
       gate: "G-ROSTER",
-      gap: "the effective tool roster is not observable in the run stream (F18); enforcement is tool-absence + permission deny, evidenced per-run only by absence of off-roster tool_use; out-of-seal debug-config probes are a native step",
+      gap: config.hostAdmission
+        ? `Effective role availability is bound to retained native zero-turn debug-agent evidence ${config.hostAdmission.rosterEvidence.sha256}; per-run tool use corroborates only actual use, not availability or sandbox confinement.`
+        : "the effective tool roster is not observable in the run stream (F18); enforcement is tool-absence + permission deny, evidenced per-run only by absence of off-roster tool_use; out-of-seal debug-config probes are a native step",
     },
     {
       gate: "G-MANAGED",

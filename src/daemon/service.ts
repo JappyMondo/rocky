@@ -29,6 +29,8 @@ import { Evidence, type Artifact } from "../evidence/index.js";
 import { canonical, identity, type Json } from "../store/json.js";
 import {
   OpencodeAdapter,
+  OpencodeWorkerClient,
+  assertAgentObservation,
   assertOpencodeDataHomeIsolation,
   type OpencodeConfig,
 } from "../agents/opencode/index.js";
@@ -88,6 +90,22 @@ export interface OperatorRun {
   diff: string;
   evidenceClass: string;
 }
+type OperatorAdapter = Pick<
+  OpencodeAdapter,
+  "begin" | "interrupt" | "versions" | "qualification" | "capability"
+> & {
+  prepareLaunch: (
+    action: Readonly<Action>,
+    input: Parameters<OpencodeAdapter["prepareLaunch"]>[1],
+  ) =>
+    | ReturnType<OpencodeAdapter["prepareLaunch"]>
+    | Promise<ReturnType<OpencodeAdapter["prepareLaunch"]>>;
+  close?: () => Promise<void>;
+  notDispatched?: (
+    action: Action,
+    reason: string,
+  ) => Promise<Extract<Event, { type: "result" }>>;
+};
 export interface Dependencies {
   execute?: Execute;
   github?: GitHub;
@@ -113,7 +131,7 @@ export class OperatorService extends EventEmitter {
   private approvalWork = new Map<string, Promise<unknown>>();
   private active = new Map<string, Promise<void>>();
   private leases = new Map<string, Lease>();
-  private adapters = new Map<string, OpencodeAdapter>();
+  private adapters = new Map<string, OperatorAdapter>();
   private releaseHome: () => void;
   constructor(
     readonly home: string,
@@ -596,7 +614,8 @@ export class OperatorService extends EventEmitter {
         current.message = (e as Error).message;
         this.save(current);
       })
-      .finally(() => {
+      .finally(async () => {
+        await this.adapters.get(run.id)?.close?.();
         this.active.delete(run.id);
         const l = this.leases.get(run.id);
         if (l)
@@ -829,9 +848,9 @@ export class OperatorService extends EventEmitter {
             "agent-review/" + action.key,
           )
         : undefined;
-    const adapter =
+    const adapter: OperatorAdapter =
       this.deps.adapter?.(this.store, l, config) ??
-      new OpencodeAdapter(this.store, l, config);
+      new OpencodeWorkerClient(this.store, l, config);
     this.adapters.set(run.id, adapter);
     const role = kind === "implement" ? "implementer" : "reviewer";
     const protocol = {
@@ -845,18 +864,30 @@ export class OperatorService extends EventEmitter {
     const prompt = `Task and acceptance criteria:\n${run.config.task}\n\n${kind === "review" ? `Review the diff and current evidence independently. Outcome failed for blockers; complete only with no blockers.\nDiff:\n${run.diff.slice(0, 180000)}\nChecks/CI:\n${canonical(this.store.coordinatorSnapshot(run.id)!.receipts)}` : "Implement only this task. Do not edit .github workflows, weaken tests, or access files outside the source tree."}\n\nFinal response must be exactly one JSON object with this shape and these bindings (set outcome and summary truthfully):\n${JSON.stringify(protocol)}`;
     const repositoryInstructions =
       this.store.operatorRecord<string>("instructions/" + run.id) ?? "";
-    const plan = adapter.prepareLaunch(action, {
-      prompt:
-        prompt +
-        (repositoryInstructions
-          ? "\n\nFrozen repository instructions (host captured):\n" +
-            repositoryInstructions
-          : ""),
-      stage: (src) =>
-        authority.profile === ATT764_RECIPE
-          ? stageATT764(run.workspace, src)
-          : copySource(run.workspace, src),
-    });
+    let plan: Awaited<ReturnType<OperatorAdapter["prepareLaunch"]>>;
+    try {
+      plan = await adapter.prepareLaunch(action, {
+        prompt:
+          prompt +
+          (repositoryInstructions
+            ? "\n\nFrozen repository instructions (host captured):\n" +
+              repositoryInstructions
+            : ""),
+        stage: (src) =>
+          authority.profile === ATT764_RECIPE
+            ? stageATT764(run.workspace, src)
+            : copySource(run.workspace, src),
+      });
+    } catch (error) {
+      if (!adapter.notDispatched) throw error;
+      const event = await adapter.notDispatched(
+        action,
+        (error as Error).message,
+      );
+      this.apply(run, event);
+      if (this.cancelled(run)) return false;
+      throw error;
+    }
     const transport: CoordinatorTransport = {
       versions: this.versions,
       capability: null,
@@ -869,6 +900,33 @@ export class OperatorService extends EventEmitter {
         if (this.cancelled(run)) return result;
         try {
           this.assertActive(run);
+          if (["changed", "complete", "no_code"].includes(result.outcome)) {
+            try {
+              const admitted = assertAgentObservation(
+                this.store,
+                config,
+                plan,
+                result,
+              );
+              this.store.saveOperatorRecord(
+                "agent-admission/" + action.key,
+                admitted,
+              );
+            } catch (error) {
+              const detail =
+                "Native observation admission failed: " +
+                (error as Error).message;
+              this.store.saveOperatorRecord(
+                "agent-admission-failure/" + action.key,
+                {
+                  detail,
+                  actionKey: action.key,
+                  nativeResult: JSON.parse(canonical(result)),
+                },
+              );
+              return { ...result, outcome: "failed", head: run.head, detail };
+            }
+          }
           if (kind === "review") {
             if (result.head !== plan.headPre)
               return {
@@ -953,7 +1011,23 @@ export class OperatorService extends EventEmitter {
         }
       },
     };
-    await this.store.dispatchCoordinator(l, action.key, transport);
+    try {
+      await this.store.dispatchCoordinator(l, action.key, transport);
+    } catch (error) {
+      if (
+        this.cancelled(run) &&
+        adapter.notDispatched &&
+        !this.store.duplexInvocation(action.key)
+      ) {
+        const event = await adapter.notDispatched(
+          action,
+          (error as Error).message,
+        );
+        this.apply(run, event);
+        return false;
+      }
+      throw error;
+    }
     const s = this.store.applyCoordinator(
       l,
       this.store.coordinatorSnapshot(run.id)!.revision,

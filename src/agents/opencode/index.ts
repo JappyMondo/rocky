@@ -6,3 +6,8 @@ export * from "./export.js";
 export * from "./usage.js";
 export * from "./receipt.js";
 export * from "./adapter.js";
+
+export * from "./host.js";
+export * from "./dependencies.js";
+export * from "./worker-client.js";
+export * from "./observation.js";

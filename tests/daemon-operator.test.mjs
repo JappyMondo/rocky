@@ -15,7 +15,10 @@ import { OperatorService } from "../dist/daemon/service.js";
 import { serve } from "../dist/daemon/server.js";
 import { defaults } from "../dist/daemon/config.js";
 import { execute, GitHub } from "../dist/delivery/github.js";
-import { OpencodeAdapter } from "../dist/agents/opencode/index.js";
+import {
+  OpencodeAdapter,
+  OpencodeWorkerClient,
+} from "../dist/agents/opencode/index.js";
 import { delay } from "../dist/runner/process.js";
 import { identify } from "../dist/runner/process.js";
 import { ATT764_TASK } from "../dist/attraccess/current.js";
@@ -1455,4 +1458,80 @@ test("draft creation rechecks cancellation after push before creating a PR", asy
   );
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "git");
+});
+
+test("host118 unknown successful native proposal cannot adopt source, commit or publish", async () => {
+  const f = fixture("unknown-admission118", {
+    agentScript: (steps) => steps.filter((step) => !step.stepFinish),
+  });
+  try {
+    const run = await f.service.start();
+    await f.service.idle();
+    const d = f.service.detail(run.id);
+    assert.equal(f.counts().drafts, 0);
+    assert.match(
+      readFileSync(join(d.workspace, "index.mjs"), "utf8"),
+      /before/,
+    );
+    assert.equal(d.snapshot.execution, null);
+    assert.equal(f.service.store.implementationSlot(), null);
+    const commands = f.service.store.commands(run.id);
+    const command = commands.find((c) => c.duplex);
+    const refusal = f.service.store.operatorRecord(
+      "agent-admission-failure/" + command.duplex.action.key,
+    );
+    assert.equal(refusal.nativeResult.usage.status, "unknown");
+    assert.equal(refusal.nativeResult.quiescent, true);
+    assert.match(d.message, /usage|Native observation|lifecycle/);
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("host118 actual service cancellation during worker preparation settles zero-dispatch slot and permits restarted explicit rerun", async () => {
+  const f = fixture("service-prepare-cancel118"),
+    originalFactory = f.deps.adapter;
+  let action;
+  f.deps.adapter = (store, lease, config) => {
+    const worker = new OpencodeWorkerClient(store, lease, config),
+      prepare = worker.prepareLaunch.bind(worker);
+    worker.prepareLaunch = (a, input) => {
+      action = a;
+      return prepare(a, {
+        ...input,
+        prompt: JSON.stringify(successScript(finalProposal(a, "implementer"))),
+        stage(src) {
+          input.stage?.(src);
+          void f.service.cancel(a.runId);
+        },
+      });
+    };
+    return worker;
+  };
+  try {
+    const run = await f.service.start();
+    await f.service.idle();
+    const d = f.service.detail(run.id);
+    assert.equal(d.phase, "cancelled", d.message);
+    assert.equal(d.snapshot.execution, null);
+    assert.equal(f.service.store.implementationSlot(), null);
+    assert.equal(
+      f.service.store.commands(run.id).filter((c) => c.duplex).length,
+      0,
+    );
+    assert.equal(f.counts().drafts, 0);
+    const event = f.service.store.effect(action.key).receipt;
+    assert.equal(event.usage.status, "unknown");
+    assert.equal(event.quiescent, true);
+    assertCancelledSettlement(f.service, run.id, action.key, event);
+    await f.service.close();
+    f.deps.adapter = originalFactory;
+    f.service = new OperatorService(f.home, f.deps);
+    assert.equal(f.service.detail(run.id).snapshot.execution, null);
+    const rerun = await f.service.start({ previousRunId: run.id });
+    await f.service.idle();
+    assert.equal(f.service.run(rerun.id).phase, "awaiting_ci");
+  } finally {
+    await f.service.close();
+  }
 });

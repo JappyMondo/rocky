@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { assertBinaryIdentity } from "../runner/process.js";
-import { digest } from "../store/json.js";
+import { digest, identity } from "../store/json.js";
 import {
   validateOpencodeConfig,
   defaultOpencodeManagedPaths,
@@ -21,6 +21,12 @@ import {
   OPENCODE_PINNED_BYTES,
   type OpencodeConfig,
 } from "../agents/opencode/index.js";
+import {
+  assertHostAdmission,
+  qualificationForManifest,
+  type HostAdmission,
+  type HostContext,
+} from "../agents/opencode/host.js";
 import type { ExecutionQualification } from "../coordinator/contracts.js";
 import type { Versions } from "../store/index.js";
 import { assertHomeAvailable } from "./ownership.js";
@@ -57,6 +63,7 @@ export interface HostAuthority {
   nativeProbeEvidence: string;
   authBoundaryApproval: string;
   qualification: ExecutionQualification;
+  hostAdmission?: HostAdmission;
   checks: CheckRecipe[];
   requiredCI: string[];
 }
@@ -130,19 +137,55 @@ export function readAuthority(home: string): HostAuthority | null {
       c.args.some((a) => typeof a !== "string")
     )
       throw new Error("Invalid host check recipe");
+  if (!v.hostAdmission)
+    throw new Error(
+      "Host authority needs a retained conditional qualification manifest",
+    );
+  if (
+    identity(v.qualification) !==
+    identity(qualificationForManifest(v.hostAdmission))
+  )
+    throw new Error("Host qualification does not match manifest");
   return v;
+}
+export function hostContext(authority: HostAuthority): HostContext {
+  return {
+    repository: authority.repository,
+    task: authority.task ?? null,
+    profile: authority.profile ?? null,
+    checks: authority.checks,
+    requiredCI: authority.requiredCI,
+    liveApproval: authority.liveApproval,
+    nativeProbeEvidence: authority.nativeProbeEvidence,
+    authBoundaryApproval: authority.authBoundaryApproval,
+  };
 }
 export function buildRuntime(
   home: string,
   authority: HostAuthority,
   versions: Versions,
 ): OpencodeConfig {
+  if (!authority.hostAdmission)
+    throw new Error("opencode-host-manifest-required");
+  const runtime = validateOpencodeConfig({
+    ...describeRuntime(home, authority, versions),
+    qualification: authority.qualification,
+    hostAdmission: authority.hostAdmission,
+  });
+  assertHostAdmission(runtime, hostContext(authority));
+  return runtime;
+}
+/** Host authoring descriptor: no qualification ID or claims are generated here. */
+export function describeRuntime(
+  home: string,
+  authority: HostAuthority,
+  versions: Versions,
+): Omit<OpencodeConfig, "qualification" | "hostAdmission"> {
   const catalog = join(home, "models.json");
   const common = `You are a bounded Rocky coding agent. Work only in the supplied source directory. Never access credentials, push, create PRs, merge, or alter the check policy. Finish with ONLY the exact JSON final protocol supplied in the task. No Markdown fences.`;
-  return validateOpencodeConfig({
+  return {
     harness: "opencode",
     versions,
-    qualification: authority.qualification,
     binary: {
       path: discoverOpencode(),
       sha256: OPENCODE_PINNED_SHA256,
@@ -186,7 +229,7 @@ export function buildRuntime(
       cleanupReserveMs: 2000,
       maxTreeNodes: 100000,
     },
-  });
+  };
 }
 export function setup(home: string) {
   assertHomeAvailable(home);
@@ -202,6 +245,7 @@ export function setup(home: string) {
     nativeProbeEvidence: "",
     authBoundaryApproval: "",
     qualification: null,
+    hostAdmission: null,
     checks: [],
     requiredCI: [],
   };

@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, writeFileSync } from "node:fs";
+import { execFile, type ChildProcess } from "node:child_process";
+import { retainImmutable } from "./retention.js";
 import { digest } from "../../store/json.js";
 import { parseStrictJson } from "../seam.js";
 import type { SealedEnv } from "../seam.js";
@@ -89,7 +89,7 @@ function mismatch(reason: string, raw: string | null): OpencodeExportAudit {
 /** Spawn the bounded export child and audit it. Never throws: every failure mode is a classified
  * unavailable/fatal result, and an unavailable audit is never success. Raw stdout bytes (when any
  * were produced) are retained 0600 at retainPath — the usage receipt digest references them. */
-export function runOpencodeExportAudit(input: {
+export async function runOpencodeExportAudit(input: {
   binaryPath: string;
   env: SealedEnv;
   cwd: string;
@@ -97,51 +97,61 @@ export function runOpencodeExportAudit(input: {
   maxExportBytes: number;
   retainPath: string;
   expectations: OpencodeExportExpectations;
-}): OpencodeExportAudit {
-  let raw: string;
-  try {
-    raw = execFileSync(
-      input.binaryPath,
-      ["export", input.expectations.sessionId],
-      {
-        cwd: input.cwd,
-        env: Object.fromEntries(input.env),
-        encoding: "utf8",
-        timeout: input.timeoutMs,
-        maxBuffer: input.maxExportBytes,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-  } catch (error) {
-    const e = error as {
-      status?: number | null;
+  start: (launch: () => ChildProcess) => ChildProcess;
+  signal?: AbortSignal;
+}): Promise<OpencodeExportAudit> {
+  // Only synchronous process creation occurs inside the Store fence, never the async wait.
+  const observed = await new Promise<{ raw: string; error: Error | null }>(
+    (resolve) => {
+      try {
+        input.start(() =>
+          execFile(
+            input.binaryPath,
+            ["export", input.expectations.sessionId],
+            {
+              cwd: input.cwd,
+              env: Object.fromEntries(input.env),
+              encoding: "utf8",
+              timeout: input.timeoutMs,
+              maxBuffer: input.maxExportBytes,
+              ...(input.signal ? { signal: input.signal } : {}),
+            },
+            (error, stdout) =>
+              resolve({ raw: typeof stdout === "string" ? stdout : "", error }),
+          ),
+        );
+      } catch (error) {
+        resolve({ raw: "", error: error as Error });
+      }
+    },
+  );
+  if (!retainRaw(input.retainPath, observed.raw))
+    return unavailable("export-retention-failed", observed.raw);
+  if (observed.error) {
+    const e = observed.error as Error & {
+      code?: number | string;
       killed?: boolean;
-      message?: string;
-      stdout?: string;
     };
-    const stdout = typeof e.stdout === "string" && e.stdout ? e.stdout : null;
-    retainRaw(input.retainPath, stdout);
-    if (typeof e.message === "string" && e.message.includes("maxBuffer"))
-      return unavailable("export-bytes-limit", stdout);
-    if (e.killed) return unavailable("export-timeout", stdout);
-    return unavailable(
-      `export-spawn-failed:${e.status ?? "signal-or-error"}`,
-      stdout,
-    );
+    const reason = e.message.includes("maxBuffer")
+      ? "export-bytes-limit"
+      : e.name === "AbortError"
+        ? "export-aborted"
+        : e.killed
+          ? "export-timeout"
+          : `export-spawn-failed:${typeof e.code === "number" ? e.code : "signal-or-error"}`;
+    return unavailable(reason, observed.raw);
   }
-  retainRaw(input.retainPath, raw);
-  if (Buffer.byteLength(raw, "utf8") > input.maxExportBytes)
-    return unavailable("export-bytes-limit", raw);
-  return auditOpencodeExport(raw, input.expectations);
+  if (Buffer.byteLength(observed.raw, "utf8") > input.maxExportBytes)
+    return unavailable("export-bytes-limit", observed.raw);
+  return auditOpencodeExport(observed.raw, input.expectations);
 }
-function retainRaw(path: string, raw: string | null) {
-  if (raw === null) return;
+function retainRaw(path: string, raw: string | null): boolean {
+  if (raw === null) return false;
   try {
-    writeFileSync(path, raw, { mode: 0o600 });
-    chmodSync(path, 0o600);
+    retainImmutable(path, raw);
+    return true;
   } catch {
-    // Retention is evidence; a retention failure never masks the audit result, and the digest in
-    // the audit still binds what was observed.
+    return false;
   }
 }
 /** Pure strict audit of export stdout bytes (split out for direct testing). */
