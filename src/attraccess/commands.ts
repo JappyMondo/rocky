@@ -39,6 +39,7 @@ export class EnvironmentCommands {
     readonly attempt: string,
     docker?: { executable: string; host: string },
     scope = "environment-preparation",
+    sourceIdentity = { head: TARGET.commit, base: TARGET.commit },
   ) {
     verifyInstalledBuild();
     mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -57,8 +58,8 @@ export class EnvironmentCommands {
     };
     this.store.admit({
       id: attempt,
-      head: TARGET.commit,
-      base: TARGET.commit,
+      head: sourceIdentity.head,
+      base: sourceIdentity.base,
       scope,
       versions,
       config: { leaseMs: LIMITS.leaseMs },

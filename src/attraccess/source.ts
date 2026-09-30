@@ -26,8 +26,8 @@ export function inventoryProbe(inventoryPath: string, sourceRoot = "/app") {
   return `const fs=require('fs'),p=require('path'),c=require('crypto');const files=JSON.parse(fs.readFileSync(${JSON.stringify(inventoryPath)}));const changed=[];for(const [name,e] of Object.entries(files)){try{const f=p.join(${JSON.stringify(sourceRoot)},name),s=fs.lstatSync(f),mode=s.isSymbolicLink()?'120000':s.isFile()?(s.mode&73?'100755':'100644'):'unsupported',b=s.isSymbolicLink()?Buffer.from(fs.readlinkSync(f)):fs.readFileSync(f);if(mode!==e.mode||c.createHash('sha256').update(b).digest('hex')!==e.sha256)changed.push(name);}catch{changed.push(name);}}console.log(JSON.stringify({files:Object.keys(files).length,changed}));if(changed.length)process.exit(2);`;
 }
 export type SourceInventory = Record<string, { mode: string; sha256: string }>;
-export function ownedPath(path: string) {
-  const root = realpathSync(TARGET.root);
+export function ownedPath(path: string, authorizedRoot = TARGET.root) {
+  const root = realpathSync(authorizedRoot);
   const full = resolve(path);
   if (full !== root && !full.startsWith(root + "/"))
     throw new Error("outside-authorized-environment-root");
@@ -92,7 +92,10 @@ export function verifyFixtureInventories(
     throw new Error("fixture-provenance-diff-drift");
 }
 export function sourceInventory(source = TARGET.source): SourceInventory {
-  if (realpathSync(source) !== TARGET.source)
+  if (
+    resolve(source) !== TARGET.source ||
+    realpathSync(source) !== TARGET.source
+  )
     throw new Error("unexpected-fixture-source");
   const p = TARGET.provenance;
   const git = (root: string, ...args: string[]) =>
@@ -231,4 +234,34 @@ export function materialize(destination: string) {
       { encoding: "utf8" },
     ).trim(),
   };
+}
+
+/** Current scoped runs bind a clean tracked tree; archived fixture provenance remains separate. */
+export interface CurrentSource {
+  source: string;
+  root: string;
+  commit: string;
+  tree: string;
+  node: string;
+  pnpm: string;
+  packageManager: string;
+  recipeFiles: Record<string, string>;
+}
+export function trackedSourceInventory(
+  source: string,
+  commit: string,
+): SourceInventory {
+  const head = execFileSync("git", ["-C", source, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+  if (
+    head !== commit ||
+    execFileSync(
+      "git",
+      ["-C", source, "status", "--porcelain", "--untracked-files=no"],
+      { encoding: "utf8" },
+    ).trim()
+  )
+    throw new Error("current-source-drift");
+  return inventoryAt(source, commit);
 }

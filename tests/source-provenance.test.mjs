@@ -1,15 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { canonical, digest } from "../dist/store/json.js";
 import { TARGET } from "../dist/attraccess/policy.js";
 import {
   sourceInventory,
   verifyFixtureInventories,
 } from "../dist/attraccess/source.js";
 test("two-commit approved fixture has one pinned file difference and rejects in-memory source or mode drift", () => {
-  const fixture = sourceInventory();
-  const original = structuredClone(fixture);
-  original[TARGET.provenance.changedFile].sha256 =
-    TARGET.provenance.preimageSha256;
+  // Full original inventory recovered from the exact upstream commit's actual Git blobs.
+  // The approved one-file amendment must reproduce the independently frozen fixture digest.
+  const original = JSON.parse(
+    readFileSync(
+      new URL(
+        "./fixtures/attraccess-original-source-inventory.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    digest(canonical(original)),
+    TARGET.provenance.originalInventorySha256,
+  );
+  const fixture = structuredClone(original);
+  fixture[TARGET.provenance.changedFile].sha256 =
+    TARGET.provenance.postimageSha256;
+  assert.equal(
+    digest(canonical(fixture)),
+    TARGET.provenance.fixtureInventorySha256,
+  );
   verifyFixtureInventories(original, fixture);
   for (const mutate of [
     (value) => {

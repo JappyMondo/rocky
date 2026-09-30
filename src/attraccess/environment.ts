@@ -17,6 +17,8 @@ import {
   sourceInventory,
   inventoryProbe,
   type SourceInventory,
+  type CurrentSource,
+  trackedSourceInventory,
 } from "./source.js";
 import {
   persistOwnership,
@@ -76,6 +78,7 @@ const COMMUNITY =
   "I AM USING THIS SOFTWARE ONLY FOR NON-PROFIT AND COMPLY TO ALL TERMS OF THE LICENSE.md at https://github.com/Attraccess/Attraccess/blob/main/LICENSE.md";
 export type EnvironmentAuthority =
   | { purpose: "preparation" }
+  | { purpose: "scoped-att764"; target: CurrentSource }
   | {
       purpose: "qualification";
       admissionPath: string;
@@ -83,6 +86,7 @@ export type EnvironmentAuthority =
     };
 export class AttraccessEnvironment {
   readonly commands: EnvironmentCommands;
+  readonly current: CurrentSource | null;
   readonly ownership: Ownership;
   #heartbeat: NodeJS.Timeout;
   #browsers = new Set<BrowserSession>();
@@ -102,11 +106,28 @@ export class AttraccessEnvironment {
     readonly attemptId: string,
     readonly authority: EnvironmentAuthority = { purpose: "preparation" },
   ) {
+    this.current =
+      authority.purpose === "scoped-att764" ? authority.target : null;
+    if (this.current) {
+      if (
+        digest(
+          canonical(
+            trackedSourceInventory(this.current.source, this.current.commit),
+          ),
+        ) !== digest(canonical(prepared.sourceInventory))
+      )
+        throw new Error("current-source-inventory-mismatch");
+      mkdirSync(this.current.root, { recursive: true, mode: 0o700 });
+    }
     if (authority.purpose === "qualification")
       validateAdmission(authority.admissionPath, authority.approval, prepared);
     if (!/^[A-Za-z0-9-]+$/.test(attemptId))
       throw new Error("invalid-attempt-id");
-    const root = ownedPath(join(TARGET.root, "attempts", attemptId));
+    const authorizedRoot = this.current?.root ?? TARGET.root;
+    const root = ownedPath(
+      join(authorizedRoot, "attempts", attemptId),
+      authorizedRoot,
+    );
     if (existsSync(root)) throw new Error("attempt-already-exists");
     mkdirSync(root, { recursive: true, mode: 0o700 });
     this.commands = new EnvironmentCommands(
@@ -115,7 +136,13 @@ export class AttraccessEnvironment {
       undefined,
       authority.purpose === "qualification"
         ? "environment-qualification"
-        : "environment-preparation",
+        : this.current
+          ? "scoped-att764"
+          : "environment-preparation",
+      {
+        head: this.current?.commit ?? TARGET.commit,
+        base: this.current?.commit ?? TARGET.commit,
+      },
     );
     this.ownership = {
       owner: "rn-" + randomUUID(),
@@ -179,7 +206,7 @@ export class AttraccessEnvironment {
       if (!Number.isSafeInteger(port) || port < 1024 || port > 65535)
         throw new Error("invalid-owned-port-request");
     this.commands.store.assertLease(this.commands.lease);
-    const disk = statfsSync(TARGET.root);
+    const disk = statfsSync(this.current?.root ?? TARGET.root);
     const availableBytes = disk.bavail * disk.bsize;
     this.commands.save("disk-admission", {
       availableBytes,
@@ -807,7 +834,13 @@ export class AttraccessEnvironment {
     return { readiness, previousInstanceId, instance };
   }
   async verifySource(s: Session) {
-    const declared = digest(canonical(sourceInventory()));
+    const declared = digest(
+      canonical(
+        this.current
+          ? trackedSourceInventory(this.current.source, this.current.commit)
+          : sourceInventory(),
+      ),
+    );
     if (declared !== digest(canonical(this.prepared.sourceInventory)))
       throw new Error("declared-target-source-drift");
     writeFileSync(
@@ -827,7 +860,14 @@ export class AttraccessEnvironment {
       "HEAD^{tree}",
       "--show-toplevel",
     ]);
-    if (git.stdout.trim() !== [TARGET.commit, TARGET.tree, "/app"].join("\n"))
+    if (
+      git.stdout.trim() !==
+      [
+        this.current?.commit ?? TARGET.commit,
+        this.current?.tree ?? TARGET.tree,
+        "/app",
+      ].join("\n")
+    )
       throw new Error("wrong-target-git-identity");
     const branch = (
       await this.exec(s, ["git", "branch", "--show-current"])
@@ -858,12 +898,16 @@ export class AttraccessEnvironment {
     return {
       inventory: JSON.parse(result.stdout),
       sourceInventorySha256: declared,
-      originalSourceInventorySha256: TARGET.provenance.originalInventorySha256,
-      provenance: TARGET.provenance,
+      originalSourceInventorySha256: this.current
+        ? null
+        : TARGET.provenance.originalInventorySha256,
+      provenance: this.current
+        ? { kind: "current-scoped-run", commit: this.current.commit }
+        : TARGET.provenance,
       git: git.stdout,
       branch,
-      base: TARGET.commit,
-      head: TARGET.commit,
+      base: this.current?.commit ?? TARGET.commit,
+      head: this.current?.commit ?? TARGET.commit,
       generated,
     };
   }
@@ -937,7 +981,40 @@ export class AttraccessEnvironment {
     )
       throw new Error("qualification-authority-required");
     validateAdmission(scenario.admissionPath, scenario.approval, this.prepared);
-    // Preparation never calls this method; every execution revalidates the independently approved immutable binding.
+    // Archived qualification keeps its original admission gate.
+    return this.#executeBrowser(s, scenario, execute);
+  }
+  async runScopedScenario<T>(
+    s: Session,
+    locale: "en" | "de",
+    execute: (browser: BrowserSession, session: Session) => Promise<T>,
+  ): Promise<T> {
+    if (
+      this.authority.purpose !== "scoped-att764" ||
+      !this.current ||
+      !this.#sessions.has(s)
+    )
+      throw new Error("scoped-att764-authority-required");
+    await this.verifySource(s);
+    return this.#executeBrowser(
+      s,
+      {
+        id: "att764-" + locale,
+        locale,
+        viewport: { width: 1440, height: 1000 },
+      },
+      execute,
+    );
+  }
+  async #executeBrowser<T>(
+    s: Session,
+    scenario: {
+      id: string;
+      locale: "en" | "de";
+      viewport: { width: number; height: number };
+    },
+    execute: (browser: BrowserSession, session: Session) => Promise<T>,
+  ): Promise<T> {
     await this.readiness(s);
     if (this.#browsers.size >= LIMITS.browserContexts)
       throw new Error("browser-capacity");
