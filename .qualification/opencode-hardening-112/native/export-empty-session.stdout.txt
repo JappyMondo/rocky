@@ -1,0 +1,26 @@
+{
+  "info": {
+    "id": "ses_f112976feffeUze7XvLERU30L9",
+    "slug": "shiny-otter",
+    "projectID": "140c909a45b4b140be2088bbd244c5cf076efbc8",
+    "directory": "/Users/jappy/.t3/worktrees/rocky/rocky-next/.qualification/opencode-hardening-112/native/synthetic-oukosM/source",
+    "path": ".qualification/opencode-hardening-112/native/synthetic-oukosM/source",
+    "title": "New session - 2026-09-29T20:23:52.321Z",
+    "version": "1.18.33",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1790713432321,
+      "updated": 1790713432321
+    }
+  },
+  "messages": []
+}

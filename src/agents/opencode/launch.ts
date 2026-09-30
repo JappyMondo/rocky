@@ -248,6 +248,9 @@ export function assertOpencodeConfigContent(
     if (!entry || typeof entry !== "object" || Array.isArray(entry))
       throw new Error(`opencode-config-agent-missing:${name}`);
     const a = entry as Record<string, unknown>;
+    for (const key of Object.keys(a))
+      if (!["model", "prompt", "steps", "permission"].includes(key))
+        throw new Error(`opencode-config-agent-forbidden-key:${name}.${key}`);
     if (a.model !== roles[role].model || a.model !== OPENCODE_PINNED_MODEL)
       throw new Error(`opencode-config-agent-model:${name}`);
     if (a.prompt !== roles[role].prompt)
@@ -341,10 +344,17 @@ export function assertOpencodeDataHomeIsolation(
   userHome: string,
 ): { authProvisioned: boolean } {
   const realUserData = join(userHome, ".local/share/opencode");
+  // Resolve the real user's directory when present: an alias for ~/.local/share may point
+  // elsewhere even when the configured Rocky dataHome itself is canonical.
+  const canonicalUserData = existsSync(realUserData)
+    ? realpathSync(realUserData)
+    : realUserData;
   if (
     dataHome === realUserData ||
     isBelow(dataHome, realUserData) ||
-    isBelow(realUserData, dataHome)
+    isBelow(realUserData, dataHome) ||
+    isBelow(dataHome, canonicalUserData) ||
+    isBelow(canonicalUserData, dataHome)
   )
     throw new Error("opencode-shared-user-data-dir");
   if (!existsSync(dataHome)) throw new Error("opencode-data-home-missing");
@@ -352,6 +362,7 @@ export function assertOpencodeDataHomeIsolation(
     throw new Error("opencode-path-not-canonical:dataHome");
   // Path-existence metadata only; the file is never opened, read, copied or proxied.
   const authProvisioned = existsSync(join(dataHome, "opencode/auth.json"));
+  if (!authProvisioned) throw new Error("opencode-auth-unprovisioned");
   return { authProvisioned };
 }
 export interface OpencodeIsolationInventory {

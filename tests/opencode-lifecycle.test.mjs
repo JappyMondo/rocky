@@ -26,6 +26,7 @@ import {
   alive,
   versions,
   qualification,
+  PINNED_VERSION,
 } from "./opencode-support.mjs";
 
 async function until(fn, timeoutMs = 15000) {
@@ -307,7 +308,7 @@ test("L04 restart reconciliation: prepareLaunch is idempotent, a live invocation
               projectID: "p",
               directory: plan.paths.src,
               title: "t",
-              version: "1.18.32",
+              version: PINNED_VERSION,
               time: { created: 1, updated: 2 },
               tokens: {
                 input: 1200,
