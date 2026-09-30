@@ -1840,3 +1840,345 @@ for (const exporter of [
     }
   });
 }
+
+for (const [usageStatus, outcome] of [
+  ["reported", "failed"],
+  ["reported", "changed"],
+  ["ambiguous-zero", "failed"],
+]) {
+  for (const mode of ["same-adapter", "reopened-store", "sigkill-gap"]) {
+    test(`host118 late interrupt ${usageStatus}/${outcome}/${mode} replays immutable first settlement`, async () => {
+      const tokens =
+        usageStatus === "ambiguous-zero"
+          ? {
+              tokens: {
+                input: 0,
+                output: 0,
+                reasoning: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+              },
+            }
+          : {};
+      let f, saved, store, adapter, plan, config, lease, sourceEnv;
+      if (mode === "sigkill-gap") {
+        const evidenceRoot = process.env.OPENCODE_ARTIFACT_ROOT;
+        mkdirSync(evidenceRoot, { recursive: true });
+        const marker = join(
+          evidenceRoot,
+          `late-interrupt-${usageStatus}-${outcome}-${Date.now()}.json`,
+        );
+        const code = `import{opencodeFixture,baselinePass,schedule,dispatchOpencode,finalProposal,successScript,defaultExportMarker}from'./tests/opencode-support.mjs';import{writeFileSync}from'node:fs';const f=opencodeFixture('late-interrupt-gap118');baselinePass(f);const action=schedule(f,'implement');let plan;const retain=f.store.retainOperatorRecord.bind(f.store);f.store.retainOperatorRecord=(key,value)=>{if(key==='opencode-observation/'+action.key){writeFileSync(${JSON.stringify(marker)},JSON.stringify({db:f.store.path,lease:f.lease,config:f.config,sourceEnv:f.sourceEnv,plan,observation:value}),{mode:0o600});process.kill(process.pid,'SIGKILL');}return retain(key,value)};const launch=dispatchOpencode(f,action,successScript(finalProposal(action,'implementer',${JSON.stringify(outcome)}),${JSON.stringify(tokens)}),{exportMarker:p=>defaultExportMarker(p,${JSON.stringify(tokens)})});plan=launch.plan;await launch.pending;throw Error('crash barrier not reached');`;
+        assert.throws(
+          () =>
+            execFileSync(
+              process.execPath,
+              ["--input-type=module", "-e", code],
+              {
+                cwd: process.cwd(),
+                env: {
+                  PATH: "/usr/bin:/bin",
+                  HOME: process.env.HOME,
+                  TMPDIR: process.env.TMPDIR,
+                  OPENCODE_ARTIFACT_ROOT: evidenceRoot,
+                },
+                timeout: 15000,
+                stdio: "pipe",
+              },
+            ),
+          (e) => e.signal === "SIGKILL",
+        );
+        const crash = JSON.parse(readFileSync(marker));
+        ({ plan, config, lease, sourceEnv } = crash);
+        saved = crash.observation;
+        store = new Store(crash.db);
+        adapter = new OpencodeAdapter(store, lease, config, { sourceEnv });
+        assert.equal(
+          store.operatorRecord("opencode-observation/" + plan.action.key),
+          undefined,
+        );
+      } else {
+        f = opencodeFixture("late-interrupt118-" + mode);
+        baselinePass(f);
+        const action = schedule(f, "implement");
+        const launch = dispatchOpencode(
+          f,
+          action,
+          successScript(finalProposal(action, "implementer", outcome), tokens),
+          { exportMarker: (p) => defaultExportMarker(p, tokens) },
+        );
+        plan = launch.plan;
+        await launch.pending;
+        ({ store, adapter, config, lease, sourceEnv } = f);
+        saved = store.operatorRecord("opencode-observation/" + action.key);
+        store.applyCoordinator(
+          lease,
+          store.coordinatorSnapshot(action.runId).revision,
+          "transport",
+          `result/${action.key}`,
+        );
+        const budgets = store.coordinatorSnapshot(action.runId).budgets;
+        assert.equal(
+          budgets.harnessReportedTokens,
+          usageStatus === "reported" ? 1540 : 0,
+        );
+        assert.equal(
+          budgets.harnessAmbiguousZero,
+          usageStatus === "ambiguous-zero" ? 1 : 0,
+        );
+        if (mode === "reopened-store") {
+          f.pending = null;
+          store.close();
+          store = new Store(join(f.artifactRoot, "state.sqlite"));
+          adapter = new OpencodeAdapter(store, lease, config, { sourceEnv });
+          f.store = store;
+          f.adapter = adapter;
+        }
+      }
+      try {
+        const action = plan.action,
+          key = "opencode-observation/" + action.key;
+        const raw = readFileSync(saved.receipt.path);
+        const nativePath = join(plan.paths.parentTmp, "fake-record.json"),
+          native = readFileSync(nativePath);
+        const exportPath = join(
+            plan.paths.parentTmp,
+            "fake-export-record.json",
+          ),
+          exported = readFileSync(exportPath);
+        const exportKey = "opencode-export-observation/" + saved.commandId,
+          exportProof = store.operatorRecord(exportKey);
+        const stopKey = "opencode-native-stop/" + saved.commandId;
+        const stop = store.operatorRecord(stopKey);
+        assert.equal(stop.revoked, false);
+        assert.equal(
+          stop.resultDigest,
+          identity(store.command(saved.commandId).result),
+        );
+        assert.equal(store.command(saved.commandId).duplex.revoked, false);
+        store.cancel(action.runId);
+        store.ingestCoordinator(action.runId, "control", "late-cancel", {
+          type: "cancel",
+        });
+        store.applyCoordinator(
+          lease,
+          store.coordinatorSnapshot(action.runId).revision,
+          "control",
+          "late-cancel",
+        );
+        adapter.interrupt(action);
+        const snapshot = store.coordinatorSnapshot(action.runId),
+          count = store.commands(action.runId).length;
+        assert.equal(store.command(saved.commandId).duplex.revoked, true);
+        assert.throws(() =>
+          store.assertDuplexStart(
+            saved.commandId,
+            store.command(saved.commandId).token,
+          ),
+        );
+        const recovered = await adapter.settleCommand(
+          plan,
+          saved.commandId,
+          undefined,
+          true,
+        );
+        assert.deepEqual(recovered, saved.settlement);
+        assert.deepEqual(
+          settlementToResultEvent(recovered, action),
+          settlementToResultEvent(saved.settlement, action),
+        );
+        assert.deepEqual(store.operatorRecord(key), saved);
+        assert.deepEqual(store.operatorRecord(exportKey), exportProof);
+        assert.deepEqual(store.operatorRecord(stopKey), stop);
+        assert.deepEqual(readFileSync(saved.receipt.path), raw);
+        assert.deepEqual(readFileSync(nativePath), native);
+        assert.deepEqual(readFileSync(exportPath), exported);
+        assert.deepEqual(store.coordinatorSnapshot(action.runId), snapshot);
+        assert.equal(store.commands(action.runId).length, count);
+        if (outcome === "changed")
+          assertAgentObservation(
+            store,
+            config,
+            plan,
+            settlementToResultEvent(recovered, action),
+          );
+        const legacyDb = join(
+          process.env.OPENCODE_ARTIFACT_ROOT,
+          `late-legacy-${usageStatus}-${outcome}-${mode}-${Date.now()}.sqlite`,
+        );
+        const db = new DatabaseSync(store.path);
+        db.prepare("VACUUM INTO ?").run(legacyDb);
+        db.close();
+        const edit = new DatabaseSync(legacyDb);
+        edit.prepare("DELETE FROM operator_records WHERE key=?").run(stopKey);
+        edit.close();
+        const legacy = new Store(legacyDb);
+        try {
+          assert.deepEqual(
+            reconcileRetainedObservation(
+              legacy,
+              config,
+              plan,
+              saved.commandId,
+              true,
+            ).settlement,
+            saved.settlement,
+          );
+          assert.deepEqual(legacy.coordinatorSnapshot(action.runId), snapshot);
+          assert.deepEqual(readFileSync(saved.receipt.path), raw);
+        } finally {
+          legacy.close();
+        }
+        if (mode === "sigkill-gap") {
+          const event = settlementToResultEvent(recovered, action);
+          store.ingestCoordinator(
+            action.runId,
+            "transport",
+            "late-recovered",
+            event,
+          );
+          store.applyCoordinator(
+            lease,
+            snapshot.revision,
+            "transport",
+            "late-recovered",
+          );
+          const settled = store.coordinatorSnapshot(action.runId);
+          assert.equal(
+            settled.head,
+            snapshot.head,
+            "cancelled recovery cannot adopt the proposal head",
+          );
+          assert.equal(
+            settled.budgets.harnessReportedTokens,
+            usageStatus === "reported" ? 1540 : 0,
+          );
+          assert.equal(
+            settled.budgets.harnessAmbiguousZero,
+            usageStatus === "ambiguous-zero" ? 1 : 0,
+          );
+          assert.equal(settled.budgets.unknownActions, 0);
+          assert.deepEqual(
+            await adapter.settleCommand(plan, saved.commandId, undefined, true),
+            saved.settlement,
+          );
+          assert.deepEqual(store.coordinatorSnapshot(action.runId), settled);
+        }
+      } finally {
+        if (f) await closeFixture(f);
+        else store.close();
+      }
+    });
+  }
+}
+
+test("host118 cancellation after native finish before first settlement preserves original revoked stop facts", async () => {
+  const f = opencodeFixture("first-c5-cancel118");
+  try {
+    baselinePass(f);
+    const action = schedule(f, "implement");
+    const originalSettle = f.adapter.settleCommand.bind(f.adapter);
+    f.adapter.settleCommand = (plan, id, record, quiescent) => {
+      f.store.cancel(action.runId);
+      f.adapter.interrupt(action);
+      // Deliberately pass the waiter's earlier non-revoked record. C5 must read durable control.
+      return originalSettle(plan, id, record, quiescent);
+    };
+    const { plan, pending } = dispatchOpencode(
+      f,
+      action,
+      successScript(finalProposal(action, "implementer", "failed")),
+    );
+    await pending;
+    const key = "opencode-observation/" + action.key,
+      saved = f.store.operatorRecord(key);
+    const stopKey = "opencode-native-stop/" + saved.commandId;
+    const stop = f.store.operatorRecord(stopKey);
+    assert.equal(stop.revoked, true);
+    assert.equal(f.store.command(saved.commandId).result.outcome, "success");
+    assert.equal(saved.settlement.usage.status, "unknown");
+    assert.equal(saved.settlement.usage.reason, "opencode-cancelled-sigterm");
+    assert.equal(saved.settlement.classification, "interrupted");
+    assert.equal(readReceipt(plan, saved.commandId).exportAudit.ran, false);
+    const raw = readFileSync(saved.receipt.path),
+      snapshot = f.store.coordinatorSnapshot(action.runId),
+      commands = f.store.commands(action.runId);
+    f.pending = null;
+    f.store.close();
+    f.store = new Store(join(f.artifactRoot, "state.sqlite"));
+    const recovered = reconcileRetainedObservation(
+      f.store,
+      f.config,
+      plan,
+      saved.commandId,
+      true,
+    ).settlement;
+    assert.deepEqual(recovered, saved.settlement);
+    assert.deepEqual(f.store.operatorRecord(key), saved);
+    assert.deepEqual(readFileSync(saved.receipt.path), raw);
+    assert.deepEqual(f.store.coordinatorSnapshot(action.runId), snapshot);
+    assert.deepEqual(f.store.commands(action.runId), commands);
+  } finally {
+    await closeFixture(f);
+  }
+});
+
+test("host118 cancellation during export preserves the earlier native C5 stop snapshot after reopen", async () => {
+  const f = opencodeFixture("cancel-during-export-c5-118");
+  try {
+    baselinePass(f);
+    const action = schedule(f, "implement");
+    const signal = new AbortController();
+    f.adapter = new OpencodeAdapter(f.store, f.lease, f.config, {
+      sourceEnv: f.sourceEnv,
+      exportSignal: signal.signal,
+    });
+    const { plan, pending } = dispatchOpencode(
+      f,
+      action,
+      successScript(finalProposal(action, "implementer", "failed")),
+      { exportMarker: () => ({ sleep: 10000, raw: "", exit: 0 }) },
+    );
+    await waitForFile(join(plan.paths.parentTmp, "fake-export-record.json"));
+    const command = f.store.duplexInvocation(action.key),
+      stopKey = "opencode-native-stop/" + command.id;
+    const stop = f.store.operatorRecord(stopKey);
+    assert.equal(stop.revoked, false);
+    f.store.cancel(action.runId);
+    f.adapter.interrupt(action);
+    signal.abort();
+    await pending;
+    const key = "opencode-observation/" + action.key,
+      saved = f.store.operatorRecord(key);
+    assert.equal(saved.settlement.classification, "unresolved");
+    assert.equal(
+      saved.settlement.usage.reason,
+      "opencode-export-unavailable:export-aborted",
+    );
+    assert.equal(f.store.command(command.id).duplex.revoked, true);
+    assert.deepEqual(f.store.operatorRecord(stopKey), stop);
+    const raw = readFileSync(saved.receipt.path),
+      snapshot = f.store.coordinatorSnapshot(action.runId),
+      commands = f.store.commands(action.runId);
+    const expPath = join(plan.paths.parentTmp, "fake-export-record.json"),
+      exp = readFileSync(expPath);
+    f.pending = null;
+    f.store.close();
+    f.store = new Store(join(f.artifactRoot, "state.sqlite"));
+    const recovered = reconcileRetainedObservation(
+      f.store,
+      f.config,
+      plan,
+      command.id,
+      true,
+    ).settlement;
+    assert.deepEqual(recovered, saved.settlement);
+    assert.deepEqual(f.store.operatorRecord(key), saved);
+    assert.deepEqual(readFileSync(saved.receipt.path), raw);
+    assert.deepEqual(readFileSync(expPath), exp);
+    assert.deepEqual(f.store.coordinatorSnapshot(action.runId), snapshot);
+    assert.deepEqual(f.store.commands(action.runId), commands);
+  } finally {
+    await closeFixture(f);
+  }
+});

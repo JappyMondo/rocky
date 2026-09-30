@@ -100,6 +100,49 @@ interface StoredExportObservation {
   maxExportBytes: number;
   observation: OpencodeExportObservation;
 }
+interface NativeStopFacts {
+  schema: 1;
+  commandId: string;
+  runId: string;
+  actionKey: string;
+  inputDigest: string;
+  bundleDigest: string;
+  commandState: CommandRecord["state"];
+  resultDigest: string;
+  revoked: boolean;
+  transportFailure: string | null;
+  quiescent: boolean;
+}
+/** Freeze the first C5 stop ordering before asynchronous export or final receipt retention.
+ * Control revocation remains mutable and authoritative for new effects, not original usage. */
+export function retainNativeStopFacts(
+  store: Store,
+  plan: OpencodeLaunchPlan,
+  command: CommandRecord,
+  quiescent: boolean,
+) {
+  const actual = store.command(command.id);
+  if (
+    !actual ||
+    actual.state !== command.state ||
+    identity(actual.result) !== identity(command.result)
+  )
+    throw new Error("opencode-native-stop-command-conflict");
+  const facts: NativeStopFacts = {
+    schema: 1,
+    commandId: command.id,
+    runId: plan.action.runId,
+    actionKey: plan.action.key,
+    inputDigest: plan.action.inputDigest,
+    bundleDigest: plan.bundle.bundleDigest,
+    commandState: command.state,
+    resultDigest: identity(command.result),
+    revoked: command.duplex!.revoked,
+    transportFailure: command.duplex!.failure,
+    quiescent,
+  };
+  store.retainOperatorRecord("opencode-native-stop/" + command.id, facts);
+}
 function retained(path: string, sha256: string, bytes: number, limit: number) {
   const stat = lstatSync(path);
   if (
@@ -293,6 +336,46 @@ function nativeTelemetry(
     decodeError = (error as Error).message || "strict-decode-failed";
   }
   const d = command.duplex!;
+  const exportPath = join(plan.paths.logs, `export-${command.id}.json`);
+  const proof = store.operatorRecord<StoredExportObservation>(
+    "opencode-export-observation/" + command.id,
+  );
+  const hasRaw = existsSync(exportPath) && !lstatSync(exportPath).isDirectory();
+  const stop = store.operatorRecord<NativeStopFacts>(
+    "opencode-native-stop/" + command.id,
+  );
+  if (
+    stop &&
+    (stop.schema !== 1 ||
+      stop.commandId !== command.id ||
+      stop.runId !== plan.action.runId ||
+      stop.actionKey !== plan.action.key ||
+      stop.inputDigest !== plan.action.inputDigest ||
+      stop.bundleDigest !== plan.bundle.bundleDigest ||
+      stop.commandState !== command.state ||
+      stop.resultDigest !== identity(command.result) ||
+      typeof stop.revoked !== "boolean" ||
+      (stop.transportFailure !== null &&
+        typeof stop.transportFailure !== "string") ||
+      stop.quiescent !== receipt.lifecycle.quiescent)
+  )
+    throw new Error("opencode-replay-native-stop-binding");
+  // A bound export proves the older producer passed its native interruption checks.
+  // Without it, a newly revoked successful command cannot establish the original ordering.
+  if (
+    !stop &&
+    !proof &&
+    !hasRaw &&
+    d.revoked &&
+    commandResult.outcome === "success"
+  )
+    throw new Error("opencode-replay-original-stop-unavailable");
+  const revokedAtSettlement = stop?.revoked ?? false;
+  const transportFailure = stop
+    ? stop.transportFailure
+    : proof || hasRaw
+      ? null
+      : d.failure;
   const verdict = classifyOpencodeStream({
     frames: decoder.frames,
     decodeError,
@@ -309,7 +392,7 @@ function nativeTelemetry(
       childStdoutEof: d.childStdoutEof === true,
       childStderrEof: d.childStderrEof === true,
       decoderComplete: d.decoderComplete === true,
-      transportFailure: d.failure,
+      transportFailure,
       stdoutTruncated: commandResult.stdoutTruncated,
       stderrTruncated: commandResult.stderrTruncated,
       stderrBytes: commandResult.stderrArtifact!.bytes,
@@ -317,10 +400,6 @@ function nativeTelemetry(
     },
   });
 
-  const exportPath = join(plan.paths.logs, `export-${command.id}.json`);
-  const proof = store.operatorRecord<StoredExportObservation>(
-    "opencode-export-observation/" + command.id,
-  );
   if (
     proof &&
     (proof.schema !== 1 ||
@@ -338,7 +417,6 @@ function nativeTelemetry(
       proof.maxExportBytes !== config.limits.maxExportBytes)
   )
     throw new Error("opencode-replay-export-binding");
-  const hasRaw = existsSync(exportPath) && !lstatSync(exportPath).isDirectory();
   let audit: OpencodeExportAudit | null = null;
   if (hasRaw) {
     if (!verdict.sessionId) throw new Error("opencode-replay-export-binding");
@@ -394,7 +472,7 @@ function nativeTelemetry(
   )
     throw new Error("opencode-replay-native-telemetry-export-conflict");
   const interruption =
-    d.revoked || commandResult.outcome === "cancelled"
+    revokedAtSettlement || commandResult.outcome === "cancelled"
       ? "opencode-cancelled-sigterm"
       : commandResult.outcome === "timeout"
         ? "opencode-deadline-exceeded"
@@ -546,12 +624,20 @@ export function reconcileRetainedObservation(
   const retainedExport =
     existsSync(exportPath) && !lstatSync(exportPath).isDirectory();
   if (!saved && !existsSync(path)) {
-    if (retainedExport) throw new Error("opencode-replay-receipt-missing");
+    if (
+      retainedExport ||
+      store.operatorRecord("opencode-native-stop/" + commandId)
+    )
+      throw new Error("opencode-replay-receipt-missing");
     return null;
   }
   // A first-write directory obstacle is not a retained receipt. Let the initial
   // settlement preserve measured usage and report its original retention failure.
-  if (!saved && lstatSync(path).isDirectory() && !retainedExport) return null;
+  if (!saved && lstatSync(path).isDirectory() && !retainedExport) {
+    if (store.operatorRecord("opencode-native-stop/" + commandId))
+      throw new Error("opencode-replay-receipt-missing");
+    return null;
+  }
   if (saved && (!saved.receipt || saved.receipt.path !== path))
     throw new Error("opencode-replay-proof-unavailable");
   const stat = lstatSync(path);

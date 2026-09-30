@@ -13,7 +13,10 @@ import {
   dependencyInventory,
 } from "./dependencies.js";
 import { retainImmutable } from "./retention.js";
-import { reconcileRetainedObservation } from "./observation.js";
+import {
+  reconcileRetainedObservation,
+  retainNativeStopFacts,
+} from "./observation.js";
 import { join, resolve } from "node:path";
 import {
   Store,
@@ -405,7 +408,9 @@ export class OpencodeAdapter {
     record?: CommandRecord,
     quiescent?: boolean,
   ): Promise<AgentSettlement> {
-    const rec = record ?? this.#store.command(id);
+    // The waiter's record may predate a control revocation. C5 freezes the current durable
+    // stop facts before classification; subsequent revocations cannot alter this observation.
+    const rec = this.#store.command(id) ?? record;
     if (!rec || rec.runId !== plan.action.runId)
       throw namedError("opencode-command-not-found");
     if (rec.state === "starting" || rec.state === "running")
@@ -451,6 +456,7 @@ export class OpencodeAdapter {
       );
       throw error;
     }
+    retainNativeStopFacts(this.#store, plan, rec, physicalQuiescent);
     const settledAt = this.#store.clock();
     let post = this.#measurePostRun(plan);
     let verdict: OpencodeStreamVerdict | null = null;
