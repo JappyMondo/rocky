@@ -13,6 +13,7 @@ import {
   dependencyInventory,
 } from "./dependencies.js";
 import { retainImmutable } from "./retention.js";
+import { reconcileRetainedObservation } from "./observation.js";
 import { join, resolve } from "node:path";
 import {
   Store,
@@ -417,6 +418,39 @@ export class OpencodeAdapter {
       duplex.stdoutEof === true &&
       duplex.stderrEof === true &&
       quiescent === true;
+    try {
+      const retainedObservation = reconcileRetainedObservation(
+        this.#store,
+        this.config,
+        plan,
+        id,
+        physicalQuiescent,
+      );
+      if (retainedObservation) return retainedObservation.settlement;
+    } catch (error) {
+      const refusal = {
+        schema: 1,
+        actionKey: plan.action.key,
+        inputDigest: plan.action.inputDigest,
+        commandId: id,
+        bundleDigest: plan.bundle.bundleDigest,
+        reason: (error as Error).message.slice(0, 512),
+        previousObservation:
+          this.#store.operatorRecord(
+            "opencode-observation/" + plan.action.key,
+          ) ?? null,
+        disposition:
+          "replay-refused; original evidence preserved; no native/export dispatch",
+      };
+      this.#store.retainOperatorRecord(
+        "opencode-replay-refusal/" +
+          plan.action.key +
+          "/" +
+          digest(canonical(refusal)),
+        refusal,
+      );
+      throw error;
+    }
     const settledAt = this.#store.clock();
     let post = this.#measurePostRun(plan);
     let verdict: OpencodeStreamVerdict | null = null;
@@ -629,16 +663,19 @@ export class OpencodeAdapter {
       settlement.outcome = "failed";
       settlement.detail = "opencode-receipt-retention-failed";
     }
-    this.#store.saveOperatorRecord("opencode-observation/" + plan.action.key, {
-      schema: 1,
-      actionKey: plan.action.key,
-      inputDigest: plan.action.inputDigest,
-      bundleDigest: plan.bundle.bundleDigest,
-      commandId: rec.id,
-      evidenceClass: this.config.evidenceClass,
-      receipt: retained,
-      settlement: JSON.parse(canonical(settlement)),
-    });
+    this.#store.retainOperatorRecord(
+      "opencode-observation/" + plan.action.key,
+      {
+        schema: 1,
+        actionKey: plan.action.key,
+        inputDigest: plan.action.inputDigest,
+        bundleDigest: plan.bundle.bundleDigest,
+        commandId: rec.id,
+        evidenceClass: this.config.evidenceClass,
+        receipt: retained,
+        settlement: JSON.parse(canonical(settlement)),
+      },
+    );
     return settlement;
   }
   #recheckBundle(plan: OpencodeLaunchPlan) {

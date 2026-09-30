@@ -222,6 +222,19 @@ export class Store {
       )
       .run(key, canonical(value));
   }
+  /** Immutable evidence projection: concurrent observers may only retain identical bytes. */
+  retainOperatorRecord(key: string, value: unknown) {
+    return this.#transaction(() => {
+      const bytes = canonical(value);
+      this.#db
+        .prepare(
+          "INSERT INTO operator_records(key,data) VALUES(?,?) ON CONFLICT(key) DO NOTHING",
+        )
+        .run(key, bytes);
+      if (canonical(this.operatorRecord(key)) !== bytes)
+        throw new Error("operator-evidence-conflict");
+    });
+  }
   /** A projection update shares cancellation/fencing checks with its revision CAS. */
   compareOperatorRecord(
     key: string,

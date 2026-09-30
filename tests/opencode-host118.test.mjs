@@ -791,3 +791,270 @@ test("host118 rendered implementer denies the native invalid tool outside the re
     f.store.close();
   }
 });
+
+import { Store } from "../dist/store/index.js";
+import { settlementToResultEvent } from "../dist/agents/seam.js";
+for (const mode of [
+  "same-adapter",
+  "reopened-store",
+  "receipt-before-pointer-crash",
+]) {
+  test(`host118 immutable terminal replay ${mode} preserves exact native event and never exports again`, async () => {
+    const f = opencodeFixture("replay118-" + mode);
+    try {
+      baselinePass(f);
+      const action = schedule(f, "implement");
+      const { plan, pending } = dispatchOpencode(
+        f,
+        action,
+        successScript(finalProposal(action, "implementer")),
+      );
+      await pending;
+      const key = "opencode-observation/" + action.key;
+      const prior = f.store.operatorRecord(key);
+      assert.equal(prior.settlement.classification, "complete");
+      const bytes = readFileSync(prior.receipt.path);
+      const exportRecord = readFileSync(
+        join(plan.paths.parentTmp, "fake-export-record.json"),
+      );
+      const nativeRecord = readFileSync(
+        join(plan.paths.parentTmp, "fake-record.json"),
+      );
+      const commandCount = f.store.commands(action.runId).length;
+      f.store.applyCoordinator(
+        f.lease,
+        f.store.coordinatorSnapshot(action.runId).revision,
+        "transport",
+        `result/${action.key}`,
+      );
+      const settledSnapshot = f.store.coordinatorSnapshot(action.runId);
+      if (mode !== "same-adapter") {
+        f.pending = null;
+        f.store.close();
+        if (mode === "receipt-before-pointer-crash") {
+          const db = new DatabaseSync(join(f.artifactRoot, "state.sqlite"));
+          db.prepare("DELETE FROM operator_records WHERE key=?").run(key);
+          db.close();
+        }
+        f.store = new Store(join(f.artifactRoot, "state.sqlite"));
+        f.adapter = new OpencodeAdapter(f.store, f.lease, f.config, {
+          sourceEnv: f.sourceEnv,
+        });
+      }
+      const replay = await f.adapter.settleCommand(
+        plan,
+        prior.commandId,
+        undefined,
+        true,
+      );
+      assert.deepEqual(replay, prior.settlement);
+      assert.deepEqual(
+        settlementToResultEvent(replay, action),
+        settlementToResultEvent(prior.settlement, action),
+      );
+      assert.deepEqual(f.store.operatorRecord(key), prior);
+      assert.deepEqual(readFileSync(prior.receipt.path), bytes);
+      assert.deepEqual(
+        readFileSync(join(plan.paths.parentTmp, "fake-export-record.json")),
+        exportRecord,
+      );
+      assert.deepEqual(
+        readFileSync(join(plan.paths.parentTmp, "fake-record.json")),
+        nativeRecord,
+      );
+      assert.equal(f.store.commands(action.runId).length, commandCount);
+      assert.deepEqual(
+        f.store.coordinatorSnapshot(action.runId),
+        settledSnapshot,
+      );
+      assertAgentObservation(
+        f.store,
+        f.config,
+        plan,
+        settlementToResultEvent(replay, action),
+      );
+    } finally {
+      await closeFixture(f);
+    }
+  });
+}
+
+test("host118 replay refuses corrupt, misbound, unknown-physical and C5 drift without replacing retained proof", async () => {
+  const f = opencodeFixture("replay-refusals118");
+  try {
+    baselinePass(f);
+    const action = schedule(f, "implement");
+    const { plan, pending } = dispatchOpencode(
+      f,
+      action,
+      successScript(finalProposal(action, "implementer")),
+    );
+    await pending;
+    const key = "opencode-observation/" + action.key,
+      prior = f.store.operatorRecord(key);
+    const original = readFileSync(prior.receipt.path),
+      exportRecord = readFileSync(
+        join(plan.paths.parentTmp, "fake-export-record.json"),
+      );
+    const unchanged = () => {
+      assert.deepEqual(f.store.operatorRecord(key), prior);
+      assert.deepEqual(
+        readFileSync(join(plan.paths.parentTmp, "fake-export-record.json")),
+        exportRecord,
+      );
+    };
+    await assert.rejects(
+      () =>
+        f.adapter.settleCommand(
+          { ...plan, action: { ...plan.action, inputDigest: "bad" } },
+          prior.commandId,
+          undefined,
+          true,
+        ),
+      /binding/,
+    );
+    unchanged();
+    await assert.rejects(
+      () =>
+        f.adapter.settleCommand(
+          { ...plan, spec: { ...plan.spec, timeoutMs: 1 } },
+          prior.commandId,
+          undefined,
+          true,
+        ),
+      /binding/,
+    );
+    unchanged();
+    await assert.rejects(
+      () => f.adapter.settleCommand(plan, prior.commandId, undefined, false),
+      /physical/,
+    );
+    unchanged();
+    const command = f.store.command.bind(f.store);
+    f.store.command = (id) => ({ ...command(id), group: null });
+    await assert.rejects(
+      () => f.adapter.settleCommand(plan, prior.commandId, undefined, true),
+      /physical/,
+    );
+    f.store.command = command;
+    unchanged();
+    writeFileSync(
+      prior.receipt.path,
+      Buffer.concat([original, Buffer.from("corrupt")]),
+    );
+    await assert.rejects(
+      () => f.adapter.settleCommand(plan, prior.commandId, undefined, true),
+      /metadata|drift/,
+    );
+    unchanged();
+    assert.deepEqual(
+      readFileSync(prior.receipt.path),
+      Buffer.concat([original, Buffer.from("corrupt")]),
+    );
+    writeFileSync(prior.receipt.path, original);
+    const binary = readFileSync(f.binary.path);
+    writeFileSync(
+      f.binary.path,
+      Buffer.concat([binary, Buffer.from("\n// drift\n")]),
+    );
+    await assert.rejects(
+      () => f.adapter.settleCommand(plan, prior.commandId, undefined, true),
+      /binary-identity/,
+    );
+    unchanged();
+    writeFileSync(f.binary.path, binary);
+    assert(
+      f.store.operatorRecords("opencode-replay-refusal/" + action.key + "/")
+        .length >= 3,
+    );
+    const observerStore = new Store(join(f.artifactRoot, "state.sqlite"));
+    try {
+      const observer = new OpencodeAdapter(observerStore, f.lease, f.config, {
+        sourceEnv: f.sourceEnv,
+      });
+      const replays = await Promise.all([
+        f.adapter.settleCommand(plan, prior.commandId, undefined, true),
+        observer.settleCommand(plan, prior.commandId, undefined, true),
+      ]);
+      assert.deepEqual(replays, [prior.settlement, prior.settlement]);
+      // A reopened observer with conflicting evidence cannot replace the genuine winner.
+      assert.throws(
+        () =>
+          observerStore.retainOperatorRecord(key, {
+            ...prior,
+            settlement: { ...prior.settlement, detail: "conflicting-observer" },
+          }),
+        /evidence-conflict/,
+      );
+      assert.deepEqual(observerStore.operatorRecord(key), prior);
+      unchanged();
+    } finally {
+      observerStore.close();
+    }
+  } finally {
+    await closeFixture(f);
+  }
+});
+
+test("host118 SIGKILL after immutable receipt before projection recovers exact proof without another native child", async () => {
+  const evidenceRoot = process.env.OPENCODE_ARTIFACT_ROOT;
+  const marker = join(evidenceRoot, "crash-gap-" + Date.now() + ".json");
+  mkdirSync(evidenceRoot, { recursive: true });
+  const code = `import{opencodeFixture,baselinePass,schedule,dispatchOpencode,finalProposal,successScript}from'./tests/opencode-support.mjs';import{writeFileSync}from'node:fs';const f=opencodeFixture('sigkill-proof-gap118');baselinePass(f);const action=schedule(f,'implement');let plan;const method=typeof f.store.retainOperatorRecord==='function'?'retainOperatorRecord':'saveOperatorRecord';const retain=f.store[method].bind(f.store);f.store[method]=(key,value)=>{if(key==='opencode-observation/'+action.key){writeFileSync(${JSON.stringify(marker)},JSON.stringify({db:f.store.path,lease:f.lease,config:f.config,sourceEnv:f.sourceEnv,plan,observation:value}),{mode:0o600});process.kill(process.pid,'SIGKILL');}return retain(key,value)};const launch=dispatchOpencode(f,action,successScript(finalProposal(action,'implementer')));plan=launch.plan;await launch.pending;throw Error('crash barrier not reached');`;
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, ["--input-type=module", "-e", code], {
+        cwd: process.cwd(),
+        env: {
+          PATH: "/usr/bin:/bin",
+          HOME: process.env.HOME,
+          TMPDIR: process.env.TMPDIR,
+          OPENCODE_ARTIFACT_ROOT: evidenceRoot,
+        },
+        timeout: 15000,
+        stdio: "pipe",
+      }),
+    (error) => error.signal === "SIGKILL",
+  );
+  const crash = JSON.parse(readFileSync(marker)),
+    store = new Store(crash.db);
+  try {
+    const key = "opencode-observation/" + crash.plan.action.key;
+    assert.equal(store.operatorRecord(key), undefined);
+    const snapshot = store.coordinatorSnapshot(crash.lease.runId);
+    const raw = readFileSync(crash.observation.receipt.path),
+      run = readFileSync(join(crash.plan.paths.parentTmp, "fake-record.json")),
+      exp = readFileSync(
+        join(crash.plan.paths.parentTmp, "fake-export-record.json"),
+      );
+    const adapter = new OpencodeAdapter(store, crash.lease, crash.config, {
+      sourceEnv: crash.sourceEnv,
+    });
+    const recovered = await adapter.settleCommand(
+      crash.plan,
+      crash.observation.commandId,
+      undefined,
+      true,
+    );
+    assert.deepEqual(recovered, crash.observation.settlement);
+    assert.deepEqual(store.operatorRecord(key), crash.observation);
+    assertAgentObservation(
+      store,
+      crash.config,
+      crash.plan,
+      settlementToResultEvent(recovered, crash.plan.action),
+    );
+    assert.deepEqual(readFileSync(crash.observation.receipt.path), raw);
+    assert.deepEqual(
+      readFileSync(join(crash.plan.paths.parentTmp, "fake-record.json")),
+      run,
+    );
+    assert.deepEqual(
+      readFileSync(join(crash.plan.paths.parentTmp, "fake-export-record.json")),
+      exp,
+    );
+    assert.deepEqual(store.coordinatorSnapshot(crash.lease.runId), snapshot);
+  } finally {
+    store.close();
+  }
+});
