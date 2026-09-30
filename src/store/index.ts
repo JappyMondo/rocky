@@ -52,6 +52,7 @@ import {
   type StockCompletion,
 } from "../agents/stock-request.js";
 import type { CoordinatorTransport } from "../coordinator/transport.js";
+import { matches } from "../runner/process.js";
 export type Versions = {
   workflow: string;
   adapter: string;
@@ -196,12 +197,75 @@ export class Store {
       .get(key);
     return row ? (JSON.parse(String(row.data)) as T) : undefined;
   }
+  claimOperatorOwner(owner: { process: ProcessIdentity; token: string }) {
+    this.#transaction(() => {
+      const prior = this.operatorRecord<typeof owner>("daemon-owner");
+      if (prior && matches(prior.process))
+        throw new Error("An active owned workflow is running");
+      this.saveOperatorRecord("daemon-owner", owner);
+    });
+  }
+  releaseOperatorOwner(token: string) {
+    this.#transaction(() => {
+      if (
+        this.operatorRecord<{ token: string }>("daemon-owner")?.token === token
+      )
+        this.#db
+          .prepare("DELETE FROM operator_records WHERE key='daemon-owner'")
+          .run();
+    });
+  }
   saveOperatorRecord(key: string, value: unknown) {
     this.#db
       .prepare(
         "INSERT INTO operator_records(key,data) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data",
       )
       .run(key, canonical(value));
+  }
+  /** A projection update shares cancellation/fencing checks with its revision CAS. */
+  compareOperatorRecord(
+    key: string,
+    expectedRevision: number,
+    value: { revision: number; phase?: string },
+    lease?: Lease,
+  ) {
+    this.#transaction(() => {
+      const old = this.operatorRecord<{ revision?: number }>(key);
+      if (
+        (old?.revision ?? 0) !== expectedRevision ||
+        value.revision !== expectedRevision + 1
+      )
+        throw new Error("stale-operator-revision");
+      if (lease) {
+        if (!key.endsWith("/" + lease.runId))
+          throw new Error("operator-record-run-mismatch");
+        const run = this.#guard(lease, true);
+        const snapshot = this.coordinatorSnapshot(lease.runId);
+        if (
+          snapshot &&
+          this.coordinatorIssue(snapshot.repository, snapshot.issue) !==
+            lease.runId
+        )
+          throw new Error("issue-ownership-superseded");
+        if (run.cancelled && value.phase !== "cancelled")
+          throw new Error("cancelled");
+      }
+      this.saveOperatorRecord(key, value);
+    });
+  }
+  coordinatorIssue(repository: string, issue: string): string | null {
+    const row = this.#db
+      .prepare(
+        "SELECT run_id FROM coordinator_issues WHERE repository=? AND issue=?",
+      )
+      .get(repository, issue);
+    return row ? String(row.run_id) : null;
+  }
+  effects(runId: string): Effect[] {
+    return this.#db
+      .prepare("SELECT data FROM effects WHERE run_id=? ORDER BY rowid")
+      .all(runId)
+      .map((row) => JSON.parse(String(row.data)) as Effect);
   }
   operatorRecords<T>(prefix: string): T[] {
     return this.#db
@@ -1350,6 +1414,12 @@ export class Store {
           this.commands(old.runId).some((c) => c.state !== "finished")
         )
           throw new Error("previous-run-not-quiescent-terminal");
+        if (
+          this.effects(old.runId).some(
+            (e) => e.kind !== "coordinator-action" && e.state !== "confirmed",
+          )
+        )
+          throw new Error("previous-run-effect-reconciliation-required");
       } else if (admission.previousRunId !== null)
         throw new Error("previous-run-not-found");
       const s = initialSnapshot(admission, this.clock());

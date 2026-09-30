@@ -169,7 +169,23 @@ function renderRun(run) {
   }
   const actions = el("div", undefined, "actions");
   if (run.pr && !["merged", "closed"].includes(run.phase))
-    actions.append(button("Refresh CI", () => action("refresh", run)));
+    actions.append(
+      button(run.mergeRequest ? "Refresh merge status" : "Refresh CI", () =>
+        action("refresh", run),
+      ),
+    );
+  if (run.rerunReady)
+    actions.append(
+      button("Start a rerun of " + run.id.slice(0, 8), async () => {
+        try {
+          const next = await api("/runs", "POST", { previousRunId: run.id });
+          selected = next.id;
+          await refresh();
+        } catch (error) {
+          fail(error);
+        }
+      }),
+    );
   if (run.phase === "awaiting_approval" && !run.approval)
     actions.append(
       button(
@@ -197,9 +213,7 @@ function renderRun(run) {
       ),
     );
   }
-  if (
-    ["baseline", "implementing", "verifying", "reviewing"].includes(run.phase)
-  )
+  if (!["cancelled", "merged", "closed", "no_code"].includes(run.phase))
     actions.append(button("Cancel run", () => action("cancel", run)));
   box.append(actions);
   if (run.phase === "merged") {

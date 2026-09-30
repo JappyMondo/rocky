@@ -9,13 +9,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { OperatorService } from "../dist/daemon/service.js";
 import { serve } from "../dist/daemon/server.js";
 import { defaults } from "../dist/daemon/config.js";
 import { execute, GitHub } from "../dist/delivery/github.js";
 import { OpencodeAdapter } from "../dist/agents/opencode/index.js";
 import { delay } from "../dist/runner/process.js";
+import { identify } from "../dist/runner/process.js";
+import { ATT764_TASK } from "../dist/attraccess/current.js";
 import {
   opencodeFixture,
   finalProposal,
@@ -54,10 +57,27 @@ function fixture(name) {
     "fixture",
   );
   let pr = null,
+    attempt = 1,
     merges = 0,
     drafts = 0,
     ready = 0;
   const github = {
+    async attempts(repository, p) {
+      return {
+        head: p.head,
+        integration: p.integration,
+        identities: [
+          {
+            source: "check-run",
+            id: attempt,
+            sha: p.integration,
+            name: "fixture-check",
+            workflowRun: 10,
+            workflowAttempt: attempt,
+          },
+        ],
+      };
+    },
     async draft(repository, branch, base, head) {
       drafts++;
       pr = {
@@ -78,11 +98,16 @@ function fixture(name) {
     },
     async observe(repository, p) {
       return {
+        attempts: await github.attempts(repository, p),
         head: p.head,
         integration: p.integration,
         outcome: "pass",
         checks: [
           {
+            id: attempt,
+            source: "check-run",
+            workflowRun: 10,
+            workflowAttempt: attempt,
             name: "fixture-check",
             sha: p.integration,
             status: "completed",
@@ -180,6 +205,9 @@ function fixture(name) {
       pr = v;
     },
     counts: () => ({ drafts, merges, ready }),
+    set attempt(value) {
+      attempt = value;
+    },
     repo,
   };
 }
@@ -228,6 +256,485 @@ test("HTTP config persistence, truthful preflight blocker, local origin gate and
   assert.equal(restarted.config().task, "A scoped UI task");
   assert.equal(restarted.runs().length, 1);
   await restarted.close();
+});
+
+function barrier() {
+  let entered, release;
+  const waiting = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  return {
+    waiting,
+    release,
+    async wait() {
+      entered();
+      await pending;
+    },
+  };
+}
+async function published(f) {
+  const run = await f.service.start();
+  await f.service.idle();
+  assert.equal(
+    f.service.run(run.id).phase,
+    "awaiting_ci",
+    f.service.run(run.id).message,
+  );
+  return run.id;
+}
+async function reviewed(f) {
+  const id = await published(f);
+  await f.service.refresh(id);
+  await f.service.idle();
+  assert.equal(
+    f.service.run(id).phase,
+    "awaiting_approval",
+    f.service.run(id).message,
+  );
+  return id;
+}
+
+test("repair117: successful queue request is acknowledged then reconciled read-only before stale base/CI handling", async () => {
+  const f = fixture("queue117");
+  let sends = 0,
+    reads = 0;
+  const originalPull = f.deps.github.pull.bind(f.deps.github);
+  f.deps.github.pull = async (...args) => {
+    reads++;
+    return originalPull(...args);
+  };
+  const gh = new GitHub(async (file, args) => {
+    if (args[0] === "pr" && args[1] === "merge") {
+      sends++;
+      return "queued";
+    }
+    assert.equal(args[0], "api");
+    reads++;
+    return JSON.stringify({
+      number: f.pr.number,
+      html_url: f.pr.url,
+      head: { sha: f.pr.head },
+      base: { sha: f.pr.base },
+      merge_commit_sha: f.pr.merged ? f.pr.mergeCommit : f.pr.integration,
+      state: f.pr.state,
+      draft: f.pr.draft,
+      merged: f.pr.merged,
+    });
+  });
+  f.deps.github.merge = gh.merge.bind(gh);
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    await f.service.merge(id, head);
+    await f.service.idle();
+    assert.equal(
+      f.service.run(id).phase,
+      "merge_requested",
+      f.service.run(id).message,
+    );
+    assert.equal(
+      f.service.store.effect(`operator/${id}/merge/${head}`).state,
+      "confirmed",
+    );
+    assert.equal(f.service.run(id).mergeRequest.head, head);
+    await assert.rejects(
+      f.service.merge(id, head),
+      /requested|reconciliation|busy/,
+    );
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "merge_requested");
+    f.pr = {
+      ...f.pr,
+      merged: true,
+      state: "closed",
+      mergeCommit: "f".repeat(40),
+      base: "d".repeat(40),
+      integration: "f".repeat(40),
+    };
+    f.deps.github.observe = async () => {
+      throw new Error("CI must not be recollected after requested merge");
+    };
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "merged", f.service.run(id).message);
+    assert.equal(f.service.run(id).closedAt, null);
+    assert.equal(
+      f.service.closeout(id, "Separate manual closeout").phase,
+      "closed",
+    );
+    assert.equal(sends, 1);
+    assert.ok(
+      reads >= 3,
+      "later reconciliation uses read-only PR observations",
+    );
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: late draft and CI completions preserve cancellation and sent-effect receipts", async (t) => {
+  for (const operation of ["draft", "observe"])
+    await t.test(operation, async () => {
+      const f = fixture("cancel117-" + operation),
+        gate = barrier();
+      const original = f.deps.github[operation].bind(f.deps.github);
+      f.deps.github[operation] = async (...args) => {
+        await gate.wait();
+        return original(...args);
+      };
+      try {
+        const id =
+          operation === "draft"
+            ? (await f.service.start()).id
+            : await published(f);
+        if (operation === "observe") await f.service.refresh(id);
+        await gate.waiting;
+        await f.service.cancel(id);
+        gate.release();
+        await f.service.idle();
+        const d = f.service.detail(id);
+        assert.equal(d.phase, "cancelled", d.message);
+        assert.equal(d.snapshot.cancelled, true);
+        assert.equal(d.snapshot.receipts.approval, undefined);
+        if (operation === "draft")
+          assert.equal(
+            f.service.store.effect(`operator/${id}/draft/${d.head}`).state,
+            "confirmed",
+          );
+        assert.equal(f.counts().merges, 0);
+      } finally {
+        gate.release();
+        await f.service.close();
+      }
+    });
+});
+
+test("repair117: cancellation after already-sent merge preserves cancellation and confirmed external receipt", async () => {
+  const f = fixture("cancel-merge117"),
+    gate = barrier(),
+    original = f.deps.github.merge.bind(f.deps.github);
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    f.deps.github.merge = async (...args) => {
+      await gate.wait();
+      return original(...args);
+    };
+    await f.service.merge(id, head);
+    await gate.waiting;
+    await f.service.cancel(id);
+    gate.release();
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "cancelled");
+    assert.equal(
+      f.service.store.effect(`operator/${id}/merge/${head}`).state,
+      "confirmed",
+    );
+    assert.equal(f.counts().merges, 1);
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "cancelled");
+    assert.equal(f.counts().merges, 1);
+  } finally {
+    gate.release();
+    await f.service.close();
+  }
+});
+
+test("repair117: stale saved operator projection cannot erase durable cancellation", async () => {
+  const f = fixture("cancel-save117");
+  try {
+    const id = await published(f),
+      stale = f.service.run(id);
+    await f.service.cancel(id);
+    stale.phase = "awaiting_approval";
+    assert.throws(() => f.service.save(stale), /cancelled|revision|stale/);
+    assert.equal(f.service.run(id).phase, "cancelled");
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: one stable issue forbids a second CI/approval run and requires explicit safe predecessor rerun", async () => {
+  const f = fixture("issue117");
+  try {
+    const id = await published(f);
+    await assert.rejects(f.service.start(), /issue|workflow|rerun/);
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "awaiting_approval");
+    await assert.rejects(f.service.start(), /issue|workflow|rerun/);
+    await f.service.cancel(id);
+    await assert.rejects(f.service.start(), /explicit|predecessor|rerun/);
+    assert.equal(f.service.detail(id).rerunReady, true);
+    const next = await f.service.start({ previousRunId: id });
+    await f.service.idle();
+    const old = f.service.store.coordinatorSnapshot(id),
+      current = f.service.store.coordinatorSnapshot(next.id);
+    assert.equal(current.issue, old.issue);
+    assert.notEqual(current.issue, current.runId);
+    assert.notEqual(current.rerun, old.rerun);
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: cancelled acknowledged queue remains an unresolved predecessor until read-only confirmed merge", async () => {
+  const f = fixture("queue-rerun117");
+  let sends = 0;
+  f.deps.github.merge = async (_repository, pr, head) => {
+    sends++;
+    return { number: pr.number, head, requestedAt: Date.now() };
+  };
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    await f.service.merge(id, head);
+    await f.service.idle();
+    await f.service.cancel(id);
+    assert.equal(f.service.detail(id).rerunReady, false);
+    await assert.rejects(
+      f.service.start({ previousRunId: id }),
+      /effect|reconciliation/,
+    );
+    f.pr = {
+      ...f.pr,
+      merged: true,
+      state: "closed",
+      mergeCommit: "f".repeat(40),
+    };
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "cancelled");
+    assert.equal(f.service.run(id).pr.merged, true);
+    assert.equal(sends, 1);
+    const rerun = await f.service.start({ previousRunId: id });
+    await f.service.idle();
+    assert.equal(
+      f.service.store.coordinatorSnapshot(rerun.id).issue,
+      f.service.store.coordinatorSnapshot(id).issue,
+    );
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: CI changing during awaited ready prevents the separate merge write", async () => {
+  const f = fixture("ready-ci117"),
+    gate = barrier(),
+    original = f.deps.github.ready.bind(f.deps.github);
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    f.deps.github.ready = async (...args) => {
+      await gate.wait();
+      return original(...args);
+    };
+    await f.service.merge(id, head);
+    await gate.waiting;
+    f.attempt = 2;
+    gate.release();
+    await f.service.idle();
+    assert.equal(f.counts().ready, 1);
+    assert.equal(f.counts().merges, 0);
+    assert.equal(f.service.run(id).approval, null);
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).receipts.approval,
+      undefined,
+    );
+  } finally {
+    gate.release();
+    await f.service.close();
+  }
+});
+
+test("repair117: unresolved sent effect prevents even explicit predecessor rerun", async () => {
+  const f = fixture("unresolved-issue117");
+  f.deps.github.draft = async () => {
+    throw new Error("Ambiguous remote request");
+  };
+  try {
+    const run = await f.service.start();
+    await f.service.idle();
+    await f.service.cancel(run.id);
+    await assert.rejects(
+      f.service.start({ previousRunId: run.id }),
+      /effect|reconciliation|unresolved/,
+    );
+    assert.equal(f.service.runs().length, 1);
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: CI collector begins before result I/O; unchanged polls retain approval, same-head new attempt invalidates it", async () => {
+  const f = fixture("ci-attempt117");
+  try {
+    const id = await published(f),
+      original = f.deps.github.observe.bind(f.deps.github);
+    f.deps.github.observe = async (...args) => {
+      assert.ok(
+        f.service.store.coordinatorSnapshot(id).observations.ci,
+        "collector token exists before collecting result",
+      );
+      return original(...args);
+    };
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.equal(
+      f.service.run(id).phase,
+      "awaiting_approval",
+      f.service.run(id).message,
+    );
+    const head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    const before = f.service.store.coordinatorSnapshot(id),
+      approval = f.service.run(id).approval;
+    await f.service.refresh(id);
+    await f.service.idle();
+    assert.deepEqual(f.service.run(id).approval, approval);
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).observations.ci.generation,
+      before.observations.ci.generation,
+    );
+    f.attempt = 2;
+    await f.service.merge(id, head);
+    await f.service.idle();
+    assert.equal(f.counts().merges, 0);
+    assert.equal(f.service.run(id).approval, null);
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).receipts.approval,
+      undefined,
+    );
+    assert.match(f.service.run(id).message, /CI|evidence|approval|attempt/);
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: approval rechecks the actual passing CI attempt on the same head", async () => {
+  const f = fixture("ci-approve117");
+  try {
+    const id = await reviewed(f);
+    f.attempt = 2;
+    await assert.rejects(
+      f.service.approve(id, f.service.run(id).head),
+      /CI|evidence|attempt/,
+    );
+    assert.equal(f.service.run(id).approval, null);
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).receipts.approval,
+      undefined,
+    );
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: upstream attempt changing during collection invalidates approval before discarding the delayed result", async () => {
+  const f = fixture("ci-drift117");
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    const original = f.deps.github.observe.bind(f.deps.github);
+    f.deps.github.observe = async (...args) => {
+      f.attempt = 2;
+      return original(...args);
+    };
+    await f.service.merge(id, head);
+    await f.service.idle();
+    assert.equal(f.counts().merges, 0);
+    assert.equal(f.service.run(id).approval, null);
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).receipts.approval,
+      undefined,
+    );
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).receipts.ci,
+      undefined,
+    );
+    assert.match(
+      f.service.run(id).message,
+      /attempt changed during collection/,
+    );
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: cancelling while approval awaits CI cannot record consent or close SQLite before the await drains", async () => {
+  const f = fixture("cancel-approve117"),
+    gate = barrier(),
+    original = f.deps.github.observe.bind(f.deps.github);
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    f.deps.github.observe = async (...args) => {
+      await gate.wait();
+      return original(...args);
+    };
+    const approval = f.service.approve(id, head);
+    const rejected = assert.rejects(approval, /cancelled/);
+    await gate.waiting;
+    await f.service.cancel(id);
+    gate.release();
+    await rejected;
+    await f.service.idle();
+    assert.equal(f.service.run(id).phase, "cancelled");
+    assert.equal(f.service.run(id).approval, null);
+    assert.equal(
+      f.service.store.coordinatorSnapshot(id).receipts.approval,
+      undefined,
+    );
+  } finally {
+    gate.release();
+    await f.service.close();
+  }
+});
+
+test("repair117: setup rejects an actual active owned workflow without changing its state or owner", async () => {
+  const f = fixture("setup117"),
+    gate = barrier(),
+    original = f.deps.github.draft.bind(f.deps.github);
+  f.deps.github.draft = async (...args) => {
+    await gate.wait();
+    return original(...args);
+  };
+  try {
+    const run = await f.service.start();
+    await gate.waiting;
+    const processIdentity = identify(process.pid);
+    writeFileSync(
+      join(f.home, "daemon.json"),
+      JSON.stringify({ process: processIdentity, url: "http://127.0.0.1:1" }),
+    );
+    const before = f.service.run(run.id);
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, ["dist/cli.js", "setup"], {
+          env: { ...process.env, ROCKY_NEXT_HOME: f.home },
+          stdio: "pipe",
+        }),
+      /running|owned|active|stop/i,
+    );
+    assert.deepEqual(f.service.run(run.id), before);
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(f.home, "daemon.json"))).process,
+      processIdentity,
+    );
+  } finally {
+    gate.release();
+    await f.service.close();
+  }
 });
 
 test("startup freezes the authority and runtime actually validated by preflight", async () => {
@@ -404,6 +911,7 @@ test("CI collector distinguishes head/integration and never promotes absent requ
         total_count: 1,
         check_runs: [
           {
+            id: 101,
             name: "unit",
             status: "completed",
             conclusion: "success",
@@ -411,6 +919,8 @@ test("CI collector distinguishes head/integration and never promotes absent requ
           },
         ],
       });
+    if (path.includes("actions/runs"))
+      return JSON.stringify({ total_count: 0, workflow_runs: [] });
     return JSON.stringify({ total_count: 0, statuses: [] });
   });
   const pr = { head: "a".repeat(40), integration: "b".repeat(40) };
@@ -482,6 +992,144 @@ test("restart preserves unfinished work as recovery required without relaunch", 
   assert.equal(service.run("interrupted").phase, "recovery_required");
   await assert.rejects(service.start(), /unreconciled/);
   await service.close();
+});
+
+test("repair117: fixed ATT-764 identity also covers blocked admissions and refuses a second service owner", async () => {
+  const f = fixture("att-issue117");
+  try {
+    f.service.configure({
+      ...f.service.config(),
+      repository: "attraccess/attraccess",
+      task: ATT764_TASK,
+    });
+    const run = await f.service.start();
+    assert.equal(run.issue, "ATT-764");
+    assert.equal(run.phase, "blocked");
+    await assert.rejects(f.service.start(), /explicit|issue|rerun/i);
+    assert.throws(
+      () => new OperatorService(f.home, f.deps),
+      /active|owned|running/,
+    );
+    assert.equal(f.service.runs().length, 1);
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117: genuinely killed owner recovers retained active state without relaunch", async () => {
+  const home = mkdtempSync(join(tmpdir(), "rocky-orphan117-"));
+  const child = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import {OperatorService} from './dist/daemon/service.js';const s=new OperatorService(process.argv[1]);s.store.saveOperatorRecord('run/orphan',{id:'orphan',phase:'publishing',message:'',createdAt:1});console.log('ready');setInterval(()=>{},1000);`,
+      home,
+    ],
+    { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+  );
+  try {
+    await new Promise((resolve, reject) => {
+      child.stdout.once("data", resolve);
+      child.once("error", reject);
+      child.once("exit", (code) =>
+        reject(new Error("Owner exited before ready: " + code)),
+      );
+    });
+    const exited = once(child, "exit");
+    child.kill("SIGKILL");
+    await exited;
+    const service = new OperatorService(home);
+    try {
+      assert.equal(service.run("orphan").phase, "recovery_required");
+      await assert.rejects(service.start(), /unreconciled/);
+      assert.equal(service.runs().length, 1);
+    } finally {
+      await service.close();
+    }
+  } finally {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
+  }
+});
+
+test("repair117: CI binds real check-run, workflow attempt and status IDs while identical polls stay stable", async () => {
+  let attempt = 1,
+    status = 201;
+  const gh = new GitHub(async (_file, args) => {
+    const path = args[1];
+    if (path.includes("check-runs"))
+      return JSON.stringify({
+        total_count: 1,
+        check_runs: [
+          {
+            id: 101,
+            name: "unit",
+            check_suite: { id: 77 },
+            status: "completed",
+            conclusion: "success",
+            html_url: "https://github.com/owner/repo/actions/runs/301/job/101",
+          },
+        ],
+      });
+    if (path.includes("actions/runs"))
+      return JSON.stringify({
+        total_count: 1,
+        workflow_runs: [
+          {
+            id: 301,
+            workflow_id: 5,
+            event: "pull_request",
+            name: "unit workflow",
+            run_attempt: attempt,
+            check_suite_id: 77,
+            status: "completed",
+            conclusion: "success",
+            html_url: "https://github.com/owner/repo/actions/runs/301",
+          },
+        ],
+      });
+    return JSON.stringify({
+      total_count: 1,
+      statuses: [
+        {
+          id: status,
+          context: "external",
+          state: "success",
+          target_url: "https://ci.example/status",
+        },
+      ],
+    });
+  });
+  const pr = { head: "a".repeat(40), integration: "b".repeat(40) };
+  const first = await gh.attempts("owner/repo", pr, "/tmp");
+  assert.deepEqual(await gh.attempts("owner/repo", pr, "/tmp"), first);
+  assert.equal(
+    first.identities.find((x) => x.source === "check-run").workflowAttempt,
+    1,
+  );
+  assert.ok(
+    first.identities.some((x) => x.source === "status" && x.id === 201),
+  );
+  attempt = 2;
+  assert.notDeepEqual(await gh.attempts("owner/repo", pr, "/tmp"), first);
+  status = 202;
+  const current = await gh.observe(
+    "owner/repo",
+    pr,
+    ["unit", "external"],
+    "/tmp",
+  );
+  assert.equal(current.outcome, "pass");
+  assert.ok(
+    current.attempts.identities.some(
+      (x) => x.source === "status" && x.id === 202,
+    ),
+  );
+  assert.equal(
+    current.checks.find((x) => x.source === "check-run").workflowAttempt,
+    2,
+  );
 });
 
 test("draft creation rechecks cancellation after push before creating a PR", async () => {

@@ -16,6 +16,7 @@ import { homePath, setup } from "./daemon/config.js";
 import { OperatorService } from "./daemon/service.js";
 import { serve } from "./daemon/server.js";
 import { identify, matches, delay } from "./runner/process.js";
+import { Store } from "./store/index.js";
 
 const [command, arg] = process.argv.slice(2),
   home = homePath(),
@@ -47,8 +48,8 @@ try {
     );
   else if (command === "setup") {
     const report = setup(home);
-    const service = new OperatorService(home);
-    await service.close();
+    const store = new Store(join(home, "state.sqlite"));
+    store.close();
     console.log(
       JSON.stringify(
         arg

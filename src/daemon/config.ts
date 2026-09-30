@@ -23,6 +23,7 @@ import {
 } from "../agents/opencode/index.js";
 import type { ExecutionQualification } from "../coordinator/contracts.js";
 import type { Versions } from "../store/index.js";
+import { assertHomeAvailable } from "./ownership.js";
 
 export interface OperatorConfig {
   repositoryPath: string;
@@ -188,6 +189,7 @@ export function buildRuntime(
   });
 }
 export function setup(home: string) {
+  assertHomeAvailable(home);
   mkdirSync(home, { recursive: true, mode: 0o700 });
   for (const path of ["opencode-data", "agents", "workspaces"])
     mkdirSync(join(home, path), { recursive: true, mode: 0o700 });

@@ -26,11 +26,44 @@ export interface PullRequest {
   merged: boolean;
   mergeCommit: string | null;
 }
+export interface MergeRequest {
+  number: number;
+  head: string;
+  requestedAt: number | null;
+}
+export interface CIAttempts {
+  head: string;
+  integration: string | null;
+  identities: {
+    source: string;
+    id: number;
+    sha: string;
+    name: string;
+    workflowRun: number | null;
+    workflowAttempt: number | null;
+  }[];
+}
+interface WorkflowRun {
+  id: number;
+  workflow_id: number;
+  event: string;
+  name: string;
+  run_attempt: number;
+  check_suite_id: number;
+  status: string;
+  conclusion: string | null;
+  html_url: string;
+}
 export interface CIObservation {
+  attempts: CIAttempts;
   head: string;
   integration: string | null;
   outcome: "pass" | "fail" | "pending";
   checks: {
+    id: number;
+    source: string;
+    workflowRun: number | null;
+    workflowAttempt: number | null;
     name: string;
     sha: string;
     status: string;
@@ -110,33 +143,80 @@ export class GitHub {
       throw new Error("Created PR head differs from the verified commit");
     return pr;
   }
-  async observe(
-    repository: string,
-    pr: PullRequest,
-    required: string[],
-    cwd: string,
-  ): Promise<CIObservation> {
+  private async collect(repository: string, pr: PullRequest, cwd: string) {
     const checks: CIObservation["checks"] = [];
+    const identities: CIAttempts["identities"] = [];
     for (const sha of [
       ...new Set([pr.head, ...(pr.integration ? [pr.integration] : [])]),
     ]) {
       const jobs = await this.json(
         repository,
-        `commits/${sha}/check-runs?per_page=100`,
+        `commits/${sha}/check-runs?filter=latest&per_page=100`,
         cwd,
       );
       if (jobs.total_count > 100)
         throw new Error(
           "CI check pagination required; refusing partial evidence",
         );
-      for (const j of jobs.check_runs)
+      const workflows = await this.json(
+        repository,
+        `actions/runs?head_sha=${sha}&per_page=100`,
+        cwd,
+      );
+      if (workflows.total_count > 100)
+        throw new Error(
+          "CI workflow pagination required; refusing partial evidence",
+        );
+      const latest = new Map<string, WorkflowRun>();
+      for (const workflow of workflows.workflow_runs as WorkflowRun[]) {
+        const key = `${workflow.workflow_id}/${workflow.event}`;
+        if (!latest.has(key) || latest.get(key)!.id < workflow.id)
+          latest.set(key, workflow);
+      }
+      for (const workflow of latest.values()) {
+        if (
+          !Number.isSafeInteger(workflow.id) ||
+          !Number.isSafeInteger(workflow.run_attempt)
+        )
+          throw new Error("CI workflow attempt identity unavailable");
+        const binding = {
+          source: "workflow",
+          id: workflow.id,
+          name: workflow.name,
+          sha,
+          workflowRun: workflow.id,
+          workflowAttempt: workflow.run_attempt,
+        };
+        identities.push(binding);
         checks.push({
+          ...binding,
+          status: workflow.status,
+          conclusion: workflow.conclusion,
+          url: workflow.html_url,
+        });
+      }
+      for (const j of jobs.check_runs) {
+        if (!Number.isSafeInteger(j.id))
+          throw new Error("CI check-run identity unavailable");
+        const workflow = [...latest.values()].find(
+          (w) => w.check_suite_id === j.check_suite?.id,
+        );
+        const binding = {
+          source: "check-run",
+          id: j.id,
           name: j.name,
           sha,
+          workflowRun: workflow?.id ?? null,
+          workflowAttempt: workflow?.run_attempt ?? null,
+        };
+        identities.push(binding);
+        checks.push({
+          ...binding,
           status: j.status,
           conclusion: j.conclusion,
           url: j.html_url ?? "",
         });
+      }
       const statuses = await this.json(
         repository,
         `commits/${sha}/status?per_page=100`,
@@ -146,15 +226,50 @@ export class GitHub {
         throw new Error(
           "CI status pagination required; refusing partial evidence",
         );
-      for (const s of statuses.statuses)
-        checks.push({
+      for (const s of statuses.statuses) {
+        if (!Number.isSafeInteger(s.id))
+          throw new Error("CI status identity unavailable");
+        const binding = {
+          source: "status",
+          id: s.id,
           name: s.context,
           sha,
+          workflowRun: null,
+          workflowAttempt: null,
+        };
+        identities.push(binding);
+        checks.push({
+          ...binding,
           status: s.state === "pending" ? "in_progress" : "completed",
           conclusion: s.state === "success" ? "success" : s.state,
           url: s.target_url ?? "",
         });
+      }
     }
+    const order = (a: unknown, b: unknown) =>
+      JSON.stringify(a).localeCompare(JSON.stringify(b));
+    identities.sort(order);
+    checks.sort(order);
+    return {
+      attempts: { head: pr.head, integration: pr.integration, identities },
+      checks,
+    };
+  }
+  /** Discovery supplies upstream attempt IDs; discard result data until the host begins its collector. */
+  async attempts(
+    repository: string,
+    pr: PullRequest,
+    cwd: string,
+  ): Promise<CIAttempts> {
+    return (await this.collect(repository, pr, cwd)).attempts;
+  }
+  async observe(
+    repository: string,
+    pr: PullRequest,
+    required: string[],
+    cwd: string,
+  ): Promise<CIObservation> {
+    const { attempts, checks } = await this.collect(repository, pr, cwd);
     const current = checks.filter((c) => c.sha === (pr.integration ?? pr.head));
     const failed = checks.some(
       (c) =>
@@ -173,6 +288,7 @@ export class GitHub {
       ) &&
       checks.every((c) => c.status === "completed");
     return {
+      attempts,
       head: pr.head,
       integration: pr.integration,
       outcome: failed ? "fail" : complete ? "pass" : "pending",
@@ -208,9 +324,10 @@ export class GitHub {
       ],
       cwd,
     );
-    const result = await this.pull(repository, pr.number, cwd);
-    if (!result.merged || !result.mergeCommit)
-      throw new Error("Merge requested; GitHub has not confirmed a merge");
-    return result;
+    return {
+      number: pr.number,
+      head: expected,
+      requestedAt: Date.now(),
+    } satisfies MergeRequest;
   }
 }

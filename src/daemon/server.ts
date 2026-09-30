@@ -48,8 +48,20 @@ export async function serve(service: OperatorService, port = 4737) {
       if (req.method === "GET" && path === "/api/runs")
         return json(service.runs());
       if (req.method === "POST" && path === "/api/runs") {
-        await body(req);
-        return json(await service.start(), 201);
+        const value = (await body(req)) as Record<string, unknown>;
+        if (
+          value.previousRunId !== undefined &&
+          typeof value.previousRunId !== "string"
+        )
+          throw new Error("Explicit predecessor run ID required");
+        return json(
+          await service.start(
+            value.previousRunId
+              ? { previousRunId: value.previousRunId as string }
+              : {},
+          ),
+          201,
+        );
       }
       if (req.method === "GET" && path === "/setup") {
         res.setHeader("Content-Type", "text/plain; charset=utf-8");

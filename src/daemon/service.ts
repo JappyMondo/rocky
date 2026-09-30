@@ -38,6 +38,7 @@ import type {
   Action,
   Event,
   ReceiptKind,
+  Observation,
   CoordinatorTransport,
 } from "../coordinator/index.js";
 import {
@@ -46,6 +47,7 @@ import {
   type Execute,
   type PullRequest,
   type CIObservation,
+  type MergeRequest,
 } from "../delivery/github.js";
 import {
   buildRuntime,
@@ -55,9 +57,14 @@ import {
   type OperatorConfig,
   type HostAuthority,
 } from "./config.js";
+import { assertHomeAvailable, ownHome } from "./ownership.js";
+import { terminal } from "../coordinator/contracts.js";
 
 export interface OperatorRun {
   id: string;
+  revision: number;
+  issue: string;
+  previousRunId: string | null;
   createdAt: number;
   config: OperatorConfig;
   workspace: string;
@@ -68,6 +75,7 @@ export interface OperatorRun {
   base: string;
   pr: PullRequest | null;
   ci: CIObservation | null;
+  mergeRequest: MergeRequest | null;
   approval: {
     head: string;
     base: string;
@@ -102,16 +110,25 @@ export class OperatorService extends EventEmitter {
   private starting = false;
   private stopping = false;
   private approving = new Set<string>();
+  private approvalWork = new Map<string, Promise<unknown>>();
   private active = new Map<string, Promise<void>>();
   private leases = new Map<string, Lease>();
   private adapters = new Map<string, OpencodeAdapter>();
+  private releaseHome: () => void;
   constructor(
     readonly home: string,
     readonly deps: Dependencies = {},
   ) {
     super();
+    assertHomeAvailable(home);
     mkdirSync(home, { recursive: true, mode: 0o700 });
     this.store = new Store(join(home, "state.sqlite"));
+    try {
+      this.releaseHome = ownHome(home, this.store);
+    } catch (error) {
+      this.store.close();
+      throw error;
+    }
     this.evidence = new Evidence(join(home, "evidence"));
     let build = "development";
     try {
@@ -144,16 +161,25 @@ export class OperatorService extends EventEmitter {
     this.github = deps.github ?? new GitHub(this.exec);
     this.ciTimer = setInterval(() => {
       for (const run of this.runs())
-        if (run.phase === "awaiting_ci" && !this.active.has(run.id)) {
+        if (
+          ["awaiting_ci", "merge_requested"].includes(run.phase) &&
+          !this.active.has(run.id)
+        ) {
           if (Date.now() > run.createdAt + run.config.totalMinutes * 60000) {
+            run.message =
+              run.phase === "merge_requested"
+                ? "Merge confirmation deadline exceeded; refresh to reconcile the sent request"
+                : "CI observation deadline exceeded";
             run.phase = "blocked";
-            run.message = "CI observation deadline exceeded";
             this.save(run);
           } else
             void this.refresh(run.id).catch((error) => {
-              run.phase = "blocked";
-              run.message = (error as Error).message;
-              this.save(run);
+              const current = this.run(run.id);
+              if (current.phase !== "cancelled") {
+                current.phase = "blocked";
+                current.message = (error as Error).message;
+                this.save(current);
+              }
             });
         }
     }, 30000);
@@ -170,10 +196,12 @@ export class OperatorService extends EventEmitter {
           "merging",
         ].includes(run.phase)
       ) {
-        run.phase = "recovery_required";
+        run.phase = this.store.coordinatorSnapshot(run.id)?.cancelled
+          ? "cancelled"
+          : "recovery_required";
         run.message =
           "Daemon restarted during work. Retained processes/effects need reconciliation; this run will not be relaunched.";
-        this.save(run);
+        this.save(run, true);
       }
   }
   config() {
@@ -188,17 +216,36 @@ export class OperatorService extends EventEmitter {
     return config;
   }
   runs() {
-    return this.store.operatorRecords<OperatorRun>("run/");
+    return this.store
+      .operatorRecords<OperatorRun>("run/")
+      .map((run) => this.run(run.id));
   }
   run(id: string) {
     const r = this.store.operatorRecord<OperatorRun>("run/" + id);
     if (!r) throw new Error("Run not found");
+    r.revision ??= 0;
+    if (this.store.coordinatorSnapshot(id) && this.store.get(id).cancelled) {
+      if (r.phase !== "cancelled")
+        r.message =
+          "Cancellation is authoritative; retained work/effects remain available for inspection";
+      r.phase = "cancelled";
+    }
     return r;
   }
   detail(id: string) {
     const r = this.run(id);
     return {
       ...r,
+      rerunReady:
+        !!r.config &&
+        !this.stopping &&
+        !this.starting &&
+        !this.active.size &&
+        !this.approving.size &&
+        !this.store.implementationSlot() &&
+        this.currentIssueRun(r.config) === r.id &&
+        this.rerunBlocker(r) === null,
+      effects: this.store.coordinatorSnapshot(id) ? this.store.effects(id) : [],
       snapshot: this.store.coordinatorSnapshot(id) ?? null,
       activity: this.store.coordinatorSnapshot(id)
         ? this.store
@@ -229,8 +276,23 @@ export class OperatorService extends EventEmitter {
         : [],
     };
   }
-  save(run: OperatorRun) {
-    this.store.saveOperatorRecord("run/" + run.id, run);
+  save(run: OperatorRun, orphanRecovery = false) {
+    const revision = run.revision ?? 0;
+    const snapshot = this.store.coordinatorSnapshot(run.id);
+    if (
+      snapshot &&
+      this.store.get(run.id).cancelled &&
+      run.phase !== "cancelled"
+    )
+      throw new Error("cancelled");
+    const next = { ...run, revision: revision + 1 };
+    this.store.compareOperatorRecord(
+      "run/" + run.id,
+      revision,
+      next,
+      snapshot && !orphanRecovery ? this.lease(run) : undefined,
+    );
+    run.revision = next.revision;
     this.emit("change");
   }
   authority() {
@@ -411,7 +473,40 @@ export class OperatorService extends EventEmitter {
       requiredCI: authority?.requiredCI ?? [],
     };
   }
-  async start() {
+  private currentIssueRun(config: OperatorConfig) {
+    const repository = config.repository.toLowerCase(),
+      issue = operatorIssue(config);
+    return (
+      this.store.coordinatorIssue(repository, issue) ??
+      this.runs().find(
+        (r) =>
+          r.config?.repository.toLowerCase() === repository &&
+          (r.issue ?? operatorIssue(r.config)) === issue,
+      )?.id ??
+      null
+    );
+  }
+  private rerunBlocker(prior: OperatorRun): string | null {
+    const snapshot = this.store.coordinatorSnapshot(prior.id);
+    if (
+      !["cancelled", "closed", "no_code"].includes(prior.phase) ||
+      (snapshot && (!terminal(snapshot) || snapshot.execution)) ||
+      this.store.commands(prior.id).some((c) => c.state !== "finished")
+    )
+      return "Previous workflow must be terminal and quiescent before rerun";
+    if (
+      this.store
+        .effects(prior.id)
+        .some(
+          (e) => e.kind !== "coordinator-action" && e.state !== "confirmed",
+        ) ||
+      (this.mergeEffect(prior) &&
+        !(prior.pr?.merged && prior.pr.head === prior.head))
+    )
+      return "Previous external effect requires reconciliation before rerun";
+    return null;
+  }
+  async start(options: { previousRunId?: string } = {}) {
     if (
       this.starting ||
       this.active.size ||
@@ -424,6 +519,17 @@ export class OperatorService extends EventEmitter {
     this.starting = true;
     try {
       const config = this.config();
+      const issue = operatorIssue(config);
+      const priorId = this.currentIssueRun(config);
+      if (priorId) {
+        if (options.previousRunId !== priorId)
+          throw new Error(
+            "Issue already owns a run; explicit predecessor rerun required",
+          );
+        const blocker = this.rerunBlocker(this.run(priorId));
+        if (blocker) throw new Error(blocker);
+      } else if (options.previousRunId)
+        throw new Error("Predecessor run not found for this issue");
       const frozen: {
         authority?: HostAuthority;
         runtime?: OpencodeConfig;
@@ -437,6 +543,9 @@ export class OperatorService extends EventEmitter {
       const id = randomUUID();
       const run: OperatorRun = {
         id,
+        revision: 0,
+        issue,
+        previousRunId: priorId,
         createdAt: Date.now(),
         config,
         workspace: join(this.home, "workspaces", id),
@@ -447,6 +556,7 @@ export class OperatorService extends EventEmitter {
         base: "",
         pr: null,
         ci: null,
+        mergeRequest: null,
         approval: null,
         closedAt: null,
         closeoutNote: "",
@@ -471,15 +581,20 @@ export class OperatorService extends EventEmitter {
     const pending = Promise.resolve()
       .then(work)
       .catch((e) => {
-        run.phase =
-          this.store.coordinatorSnapshot(run.id)?.execution ||
-          this.store.commands(run.id).some((c) => c.state !== "finished")
+        const current = this.run(run.id);
+        if (
+          current.phase === "cancelled" ||
+          this.store.coordinatorSnapshot(run.id)?.cancelled
+        )
+          return;
+        current.phase = current.mergeRequest
+          ? "merge_requested"
+          : this.store.coordinatorSnapshot(run.id)?.execution ||
+              this.store.commands(run.id).some((c) => c.state !== "finished")
             ? "recovery_required"
-            : run.phase === "cancelled"
-              ? "cancelled"
-              : "blocked";
-        run.message = (e as Error).message;
-        this.save(run);
+            : "blocked";
+        current.message = (e as Error).message;
+        this.save(current);
       })
       .finally(() => {
         this.active.delete(run.id);
@@ -509,7 +624,11 @@ export class OperatorService extends EventEmitter {
     return l;
   }
   private assertActive(run: OperatorRun) {
-    if (this.stopping || this.run(run.id).phase === "cancelled")
+    if (
+      this.stopping ||
+      this.run(run.id).phase === "cancelled" ||
+      this.store.coordinatorSnapshot(run.id)?.cancelled
+    )
       throw new Error("Run cancelled; owned work retained");
     this.store.assertLease(this.lease(run));
   }
@@ -540,9 +659,10 @@ export class OperatorService extends EventEmitter {
     outcome: "pass" | "fail" | "blocked",
     data: unknown,
     artifacts: Artifact[] = [],
+    observation?: Observation,
   ) {
     const l = this.lease(run);
-    const observation = this.store.beginCoordinatorObservation(
+    observation ??= this.store.beginCoordinatorObservation(
       l,
       kind,
       randomUUID(),
@@ -597,6 +717,11 @@ export class OperatorService extends EventEmitter {
       ),
       l = this.lease(run),
       runner = new CommandRunner(this.store);
+    const observation = this.store.beginCoordinatorObservation(
+      l,
+      kind,
+      "local-checks/" + action.key,
+    );
     const logs: Artifact[] = [];
     const results: unknown[] = [];
     let passed = true;
@@ -661,7 +786,14 @@ export class OperatorService extends EventEmitter {
       head: run.head,
       detail: kind + " command results retained",
     });
-    this.receipt(run, kind, passed ? "pass" : "fail", results, logs);
+    this.receipt(
+      run,
+      kind,
+      passed ? "pass" : "fail",
+      results,
+      logs,
+      observation,
+    );
     if (!passed)
       throw new Error(
         kind === "baseline"
@@ -683,6 +815,14 @@ export class OperatorService extends EventEmitter {
     const action = this.schedule(run, kind),
       l = this.lease(run),
       config = this.store.operatorRecord<OpencodeConfig>("runtime/" + run.id)!;
+    const observation =
+      kind === "review"
+        ? this.store.beginCoordinatorObservation(
+            l,
+            "review",
+            "agent-review/" + action.key,
+          )
+        : undefined;
     const adapter =
       this.deps.adapter?.(this.store, l, config) ??
       new OpencodeAdapter(this.store, l, config);
@@ -808,10 +948,17 @@ export class OperatorService extends EventEmitter {
       return false;
     }
     if (kind === "review")
-      this.receipt(run, "review", "pass", {
-        action: action.key,
-        commands: this.store.commands(run.id).map((c) => c.id),
-      });
+      this.receipt(
+        run,
+        "review",
+        "pass",
+        {
+          action: action.key,
+          commands: this.store.commands(run.id).map((c) => c.id),
+        },
+        [],
+        observation,
+      );
     return true;
   }
   private async effect<T>(
@@ -866,7 +1013,7 @@ export class OperatorService extends EventEmitter {
       ],
       this.home,
     );
-    if (this.stopping)
+    if (this.stopping || this.run(run.id).phase === "cancelled")
       throw new Error(
         "Daemon stopped during preparation; source copy retained",
       );
@@ -889,12 +1036,17 @@ export class OperatorService extends EventEmitter {
         freezeATT764Instructions(run.workspace),
       );
     }
+    if (this.run(run.id).phase === "cancelled")
+      throw new Error("Run cancelled during preparation");
     this.store.admitCoordinator({
       runId: run.id,
-      repository: run.config.repository,
-      issue: run.id,
-      rerun: "first",
-      previousRunId: null,
+      repository: run.config.repository.toLowerCase(),
+      issue: run.issue,
+      rerun: run.previousRunId ? run.id : "first",
+      previousRunId:
+        run.previousRunId && this.store.coordinatorSnapshot(run.previousRunId)
+          ? run.previousRunId
+          : null,
       workspace: run.workspace,
       versions: this.versions,
       scope: {
@@ -931,7 +1083,7 @@ export class OperatorService extends EventEmitter {
     run.phase = "publishing";
     run.message = "Publishing draft PR";
     this.save(run);
-    run.pr = await this.effect(
+    const published = await this.effect(
       run,
       "draft",
       { head: run.head, branch: run.branch },
@@ -946,61 +1098,201 @@ export class OperatorService extends EventEmitter {
           () => this.assertActive(run),
         ),
     );
+    this.recordDelivery(run, published);
+    this.assertActive(run);
+    run.pr = published;
     run.phase = "awaiting_ci";
     run.message =
       "Draft created. Watching current head and integration checks; refresh anytime.";
     this.save(run);
+  }
+  private recordDelivery(
+    run: OperatorRun,
+    pr: PullRequest | null,
+    request?: MergeRequest,
+  ) {
+    const current = this.run(run.id);
+    if (pr) current.pr = pr;
+    if (request) current.mergeRequest = request;
+    this.save(current);
+    Object.assign(run, current);
+  }
+  private mergeEffect(run: OperatorRun) {
+    return this.store.effect(`operator/${run.id}/merge/${run.head}`);
+  }
+  /** An already-sent request only admits read-only reconciliation, including after cancellation. */
+  private async reconcileMerge(run: OperatorRun, pr?: PullRequest) {
+    const effect = this.mergeEffect(run);
+    if (!effect || effect.state === "pending")
+      throw new Error("No sent merge request to reconcile");
+    pr ??= await this.github.pull(
+      run.config.repository,
+      run.pr!.number,
+      run.workspace,
+    );
+    const expected = (effect.payload as { head: string }).head;
+    if (pr.head !== expected) {
+      this.recordDelivery(run, pr);
+      throw new Error(
+        "Merge reconciliation found a changed PR head; approved request retained for inspection",
+      );
+    }
+    if (effect.state !== "confirmed" && pr.merged && pr.mergeCommit) {
+      await this.store.reconcile(this.lease(run), effect.key, async () => ({
+        status: "confirmed",
+        receipt: {
+          number: pr!.number,
+          head: expected,
+          requestedAt: null,
+          reconciledAt: Date.now(),
+        },
+      }));
+    }
+    const current = this.run(run.id);
+    current.pr = pr;
+    if (effect.state === "confirmed")
+      current.mergeRequest ??= {
+        number: pr.number,
+        head: expected,
+        requestedAt:
+          (effect.receipt as unknown as MergeRequest).requestedAt ?? null,
+      };
+    if (current.phase !== "cancelled") {
+      current.phase =
+        pr.merged && pr.mergeCommit
+          ? "merged"
+          : effect.state === "confirmed"
+            ? "merge_requested"
+            : "recovery_required";
+      current.message =
+        pr.merged && pr.mergeCommit
+          ? "GitHub confirmed the merge. Record manual closeout."
+          : effect.state === "confirmed"
+            ? "GitHub acknowledged the merge request. Waiting for confirmed merge; refresh only observes it."
+            : "Merge outcome unresolved. Remote inspection is required; this request will not be repeated.";
+    }
+    this.save(current);
+    Object.assign(run, current);
+  }
+  private ciIdentity(ci: CIObservation) {
+    return identity({ ...ci, observedAt: 0 });
+  }
+  private async collectCI(run: OperatorRun, pr: PullRequest) {
+    this.assertActive(run);
+    const attempts = await this.github.attempts(
+      run.config.repository,
+      pr,
+      run.workspace,
+    );
+    this.assertActive(run);
+    const observation = this.store.beginCoordinatorObservation(
+      this.lease(run),
+      "ci",
+      "github-ci/" + identity(attempts),
+    );
+    this.emit("change");
+    const ci = await this.github.observe(
+      run.config.repository,
+      pr,
+      this.authorityFor(run).requiredCI,
+      run.workspace,
+    );
+    this.assertActive(run);
+    if (identity(ci.attempts) !== identity(attempts)) {
+      // This response discovers a newer attempt. Discard its results and begin that collector;
+      // a subsequent read must supply its result, rather than rebinding this delayed response.
+      this.store.beginCoordinatorObservation(
+        this.lease(run),
+        "ci",
+        "github-ci/" + identity(ci.attempts),
+      );
+      run.approval = null;
+      this.save(run);
+      throw new Error(
+        "CI attempt changed during collection; refresh before review or approval",
+      );
+    }
+    const changed = !run.ci || this.ciIdentity(run.ci) !== this.ciIdentity(ci);
+    if (changed) {
+      run.approval = null;
+      // A conflicting settled result under the same upstream ID is never replayed as old approval evidence.
+      if (
+        run.ci &&
+        this.store.coordinatorSnapshot(run.id)!.receipts.ci?.observation
+          .generation === observation.generation
+      ) {
+        this.store.beginCoordinatorObservation(
+          this.lease(run),
+          "ci",
+          "github-ci-conflict/" + this.ciIdentity(ci),
+        );
+        run.ci = ci;
+        this.save(run);
+        throw new Error(
+          "Conflicting completed CI evidence requires a new upstream attempt; approval refused",
+        );
+      }
+    }
+    run.ci = ci;
+    run.pr = pr;
+    this.save(run);
+    if (changed && ci.outcome !== "pending")
+      this.receipt(
+        run,
+        "ci",
+        ci.outcome,
+        { ...ci, observedAt: 0 },
+        [],
+        observation,
+      );
+    return { ci, changed };
   }
   async refresh(id: string) {
     if (this.active.has(id) || this.approving.has(id))
       throw new Error("Run is busy");
     const run = this.run(id);
     if (!run.pr) throw new Error("No pull request yet");
+    if (["merged", "closed"].includes(run.phase)) return this.detail(id);
     this.launch(run, async () => {
+      // Merge confirmation changes base/integration SHA. Reconcile before considering stale pre-merge CI inputs.
+      if (
+        this.mergeEffect(run)?.state &&
+        this.mergeEffect(run)!.state !== "pending"
+      ) {
+        await this.reconcileMerge(run);
+        return;
+      }
+      this.assertActive(run);
       const authority = this.authorityFor(run);
       const pr = await this.github.pull(
         run.config.repository,
         run.pr!.number,
         run.workspace,
       );
+      this.assertActive(run);
       if (pr.head !== run.head || pr.base !== run.base) {
         run.approval = null;
         run.pr = pr;
+        this.save(run);
         throw new Error(
-          "PR head or base changed; previous evidence and approval are stale. Start a new run.",
+          "PR head or base changed; previous evidence and approval are stale. Start an explicit new run.",
         );
       }
-      run.pr = pr;
-      const ci = await this.github.observe(
-        run.config.repository,
-        pr,
-        authority.requiredCI,
-        run.workspace,
-      );
-      if (
-        run.ci &&
-        identity({ ...run.ci, observedAt: 0 }) ===
-          identity({ ...ci, observedAt: 0 })
-      ) {
-        run.ci = ci;
-        this.save(run);
+      const { ci, changed } = await this.collectCI(run, pr);
+      if (!changed && this.store.coordinatorSnapshot(id)?.receipts.review)
         return;
-      }
-      run.approval = null;
-      run.ci = ci;
-      this.save(run);
       if (ci.outcome === "pending") {
         run.phase = "awaiting_ci";
         run.message = "CI pending or required checks have not appeared";
         this.save(run);
         return;
       }
-      this.receipt(run, "ci", ci.outcome, { ...ci });
       if (ci.outcome === "fail")
         throw new Error(
           "CI failed. Automatic CI repair is deferred; inspect the failed checks.",
         );
       if (!(await this.agent(run, "review", authority))) return;
+      this.assertActive(run);
       run.phase = "awaiting_approval";
       run.message =
         "Checks and independent review passed. Review the diff and approve this exact commit.";
@@ -1009,6 +1301,17 @@ export class OperatorService extends EventEmitter {
     return this.detail(id);
   }
   async approve(id: string, head: string) {
+    if (this.active.has(id) || this.approving.has(id))
+      throw new Error("Run is busy");
+    const work = this.approveCurrent(id, head);
+    this.approvalWork.set(id, work);
+    try {
+      return await work;
+    } finally {
+      this.approvalWork.delete(id);
+    }
+  }
+  private async approveCurrent(id: string, head: string) {
     if (this.active.has(id) || this.approving.has(id))
       throw new Error("Run is busy");
     const run = this.run(id);
@@ -1021,20 +1324,36 @@ export class OperatorService extends EventEmitter {
       throw new Error("Current revision is not ready for approval");
     this.approving.add(id);
     try {
+      this.assertActive(run);
       const pr = await this.github.pull(
         run.config.repository,
         run.pr.number,
         run.workspace,
       );
+      this.assertActive(run);
       if (
         pr.head !== head ||
         pr.base !== run.base ||
         pr.integration !== run.ci?.integration
       ) {
         run.approval = null;
+        run.pr = pr;
         run.phase = "blocked";
         run.message =
-          "Approval rejected: PR inputs changed. Refresh or start a new run.";
+          "Approval rejected: PR inputs changed. Refresh or start an explicit new run.";
+        this.save(run);
+        throw new Error(run.message);
+      }
+      const { ci, changed } = await this.collectCI(run, pr);
+      if (
+        changed ||
+        ci.outcome !== "pass" ||
+        this.store.coordinatorSnapshot(id)?.stage !== "handoff_ready"
+      ) {
+        run.approval = null;
+        run.phase = ci.outcome === "pending" ? "awaiting_ci" : "blocked";
+        run.message =
+          "Approval rejected: CI attempt/evidence changed; refresh for independent review.";
         this.save(run);
         throw new Error(run.message);
       }
@@ -1048,11 +1367,14 @@ export class OperatorService extends EventEmitter {
       this.receipt(run, "approval", "pass", run.approval);
       run.message = "Exact commit approved. Merge remains a separate action.";
       this.save(run);
-      this.store.release(this.lease(run));
-      this.leases.delete(id);
       return this.detail(id);
     } finally {
       this.approving.delete(id);
+      const lease = this.leases.get(id);
+      if (lease && !this.active.has(id)) {
+        this.store.release(lease);
+        this.leases.delete(id);
+      }
     }
   }
   async merge(id: string, head: string) {
@@ -1060,6 +1382,14 @@ export class OperatorService extends EventEmitter {
       throw new Error("Run is busy");
     const run = this.run(id);
     if (
+      this.mergeEffect(run)?.state &&
+      this.mergeEffect(run)!.state !== "pending"
+    )
+      throw new Error(
+        "Merge already requested or unresolved; use read-only reconciliation",
+      );
+    if (
+      run.phase !== "awaiting_approval" ||
       !run.approval ||
       run.approval.head !== head ||
       head !== run.head ||
@@ -1068,43 +1398,76 @@ export class OperatorService extends EventEmitter {
     )
       throw new Error("A current exact-head approval is required");
     this.launch(run, async () => {
+      this.assertActive(run);
       const pr = await this.github.pull(
         run.config.repository,
         run.pr!.number,
         run.workspace,
       );
+      this.assertActive(run);
       if (
         pr.head !== head ||
         pr.base !== run.approval!.base ||
         pr.integration !== run.approval!.integration
       ) {
         run.approval = null;
+        this.save(run);
         throw new Error("Stale approval: PR inputs changed");
       }
-      const ci = await this.github.observe(
-        run.config.repository,
-        pr,
-        this.authorityFor(run).requiredCI,
-        run.workspace,
-      );
-      if (ci.outcome !== "pass")
-        throw new Error("CI no longer passes; merge refused");
+      const { ci, changed } = await this.collectCI(run, pr);
+      if (
+        changed ||
+        ci.outcome !== "pass" ||
+        !this.store.coordinatorSnapshot(id)?.receipts.approval
+      )
+        throw new Error(
+          "CI attempt/evidence changed; stale approval refused before merge",
+        );
       run.phase = "merging";
-      run.message = "Merge requested for approved commit";
+      run.message = "Requesting merge for approved commit";
       this.save(run);
-      if (pr.draft)
-        await this.effect(run, "ready", { head }, () =>
+      if (pr.draft) {
+        const ready = await this.effect(run, "ready", { head }, () =>
           this.github.ready(run.config.repository, pr, run.workspace),
         );
-      run.pr = await this.effect(
+        this.recordDelivery(run, ready);
+        this.assertActive(run);
+        if (
+          ready.head !== head ||
+          ready.base !== run.approval!.base ||
+          ready.integration !== run.approval!.integration
+        )
+          throw new Error(
+            "PR inputs changed while marking ready; merge refused",
+          );
+        const afterReady = await this.collectCI(run, ready);
+        if (
+          afterReady.changed ||
+          afterReady.ci.outcome !== "pass" ||
+          !this.store.coordinatorSnapshot(id)?.receipts.approval
+        )
+          throw new Error(
+            "CI attempt changed while marking ready; stale approval refused before merge",
+          );
+      }
+      const request = await this.effect(
         run,
         "merge",
         { head, approval: run.approval },
         () => this.github.merge(run.config.repository, pr, head, run.workspace),
       );
-      run.phase = "merged";
-      run.message = "GitHub confirmed the merge. Record manual closeout.";
-      this.save(run);
+      this.recordDelivery(run, null, {
+        number: pr.number,
+        head,
+        requestedAt: request.requestedAt ?? Date.now(),
+      });
+      if (run.phase !== "cancelled") {
+        run.phase = "merge_requested";
+        run.message =
+          "GitHub acknowledged the merge request; awaiting confirmed merge.";
+        this.save(run);
+      }
+      await this.reconcileMerge(run);
     });
     return this.detail(id);
   }
@@ -1121,33 +1484,51 @@ export class OperatorService extends EventEmitter {
   }
   async cancel(id: string) {
     const run = this.run(id);
-    if (!this.store.coordinatorSnapshot(id))
-      throw new Error("Run has no active workflow");
-    this.apply(run, { type: "cancel" });
-    this.store.cancel(id);
+    if (["merged", "closed", "no_code"].includes(run.phase))
+      throw new Error("Completed workflow cannot be cancelled");
+    if (this.store.coordinatorSnapshot(id)) {
+      this.apply(run, { type: "cancel" });
+      this.store.cancel(id);
+    }
     const adapter = this.adapters.get(id);
     const lease = this.leases.get(id);
     run.phase = "cancelled";
-    run.message = "Cancellation requested; owned processes are being drained";
+    run.message = this.mergeEffect(run)
+      ? "Run cancelled. Already-sent GitHub requests can still complete; refresh observes their outcome."
+      : "Cancellation requested; owned processes are being drained";
     this.save(run);
     if (adapter && lease) this.store.interruptCoordinator(lease, adapter);
   }
   async idle() {
-    await Promise.all([...this.active.values()]);
+    await Promise.all([
+      ...this.active.values(),
+      ...[...this.approvalWork.values()].map((work) =>
+        work.catch(() => undefined),
+      ),
+    ]);
   }
   async close() {
     this.stopping = true;
     clearInterval(this.heartbeat);
     clearInterval(this.ciTimer);
-    for (const id of this.active.keys())
+    for (const id of new Set([
+      ...this.active.keys(),
+      ...this.approvalWork.keys(),
+    ]))
       try {
         await this.cancel(id);
       } catch {
         /* preparation */
       }
     await this.idle();
+    this.releaseHome();
     this.store.close();
   }
+}
+function operatorIssue(config: OperatorConfig) {
+  return config.repository.toLowerCase() === "attraccess/attraccess"
+    ? "ATT-764"
+    : "manual/" + identity({ task: config.task });
 }
 function copySource(from: string, to: string) {
   mkdirSync(to, { recursive: true });
