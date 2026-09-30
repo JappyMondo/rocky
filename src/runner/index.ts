@@ -156,8 +156,16 @@ export class CommandRunner {
       if (
         (c.supervisor && !matches(c.supervisor)) ||
         (!c.supervisor && Date.now() - c.createdAt > 2000)
-      )
-        return this.recover(lease, id);
+      ) {
+        try {
+          return this.recover(lease, id);
+        } catch (error) {
+          if ((error as Error).message !== "stale-lease") throw error;
+          // An old owner may still observe the command's terminal evidence after a handoff,
+          // but must not perform owner-only recovery. The supervisor (or bounded timeout
+          // branch above) will publish a terminal record through its command capability.
+        }
+      }
       await delay(25);
     }
   }

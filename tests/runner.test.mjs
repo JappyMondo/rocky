@@ -83,18 +83,29 @@ test("F08 worker SIGKILL triggers supervised cleanup after expiry and no duplica
   });
   const [{ id }] = await once(worker, "message");
   await until(() => existsSync(dir + "/descendant.pid"));
-  worker.kill("SIGKILL");
-  await once(worker, "exit");
-  await pause(550);
-  const lease = store.claim("synthetic-001", "recovery", versions, 2000);
-  const runner = new CommandRunner(store);
-  const recovered = runner.recover(lease, id);
-  assert.ok(["running", "finished"].includes(recovered.state));
-  if (recovered.state !== "finished")
+  // Hold the supervisor at a real process boundary while the expired lease is reclaimed:
+  // otherwise it can finish between the `recovered.state` read and the start assertion,
+  // making a legitimate next command look like a duplicate. The gate remains live and
+  // observes lease loss; resuming the supervisor lets it publish its actual result.
+  const supervisor = await until(() => store.command(id).supervisor);
+  process.kill(supervisor.pid, "SIGSTOP");
+  let lease;
+  let recovered;
+  try {
+    worker.kill("SIGKILL");
+    await once(worker, "exit");
+    await pause(550);
+    lease = store.claim("synthetic-001", "recovery", versions, 2000);
+    const runner = new CommandRunner(store);
+    recovered = runner.recover(lease, id);
+    assert.equal(recovered.state, "running");
     assert.throws(
       () => runner.start(lease, spec(dir)),
       /command-recovery-required/,
     );
+  } finally {
+    process.kill(supervisor.pid, "SIGCONT");
+  }
   const record = await until(() => {
     const c = store.command(id);
     return c.state === "finished" && c;
