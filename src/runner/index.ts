@@ -136,34 +136,38 @@ export class CommandRunner {
   async wait(lease: Lease, id: string): Promise<CommandRecord> {
     const ttl = this.store.get(lease.runId).config.values.leaseMs;
     let renewed = 0;
+    let observerOnly = false;
     while (true) {
       const c = this.store.command(id);
       if (!c || c.runId !== lease.runId) throw new Error("command-not-found");
       if (c.state === "finished" || c.state === "recovery-required") return c;
-      if (Date.now() - renewed > ttl / 3) {
+      if (!observerOnly && Date.now() - renewed > ttl / 3) {
         try {
           this.store.renew(lease, ttl);
           renewed = Date.now();
-        } catch {
+        } catch (error) {
+          if ((error as Error).message === "stale-lease") observerOnly = true;
           /* Supervisor observes lease loss and retains output. */
         }
       }
       const spec = c.spec as unknown as CommandSpec;
       if (Date.now() - c.createdAt > spec.timeoutMs + spec.cleanupMs + 5000) {
-        this.store.observeCommand(id, c.token, { state: "recovery-required" });
-        return this.store.command(id)!;
+        // Timeout in the waiter is an observation limit, not a command capability.
+        // Only the supervisor or a current owner may persist recovery.
+        throw new Error("command-observer-timeout");
       }
       if (
-        (c.supervisor && !matches(c.supervisor)) ||
-        (!c.supervisor && Date.now() - c.createdAt > 2000)
+        !observerOnly &&
+        ((c.supervisor && !matches(c.supervisor)) ||
+          (!c.supervisor && Date.now() - c.createdAt > 2000))
       ) {
         try {
           return this.recover(lease, id);
         } catch (error) {
           if ((error as Error).message !== "stale-lease") throw error;
+          observerOnly = true;
           // An old owner may still observe the command's terminal evidence after a handoff,
-          // but must not perform owner-only recovery. The supervisor (or bounded timeout
-          // branch above) will publish a terminal record through its command capability.
+          // but must not perform owner-only recovery or timeout publication.
         }
       }
       await delay(25);

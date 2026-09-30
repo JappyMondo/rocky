@@ -15,8 +15,9 @@ export const OPENCODE_HARNESS = "opencode";
  * #106/#107 cancelled). This names the #104 research bundle as the behavioral source; it is NOT an
  * independently approved contract and grants nothing in production. */
 export const OPENCODE_CONTRACT_ID = "rocky-opencode-poc-98-v1";
-/** Pinned identity, host-measured in #104 research (F1). Missing/drift makes the profile
- * unavailable, never substituted. */
+/** 1.18.33 identity host-measured for #113 native probes and approved by root decision
+ * #113 comment 1063 (revising the original 1.18.32 requirement). Missing/drift makes the
+ * profile unavailable, never substituted. */
 export const OPENCODE_PINNED_VERSION = "1.18.33";
 export const OPENCODE_PINNED_BINARY_PATH =
   "/opt/homebrew/Cellar/opencode/1.18.33/bin/opencode";

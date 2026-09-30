@@ -1,5 +1,9 @@
 # #113 native observations (2026-09-29)
 
+The 1.18.33 measurements below belong to #113, not #104. Root decision #113 comment 1063 approved this measured identity as the revised production pin, superseding #113's original 1.18.32 requirement.
+
+See `repair-observations.md` for the bounded follow-up error-event and role-variant registry probes; live-turn-only gaps remain deferred to #14 under that decision.
+
 The installed, host-measured binary is **1.18.33**, not ticket #113's original 1.18.32. `realpath /opt/homebrew/bin/opencode` resolved `/opt/homebrew/Cellar/opencode/1.18.33/bin/opencode`; `shasum -a 256` returned `139ddeb6a46ba276827bb8f79c7b28208621746e4fd6914d9ae71cc1a0a57524`; `stat -f %z` returned `144800738`; `opencode --version` returned `1.18.33`. Driver remeasured hash/size before spawn. No `run`, message, prompt, model-call endpoint, credential file or user config was accessed. Synthetic XDG/HOME/DB and zero auth provisioned. Exact command responses, HTTP bodies, exit status and per-process elapsed/byte counts are in `result.json` and sibling raw captures. The server was loopback-only, bounded, and terminated by SIGTERM.
 
 NP export nonexistent: exit 1; stdout empty; stderr `Exporting session: ses_00000000000000000000000000\n\u001b[91m\u001b[1mError: \u001b[0mSession not found: ses_00000000000000000000000000\n`. Empty session created via `POST /session` status 200, with cost 0 and all token fields zero. `opencode export <empty-session-id>` exited 0, with top-level `info` and `messages` only, `messages: []`, `info.version: "1.18.33"`, zero cost/tokens. This attests only the **zero-message export envelope**, not assistant-message token shape or event-stream `step_start/step_finish/tool_use/text/error` shapes. A turn is needed for those; no turn was authorized.

@@ -185,3 +185,39 @@ test("supervisor death kills its gated group and preserves partial logs for reco
   save(dir, "supervisor-death", { running, recovered });
   store.close();
 });
+
+for (const supervisor of [null, { pid: -1, fingerprint: "dead" }]) {
+  test(`stale waiter with ${supervisor ? "dead" : "missing"} supervisor cannot publish timeout recovery`, async () => {
+    const lease = { runId: "run", owner: "old", fence: 1 };
+    let reads = 0;
+    let recoverAttempts = 0;
+    const writes = [];
+    const store = {
+      get: () => ({ config: { values: { leaseMs: 60000 } } }),
+      command: () => ({
+        id: "command",
+        runId: "run",
+        state: "running",
+        token: "stored-capability",
+        supervisor,
+        spec: { timeoutMs: 10000, cleanupMs: 100 },
+        // First read is after startup grace; next read is past the overall bound.
+        createdAt: Date.now() - (++reads === 1 ? 2100 : 16000),
+      }),
+      renew: () => {},
+      assertLease: () => {
+        recoverAttempts++;
+        throw new Error("stale-lease");
+      },
+      observeCommand: (...args) => writes.push(args),
+      events: (...args) => writes.push(args),
+    };
+    await assert.rejects(
+      new CommandRunner(store).wait(lease, "command"),
+      /command-observer-timeout/,
+    );
+    assert.equal(recoverAttempts, 1);
+    assert.equal(reads, 2);
+    assert.deepEqual(writes, []);
+  });
+}
