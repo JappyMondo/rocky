@@ -194,4 +194,4 @@ classification (P04–P07), FK6 usage (P01, P08), FK7 cancel (L01), FK8 drift
 (L05, P03), FK9 export plumbing (P02, P03, P09), isolation fail-closed (X05,
 X06), deadline (L02), restart reconciliation + no-resend (L03, L04).
 
-The #118 clean worker and conditional host manifest add metadata-only auth admission, genuine dependency pre-materialization, immutable export/receipt retention, transactional export start, and independent host observation checks. Native roster/bootstrap proof and first paid-turn shapes remain pending; see [the complete admission procedure](opencode-host-admission.md).
+The #118 clean worker and conditional host manifest add metadata-only auth admission, genuine dependency pre-materialization, immutable export/receipt retention, transactional export start, and independent host observation checks. Bounded native zero-turn roster and unchanged genuine dependency startup are now observed; first paid-turn stream/export/usage shapes remain pending; see [the complete admission procedure](opencode-host-admission.md).
