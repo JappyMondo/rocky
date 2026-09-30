@@ -10,26 +10,16 @@ regression cases FK1–FK9, native probes NP1–NP5) and consumes the shared
 harness-neutral seam `src/agents/seam.ts` (#97) exactly like the claude-code
 (#97) and codex-exec (#81) adapters.
 
-**Current evidence.** Unit/integration tests use owned fake CLI processes and real SQLite; no paid model turn was executed by the recovery session. The recovered #113 native evidence under `.qualification/opencode-hardening-112/native/` records bounded synthetic zero-turn execution of the approved 1.18.33 binary: an empty `{info,messages}` export, missing-session refusal, error-event envelopes and tool-registry responses. Those responses do not establish effective role rosters, successful billable stream shapes or assistant usage. Root decision #113 comment 1063 approves the 1.18.33 pin and requires the remaining billable observations from the first #14 live evidence before counting live admission accepted. The earlier #104 source research was against 1.18.32 and remains historical source evidence. No approved live qualification binding ships; `capability` is always `null`; the synthetic test qualification grants nothing.
+**Current evidence.** Unit/integration tests use owned fake CLI processes and real SQLite; no paid model turn was executed by the recovery session. The recovered #113 native evidence under `.qualification/opencode-hardening-112/native/` records bounded synthetic zero-turn execution of the approved 1.18.33 binary: an empty `{info,messages}` export, missing-session refusal, error-event envelopes and tool-registry responses. Those historical responses do not establish effective role rosters, successful billable stream shapes or assistant usage. Separately authorized #118 zero-turn debug-agent probes now establish the actual rendered ATT-764 role rosters after an explicit `invalid` deny repair; the genuine CFG dependency tree stayed unchanged. Both native attempts are retained privately and described in the host-admission guide. Successful billable stream/export/assistant-usage observations remain open. Root decision #113 comment 1063 approves the 1.18.33 pin and requires the remaining billable observations from the first #14 live evidence before counting live admission accepted. The earlier #104 source research was against 1.18.32 and remains historical source evidence. Conditional manifest/worker/positive-observation admission is implemented in [host admission](opencode-host-admission.md), but no approved live qualification binding ships; `capability` is always `null`; the synthetic test qualification grants nothing.
 The model's final text is a **proposal only** — it never establishes checks,
 CI, review or head authority (host `deriveTreeHead` only). **G-AUTHFILE
 requires an explicit user decision before any live run** (see Gaps). No
 credential bytes are ever read: `~/.local/share/opencode/auth.json` and the
-fixture data dir's `auth.json` are touched as path-existence metadata only.
+fixture data dir's `auth.json` are inspected as metadata only (regular-file type, UID, exact mode and canonical private parents).
 
-## Seam reuse (zero extensions)
+## Shared seam and host worker
 
-The #97 seam absorbed every harness-neutral need again — this adapter adds
-**no** seam/runner/gate/supervisor/Store machinery (same as codex-exec). It
-reuses, unchanged: `AgentLaunchBundle`/`sealAgentLaunchBundle`,
-`StrictNdjsonDecoder`/`parseStrictJson`, `validateAgentPrompt`,
-`deriveTreeHead`, `AgentSettlement`/`settlementToResultEvent`, the schema-2
-usage constructors (`reportedHarnessUsage`/`ambiguousZeroHarnessUsage`/
-`unknownHarnessUsage`), `DuplexRunner` (`start`/`sendText`/`end`/`interrupt`/
-`wait` — stdin once + single EOF + durable attempted-before-IO, never resent),
-the gate's C1 `binaryIdentity` re-measure and the supervisor's SIGTERM→KILL
-cancellation of the owned group. The **only** edit outside
-`src/agents/opencode/**` is the one export line in `src/index.ts`.
+The adapter reuses `AgentLaunchBundle`, strict decoding, protocol/usage constructors, `DuplexRunner`, Store fencing and supervised native cleanup. #118 adds an explicit observation-only waiter mode (default unchanged) so the clean per-action adapter worker cannot renew the host lease. The host alone stages source, applies results and performs Git/GitHub effects. The worker shares the original lease/fence and checks its actual clean process environment; it does not bypass poisoned-source admission. The host independently validates retained native evidence before source adoption or publication. See [host admission](opencode-host-admission.md) for the bounded handshake, cancellation and first-live requirements.
 
 ## Pinned identity and launch bundle
 
@@ -100,7 +90,7 @@ veto**) is encoded as the only representable mode:
   path-existence metadata (`authProvisioned`).
 - **Provisioning procedure (user-performed, documented, NOT implemented
   here):** create the Rocky-owned data dir (0700); once, with
-  `XDG_DATA_HOME=<dataHome>`, run the real `opencode auth login` for the
+  `XDG_DATA_HOME=<dataHome>`, run the real `opencode auth login --provider alibaba-token-plan` for the
   `alibaba-token-plan` provider as the user; verify
   `<dataHome>/opencode/auth.json` exists (0600). Live runs additionally require
   the explicit user G-AUTHFILE decision below.
@@ -173,26 +163,24 @@ stream (never a known zero); `unknown` for interrupted/unresolved lifecycles,
 unavailable/fatal export audits, export-vs-`step_finish` (or
 `SessionInfo.tokens`) divergence, missing `step_finish` telemetry, or
 inconsistent subsets. The `cost` field is a zero-priced client-side catalog
-estimate (F4/F25) and is **never** consumed or a receipt. A successful result
-with unresolved usage keeps the existing unknown-success barrier and stops the
-run as `recovery_required` (reducer behavior, asserted in P08).
+estimate (F4/F25) and is **never** consumed or a receipt. The adapter retains unknown/ambiguous usage honestly. Live observation and host adoption refuse it before copying or committing source; the reducer retains its unknown-success barrier for diagnostic/fake settlements (P08).
 
 ## Gaps and gates (honest, recorded in every receipt)
 
-| Gate               | Status                                                                                                                                                                                                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **G-AUTHFILE**     | auth.json is a plain 0600 file; bash-obfuscation reachability unprobed (F7 [P], NP3). **NOT decided by the user — an explicit user decision is REQUIRED before any live run.** The Claude D-15 keychain acceptance does NOT transfer.                                                                    |
-| G-SIG              | Signal semantics unprobed (F24 [P]); SIGTERM-only, exit-by-signal ⇒ unknown, no interrupt ack ever claimed.                                                                                                                                                                                              |
-| G-USAGE-COMPONENTS | Whether export aggregate `output` already includes reasoning/cache components is unproven (F25 [P], NP5); subsets pass through as observed, never summed.                                                                                                                                                |
-| G-NPM              | Config bootstrap can background-install `@opencode-ai/plugin` into config dirs (F14b); the per-action CFG is fresh/inventoried, not pre-materialized — live runs need the pre-materialization proof.                                                                                                     |
-| G-DEFAULT-PROMPT   | Agent prompt REPLACES the default system prompt; the sealed bytes are the whole prompt (F15).                                                                                                                                                                                                            |
-| G-ROSTER           | Native registry IDs are observed, but identical role-variant registry responses do not prove effective role filtering. `list` is absent from the observed registry; successful-turn roster evidence remains open. Permission tables and off-roster refusal are locally tested only.                      |
-| G-MANAGED          | Managed/MDM layers absent at inventory; unhighest-overridable; presence ⇒ unavailable (F13).                                                                                                                                                                                                             |
-| G-EXPORT-AUTHORITY | Export is a second process against the same isolated DB after quiescence; WAL ordering/locking [P].                                                                                                                                                                                                      |
-| G-EFFORT           | No `--variant` passed; effort is requested-only elsewhere, never echoed.                                                                                                                                                                                                                                 |
-| G-WRITES           | Data/config-dir write growth (logs, auto-seeded config) is recorded in the receipt inventory, not natively bounded.                                                                                                                                                                                      |
-| NP1–NP5            | Bounded empty-export, error-envelope and registry probes are retained under #113. Effective role roster, successful billable stream/assistant usage, authfile reachability and full native lifecycle remain open. Decision 1063 defers billable-only observations to #14 before accepted live admission. |
-| LIVE               | Live qualification is #14 only, additionally gated on the explicit user G-AUTHFILE decision.                                                                                                                                                                                                             |
+| Gate               | Status                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **G-AUTHFILE**     | auth.json is a plain 0600 file; bash-obfuscation reachability unprobed (F7 [P], NP3). **NOT decided by the user — an explicit user decision is REQUIRED before any live run.** The Claude D-15 keychain acceptance does NOT transfer.                                                                                  |
+| G-SIG              | Signal semantics unprobed (F24 [P]); SIGTERM-only, exit-by-signal ⇒ unknown, no interrupt ack ever claimed.                                                                                                                                                                                                            |
+| G-USAGE-COMPONENTS | Whether export aggregate `output` already includes reasoning/cache components is unproven (F25 [P], NP5); subsets pass through as observed, never summed.                                                                                                                                                              |
+| G-NPM              | Config bootstrap can install `@opencode-ai/plugin` into config dirs (F14b). #118 now pre-materializes a genuine pinned full tree/lock and verifies it; actual zero-turn startup preserved that tree. In-process network exclusion/full write oracle remain deferred.                                                   |
+| G-DEFAULT-PROMPT   | Agent prompt REPLACES the default system prompt; the sealed bytes are the whole prompt (F15).                                                                                                                                                                                                                          |
+| G-ROSTER           | Actual #118 rendered-role debug-agent probes establish effective availability: implementer bash/read/glob/grep/edit/write/todowrite; reviewer read/glob/grep. The rejected first attempt exposed `invalid` and drove an explicit deny. Successful-turn tool/error shapes remain unobserved.                            |
+| G-MANAGED          | Managed/MDM layers absent at inventory; unhighest-overridable; presence ⇒ unavailable (F13).                                                                                                                                                                                                                           |
+| G-EXPORT-AUTHORITY | Export is a second process against the same isolated DB after quiescence; WAL ordering/locking [P].                                                                                                                                                                                                                    |
+| G-EFFORT           | No `--variant` passed; effort is requested-only elsewhere, never echoed.                                                                                                                                                                                                                                               |
+| G-WRITES           | Data/config-dir write growth (logs, auto-seeded config) is recorded in the receipt inventory, not natively bounded.                                                                                                                                                                                                    |
+| NP1–NP5            | Bounded #113 export/error probes and #118 effective-roster/config/dependency-startup observations are retained. Successful billable stream/export/assistant usage, authfile reachability and full native lifecycle remain open. Decision 1063 defers billable-only observations to #14 before accepted live admission. |
+| LIVE               | Live qualification is #14 only, additionally gated on the explicit user G-AUTHFILE decision.                                                                                                                                                                                                                           |
 
 ## Tests
 
@@ -205,3 +193,5 @@ forbidden env/flags/roles (X02, X03), FK4 stdin (X07, L03), FK5 stream
 classification (P04–P07), FK6 usage (P01, P08), FK7 cancel (L01), FK8 drift
 (L05, P03), FK9 export plumbing (P02, P03, P09), isolation fail-closed (X05,
 X06), deadline (L02), restart reconciliation + no-resend (L03, L04).
+
+The #118 clean worker and conditional host manifest add metadata-only auth admission, genuine dependency pre-materialization, immutable export/receipt retention, transactional export start, and independent host observation checks. Native roster/bootstrap proof and first paid-turn shapes remain pending; see [the complete admission procedure](opencode-host-admission.md).

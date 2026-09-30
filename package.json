@@ -24,7 +24,8 @@
     "docs/provider-gateway.md",
     "docs/stock-gateway.md",
     "docs/operating.md",
-    "docs/opencode-adapter.md"
+    "docs/opencode-adapter.md",
+    "docs/opencode-host-admission.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
