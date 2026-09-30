@@ -12,7 +12,7 @@ The recovered operator application is present at original commit `a7e1291`. Reco
 | `07b8ebf` | `1d17dcc`  | Supervisor and lease-observation regressions                     |
 | `bfef407` | `7a74b10`  | Observation-only stale-owner waits and follow-up native evidence |
 
-`1a49d6e` completes the current-head ATT-764 recipe and portable archived inventory regression. `7fe30bb` connects setup and checks to the operator workflow, freezes the validated authority/runtime/target, preserves scoped repository instructions, rejects out-of-scope copies, and fences cancellation. `0ecadb5` records the user model override. The subsequent handover commit adds the target conventional commit/PR title and signed commits using the workspace's configured host identity.
+`1a49d6e` completes the current-head ATT-764 recipe and portable archived inventory regression. `7fe30bb` connects setup and checks to the operator workflow, freezes the validated authority/runtime/target, preserves scoped repository instructions, rejects out-of-scope copies, and fences cancellation. `0ecadb5` records the user model override. The subsequent handover commits add the target conventional commit/PR title, signed commits using the workspace's configured host identity, verified preferred binary discovery, and current native-evidence documentation.
 
 All 13 original WIP files were preserved in private backup `/Users/jappy/.rocky-next-integration-20260930/original-wip/`, with SHA256 manifest beside it. Protected `acceptance/**` remains unchanged. No target source edits, paid model turns, target remote writes, service replacement, or live authority provisioning were performed.
 

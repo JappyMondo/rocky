@@ -245,6 +245,16 @@ export function setup(home: string) {
 
 export function discoverOpencode() {
   try {
+    assertBinaryIdentity({
+      path: OPENCODE_PINNED_BINARY_PATH,
+      sha256: OPENCODE_PINNED_SHA256,
+      bytes: OPENCODE_PINNED_BYTES,
+    });
+    return realpathSync(OPENCODE_PINNED_BINARY_PATH);
+  } catch {
+    // PATH remains diagnostic when the approved identity is absent; admission still rechecks the pin.
+  }
+  try {
     return realpathSync(
       execFileSync("/usr/bin/which", ["opencode"], {
         encoding: "utf8",

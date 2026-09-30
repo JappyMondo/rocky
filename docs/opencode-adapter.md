@@ -10,12 +10,7 @@ regression cases FK1–FK9, native probes NP1–NP5) and consumes the shared
 harness-neutral seam `src/agents/seam.ts` (#97) exactly like the claude-code
 (#97) and codex-exec (#81) adapters.
 
-**Status honesty up front.** The installed opencode binary is **never
-executed** by this package or its tests (this ticket's own harness runs inside
-opencode; live runs are deferred to #14). All evidence is **owned-fake-cli**:
-real spawned fake processes + real SQLite, frame/part/export shapes pinned to
-the read-only v1.18.32 source clone. No approved qualification binding ships;
-`capability` is always `null`; the synthetic test qualification grants nothing.
+**Current evidence.** Unit/integration tests use owned fake CLI processes and real SQLite; no paid model turn was executed by the recovery session. The recovered #113 native evidence under `.qualification/opencode-hardening-112/native/` records bounded synthetic zero-turn execution of the approved 1.18.33 binary: an empty `{info,messages}` export, missing-session refusal, error-event envelopes and tool-registry responses. Those responses do not establish effective role rosters, successful billable stream shapes or assistant usage. Root decision #113 comment 1063 approves the 1.18.33 pin and requires the remaining billable observations from the first #14 live evidence before counting live admission accepted. The earlier #104 source research was against 1.18.32 and remains historical source evidence. No approved live qualification binding ships; `capability` is always `null`; the synthetic test qualification grants nothing.
 The model's final text is a **proposal only** — it never establishes checks,
 CI, review or head authority (host `deriveTreeHead` only). **G-AUTHFILE
 requires an explicit user decision before any live run** (see Gaps). No
@@ -39,8 +34,9 @@ cancellation of the owned group. The **only** edit outside
 ## Pinned identity and launch bundle
 
 - **Binary (F1/F2):** absolute Cellar path
-  `/opt/homebrew/Cellar/opencode/1.18.32/bin/opencode`, sha256 `a3c45d4e…4395e`,
-  144,602,594 bytes, version `1.18.32`. Never the `/opt/homebrew/bin` symlink.
+  `/opt/homebrew/Cellar/opencode/1.18.33/bin/opencode`, sha256
+  `139ddeb6a46ba276827bb8f79c7b28208621746e4fd6914d9ae71cc1a0a57524`,
+  144,800,738 bytes, version `1.18.33` (root #113 decision 1063). Never the `/opt/homebrew/bin` symlink.
   Re-measured at C0 (prepare), C1 (inside the guarded start) and C5
   (settlement); missing/drift ⇒ profile **unavailable**, never substituted.
 - **Argv (F9/F10, PART 4 §1):** exactly
@@ -110,7 +106,7 @@ veto**) is encoded as the only representable mode:
   the explicit user G-AUTHFILE decision below.
 - **Shared-user-data-dir mode is unrepresentable:** a `dataHome` equal to,
   inside, or containing `~/.local/share/opencode` refuses
-  (`opencode-shared-user-data-dir`, pure path comparison); a missing
+  (`opencode-shared-user-data-dir`, including realpath aliases); a missing
   (unprovisioned) data dir refuses. Per action, `XDG_CONFIG_HOME`/cache/state
   are fresh inside the RUN tree and `OPENCODE_DB` is a per-action file, so
   sessions never share the DB even though the data dir is shared across the
@@ -183,20 +179,20 @@ run as `recovery_required` (reducer behavior, asserted in P08).
 
 ## Gaps and gates (honest, recorded in every receipt)
 
-| Gate               | Status                                                                                                                                                                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **G-AUTHFILE**     | auth.json is a plain 0600 file; bash-obfuscation reachability unprobed (F7 [P], NP3). **NOT decided by the user — an explicit user decision is REQUIRED before any live run.** The Claude D-15 keychain acceptance does NOT transfer.                        |
-| G-SIG              | Signal semantics unprobed (F24 [P]); SIGTERM-only, exit-by-signal ⇒ unknown, no interrupt ack ever claimed.                                                                                                                                                  |
-| G-USAGE-COMPONENTS | Whether export aggregate `output` already includes reasoning/cache components is unproven (F25 [P], NP5); subsets pass through as observed, never summed.                                                                                                    |
-| G-NPM              | Config bootstrap can background-install `@opencode-ai/plugin` into config dirs (F14b); the per-action CFG is fresh/inventoried, not pre-materialized — live runs need the pre-materialization proof.                                                         |
-| G-DEFAULT-PROMPT   | Agent prompt REPLACES the default system prompt; the sealed bytes are the whole prompt (F15).                                                                                                                                                                |
-| G-ROSTER           | Effective roster not stream-observable (F18); enforced by tool absence + permission deny, evidenced only by absence of off-roster `tool_use`; out-of-seal `opencode debug config` probes are a native step.                                                  |
-| G-MANAGED          | Managed/MDM layers absent at inventory; unhighest-overridable; presence ⇒ unavailable (F13).                                                                                                                                                                 |
-| G-EXPORT-AUTHORITY | Export is a second process against the same isolated DB after quiescence; WAL ordering/locking [P].                                                                                                                                                          |
-| G-EFFORT           | No `--variant` passed; effort is requested-only elsewhere, never echoed.                                                                                                                                                                                     |
-| G-WRITES           | Data/config-dir write growth (logs, auto-seeded config) is recorded in the receipt inventory, not natively bounded.                                                                                                                                          |
-| NP1–NP5            | Native probes (isolation positive control — non-negotiable before live: an isolation failure would arm the user's 5 real MCP servers incl. Taskbot mutation tools; role matrix; authfile probe; lifecycle; usage/variant) are unexecuted root-granted steps. |
-| LIVE               | Live qualification is #14 only, additionally gated on the explicit user G-AUTHFILE decision.                                                                                                                                                                 |
+| Gate               | Status                                                                                                                                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **G-AUTHFILE**     | auth.json is a plain 0600 file; bash-obfuscation reachability unprobed (F7 [P], NP3). **NOT decided by the user — an explicit user decision is REQUIRED before any live run.** The Claude D-15 keychain acceptance does NOT transfer.                                                                    |
+| G-SIG              | Signal semantics unprobed (F24 [P]); SIGTERM-only, exit-by-signal ⇒ unknown, no interrupt ack ever claimed.                                                                                                                                                                                              |
+| G-USAGE-COMPONENTS | Whether export aggregate `output` already includes reasoning/cache components is unproven (F25 [P], NP5); subsets pass through as observed, never summed.                                                                                                                                                |
+| G-NPM              | Config bootstrap can background-install `@opencode-ai/plugin` into config dirs (F14b); the per-action CFG is fresh/inventoried, not pre-materialized — live runs need the pre-materialization proof.                                                                                                     |
+| G-DEFAULT-PROMPT   | Agent prompt REPLACES the default system prompt; the sealed bytes are the whole prompt (F15).                                                                                                                                                                                                            |
+| G-ROSTER           | Native registry IDs are observed, but identical role-variant registry responses do not prove effective role filtering. `list` is absent from the observed registry; successful-turn roster evidence remains open. Permission tables and off-roster refusal are locally tested only.                      |
+| G-MANAGED          | Managed/MDM layers absent at inventory; unhighest-overridable; presence ⇒ unavailable (F13).                                                                                                                                                                                                             |
+| G-EXPORT-AUTHORITY | Export is a second process against the same isolated DB after quiescence; WAL ordering/locking [P].                                                                                                                                                                                                      |
+| G-EFFORT           | No `--variant` passed; effort is requested-only elsewhere, never echoed.                                                                                                                                                                                                                                 |
+| G-WRITES           | Data/config-dir write growth (logs, auto-seeded config) is recorded in the receipt inventory, not natively bounded.                                                                                                                                                                                      |
+| NP1–NP5            | Bounded empty-export, error-envelope and registry probes are retained under #113. Effective role roster, successful billable stream/assistant usage, authfile reachability and full native lifecycle remain open. Decision 1063 defers billable-only observations to #14 before accepted live admission. |
+| LIVE               | Live qualification is #14 only, additionally gated on the explicit user G-AUTHFILE decision.                                                                                                                                                                                                             |
 
 ## Tests
 
