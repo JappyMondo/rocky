@@ -14,14 +14,18 @@ import {
   StrictNdjsonDecoder,
   parseStrictJson,
   settlementToResultEvent,
+  unknownHarnessUsage,
 } from "../seam.js";
 import { classifyOpencodeStream } from "./stream.js";
-import { auditOpencodeExport } from "./export.js";
+import { auditOpencodeExport, auditObservedOpencodeExport } from "./export.js";
 import { mapOpencodeUsage } from "./usage.js";
 import { assertBinaryIdentity, groupAbsent } from "../../runner/process.js";
 import type { CommandResult } from "../../runner/index.js";
 import type { AgentSettlement } from "../seam.js";
-import type { OpencodeExportAudit } from "./export.js";
+import type {
+  OpencodeExportAudit,
+  OpencodeExportObservation,
+} from "./export.js";
 import type { HostArtifact } from "./host.js";
 import {
   assertOpencodeDataHomeIsolation,
@@ -80,6 +84,22 @@ interface NativeReceipt {
   head: { post: string };
 }
 export type AgentResult = Extract<Event, { type: "result" }>;
+interface StoredExportObservation {
+  schema: 1;
+  commandId: string;
+  runId: string;
+  actionKey: string;
+  inputDigest: string;
+  bundleDigest: string;
+  binary: OpencodeConfig["binary"];
+  argv: string[];
+  envSha256: string;
+  cwd: string;
+  rawPath: string;
+  timeoutMs: number;
+  maxExportBytes: number;
+  observation: OpencodeExportObservation;
+}
 function retained(path: string, sha256: string, bytes: number, limit: number) {
   const stat = lstatSync(path);
   if (
@@ -112,6 +132,7 @@ function validateAgentObservation(
   plan: OpencodeLaunchPlan,
   result: AgentResult,
   saved: StoredObservation | undefined,
+  telemetry?: ReturnType<typeof nativeTelemetry>,
 ) {
   if (config.evidenceClass === "live-subscription") assertHostAdmission(config);
   assertBinaryIdentity(config.binary);
@@ -207,12 +228,8 @@ function validateAgentObservation(
         : config.limits.maxStderrBytes,
     );
   }
-  const { verdict, audit, usage } = nativeTelemetry(
-    config,
-    plan,
-    command,
-    receipt,
-  );
+  const { verdict, audit, usage } =
+    telemetry ?? nativeTelemetry(store, config, plan, command, receipt);
   if (
     result.quiescent !== true ||
     verdict.settlement !== "complete" ||
@@ -260,6 +277,7 @@ function validateAgentObservation(
 /** Reconstruct usage from the durable native stream and retained export, including negative
  * settlements that honestly retain measured usage after a later host refusal. */
 function nativeTelemetry(
+  store: Store,
   config: OpencodeConfig,
   plan: OpencodeLaunchPlan,
   command: CommandRecord,
@@ -267,12 +285,17 @@ function nativeTelemetry(
 ) {
   const commandResult = command.result as unknown as CommandResult;
   const decoder = new StrictNdjsonDecoder(plan.streamLimits);
-  decoder.push(readFileSync(commandResult.stdout));
-  decoder.end();
+  let decodeError: string | null = null;
+  try {
+    decoder.push(readFileSync(commandResult.stdout));
+    decoder.end();
+  } catch (error) {
+    decodeError = (error as Error).message || "strict-decode-failed";
+  }
   const d = command.duplex!;
   const verdict = classifyOpencodeStream({
     frames: decoder.frames,
-    decodeError: null,
+    decodeError,
     expectations: plan.expectations,
     binding: {
       actionKey: plan.action.key,
@@ -290,20 +313,49 @@ function nativeTelemetry(
       stdoutTruncated: commandResult.stdoutTruncated,
       stderrTruncated: commandResult.stderrTruncated,
       stderrBytes: commandResult.stderrArtifact!.bytes,
-      quiescent: receipt.lifecycle.quiescent === true,
+      quiescent: command.state === "finished" && d.stdoutEof && d.stderrEof,
     },
   });
 
+  const exportPath = join(plan.paths.logs, `export-${command.id}.json`);
+  const proof = store.operatorRecord<StoredExportObservation>(
+    "opencode-export-observation/" + command.id,
+  );
+  if (
+    proof &&
+    (proof.schema !== 1 ||
+      proof.commandId !== command.id ||
+      proof.runId !== plan.action.runId ||
+      proof.actionKey !== plan.action.key ||
+      proof.inputDigest !== plan.action.inputDigest ||
+      proof.bundleDigest !== plan.bundle.bundleDigest ||
+      identity(proof.binary) !== identity(plan.bundle.binary) ||
+      identity(proof.argv) !== identity(["export", verdict.sessionId]) ||
+      proof.envSha256 !== digest(canonical(plan.bundle.env)) ||
+      proof.cwd !== plan.paths.src ||
+      proof.rawPath !== exportPath ||
+      proof.timeoutMs !== config.limits.exportTimeoutMs ||
+      proof.maxExportBytes !== config.limits.maxExportBytes)
+  )
+    throw new Error("opencode-replay-export-binding");
+  const hasRaw = existsSync(exportPath) && !lstatSync(exportPath).isDirectory();
   let audit: OpencodeExportAudit | null = null;
-  if (receipt.exportAudit.rawRetainedAt) {
-    const exportPath = join(plan.paths.logs, `export-${command.id}.json`);
-    const info = receipt.exportAudit.audit;
+  if (hasRaw) {
+    if (!verdict.sessionId) throw new Error("opencode-replay-export-binding");
+    // Older receipts lack an exporter observation. Discover and audit their actual bounded
+    // file first; the receipt's export pointer/audit can only be compared afterwards.
+    const stat = lstatSync(exportPath);
     if (
-      receipt.exportAudit.rawRetainedAt !== exportPath ||
-      !info?.rawSha256 ||
-      !verdict.sessionId
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      stat.size > config.limits.maxExportBytes
     )
       throw new Error("opencode-replay-export-binding");
+    const info = proof?.observation ?? {
+      rawSha256: digest(readFileSync(exportPath)),
+      rawBytes: stat.size,
+    };
+    if (!info?.rawSha256) throw new Error("opencode-replay-export-binding");
     const raw = retained(
       exportPath,
       info.rawSha256,
@@ -311,21 +363,106 @@ function nativeTelemetry(
       config.limits.maxExportBytes,
     ).toString();
     const [providerID, modelID] = config.roles[plan.role].model.split("/");
-    audit = auditOpencodeExport(raw, {
+    const expectations = {
       sessionId: verdict.sessionId,
       version: config.binary.version,
       directory: plan.paths.src,
       providerID: providerID!,
       modelID: modelID!,
       summedTokens: verdict.summedTokens,
-    });
+    };
+    audit = proof
+      ? auditObservedOpencodeExport(raw, proof.observation, expectations)
+      : auditOpencodeExport(raw, expectations);
+  } else if (proof) {
+    const facts = proof.observation;
+    if (
+      facts.rawRetained ||
+      facts.audit.ok ||
+      facts.audit.reason !== "export-retention-failed" ||
+      facts.audit.rawSha256 !== facts.rawSha256 ||
+      facts.audit.rawBytes !== facts.rawBytes
+    )
+      throw new Error("opencode-replay-export-raw-unavailable");
+    audit = facts.audit;
   }
-  const usage = mapOpencodeUsage({
-    lifecycleResolved: verdict.resolvedLifecycle,
-    audit,
-    summedTokens: verdict.summedTokens,
-  });
-  return { verdict, audit, usage };
+  if (
+    identity(audit) !== identity(receipt.exportAudit.audit) ||
+    (audit !== null && receipt.exportAudit.rawRetainedAt !== exportPath) ||
+    (audit === null && receipt.exportAudit.rawRetainedAt !== null) ||
+    (proof && identity(audit) !== identity(proof.observation.audit))
+  )
+    throw new Error("opencode-replay-native-telemetry-export-conflict");
+  const interruption =
+    d.revoked || commandResult.outcome === "cancelled"
+      ? "opencode-cancelled-sigterm"
+      : commandResult.outcome === "timeout"
+        ? "opencode-deadline-exceeded"
+        : commandResult.outcome === "lease-lost"
+          ? "opencode-lease-lost"
+          : null;
+  const usage = interruption
+    ? unknownHarnessUsage("opencode", interruption)
+    : verdict.settlement !== "complete"
+      ? unknownHarnessUsage(
+          "opencode",
+          `opencode-${verdict.settlement}-before-usage-mapping:${verdict.reasons[0] ?? "unsettled"}`,
+        )
+      : mapOpencodeUsage({
+          lifecycleResolved: verdict.resolvedLifecycle,
+          audit,
+          summedTokens: verdict.summedTokens,
+        });
+  return { verdict, audit, usage, interruption };
+}
+/** Receipt labels cannot decide whether native telemetry is inspected. This pure comparison
+ * follows evidence reconstruction and preserves unavailable/cancelled source observations. */
+function assertNegativeTelemetry(
+  settlement: AgentSettlement,
+  telemetry: ReturnType<typeof nativeTelemetry>,
+) {
+  const { verdict, audit, usage, interruption } = telemetry;
+  if (identity(usage) !== identity(settlement.usage))
+    throw new Error("opencode-replay-negative-usage-or-proposal");
+  if (interruption) {
+    if (
+      settlement.classification !== "interrupted" ||
+      settlement.outcome !== "interrupted" ||
+      settlement.proposal !== null
+    )
+      throw new Error("opencode-replay-negative-usage-or-proposal");
+    return;
+  }
+  if (verdict.settlement === "complete" && audit?.ok) {
+    if (
+      !["complete", "unresolved"].includes(settlement.classification) ||
+      (settlement.classification === "unresolved" &&
+        settlement.outcome !== "failed") ||
+      identity(verdict.final) !== identity(settlement.proposal) ||
+      (settlement.classification === "complete" &&
+        (verdict.final as { outcome: string }).outcome !== settlement.outcome)
+    )
+      throw new Error("opencode-replay-negative-usage-or-proposal");
+    return;
+  }
+  const classification =
+    verdict.settlement === "complete"
+      ? audit && !audit.ok && audit.fatal
+        ? "fatal"
+        : "unresolved"
+      : verdict.settlement;
+  const outcome =
+    verdict.settlement === "complete" ||
+    verdict.resolvedLifecycle ||
+    ["fatal", "policy-denied"].includes(classification)
+      ? "failed"
+      : "interrupted";
+  if (
+    settlement.classification !== classification ||
+    settlement.outcome !== outcome ||
+    settlement.proposal !== null
+  )
+    throw new Error("opencode-replay-negative-usage-or-proposal");
 }
 function assertSettlementShape(receipt: NativeReceipt) {
   const { classification, outcome } = receipt.settlement;
@@ -518,48 +655,18 @@ export function reconcileRetainedObservation(
   };
   if (saved && identity(saved) !== identity(observation))
     throw new Error("opencode-replay-observation-conflict");
+  const telemetry = nativeTelemetry(store, config, plan, command, receipt);
   const event = settlementToResultEvent(settlement, plan.action);
   if (["changed", "complete", "no_code"].includes(settlement.outcome))
-    validateAgentObservation(store, config, plan, event, observation);
-  else if (
-    settlement.classification === "complete" ||
-    settlement.usage.status !== "unknown"
-  ) {
-    const { verdict, audit, usage } = nativeTelemetry(
+    validateAgentObservation(
+      store,
       config,
       plan,
-      command,
-      receipt,
+      event,
+      observation,
+      telemetry,
     );
-    if (
-      !["complete", "unresolved"].includes(settlement.classification) ||
-      (settlement.classification === "unresolved" &&
-        settlement.outcome !== "failed") ||
-      verdict.settlement !== "complete" ||
-      !audit?.ok ||
-      identity(audit) !== identity(receipt.exportAudit.audit) ||
-      identity(usage) !== identity(settlement.usage) ||
-      identity(verdict.final) !== identity(settlement.proposal) ||
-      (settlement.classification === "complete" &&
-        (verdict.final as { outcome: string }).outcome !== settlement.outcome)
-    )
-      throw new Error("opencode-replay-negative-usage-or-proposal");
-  } else if (receipt.exportAudit.rawRetainedAt) {
-    const audit = receipt.exportAudit.audit;
-    if (
-      !audit ||
-      !audit.rawSha256 ||
-      receipt.exportAudit.rawRetainedAt !==
-        join(plan.paths.logs, `export-${commandId}.json`)
-    )
-      throw new Error("opencode-replay-export-binding");
-    retained(
-      receipt.exportAudit.rawRetainedAt,
-      audit.rawSha256,
-      audit.rawBytes,
-      config.limits.maxExportBytes,
-    );
-  }
+  else assertNegativeTelemetry(settlement, telemetry);
   store.retainOperatorRecord(key, observation);
   return observation;
 }

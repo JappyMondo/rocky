@@ -564,6 +564,26 @@ export class OpencodeAdapter {
               modelID,
               summedTokens: verdict.summedTokens,
             },
+            observe: (observation) =>
+              this.#store.retainOperatorRecord(
+                "opencode-export-observation/" + rec.id,
+                {
+                  schema: 1,
+                  commandId: rec.id,
+                  runId: plan.action.runId,
+                  actionKey: plan.action.key,
+                  inputDigest: plan.action.inputDigest,
+                  bundleDigest: plan.bundle.bundleDigest,
+                  binary: plan.bundle.binary,
+                  argv: ["export", verdict!.sessionId],
+                  envSha256: digest(canonical(plan.bundle.env)),
+                  cwd: plan.paths.src,
+                  rawPath: exportRawPath,
+                  timeoutMs: this.config.limits.exportTimeoutMs,
+                  maxExportBytes: this.config.limits.maxExportBytes,
+                  observation,
+                },
+              ),
           });
       }
       if (verdict.settlement === "complete" && exportAudit?.ok) {

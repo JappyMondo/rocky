@@ -56,6 +56,16 @@ export type OpencodeExportAudit =
       rawSha256: string | null;
       rawBytes: number;
     };
+/** Actual exporter completion, retained independently of the action's settlement receipt. */
+export interface OpencodeExportObservation {
+  exitCode: number | null;
+  signal: string | null;
+  errorReason: string | null;
+  rawRetained: boolean;
+  rawSha256: string;
+  rawBytes: number;
+  audit: OpencodeExportAudit;
+}
 function record(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -86,9 +96,9 @@ function mismatch(reason: string, raw: string | null): OpencodeExportAudit {
     rawBytes: raw === null ? 0 : Buffer.byteLength(raw, "utf8"),
   };
 }
-/** Spawn the bounded export child and audit it. Never throws: every failure mode is a classified
- * unavailable/fatal result, and an unavailable audit is never success. Raw stdout bytes (when any
- * were produced) are retained 0600 at retainPath — the usage receipt digest references them. */
+/** Spawn the bounded export child and audit it. Native failures return a classified unavailable/
+ * fatal result. Durable observation retention failure propagates before any final receipt.
+ * Raw stdout bytes are retained 0600 at retainPath, bound by the usage receipt digest. */
 export async function runOpencodeExportAudit(input: {
   binaryPath: string;
   env: SealedEnv;
@@ -99,6 +109,7 @@ export async function runOpencodeExportAudit(input: {
   expectations: OpencodeExportExpectations;
   start: (launch: () => ChildProcess) => ChildProcess;
   signal?: AbortSignal;
+  observe?: (observation: OpencodeExportObservation) => void;
 }): Promise<OpencodeExportAudit> {
   // Only synchronous process creation occurs inside the Store fence, never the async wait.
   const observed = await new Promise<{ raw: string; error: Error | null }>(
@@ -125,25 +136,63 @@ export async function runOpencodeExportAudit(input: {
       }
     },
   );
-  if (!retainRaw(input.retainPath, observed.raw))
-    return unavailable("export-retention-failed", observed.raw);
+  const rawRetained = retainRaw(input.retainPath, observed.raw);
+  let errorReason: string | null = null;
+  let exitCode: number | null = 0;
+  let signal: string | null = null;
   if (observed.error) {
     const e = observed.error as Error & {
       code?: number | string;
       killed?: boolean;
+      signal?: string;
     };
-    const reason = e.message.includes("maxBuffer")
+    exitCode = typeof e.code === "number" ? e.code : null;
+    signal = e.signal ?? null;
+    errorReason = e.message.includes("maxBuffer")
       ? "export-bytes-limit"
       : e.name === "AbortError"
         ? "export-aborted"
         : e.killed
           ? "export-timeout"
           : `export-spawn-failed:${typeof e.code === "number" ? e.code : "signal-or-error"}`;
-    return unavailable(reason, observed.raw);
   }
   if (Buffer.byteLength(observed.raw, "utf8") > input.maxExportBytes)
-    return unavailable("export-bytes-limit", observed.raw);
-  return auditOpencodeExport(observed.raw, input.expectations);
+    errorReason = "export-bytes-limit";
+  const facts = { exitCode, signal, errorReason, rawRetained };
+  const audit = auditObservedOpencodeExport(
+    observed.raw,
+    facts,
+    input.expectations,
+  );
+  input.observe?.({
+    ...facts,
+    rawSha256: digest(Buffer.from(observed.raw, "utf8")),
+    rawBytes: Buffer.byteLength(observed.raw, "utf8"),
+    audit,
+  });
+  return audit;
+}
+/** Recompute the audit using actual retained exporter completion facts and raw bytes. */
+export function auditObservedOpencodeExport(
+  raw: string,
+  facts: Pick<
+    OpencodeExportObservation,
+    "exitCode" | "signal" | "errorReason" | "rawRetained"
+  >,
+  expectations: OpencodeExportExpectations,
+): OpencodeExportAudit {
+  if (
+    typeof facts.rawRetained !== "boolean" ||
+    (facts.exitCode !== null && !Number.isSafeInteger(facts.exitCode)) ||
+    (facts.signal !== null && typeof facts.signal !== "string") ||
+    (facts.errorReason !== null && typeof facts.errorReason !== "string")
+  )
+    throw new Error("opencode-replay-export-outcome");
+  if (!facts.rawRetained) return unavailable("export-retention-failed", raw);
+  if (facts.errorReason) return unavailable(facts.errorReason, raw);
+  if (facts.exitCode !== 0 || facts.signal !== null)
+    throw new Error("opencode-replay-export-outcome");
+  return auditOpencodeExport(raw, expectations);
 }
 function retainRaw(path: string, raw: string | null): boolean {
   if (raw === null) return false;
