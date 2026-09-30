@@ -210,6 +210,10 @@ export function opencodeReceiptGaps(
       gap: "config bootstrap can background-install @opencode-ai/plugin into config dirs (F14b); the per-action CFG is fresh and inventoried, not pre-materialized — live runs require the pre-materialization proof",
     },
     {
+      gate: "G-WRITES",
+      gap: "native startup and run writes are not proven confined to the isolated HOME/XDG/DB/SRC tree; pre/post inventory records bounded surfaces but is not a complete filesystem write oracle",
+    },
+    {
       gate: "G-AUTHFILE",
       gap: "auth.json is a plain 0600 file and bash-obfuscation reachability is unproven (F7 [P]); NOT decided by the user — explicit user decision REQUIRED before any live run; Rocky never reads/copies/proxies it (path-existence metadata only)",
     },
@@ -242,7 +246,7 @@ export function opencodeReceiptGaps(
   if (config.evidenceClass === "owned-fake-cli")
     gaps.push({
       gate: "NP1-NP5",
-      gap: "native behavior (isolation positive control, role matrix, authfile probe, lifecycle, usage/variant probes) is unproven; frame/part/export shapes are pinned to the read-only v1.18.32 source clone, and the child is an owned fake CLI",
+      gap: "native role matrix, event-stream/assistant usage, authfile, lifecycle and variant behavior remain unproven; fake frame/part fixtures derive from the v1.18.32 source clone, while a zero-turn v1.18.33 probe confirms only the empty export envelope and registry IDs; this child is an owned fake CLI",
     });
   if (!verdict?.sessionId)
     gaps.push({

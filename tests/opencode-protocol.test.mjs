@@ -126,6 +126,7 @@ test("P01 complete positive control: EOF + exit 0 + final text + export audit yi
       "G-SIG",
       "G-USAGE-COMPONENTS",
       "G-NPM",
+      "G-WRITES",
       "G-AUTHFILE",
       "G-DEFAULT-PROMPT",
       "G-ROSTER",

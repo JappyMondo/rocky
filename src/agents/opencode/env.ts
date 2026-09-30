@@ -28,24 +28,24 @@ export const OPENCODE_FORBIDDEN_ENV_EXPLICIT: ReadonlySet<string> = new Set([
   "SSH_AUTH_SOCK",
 ]);
 export const OPENCODE_FORBIDDEN_ENV_FAMILIES: readonly RegExp[] = [
-  /^OPENAI_/,
-  /^ANTHROPIC_/,
-  /^AWS_/,
-  /^GOOGLE_/,
-  /^AZURE_/,
-  /^DEEPSEEK_/,
-  /^GEMINI_/,
-  /^MISTRAL_/,
-  /^COHERE_/,
-  /^GROQ_/,
-  /^XAI_/,
-  /^OTEL_/,
-  /^OPENCODE_/,
-  /^XDG_/,
-  /_API_KEY$/,
-  /_PROXY$/,
-  /^NO_PROXY$/,
-  /^ALL_PROXY$/,
+  /^OPENAI_/i,
+  /^ANTHROPIC_/i,
+  /^AWS_/i,
+  /^GOOGLE_/i,
+  /^AZURE_/i,
+  /^DEEPSEEK_/i,
+  /^GEMINI_/i,
+  /^MISTRAL_/i,
+  /^COHERE_/i,
+  /^GROQ_/i,
+  /^XAI_/i,
+  /^OTEL_/i,
+  /^OPENCODE_/i,
+  /^XDG_/i,
+  /_API_KEY$/i,
+  /_PROXY$/i,
+  /^NO_PROXY$/i,
+  /^ALL_PROXY$/i,
 ];
 /** The OPENCODE_* keys the adapter itself pins into the sealed env (F14 isolation recipe), plus
  * the four XDG dirs it binds explicitly. These are forbidden in the SOURCE env like everything
@@ -73,7 +73,10 @@ function forbiddenFamily(key: string): boolean {
 /** Key names only; values are never logged, retained or compared. Source-env admissibility: ANY
  * OPENCODE/XDG override, provider key family, proxy or TLS vector present refuses pre-spawn. */
 export function isForbiddenOpencodeSourceEnvKey(key: string): boolean {
-  return OPENCODE_FORBIDDEN_ENV_EXPLICIT.has(key) || forbiddenFamily(key);
+  return (
+    OPENCODE_FORBIDDEN_ENV_EXPLICIT.has(key.toUpperCase()) ||
+    forbiddenFamily(key)
+  );
 }
 export function findForbiddenOpencodeEnvKeys(
   env: Record<string, string | undefined>,
@@ -142,16 +145,9 @@ export function assertOpencodeSealedEnv(
   const seen = new Map<string, string>();
   for (const [key, value] of env) {
     if (seen.has(key)) throw new Error("opencode-sealed-env-duplicate");
-    if (
-      (key.startsWith("OPENCODE_") || key.startsWith("XDG_")) &&
-      !OPENCODE_ADAPTER_SET_KEYS.has(key)
-    )
+    if (/^(OPENCODE_|XDG_)/i.test(key) && !OPENCODE_ADAPTER_SET_KEYS.has(key))
       throw new Error(`opencode-sealed-env-forbidden:${key}`);
-    if (
-      !key.startsWith("OPENCODE_") &&
-      !key.startsWith("XDG_") &&
-      isForbiddenOpencodeSourceEnvKey(key)
-    )
+    if (!/^(OPENCODE_|XDG_)/i.test(key) && isForbiddenOpencodeSourceEnvKey(key))
       throw new Error(`opencode-sealed-env-forbidden:${key}`);
     seen.set(key, value);
   }

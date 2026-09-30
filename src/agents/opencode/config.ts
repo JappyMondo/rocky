@@ -15,14 +15,14 @@ export const OPENCODE_HARNESS = "opencode";
  * #106/#107 cancelled). This names the #104 research bundle as the behavioral source; it is NOT an
  * independently approved contract and grants nothing in production. */
 export const OPENCODE_CONTRACT_ID = "rocky-opencode-poc-98-v1";
-/** Pinned identity, host-measured WITHOUT execution in #104 research (F1). The installed binary is
- * never executed by this package; missing/drift makes the profile unavailable, never substituted. */
-export const OPENCODE_PINNED_VERSION = "1.18.32";
+/** Pinned identity, host-measured in #104 research (F1). Missing/drift makes the profile
+ * unavailable, never substituted. */
+export const OPENCODE_PINNED_VERSION = "1.18.33";
 export const OPENCODE_PINNED_BINARY_PATH =
-  "/opt/homebrew/Cellar/opencode/1.18.32/bin/opencode";
+  "/opt/homebrew/Cellar/opencode/1.18.33/bin/opencode";
 export const OPENCODE_PINNED_SHA256 =
-  "a3c45d4e1d6620b436851f1ef6b25c71befcf06a382e279a1eb1c2196424395e";
-export const OPENCODE_PINNED_BYTES = 144602594;
+  "139ddeb6a46ba276827bb8f79c7b28208621746e4fd6914d9ae71cc1a0a57524";
+export const OPENCODE_PINNED_BYTES = 144800738;
 /** The single on-table model (F4): provider 'alibaba-token-plan', split on the FIRST '/'. */
 export const OPENCODE_PINNED_MODEL = "alibaba-token-plan/qwen3.8-max";
 export const OPENCODE_PINNED_PROVIDER = "alibaba-token-plan";
@@ -205,6 +205,13 @@ export function validateOpencodeConfig(
     !["static", "owned-fake-cli", "live-subscription"].includes(v.evidenceClass)
   )
     throw new Error("invalid-opencode-config:evidenceClass");
+  if (
+    v.evidenceClass === "live-subscription" &&
+    (binary.path !== OPENCODE_PINNED_BINARY_PATH ||
+      binary.sha256 !== OPENCODE_PINNED_SHA256 ||
+      binary.bytes !== OPENCODE_PINNED_BYTES)
+  )
+    throw new Error("opencode-live-binary-unavailable");
   const config: OpencodeConfig = JSON.parse(
     canonical({
       harness: v.harness,

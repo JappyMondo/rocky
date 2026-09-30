@@ -41,12 +41,12 @@ export const qualification = {
 export const PINNED_MODEL = "alibaba-token-plan/qwen3.8-max";
 export const PINNED_PROVIDER = "alibaba-token-plan";
 export const PINNED_MODEL_ID = "qwen3.8-max";
-export const PINNED_VERSION = "1.18.32";
+export const PINNED_VERSION = "1.18.33";
 export const DEFAULT_SESSION = "fake-session-0001";
 export function buildFakeBinary(dir) {
   mkdirSync(dir, { recursive: true });
   const source = readFileSync(resolve("tests/fixtures/opencode-fake-cli.mjs"));
-  const path = join(dir, "opencode-1.18.32-fake.mjs");
+  const path = join(dir, "opencode-1.18.33-fake.mjs");
   writeFileSync(
     path,
     Buffer.concat([Buffer.from(`#!${process.execPath}\n`), source]),

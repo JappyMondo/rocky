@@ -46,6 +46,9 @@ const {
   assertOpencodeConfigContent,
   buildOpencodeSealedEnv,
   OPENCODE_PINNED_VERSION,
+  OPENCODE_PINNED_BINARY_PATH,
+  OPENCODE_PINNED_SHA256,
+  OPENCODE_PINNED_BYTES,
 } = coordinatorModule;
 const promptOf = (action) =>
   JSON.stringify({ script: [{ exit: 0 }], actionKey: action.key });
@@ -111,10 +114,36 @@ test("X01 pinned-binary identity + version/model pins refuse with zero spawn (FK
     assert.throws(
       () =>
         validateOpencodeConfig(
-          baseConfig(f, { binary: { ...f.binary, version: "1.18.31" } }),
+          baseConfig(f, { binary: { ...f.binary, version: "1.18.32" } }),
         ),
       /opencode-version-unavailable/,
     );
+    // Synthetic identities remain legal for fake-CLI evidence. A live claim must bind ALL
+    // three measured binary fields, even when its declared version is correct.
+    assert.doesNotThrow(() => validateOpencodeConfig(baseConfig(f)));
+    const pinned = {
+      path: OPENCODE_PINNED_BINARY_PATH,
+      sha256: OPENCODE_PINNED_SHA256,
+      bytes: OPENCODE_PINNED_BYTES,
+      version: OPENCODE_PINNED_VERSION,
+    };
+    assert.doesNotThrow(() =>
+      validateOpencodeConfig(
+        baseConfig(f, { evidenceClass: "live-subscription", binary: pinned }),
+      ),
+    );
+    for (const binary of [
+      { ...pinned, path: f.binary.path },
+      { ...pinned, sha256: f.binary.sha256 },
+      { ...pinned, bytes: f.binary.bytes },
+    ])
+      assert.throws(
+        () =>
+          validateOpencodeConfig(
+            baseConfig(f, { evidenceClass: "live-subscription", binary }),
+          ),
+        /opencode-live-binary-unavailable/,
+      );
     // Off-table model assignments fail closed and are never defaulted (no fallback/reroute; F26).
     assert.throws(
       () =>
@@ -328,6 +357,13 @@ test("X03 sealed env: exact positive allowlist equality + poisoned source env re
       "NODE_EXTRA_CA_CERTS",
       "XDG_DATA_HOME",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "http_proxy",
+      "no_proxy",
+      "openai_api_key",
+      "opencode_auth_content",
+      "xdg_data_home",
+      "node_extra_ca_certs",
+      "ssh_auth_sock",
     ]) {
       const poisoned = adapterWith(f, f.config, { ...f.sourceEnv, [key]: "x" });
       assert.throws(
@@ -438,6 +474,14 @@ test("X04 sealed config content: canonical strict JSON, required pins, prohibite
         assertOpencodeConfigContent(JSON.stringify(noProviders), rolesInput),
       /opencode-config-enabled-providers/,
     );
+    for (const agentName of ["rocky-implementer", "rocky-reviewer"]) {
+      const extra = JSON.parse(plan.configContent);
+      extra.agent[agentName].tools = { bash: true };
+      assert.throws(
+        () => assertOpencodeConfigContent(JSON.stringify(extra), rolesInput),
+        /opencode-config-agent-forbidden-key/,
+      );
+    }
   } finally {
     f.store.close();
   }
@@ -462,6 +506,26 @@ test("X05 isolation fail-closed: shared user data dir unrepresentable, managed l
         /opencode-shared-user-data-dir/,
       );
     }
+    // The user's real path is a symlinked ~/.local/share alias into an existing canonical
+    // directory. Comparing only the spelled-out ~/.local path would admit that directory.
+    const aliasHome = join(f.dir, "alias-home");
+    const aliasLocal = join(aliasHome, ".local");
+    const actualShare = join(f.dir, "actual-share");
+    const actualUserData = join(actualShare, "opencode");
+    mkdirSync(aliasLocal, { recursive: true });
+    mkdirSync(actualUserData, { recursive: true });
+    symlinkSync(actualShare, join(aliasLocal, "share"));
+    const aliased = adapterWith(
+      f,
+      baseConfig(f, {
+        dataHome: actualUserData,
+        hostIdentity: { userHome: aliasHome },
+      }),
+    );
+    assert.throws(
+      () => aliased.prepareLaunch(action, { prompt: promptOf(action) }),
+      /opencode-shared-user-data-dir/,
+    );
     // A missing (unprovisioned) Rocky-owned data dir refuses: provisioning is a documented
     // one-time USER procedure, never performed or faked by the adapter.
     const missingAdapter = adapterWith(
@@ -472,6 +536,17 @@ test("X05 isolation fail-closed: shared user data dir unrepresentable, managed l
       () => missingAdapter.prepareLaunch(action, { prompt: promptOf(action) }),
       /opencode-data-home-missing/,
     );
+    const emptyData = join(f.dir, "empty-data");
+    mkdirSync(emptyData);
+    const unprovisioned = adapterWith(
+      f,
+      baseConfig(f, { dataHome: emptyData }),
+    );
+    assert.throws(
+      () => unprovisioned.prepareLaunch(action, { prompt: promptOf(action) }),
+      /opencode-auth-unprovisioned/,
+    );
+    assert.deepEqual(readdirSync(f.runsRoot), []);
     // A managed layer (F13 7/8 — cannot be overridden by any config) makes the profile
     // unavailable until reviewed.
     mkdirSync(join(f.dir, "managed"), { recursive: true });
