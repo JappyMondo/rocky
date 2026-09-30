@@ -146,6 +146,10 @@ export class GitHub {
   private async collect(repository: string, pr: PullRequest, cwd: string) {
     const checks: CIObservation["checks"] = [];
     const identities: CIAttempts["identities"] = [];
+    const sources = [];
+    // Finish every head/integration check and status read before sampling workflow
+    // attempts. The independent final scan must not hide a rerun behind its own
+    // last status await either.
     for (const sha of [
       ...new Set([pr.head, ...(pr.integration ? [pr.integration] : [])]),
     ]) {
@@ -158,6 +162,18 @@ export class GitHub {
         throw new Error(
           "CI check pagination required; refusing partial evidence",
         );
+      const statuses = await this.json(
+        repository,
+        `commits/${sha}/status?per_page=100`,
+        cwd,
+      );
+      if (statuses.total_count > 100)
+        throw new Error(
+          "CI status pagination required; refusing partial evidence",
+        );
+      sources.push({ sha, jobs, statuses });
+    }
+    for (const { sha, jobs, statuses } of sources) {
       const workflows = await this.json(
         repository,
         `actions/runs?head_sha=${sha}&per_page=100`,
@@ -217,15 +233,6 @@ export class GitHub {
           url: j.html_url ?? "",
         });
       }
-      const statuses = await this.json(
-        repository,
-        `commits/${sha}/status?per_page=100`,
-        cwd,
-      );
-      if (statuses.total_count > 100)
-        throw new Error(
-          "CI status pagination required; refusing partial evidence",
-        );
       for (const s of statuses.statuses) {
         if (!Number.isSafeInteger(s.id))
           throw new Error("CI status identity unavailable");

@@ -28,6 +28,8 @@ Taskbot #117 repairs the independent `d35c528` findings: acknowledged merge requ
 
 Independent review rejected candidate `9c85e426a56497ad902f9a94f200d5f03df2114f` despite its green full suite. Its tests/package and exact identities remain preserved in `check-summary-rejected-9c85e42.json`. A new source window repairs cancelled local/native action settlement and a production GitHub workflow-attempt change during the final status await. All four actual-process/SQLite/production-collector regressions failed against that unchanged candidate in `red-settlement-9c85.log`; the repaired source retains exact native usage, applies proven quiescence before stopping further work, and rereads CI identities after collecting all results. Current final verification and independent acceptance remain in the actual summary and Taskbot #117, not the rejected candidate's green logs.
 
+The first postcollection reread at clean `57a4811` still sampled workflow attempts before its own final status await. Root's bounded production probe and the service regression reproduced that second-scan race (`red-final-ci-reread-57.log`, `red-final-service-ci-reread-57.log`). The final ordering gathers every head/integration check/status response before reading workflow attempts in each scan, then retains the independent final identity comparison. Both scan barriers and dirty active-check readiness refusal remain covered. Preserve the earlier candidate's clean identity/check logs; only the final summary and independent review identify the accepted revision.
+
 ## Remaining gates and next actions
 
 1. Inspect final test/build/package evidence and independent review; repair actionable findings under a new explicit source-mutation window. Local green tests do not complete the MVP.

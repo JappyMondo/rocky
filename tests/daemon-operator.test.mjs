@@ -724,81 +724,90 @@ test("repair117: upstream attempt changing during collection invalidates approva
   }
 });
 
-test("repair117 settlement: production GitHub detects a workflow rerun after its workflow response while the last status read is awaited", async () => {
-  const f = fixture("ci-production-late-drift"),
-    gate = barrier();
-  let attempt = 1,
-    drift = false;
-  const gh = new GitHub(async (_file, args) => {
-    const path = args[1];
-    if (path.includes("check-runs"))
-      return JSON.stringify({
-        total_count: 1,
-        check_runs: [
-          {
-            id: 101,
-            name: "fixture-check",
-            check_suite: { id: 77 },
-            status: "completed",
-            conclusion: "success",
-            html_url: "",
-          },
-        ],
+for (const scan of ["result", "final recheck"]) {
+  test(
+    "repair117 settlement: production GitHub detects a workflow rerun during the " +
+      scan +
+      " scan's last status await",
+    async () => {
+      const f = fixture("ci-production-late-drift-" + scan),
+        gate = barrier();
+      let attempt = 1,
+        drift = false,
+        statusReads = 0;
+      const gh = new GitHub(async (_file, args) => {
+        const path = args[1];
+        if (path.includes("check-runs"))
+          return JSON.stringify({
+            total_count: 1,
+            check_runs: [
+              {
+                id: 101,
+                name: "fixture-check",
+                check_suite: { id: 77 },
+                status: "completed",
+                conclusion: "success",
+                html_url: "",
+              },
+            ],
+          });
+        if (path.includes("actions/runs"))
+          return JSON.stringify({
+            total_count: 1,
+            workflow_runs: [
+              {
+                id: 301,
+                workflow_id: 5,
+                event: "pull_request",
+                name: "unit workflow",
+                run_attempt: attempt,
+                check_suite_id: 77,
+                status: "completed",
+                conclusion: "success",
+                html_url: "",
+              },
+            ],
+          });
+        assert.match(path, /\/status\?/);
+        if (drift && ++statusReads === (scan === "result" ? 2 : 4)) {
+          drift = false;
+          await gate.wait();
+        }
+        return JSON.stringify({ total_count: 0, statuses: [] });
       });
-    if (path.includes("actions/runs"))
-      return JSON.stringify({
-        total_count: 1,
-        workflow_runs: [
-          {
-            id: 301,
-            workflow_id: 5,
-            event: "pull_request",
-            name: "unit workflow",
-            run_attempt: attempt,
-            check_suite_id: 77,
-            status: "completed",
-            conclusion: "success",
-            html_url: "",
-          },
-        ],
-      });
-    assert.match(path, /\/status\?/);
-    if (drift && path.includes("e".repeat(40))) {
-      drift = false;
-      await gate.wait();
-    }
-    return JSON.stringify({ total_count: 0, statuses: [] });
-  });
-  f.deps.github.attempts = gh.attempts.bind(gh);
-  f.deps.github.observe = gh.observe.bind(gh);
-  try {
-    const id = await reviewed(f),
-      head = f.service.run(id).head;
-    await f.service.approve(id, head);
-    f.deps.github.observe = async (...args) => {
-      drift = true;
-      return gh.observe(...args);
-    };
-    await f.service.merge(id, head);
-    await gate.waiting;
-    attempt = 2;
-    gate.release();
-    await f.service.idle();
-    assert.equal(f.counts().merges, 0);
-    assert.equal(f.counts().ready, 0);
-    assert.equal(f.service.run(id).approval, null);
-    const snapshot = f.service.store.coordinatorSnapshot(id);
-    assert.equal(snapshot.receipts.ci, undefined);
-    assert.equal(snapshot.receipts.approval, undefined);
-    assert.match(
-      f.service.run(id).message,
-      /attempt changed during collection/,
-    );
-  } finally {
-    gate.release();
-    await f.service.close();
-  }
-});
+      f.deps.github.attempts = gh.attempts.bind(gh);
+      f.deps.github.observe = gh.observe.bind(gh);
+      try {
+        const id = await reviewed(f),
+          head = f.service.run(id).head;
+        await f.service.approve(id, head);
+        f.deps.github.observe = async (...args) => {
+          drift = true;
+          statusReads = 0;
+          return gh.observe(...args);
+        };
+        await f.service.merge(id, head);
+        await gate.waiting;
+        attempt = 2;
+        gate.release();
+        await f.service.idle();
+        assert.equal(f.counts().merges, 0);
+        assert.equal(f.counts().ready, 0);
+        assert.equal(f.service.run(id).approval, null);
+        const snapshot = f.service.store.coordinatorSnapshot(id);
+        assert.equal(snapshot.receipts.ci, undefined);
+        assert.equal(snapshot.receipts.approval, undefined);
+        assert.match(
+          f.service.run(id).message,
+          /attempt changed during collection/,
+        );
+      } finally {
+        gate.release();
+        await f.service.close();
+      }
+    },
+  );
+}
 
 test("repair117: cancelling while approval awaits CI cannot record consent or close SQLite before the await drains", async () => {
   const f = fixture("cancel-approve117"),
@@ -902,6 +911,47 @@ test("startup freezes the authority and runtime actually validated by preflight"
         f.deps.runtime.roles.reviewer.steps,
       ],
     );
+  } finally {
+    await f.service.close();
+  }
+});
+
+test("repair117 settlement: a dirty active check settles its command without minting baseline readiness", async () => {
+  const f = fixture("dirty-active-check");
+  writeFileSync(
+    join(f.repo, "check.mjs"),
+    "import {writeFileSync} from 'node:fs';writeFileSync('index.mjs', 'export const label = \"check mutation\";\\n');\n",
+  );
+  execFileSync("git", ["add", "."], { cwd: f.repo });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@localhost",
+      "commit",
+      "-m",
+      "dirty check fixture",
+    ],
+    { cwd: f.repo, stdio: "pipe" },
+  );
+  try {
+    const run = await f.service.start();
+    await f.service.idle();
+    const current = f.service.run(run.id),
+      snapshot = f.service.store.coordinatorSnapshot(run.id);
+    assert.equal(current.phase, "blocked");
+    assert.match(current.message, /Checks modified committed source/);
+    assert.equal(snapshot.execution, null);
+    assert.equal(f.service.store.implementationSlot(), null);
+    assert.equal(snapshot.receipts.baseline, undefined);
+    assert.equal(snapshot.receipts.checks, undefined);
+    assert.equal(snapshot.receipts.review, undefined);
+    assert.equal(snapshot.receipts.approval, undefined);
+    assert.equal(f.service.store.commands(run.id)[0].result.outcome, "success");
+    assert.equal(f.agentPlan, null);
+    assert.equal(f.counts().drafts, 0);
   } finally {
     await f.service.close();
   }
