@@ -1,5 +1,9 @@
 # Documentation
 
+## Proposed successor
+
+- [Rocky Next concept page](rocky-next-concept.html): an Attraccess-first rebuild proposal with rendered diagrams, run evidence, and software-factory research. [Editable Markdown](rocky-next-concept.md).
+
 The [project README](../README.md) describes current capabilities and first use.
 Production execution uses machine-local profiles; target-repository `.rocky/`
 files are not execution configuration.

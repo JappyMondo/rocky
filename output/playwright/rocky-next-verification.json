@@ -1,0 +1,18 @@
+{
+  "base": {
+    "title": "Rocky Next — an Attraccess-first concept",
+    "diagrams": 7,
+    "chapters": 14,
+    "overflow": false,
+    "brokenInternalLinks": [],
+    "externalResources": []
+  },
+  "mobile": {
+    "overflow": false,
+    "width": 390,
+    "viewport": 390
+  },
+  "auditExpanded": true,
+  "errors": [],
+  "networkRequests": []
+}
