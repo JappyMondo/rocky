@@ -1,6 +1,8 @@
 import {
   ATT764_RECIPE,
   ATT764_TASK,
+  ATT764_TITLE,
+  att764CommitArgs,
   currentCheckRecipe,
   discoverCurrent,
   stageATT764,
@@ -757,15 +759,17 @@ export class OperatorService extends EventEmitter {
             throw new Error("Workflow changes require separate host review");
           await this.exec(
             "git",
-            [
-              "-c",
-              "user.name=Rocky",
-              "-c",
-              "user.email=rocky@localhost",
-              "commit",
-              "-m",
-              run.config.task.split("\n")[0]!.slice(0, 180),
-            ],
+            authority.profile === ATT764_RECIPE
+              ? att764CommitArgs()
+              : [
+                  "-c",
+                  "user.name=Rocky",
+                  "-c",
+                  "user.email=rocky@localhost",
+                  "commit",
+                  "-m",
+                  run.config.task.split("\n")[0]!.slice(0, 180),
+                ],
             run.workspace,
           );
           this.assertActive(run);
@@ -938,7 +942,7 @@ export class OperatorService extends EventEmitter {
           run.config.baseBranch,
           run.head,
           run.workspace,
-          run.config.task,
+          authority.profile === ATT764_RECIPE ? ATT764_TITLE : run.config.task,
           () => this.assertActive(run),
         ),
     );

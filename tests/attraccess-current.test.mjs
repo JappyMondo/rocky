@@ -18,9 +18,59 @@ import {
   stageATT764,
   applyATT764,
   freezeATT764Instructions,
+  att764CommitArgs,
+  ATT764_TITLE,
 } from "../dist/attraccess/current.js";
 import { att764OperatorConfig } from "../dist/attraccess/setup.js";
 import { validateOperatorConfig } from "../dist/daemon/config.js";
+
+test("ATT-764 commit uses the workspace identity, a verified owned SSH signature and a conventional title", () => {
+  const root = mkdtempSync(join(tmpdir(), "att764-signed-")),
+    repo = join(root, "repo"),
+    key = join(root, "fixture-key");
+  mkdirSync(repo);
+  execFileSync("ssh-keygen", [
+    "-q",
+    "-t",
+    "ed25519",
+    "-N",
+    "",
+    "-C",
+    "fixture@localhost",
+    "-f",
+    key,
+  ]);
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  git("init", "-b", "rocky-next");
+  for (const [name, value] of Object.entries({
+    "user.name": "Owned Fixture",
+    "user.email": "fixture@localhost",
+    "gpg.format": "ssh",
+    "user.signingkey": key,
+    "gpg.ssh.allowedSignersFile": join(root, "allowed-signers"),
+  }))
+    git("config", name, value);
+  writeFileSync(
+    join(root, "allowed-signers"),
+    "fixture@localhost " + readFileSync(key + ".pub", "utf8"),
+  );
+  writeFileSync(join(repo, "index.txt"), "owned signing fixture\n");
+  git("add", ".");
+  git(...att764CommitArgs());
+  git("verify-commit", "HEAD");
+  assert.equal(
+    git("log", "-1", "--format=%an <%ae>"),
+    "Owned Fixture <fixture@localhost>",
+  );
+  assert.equal(git("log", "-1", "--format=%s"), ATT764_TITLE);
+  assert.match(ATT764_TITLE, /^fix\(frontend\): .+$/);
+  assert.ok(ATT764_TITLE.length <= 120);
+});
 
 test("setup's ATT-764 30/120 minute config can be saved with the four MVP action allowances", () => {
   const config = att764OperatorConfig("/owned/target");

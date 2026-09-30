@@ -33,6 +33,12 @@ import { att764Acceptance } from "./current-acceptance.js";
 export const ATT764_TASK =
   "ATT-764: Use resource-group wording in the People & Permissions subtitle for groups in English and German. Preserve resource wording, both management-action branches, and hidden headers. Add focused regression tests.";
 export const ATT764_RECIPE = "attraccess-att764-v1";
+export const ATT764_TITLE =
+  "fix(frontend): correct group people permissions subtitle";
+/** Target rules require signing; git resolves the configured host identity in this workspace. */
+export function att764CommitArgs() {
+  return ["-c", "commit.gpgsign=true", "commit", "-m", ATT764_TITLE];
+}
 const people = "apps/frontend/src/app/resources/PeopleManagement/";
 const excluded =
   /^(AGENTS\.md|CLAUDE\.md|CONTEXT\.md|opencode\.jsonc?|\.opencode|\.git|node_modules)$/;

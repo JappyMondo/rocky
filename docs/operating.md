@@ -49,6 +49,8 @@ Before a live run, the user must provision OpenCode authentication into the dedi
 
 ATT-764 setup proposes one implementer (12 steps), one reviewer (6 steps), a 30-minute action deadline, 120-minute run deadline and 25,000 harness-reported token threshold checked between agent actions. The live authority must explicitly cover the intended draft PR; merge remains a separate exact-commit approval and action.
 
+ATT-764 commits and PRs use the conventional title `fix(frontend): correct group people permissions subtitle`; task text remains in the run record. Target commits use the host identity configured in the owned workspace and require Git signing. Configure a GitHub-recognized signing key and verified email before live work. Successful local fixture signing does not prove target-side acceptance. A queued merge is an external wait; only GitHub's confirmed merged state permits closeout.
+
 ## Workflow and handoff
 
 A run clones the selected base branch into owned storage, executes the frozen baseline checks, runs the existing OpenCode implementer, commits the actual resulting tree, and runs the frozen product checks. The original checkout is untouched. Host git operations own commits and publication. Changes to `.github/` stop for separate review. An agent cannot supply a successful check receipt.
