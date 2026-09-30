@@ -133,10 +133,14 @@ export class CommandRunner {
     }
     return id;
   }
-  async wait(lease: Lease, id: string): Promise<CommandRecord> {
+  async wait(
+    lease: Lease,
+    id: string,
+    options: { renewLease?: boolean } = {},
+  ): Promise<CommandRecord> {
     const ttl = this.store.get(lease.runId).config.values.leaseMs;
     let renewed = 0;
-    let observerOnly = false;
+    let observerOnly = options.renewLease === false;
     while (true) {
       const c = this.store.command(id);
       if (!c || c.runId !== lease.runId) throw new Error("command-not-found");

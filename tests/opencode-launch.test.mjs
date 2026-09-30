@@ -633,6 +633,7 @@ test("X06 role permission tables in the emitted sealed config: reviewer read-onl
     // IMPLEMENTER: edit/bash/read allowed; task/webfetch/websearch/skill/question denied;
     // external_directory DENY (not ask) makes cwd-containment explicit and observable.
     assert.deepEqual(parsed.agent["rocky-implementer"].permission, {
+      invalid: "deny",
       edit: { "*": "allow" },
       bash: { "*": "allow" },
       read: { "*": "allow" },

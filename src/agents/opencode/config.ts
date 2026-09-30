@@ -8,6 +8,7 @@ import {
   SUBSCRIPTION_BUDGET_MODE,
   type ExecutionQualification,
 } from "../../coordinator/contracts.js";
+import type { HostAdmission } from "./host.js";
 import type { Versions } from "../../store/index.js";
 
 export const OPENCODE_HARNESS = "opencode";
@@ -88,6 +89,7 @@ export interface OpencodeConfig {
   limits: OpencodeLimits;
   runsRoot: string;
   evidenceClass: string;
+  hostAdmission?: HostAdmission;
 }
 export interface ValidatedOpencodeConfig extends OpencodeConfig {
   configDigest: string;
@@ -232,6 +234,9 @@ export function validateOpencodeConfig(
       limits,
       runsRoot: v.runsRoot,
       evidenceClass: v.evidenceClass,
+      ...(v.hostAdmission !== undefined
+        ? { hostAdmission: v.hostAdmission }
+        : {}),
     }),
   ) as OpencodeConfig;
   return { ...config, configDigest: identity(config) };

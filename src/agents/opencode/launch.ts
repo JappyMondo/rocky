@@ -130,6 +130,9 @@ function buildExpected(input: OpencodeArgvInput): string[] {
  * task/webfetch/websearch/skill/question denied; subagent_depth 0 prevents all subagent launches.
  */
 export const OPENCODE_IMPLEMENTER_PERMISSIONS = {
+  // Native debug-agent exposed this registry tool by default. It is outside the
+  // reviewed coding roster, so remove its availability explicitly.
+  invalid: "deny",
   edit: { "*": "allow" },
   bash: { "*": "allow" },
   read: { "*": "allow" },
@@ -342,7 +345,7 @@ function isBelow(child: string, parent: string): boolean {
 export function assertOpencodeDataHomeIsolation(
   dataHome: string,
   userHome: string,
-): { authProvisioned: boolean } {
+): { authProvisioned: boolean; authMetadata: AuthMetadata } {
   const realUserData = join(userHome, ".local/share/opencode");
   // Resolve the real user's directory when present: an alias for ~/.local/share may point
   // elsewhere even when the configured Rocky dataHome itself is canonical.
@@ -363,7 +366,48 @@ export function assertOpencodeDataHomeIsolation(
   // Path-existence metadata only; the file is never opened, read, copied or proxied.
   const authProvisioned = existsSync(join(dataHome, "opencode/auth.json"));
   if (!authProvisioned) throw new Error("opencode-auth-unprovisioned");
-  return { authProvisioned };
+  const authMetadata = inspectOpencodeAuthMetadata(dataHome);
+  return { authProvisioned, authMetadata };
+}
+/** Metadata only. The private subtree starts at the owned home, not filesystem root. */
+export interface AuthMetadata {
+  path: string;
+  uid: number;
+  mode: number;
+  parents: { path: string; uid: number; mode: number }[];
+}
+export function inspectOpencodeAuthMetadata(dataHome: string): AuthMetadata {
+  const ownedHome = dirname(dataHome);
+  const parents = [ownedHome, dataHome, join(dataHome, "opencode")].map(
+    (path) => {
+      const stat = lstatSync(path);
+      if (
+        !stat.isDirectory() ||
+        stat.isSymbolicLink() ||
+        realpathSync(path) !== path
+      )
+        throw new Error("opencode-auth-parent-not-canonical");
+      if (stat.uid !== process.getuid?.())
+        throw new Error("opencode-auth-parent-owner");
+      if ((stat.mode & 0o7777) !== 0o700)
+        throw new Error("opencode-auth-parent-mode");
+      return { path, uid: stat.uid, mode: stat.mode & 0o7777 };
+    },
+  );
+  const path = join(dataHome, "opencode/auth.json");
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || realpathSync(path) !== path)
+    throw new Error("opencode-auth-not-regular");
+  if (stat.uid !== process.getuid?.()) throw new Error("opencode-auth-owner");
+  if ((stat.mode & 0o7777) !== 0o600) throw new Error("opencode-auth-mode");
+  return { path, uid: stat.uid, mode: stat.mode & 0o7777, parents };
+}
+function safeAuthMetadata(dataHome: string): AuthMetadata | null {
+  try {
+    return inspectOpencodeAuthMetadata(dataHome);
+  } catch {
+    return null;
+  }
 }
 export interface OpencodeIsolationInventory {
   schema: 1;
@@ -371,6 +415,7 @@ export interface OpencodeIsolationInventory {
   catalog: { path: string; sha256: string | null; bytes: number };
   configHomeTree: string | null;
   authProvisioned: boolean;
+  authMetadata: AuthMetadata | null;
   dataHome: string;
   stagedInstructionFiles: string[];
   stagedOpencodeDir: boolean;
@@ -462,6 +507,7 @@ export function inventoryOpencodeIsolation(input: {
     },
     configHomeTree,
     authProvisioned: input.authProvisioned,
+    authMetadata: safeAuthMetadata(config.dataHome),
     dataHome: config.dataHome,
     stagedInstructionFiles,
     stagedOpencodeDir: existsSync(join(paths.src, ".opencode")),
@@ -501,6 +547,8 @@ export function opencodeIsolationDrift(
   post: OpencodeIsolationInventory,
 ): string[] {
   const drift: string[] = [];
+  if (identity(pre.authMetadata) !== identity(post.authMetadata))
+    drift.push("auth-metadata-drift");
   for (const [i, entry] of pre.managed.entries()) {
     const other = post.managed[i];
     if (!other || other.path !== entry.path)

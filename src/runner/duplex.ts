@@ -183,8 +183,8 @@ export class DuplexRunner {
     if (!record?.duplex) throw new Error("duplex-not-found");
     return record;
   }
-  async wait(lease: Lease, id: string) {
-    const record = await this.commands.wait(lease, id);
+  async wait(lease: Lease, id: string, options: { renewLease?: boolean } = {}) {
+    const record = await this.commands.wait(lease, id, options);
     return {
       record,
       quiescent:

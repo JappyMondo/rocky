@@ -53,6 +53,7 @@ export interface OpencodeStreamVerdict {
   offRosterTools: string[];
   ordinaryFailures: { tool: string }[];
   stepFinishCount: number;
+  stepStartCount: number;
   /** SUM of step_finish tokens.input/output over the root session (PART 4 §5), or null when no
    * well-formed step_finish arrived. Cross-checked against the export audit aggregate. */
   summedTokens: { input: number; output: number } | null;
@@ -146,6 +147,7 @@ export function classifyOpencodeStream(input: {
   let toolUseCount = 0;
   let partCount = 0;
   let stepFinishCount = 0;
+  let stepStartCount = 0;
   let summedInput = 0;
   let summedOutput = 0;
   let lastToolIndex = -1;
@@ -271,6 +273,7 @@ export function classifyOpencodeStream(input: {
         return;
       }
       case "step_start":
+        stepStartCount++;
         return;
     }
   });
@@ -395,6 +398,7 @@ export function classifyOpencodeStream(input: {
     offRosterTools,
     ordinaryFailures,
     stepFinishCount,
+    stepStartCount,
     summedTokens:
       stepFinishCount > 0 ? { input: summedInput, output: summedOutput } : null,
     textPartCount: completedTexts.length,
