@@ -270,6 +270,19 @@ export class GitHub {
     cwd: string,
   ): Promise<CIObservation> {
     const { attempts, checks } = await this.collect(repository, pr, cwd);
+    // Result endpoints are read sequentially. A rerun can begin after its workflow
+    // response while a later status response is awaited; reread upstream identities
+    // after the whole result bundle, and never bind those old results to a new attempt.
+    const currentAttempts = await this.attempts(repository, pr, cwd);
+    if (JSON.stringify(attempts) !== JSON.stringify(currentAttempts))
+      return {
+        attempts: currentAttempts,
+        head: pr.head,
+        integration: pr.integration,
+        outcome: "pending",
+        checks: [],
+        observedAt: Date.now(),
+      };
     const current = checks.filter((c) => c.sha === (pr.integration ?? pr.head));
     const failed = checks.some(
       (c) =>

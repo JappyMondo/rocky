@@ -26,7 +26,7 @@ import {
   defaultExportMarker,
 } from "./opencode-support.mjs";
 
-function fixture(name) {
+function fixture(name, options = {}) {
   const f = opencodeFixture("operator-" + name);
   f.store.close();
   const home = join(f.dir, "daemon");
@@ -40,6 +40,26 @@ function fixture(name) {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   git("init", "-b", "main");
+  // Owned fixtures must not invoke the user's signing agent. Retain actual signed
+  // commits using a disposable key, including in the operator's cloned workspace.
+  const signingKey = join(f.dir, "fixture-signing-key"),
+    allowedSigners = join(f.dir, "allowed-signers");
+  execFileSync("ssh-keygen", ["-t", "ed25519", "-N", "", "-f", signingKey], {
+    stdio: "pipe",
+  });
+  const publicKey = readFileSync(signingKey + ".pub", "utf8").trim();
+  writeFileSync(
+    allowedSigners,
+    `fixture@localhost ${publicKey}\nrocky@localhost ${publicKey}\n`,
+  );
+  const signing = {
+    "gpg.format": "ssh",
+    "gpg.ssh.program": "/usr/bin/ssh-keygen",
+    "user.signingkey": signingKey,
+    "gpg.ssh.allowedSignersFile": allowedSigners,
+    "commit.gpgsign": "true",
+  };
+  for (const [key, value] of Object.entries(signing)) git("config", key, value);
   git("remote", "add", "origin", "https://github.com/synthetic/target.git");
   writeFileSync(join(repo, "index.mjs"), 'export const label = "before";\n');
   writeFileSync(
@@ -56,7 +76,8 @@ function fixture(name) {
     "-m",
     "fixture",
   );
-  let pr = null,
+  let agentPlan = null,
+    pr = null,
     attempt = 1,
     merges = 0,
     drafts = 0,
@@ -146,7 +167,18 @@ function fixture(name) {
     authority,
     runtime: f.config,
     github,
-    execute,
+    async execute(file, args, cwd) {
+      const out = await execute(file, args, cwd);
+      if (file === "git" && args[0] === "clone")
+        for (const [key, value] of Object.entries(signing))
+          execFileSync("git", ["config", key, value], {
+            cwd: args.at(-1),
+            stdio: "pipe",
+          });
+      if (file === "git" && args.includes("commit"))
+        execFileSync("git", ["verify-commit", "HEAD"], { cwd, stdio: "pipe" });
+      return out;
+    },
     adapter(store, lease, config) {
       const adapter = new OpencodeAdapter(store, lease, config, {
         sourceEnv: f.sourceEnv,
@@ -172,10 +204,13 @@ function fixture(name) {
         );
         if (role === "reviewer")
           script.script = script.script.filter((x) => !x.toolUse);
+        if (options.agentScript)
+          script.script = options.agentScript(script.script, action);
         const plan = original(action, {
           ...input,
           prompt: JSON.stringify(script),
         });
+        agentPlan = plan;
         writeFileSync(
           join(plan.paths.parentTmp, "fake-export.json"),
           JSON.stringify(defaultExportMarker(plan)),
@@ -198,6 +233,9 @@ function fixture(name) {
     service,
     home,
     deps,
+    get agentPlan() {
+      return agentPlan;
+    },
     get pr() {
       return pr;
     },
@@ -295,6 +333,21 @@ async function reviewed(f) {
     f.service.run(id).message,
   );
   return id;
+}
+
+function assertCancelledSettlement(service, id, actionKey, result) {
+  const snapshot = service.store.coordinatorSnapshot(id);
+  assert.equal(snapshot.cancelled, true);
+  assert.equal(snapshot.stage, "cancelled");
+  assert.equal(snapshot.execution, null);
+  assert.equal(service.store.implementationSlot(), null);
+  assert.ok(service.store.commands(id).every((c) => c.state === "finished"));
+  const effect = service.store.effect(actionKey);
+  assert.equal(effect.state, "confirmed");
+  assert.equal(effect.receipt.actionKey, actionKey);
+  assert.equal(effect.receipt.quiescent, true);
+  if (result) assert.deepEqual(effect.receipt, result);
+  assert.equal(service.detail(id).rerunReady, true);
 }
 
 test("repair117: successful queue request is acknowledged then reconciled read-only before stale base/CI handling", async () => {
@@ -671,6 +724,82 @@ test("repair117: upstream attempt changing during collection invalidates approva
   }
 });
 
+test("repair117 settlement: production GitHub detects a workflow rerun after its workflow response while the last status read is awaited", async () => {
+  const f = fixture("ci-production-late-drift"),
+    gate = barrier();
+  let attempt = 1,
+    drift = false;
+  const gh = new GitHub(async (_file, args) => {
+    const path = args[1];
+    if (path.includes("check-runs"))
+      return JSON.stringify({
+        total_count: 1,
+        check_runs: [
+          {
+            id: 101,
+            name: "fixture-check",
+            check_suite: { id: 77 },
+            status: "completed",
+            conclusion: "success",
+            html_url: "",
+          },
+        ],
+      });
+    if (path.includes("actions/runs"))
+      return JSON.stringify({
+        total_count: 1,
+        workflow_runs: [
+          {
+            id: 301,
+            workflow_id: 5,
+            event: "pull_request",
+            name: "unit workflow",
+            run_attempt: attempt,
+            check_suite_id: 77,
+            status: "completed",
+            conclusion: "success",
+            html_url: "",
+          },
+        ],
+      });
+    assert.match(path, /\/status\?/);
+    if (drift && path.includes("e".repeat(40))) {
+      drift = false;
+      await gate.wait();
+    }
+    return JSON.stringify({ total_count: 0, statuses: [] });
+  });
+  f.deps.github.attempts = gh.attempts.bind(gh);
+  f.deps.github.observe = gh.observe.bind(gh);
+  try {
+    const id = await reviewed(f),
+      head = f.service.run(id).head;
+    await f.service.approve(id, head);
+    f.deps.github.observe = async (...args) => {
+      drift = true;
+      return gh.observe(...args);
+    };
+    await f.service.merge(id, head);
+    await gate.waiting;
+    attempt = 2;
+    gate.release();
+    await f.service.idle();
+    assert.equal(f.counts().merges, 0);
+    assert.equal(f.counts().ready, 0);
+    assert.equal(f.service.run(id).approval, null);
+    const snapshot = f.service.store.coordinatorSnapshot(id);
+    assert.equal(snapshot.receipts.ci, undefined);
+    assert.equal(snapshot.receipts.approval, undefined);
+    assert.match(
+      f.service.run(id).message,
+      /attempt changed during collection/,
+    );
+  } finally {
+    gate.release();
+    await f.service.close();
+  }
+});
+
 test("repair117: cancelling while approval awaits CI cannot record consent or close SQLite before the await drains", async () => {
   const f = fixture("cancel-approve117"),
     gate = barrier(),
@@ -778,7 +907,7 @@ test("startup freezes the authority and runtime actually validated by preflight"
   }
 });
 
-test("cancelling a running local check drains its command and prevents agent or publication", async () => {
+test("repair117 settlement: cancelling a real check releases the durable action and survives restart for explicit rerun", async () => {
   const f = fixture("cancel-check");
   writeFileSync(
     join(f.repo, "check.mjs"),
@@ -807,6 +936,7 @@ test("cancelling a running local check drains its command and prevents agent or 
       assert.ok(Date.now() < deadline, "check started within deadline");
       await delay(25);
     }
+    const action = f.service.store.coordinatorSnapshot(run.id).execution;
     await f.service.cancel(run.id);
     await f.service.idle();
     const commands = f.service.store.commands(run.id);
@@ -819,10 +949,129 @@ test("cancelling a running local check drains its command and prevents agent or 
       readFileSync(join(f.service.run(run.id).workspace, "index.mjs"), "utf8"),
       /before/,
     );
+    assertCancelledSettlement(f.service, run.id, action.key);
+    const receipt = f.service.store.effect(action.key).receipt;
+    assert.equal(receipt.inputDigest, action.inputDigest);
+    assert.equal(receipt.usage.source.kind, "local-no-model");
+    assert.equal(receipt.usage.tokens, 0);
+    await f.service.close();
+    f.service = new OperatorService(f.home, f.deps);
+    assertCancelledSettlement(f.service, run.id, action.key, receipt);
+    writeFileSync(join(f.repo, "check.mjs"), "process.exit(0);\n");
+    execFileSync("git", ["add", "."], { cwd: f.repo });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@localhost",
+        "commit",
+        "-m",
+        "settled rerun check",
+      ],
+      { cwd: f.repo, stdio: "pipe" },
+    );
+    const next = await f.service.start({ previousRunId: run.id });
+    await f.service.idle();
+    assert.equal(f.service.run(next.id).phase, "awaiting_ci");
+    assert.equal(
+      f.service.store.coordinatorSnapshot(run.id).stage,
+      "cancelled",
+    );
   } finally {
     await f.service.close();
   }
 });
+
+for (const timing of ["running", "settled"]) {
+  test(
+    "repair117 settlement: cancelling a real agent " +
+      timing +
+      " retains native usage, releases the slot and permits restarted explicit rerun",
+    async () => {
+      let slow = timing === "running";
+      const f = fixture("cancel-agent-settlement-" + timing, {
+        agentScript(script) {
+          return slow
+            ? [{ stepStart: {} }, { marker: "agent-started" }, { sleep: 20000 }]
+            : script;
+        },
+      });
+      const gate = barrier(),
+        originalFactory = f.deps.adapter;
+      let result;
+      f.deps.adapter = (...args) => {
+        const adapter = originalFactory(...args),
+          begin = adapter.begin.bind(adapter);
+        adapter.begin = async (action) => {
+          result = await begin(action);
+          if (timing === "settled") await gate.wait();
+          return result;
+        };
+        return adapter;
+      };
+      try {
+        const run = await f.service.start();
+        if (timing === "settled") await gate.waiting;
+        else {
+          const deadline = Date.now() + 10000;
+          while (
+            !f.agentPlan ||
+            !existsSync(join(f.agentPlan.paths.parentTmp, "agent-started"))
+          ) {
+            assert.ok(Date.now() < deadline, "real agent process started");
+            await delay(25);
+          }
+        }
+        const action = f.service.store.coordinatorSnapshot(run.id).execution;
+        await f.service.cancel(run.id);
+        gate.release();
+        await f.service.idle();
+        assert.equal(result.quiescent, true);
+        assert.equal(result.usage.schema, 2);
+        assertCancelledSettlement(f.service, run.id, action.key, result);
+        assert.equal(
+          f.service.store.coordinatorSnapshot(run.id).head,
+          f.service.run(run.id).base,
+        );
+        assert.match(
+          readFileSync(
+            join(f.service.run(run.id).workspace, "index.mjs"),
+            "utf8",
+          ),
+          /before/,
+        );
+        assert.equal(f.counts().drafts, 0);
+        assert.equal(
+          f.service.store.coordinatorSnapshot(run.id).receipts.review,
+          undefined,
+        );
+        if (timing === "settled")
+          assert.equal(
+            f.service.store.coordinatorSnapshot(run.id).budgets
+              .harnessReportedTokens,
+            1540,
+          );
+        await f.service.close();
+        slow = false;
+        f.deps.adapter = originalFactory;
+        f.service = new OperatorService(f.home, f.deps);
+        assertCancelledSettlement(f.service, run.id, action.key, result);
+        const next = await f.service.start({ previousRunId: run.id });
+        await f.service.idle();
+        assert.equal(f.service.run(next.id).phase, "awaiting_ci");
+        assert.equal(
+          f.service.store.coordinatorSnapshot(run.id).stage,
+          "cancelled",
+        );
+      } finally {
+        gate.release();
+        await f.service.close();
+      }
+    },
+  );
+}
 
 test("real SQLite + fake OpenCode process: checks, draft, CI/review, exact-head approval, merge and manual closeout", async () => {
   const f = fixture("complete");

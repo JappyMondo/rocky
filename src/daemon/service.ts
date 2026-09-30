@@ -623,12 +623,15 @@ export class OperatorService extends EventEmitter {
     } else this.store.renew(l, 60000);
     return l;
   }
-  private assertActive(run: OperatorRun) {
-    if (
+  private cancelled(run: OperatorRun) {
+    return (
       this.stopping ||
       this.run(run.id).phase === "cancelled" ||
-      this.store.coordinatorSnapshot(run.id)?.cancelled
-    )
+      this.store.coordinatorSnapshot(run.id)?.cancelled === true
+    );
+  }
+  private assertActive(run: OperatorRun) {
+    if (this.cancelled(run))
       throw new Error("Run cancelled; owned work retained");
     this.store.assertLease(this.lease(run));
   }
@@ -754,23 +757,17 @@ export class OperatorService extends EventEmitter {
           "Check process quiescence unresolved; recovery required",
         );
       const r = record.result as unknown as CommandResult | null;
-      this.assertActive(run);
       results.push({ name: check.name, result: r });
       for (const path of [r?.stdout, r?.stderr])
         if (path && existsSync(path))
           logs.push(this.evidence.put(readFileSync(path)));
-      if (r?.outcome !== "success" || r.exitCode !== 0) {
+      if (this.cancelled(run) || r?.outcome !== "success" || r.exitCode !== 0) {
         passed = false;
         break;
       }
     }
-    const dirty = await this.exec(
-      "git",
-      ["status", "--porcelain", "--untracked-files=no"],
-      run.workspace,
-    );
-    if (dirty)
-      throw new Error("Checks modified committed source; evidence is stale");
+    // Finished commands prove quiescence even when cancellation became authoritative
+    // during the await. Settle this exact action before refusing any further work.
     this.apply(run, {
       type: "result",
       actionKey: action.key,
@@ -782,10 +779,19 @@ export class OperatorService extends EventEmitter {
         tokens: 0,
         source: { kind: "local-no-model", reference: identity(results) },
       },
-      outcome: "complete",
+      outcome: this.cancelled(run) ? "interrupted" : "complete",
       head: run.head,
       detail: kind + " command results retained",
     });
+    this.assertActive(run);
+    const dirty = await this.exec(
+      "git",
+      ["status", "--porcelain", "--untracked-files=no"],
+      run.workspace,
+    );
+    this.assertActive(run);
+    if (dirty)
+      throw new Error("Checks modified committed source; evidence is stale");
     this.receipt(
       run,
       kind,
@@ -858,75 +864,93 @@ export class OperatorService extends EventEmitter {
       interrupt: (a) => adapter.interrupt(a),
       begin: async (a) => {
         const result = await adapter.begin(a);
-        this.assertActive(run);
-        if (kind === "review") {
-          if (result.head !== plan.headPre)
-            return {
-              ...result,
-              outcome: "failed",
-              head: run.head,
-              detail: "Reviewer changed source",
-            };
-          return { ...result, head: run.head };
-        }
-        if (result.outcome === "changed" && result.quiescent) {
-          if (authority.profile === ATT764_RECIPE) {
-            applyATT764(plan.paths.src, run.workspace);
-          } else {
-            for (const name of readdirSync(run.workspace))
-              if (name !== ".git")
-                rmSync(join(run.workspace, name), {
-                  recursive: true,
-                  force: true,
-                });
-            copySource(plan.paths.src, run.workspace);
+        // Preserve the native result (including its exact usage and quiescence) so
+        // cancellation can drain the durable action without adopting staged code.
+        if (this.cancelled(run)) return result;
+        try {
+          this.assertActive(run);
+          if (kind === "review") {
+            if (result.head !== plan.headPre)
+              return {
+                ...result,
+                outcome: "failed",
+                head: run.head,
+                detail: "Reviewer changed source",
+              };
+            return { ...result, head: run.head };
           }
-          await this.exec("git", ["add", "--all"], run.workspace);
-          this.assertActive(run);
-          const changed = await this.exec(
-            "git",
-            ["diff", "--cached", "--name-only"],
-            run.workspace,
-          );
-          if (!changed.trim())
-            return {
-              ...result,
-              outcome: "failed",
-              head: run.head,
-              detail: "No code change",
-            };
-          if (changed.split("\n").some((p) => p.startsWith(".github/")))
-            throw new Error("Workflow changes require separate host review");
-          await this.exec(
-            "git",
-            authority.profile === ATT764_RECIPE
-              ? att764CommitArgs()
-              : [
-                  "-c",
-                  "user.name=Rocky",
-                  "-c",
-                  "user.email=rocky@localhost",
-                  "commit",
-                  "-m",
-                  run.config.task.split("\n")[0]!.slice(0, 180),
-                ],
-            run.workspace,
-          );
-          this.assertActive(run);
-          run.head = await this.exec(
-            "git",
-            ["rev-parse", "HEAD"],
-            run.workspace,
-          );
-          run.diff = await this.exec(
-            "git",
-            ["diff", run.base, run.head, "--"],
-            run.workspace,
-          );
-          this.save(run);
+          if (result.outcome === "changed" && result.quiescent) {
+            if (authority.profile === ATT764_RECIPE) {
+              applyATT764(plan.paths.src, run.workspace);
+            } else {
+              for (const name of readdirSync(run.workspace))
+                if (name !== ".git")
+                  rmSync(join(run.workspace, name), {
+                    recursive: true,
+                    force: true,
+                  });
+              copySource(plan.paths.src, run.workspace);
+            }
+            await this.exec("git", ["add", "--all"], run.workspace);
+            if (this.cancelled(run)) return result;
+            this.assertActive(run);
+            const changed = await this.exec(
+              "git",
+              ["diff", "--cached", "--name-only"],
+              run.workspace,
+            );
+            if (this.cancelled(run)) return result;
+            this.assertActive(run);
+            if (!changed.trim())
+              return {
+                ...result,
+                outcome: "failed",
+                head: run.head,
+                detail: "No code change",
+              };
+            if (changed.split("\n").some((p) => p.startsWith(".github/")))
+              throw new Error("Workflow changes require separate host review");
+            await this.exec(
+              "git",
+              authority.profile === ATT764_RECIPE
+                ? att764CommitArgs()
+                : [
+                    "-c",
+                    "user.name=Rocky",
+                    "-c",
+                    "user.email=rocky@localhost",
+                    "commit",
+                    "-m",
+                    run.config.task.split("\n")[0]!.slice(0, 180),
+                  ],
+              run.workspace,
+            );
+            if (this.cancelled(run)) return result;
+            this.assertActive(run);
+            const head = await this.exec(
+              "git",
+              ["rev-parse", "HEAD"],
+              run.workspace,
+            );
+            if (this.cancelled(run)) return result;
+            this.assertActive(run);
+            const diff = await this.exec(
+              "git",
+              ["diff", run.base, head, "--"],
+              run.workspace,
+            );
+            if (this.cancelled(run)) return result;
+            this.assertActive(run);
+            run.head = head;
+            run.diff = diff;
+            this.save(run);
+            return { ...result, head: run.head };
+          }
           return { ...result, head: run.head };
+        } catch (error) {
+          if (this.cancelled(run)) return result;
+          throw error;
         }
-        return { ...result, head: run.head };
       },
     };
     await this.store.dispatchCoordinator(l, action.key, transport);
@@ -937,6 +961,7 @@ export class OperatorService extends EventEmitter {
       `result/${action.key}`,
     );
     this.emit("change");
+    if (s.cancelled) return false;
     if (s.blocker || s.unqualifiedResults.length)
       throw new Error(
         s.blocker?.detail ?? "Agent lifecycle or usage unresolved",
