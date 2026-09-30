@@ -722,10 +722,17 @@ test("L11 lease loss mid-run settles as interrupted; ingestion survives but appl
       script: [{ thread: {} }, { marker: "fake-ready" }, { sleep: 20000 }],
     });
     await waitForFile(join(plan.paths.parentTmp, "fake-ready"));
+    // Handoff only after the supervisor has durably published the running command. The
+    // fake-ready marker proves the child is live; this row is the lease observer's boundary.
+    const id = f.store.duplexInvocation(action.key).id;
+    await until(() => {
+      const c = f.store.command(id);
+      return c.state === "running" && c.supervisor && c.group;
+    });
     f.store.release(f.lease);
     f.store.claim(f.lease.runId, "next-owner", versions, 1000000);
     const command = await until(() => {
-      const c = f.store.command(f.store.duplexInvocation(action.key).id);
+      const c = f.store.command(id);
       return c.state === "finished" && c;
     });
     assert.equal(command.result.outcome, "lease-lost");
