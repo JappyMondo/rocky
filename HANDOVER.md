@@ -1,6 +1,22 @@
-# Rocky Next recovery handover — 2026-09-30
+# Rocky Next handover — 2026-10-01 — USER PAUSED
 
-Resume from the user's selected checkout `/Users/jappy/code/jappy/rocky`, branch exactly `rocky-next`. Taskbot project `rocky-next` is the work-state authority; read epic #1 and tickets #8, #13, #113, #115, #117, #118, #114 before changing anything. Root owns ticket transitions and independent acceptance. New dispatches use `gpt-6.1-sol` under the routing table in [the orchestrator prompt](rocky-next-orchestrator-prompt.md). Keep one explicit mutation lease.
+The user explicitly paused work because of the token limit and requested persistence, commit and push only (Taskbot #1/1202, #4/1203). No implementation, review, repair, test/build, preparation, login, native/model, browser or target work may resume without a new user instruction. Preparation lease1199 is revoked; no continuing mutation lease or owned job remains after closeout.
+
+## Current checkpoint
+
+Canonical checkout: `/Users/jappy/code/jappy/rocky`, branch exactly `rocky-next`. Root accepted #118 **local foundation** in1195 at code commit `f51fd37b34a718394184ca6e82a012abcde3e495`, tree `03a21f993c13eb2ecc7d6218ad6c4d426674ca82`; #113 was accepted at `d35c528`, #115/#117 at `16eaf803`. Current last-tested build is `ec4e6d7282995ac26c82927c47e4dea2def2f90ad89b5228731fbb41f67b6b7e` (173 files), installed package SHA256 `daf55fac0cb1b90f4ae1d89664b5445bb92832e022e24082f035712548b0e60c`.
+
+Pinned Node24.16.0/npm11.13.0 typecheck/build, affected198/198, package install and Standards1186/affected Spec1189 passed. The Spec reviewer disclosed authorship of the rejected baseline and reviewed only the different author's repair. Exactly one final full run passed: **536 tests, 535 pass, 0 fail, 1 skip**, 393835.3315ms; the existing installed-browser test skipped because `ROCKY_BROWSER_EXECUTABLE` was unset. Root1194 confirmed all owned jobs/groups absent. Evidence is `/Users/jappy/.rocky-next-118-20260930/evidence/check-summary.json` and `full-f51fd37.log`; root1195 supersedes the summary's historical awaiting-acceptance wording. All rejected514/a4/01855/1f747 artifacts and failed-before/crash logs remain retained. This closeout handover commit is documentation only; code/build identity remains the tested `f51fd37`, with no new build or test authorized.
+
+Private preparation is **partial, unfinished and unreviewed** after the preparation agent hit a workspace-credit error. Metadata-only inspection confirms UID501/0700 `/Users/jappy/.rocky-next-mvp` and its `qualification/`, with `dependencies/`, `login-runtime/`, `login-preparation.json` and `login.mjs` retained there. `opencode-data/opencode/auth.json`, `qualification/auth-boundary.json` and `authority.json` are absent. Do not execute the helper or treat it as ready. Private dependency/runtime trees, evidence and any future secrets stay outside git; no auth bytes were inspected.
+
+#114 is todo/planned only (plan1193); no Guide code exists. #14 real ATT-764 live proof was not performed. User G-AUTHFILE decision/login, final Guide-build manifest, positive native implementer/reviewer observations, current target signing/CI/queue proof, exact-head UI approval and separate merge remain open. Existing bounded authority1054 persists, but authorizes no continuation during this user pause. The MVP is not complete.
+
+On a future explicit resume, reconcile Taskbot #1/#4/#114/#118 and private partial state first; root owns acceptance/status and must assign one mutation lease. New dispatches use `gpt-6.1-sol` per [the orchestrator prompt](rocky-next-orchestrator-prompt.md).
+
+## Historical recovery record
+
+The sections below retain earlier checkpoints and rejected attempts; pending gates mentioned there describe their historical stage, not the current local-foundation acceptance above.
 
 ## Integrated scope
 
@@ -30,7 +46,7 @@ Independent review rejected candidate `9c85e426a56497ad902f9a94f200d5f03df2114f`
 
 The first postcollection reread at clean `57a4811` still sampled workflow attempts before its own final status await. Root's bounded production probe and the service regression reproduced that second-scan race (`red-final-ci-reread-57.log`, `red-final-service-ci-reread-57.log`). The final ordering gathers every head/integration check/status response before reading workflow attempts in each scan, then retains the independent final identity comparison. Both scan barriers and dirty active-check readiness refusal remain covered. Preserve the earlier candidate's clean identity/check logs; only the final summary and independent review identify the accepted revision.
 
-## Accepted foundation and #118 candidate
+## Accepted foundation and historical #118 candidates
 
 Root accepted #117 at clean `16eaf803c3b22243d392fba81b444b2b777c80e8` (#117/1119, #115/1122): both independent reviews passed; focused 58/58, full 436 tests/435 pass/0 fail/one existing browser skip, typecheck/build/package smoke and five-state fake-only UI proof passed. Build `d533f13d3f40531630ff2de67ccbf127854808312866032d7ef338d6674a5eab`; evidence and owned-process cleanup are under `/Users/jappy/.rocky-next-repair-117-20260930/evidence/`. The review/QA processes were stopped with zero unfinished commands/slots. Preserve all failed candidates and red logs.
 
@@ -48,15 +64,15 @@ Root rejected `1f74785` after an additional actual late-revocation replay failur
 
 A genuine credential-free Node24.16.0/npm11.13.0 `npm ci --ignore-scripts` template for plugin1.18.33 is retained privately. Published integrity matches the pinned value; complete tree inventory `c9a85b73fe8277aac8b9e693a82dfb9685fe19f9ff21e652f9283e9b133a780b`, frozen lock `82f5280e0790f5d4aa8da2247cb7a23d00d720c2ad5095080e59cd5790f26683`. Actual materialization succeeded. Root dispatches #118/1137 and #118/1140 authorized two credential-free three-command native batches. The first exposed unexpected implementer `invalid`; the explicit deny repair passed the second with intended implementer bash/read/glob/grep/edit/write/todowrite and reviewer read/glob/grep. All six calls had exit0/EOF/group absence; exact genuine CFG tree stayed unchanged. Raw/lifecycle/full before-after trees are retained in `evidence/native-zero-turn-{1,2}/`. This is bounded effective-roster and dependency-startup evidence; full network/write oracle and positive model-turn stream/export/usage remain open. No login/auth access, paid turn, live authority file, target effect or shared-service replacement was performed.
 
-Next: independent #118 source acceptance; #114 Guide; final Guide-build manifest; explicit user plain-file/bash-boundary acceptance and isolated masked login; first positive live implementer/reviewer evidence before #14 acceptance; exact-head UI/merge approval. The proposed live home remains unprepared. Existing no-authority review homes remain no-authority. See [host admission](docs/opencode-host-admission.md).
+Current #118 local acceptance is1195; its final full run and reviews are recorded in the top checkpoint. Private live-home preparation started but remains partial/unreviewed and paused. #114 Guide, final Guide-build manifest, explicit user credential-boundary decision/login, first positive live implementer/reviewer evidence and exact-head UI/merge approval remain deferred until explicit resume. Existing no-authority review homes remain no-authority. See [host admission](docs/opencode-host-admission.md).
 
-## Remaining gates and next actions
+## Deferred resume gates — no current work authorization
 
-1. Inspect final test/build/package evidence and independent review; repair actionable findings under a new explicit source-mutation window. Local green tests do not complete the MVP.
+1. Preserve accepted local #118 evidence and all rejected attempts. On explicit resume, reconcile partial private preparation before a new lease; unfinished helper review and #114 Guide remain pending. Local acceptance does not complete the live MVP.
 2. Choose the current target base before running heavy Attraccess setup. The retained current checkout was `b76da498`; root's read-only GitHub observation found later main `1959c870`. Confirm ATT-764 still applies to the selected base, then prepare and verify that exact head. The Docker/browser recipe has not been executed by this recovery session.
 3. The approved OpenCode `1.18.33` identity (`139ddeb6a46ba276827bb8f79c7b28208621746e4fd6914d9ae71cc1a0a57524`, 144800738 bytes) was restored exactly at `/opt/homebrew/Cellar/opencode/1.18.33/bin/opencode` and verified in #4 comment 1079. Existing binaries/symlinks remain preserved. Installation does not provision auth or establish native/live qualification.
 4. Existing bounded live authority #4/1054 is retained. Obtain the explicit credential-boundary decision and final-build conditional host qualification; the user provisions authentication into the dedicated data home using the reviewed login procedure. Rocky does not read/copy/proxy OpenCode auth. Native evidence proves empty export and error-envelope observations only. The #118 rendered role rosters and unchanged genuine dependency startup are now observed under bounded credential-free probes. Billable stream/export/assistant-usage shapes still need first-#14-live evidence before accepted live admission.
 5. Confirm actual target signing and GitHub delivery behavior. The current target ruleset requires signed commits, conventional headers, required checks, thread resolution and a merge queue. The canonical checkout uses a loaded user-owned signing key whose disposable status is not established; preserve that key/config and do not propagate the local override into target clones. Disposable keys belong only to explicit regression fixtures. Actual target identity/email and server signature verification, GitHub account alignment and queue behavior remain live gates. GitHub must report confirmed merge before manual closeout.
 6. Execute the authorized live proof-of-concept, retain failed attempts and exact build/commit identities, then apply the MVP completion gate in the orchestrator prompt. Broader benchmarks, automatic CI repair and Linear automation remain deferred.
 
-Operate with [docs/operating.md](docs/operating.md). Stop only this owned review instance with the same `ROCKY_NEXT_HOME`; preserve its state and evidence for review.
+All owned review/check instances are stopped; retain their state/evidence. No further work is authorized during this user pause. Consult [docs/operating.md](docs/operating.md) only after an explicit resume.
